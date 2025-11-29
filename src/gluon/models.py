@@ -20,18 +20,18 @@ class SessionStatus(str, Enum):
 
 # Project markers - files that indicate a directory is a project
 PROJECT_MARKERS = [
-    "package.json",      # Node.js/JavaScript
-    "pyproject.toml",    # Python (modern)
-    "setup.py",          # Python (legacy)
-    "Cargo.toml",        # Rust
-    "go.mod",            # Go
-    "pom.xml",           # Java/Maven
-    "build.gradle",      # Java/Gradle
-    "Gemfile",           # Ruby
-    "composer.json",     # PHP
-    "mix.exs",           # Elixir
-    "pubspec.yaml",      # Dart/Flutter
-    ".git",              # Any git repo
+    "package.json",  # Node.js/JavaScript
+    "pyproject.toml",  # Python (modern)
+    "setup.py",  # Python (legacy)
+    "Cargo.toml",  # Rust
+    "go.mod",  # Go
+    "pom.xml",  # Java/Maven
+    "build.gradle",  # Java/Gradle
+    "Gemfile",  # Ruby
+    "composer.json",  # PHP
+    "mix.exs",  # Elixir
+    "pubspec.yaml",  # Dart/Flutter
+    ".git",  # Any git repo
 ]
 
 

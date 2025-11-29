@@ -52,7 +52,7 @@ class TestProjectCRUD:
 
     def test_get_project_by_name(self, store: GluonStore, project_path: Path):
         """Test getting a project by name."""
-        created = store.create_project("test", project_path)
+        store.create_project("test", project_path)
         retrieved = store.get_project_by_name("test")
 
         assert retrieved is not None
@@ -129,7 +129,7 @@ class TestSessionCRUD:
         """Test getting the latest session."""
         project = store.create_project("test", project_path)
 
-        session1 = store.create_session(project.id, "First")
+        store.create_session(project.id, "First")  # Create first session
         session2 = store.create_session(project.id, "Second")
 
         latest = store.get_latest_session(project.id)

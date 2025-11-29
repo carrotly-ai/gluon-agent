@@ -33,7 +33,7 @@ build-backend = "hatchling.build"
 packages = ["src/gluon"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]

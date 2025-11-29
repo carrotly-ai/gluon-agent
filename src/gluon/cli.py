@@ -149,7 +149,10 @@ def workspace_add(
             for p in projects:
                 console.print(f"  • {p.name}")
         elif not no_scan:
-            console.print("\n[dim]No projects discovered. Projects need markers like package.json, pyproject.toml, .git, etc.[/dim]")
+            console.print(
+                "\n[dim]No projects discovered. Projects need markers like "
+                "package.json, pyproject.toml, .git, etc.[/dim]"
+            )
 
     except WorkspaceExistsError as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -295,12 +298,8 @@ def workspace_projects(
 def run(
     project: Annotated[str, typer.Argument(help="Project name or ID")],
     prompt: Annotated[str, typer.Argument(help="Prompt for Claude")],
-    new_session: Annotated[
-        bool, typer.Option("--new", "-n", help="Force new session")
-    ] = False,
-    quiet: Annotated[
-        bool, typer.Option("--quiet", "-q", help="Only show final result")
-    ] = False,
+    new_session: Annotated[bool, typer.Option("--new", "-n", help="Force new session")] = False,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
 ):
     """Execute a task on a project."""
     orchestrator = get_orchestrator()
@@ -336,9 +335,7 @@ def run(
 def resume(
     project: Annotated[str, typer.Argument(help="Project name or ID")],
     prompt: Annotated[str | None, typer.Argument(help="Optional follow-up prompt")] = None,
-    quiet: Annotated[
-        bool, typer.Option("--quiet", "-q", help="Only show final result")
-    ] = False,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
 ):
     """Resume the last session for a project."""
     orchestrator = get_orchestrator()
@@ -424,14 +421,17 @@ def sessions(
         row = []
         if not project:
             row.append(project_lookup.get(session.project_id, session.project_id[:8]))
-        row.extend([
-            session.id[:8],
-            f"[{status_color}]{session.status.value}[/{status_color}]",
-            str(session.total_turns),
-            f"${session.total_cost_usd:.4f}",
-            (session.last_prompt or "")[:40] + ("..." if session.last_prompt and len(session.last_prompt) > 40 else ""),
-            session.updated_at.strftime("%Y-%m-%d %H:%M"),
-        ])
+        row.extend(
+            [
+                session.id[:8],
+                f"[{status_color}]{session.status.value}[/{status_color}]",
+                str(session.total_turns),
+                f"${session.total_cost_usd:.4f}",
+                (session.last_prompt or "")[:40]
+                + ("..." if session.last_prompt and len(session.last_prompt) > 40 else ""),
+                session.updated_at.strftime("%Y-%m-%d %H:%M"),
+            ]
+        )
 
         table.add_row(*row)
 
@@ -444,11 +444,13 @@ def status():
     orchestrator = get_orchestrator()
     status_info = orchestrator.status()
 
-    console.print(Panel.fit(
-        f"[bold]Projects:[/bold] {status_info['total_projects']}\n"
-        f"[bold]Active Sessions:[/bold] {status_info['active_sessions']}",
-        title="Gluon Status",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Projects:[/bold] {status_info['total_projects']}\n"
+            f"[bold]Active Sessions:[/bold] {status_info['active_sessions']}",
+            title="Gluon Status",
+        )
+    )
 
     if status_info["projects"]:
         table = Table()

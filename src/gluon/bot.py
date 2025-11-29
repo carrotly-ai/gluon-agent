@@ -60,8 +60,7 @@ class GluonBot:
 
         if not self._is_authorized(update.effective_user.id):
             await update.message.reply_text(
-                "You are not authorized to use this bot.\n"
-                f"Your user ID is: {update.effective_user.id}"
+                f"You are not authorized to use this bot.\nYour user ID is: {update.effective_user.id}"
             )
             return
 
@@ -69,10 +68,10 @@ class GluonBot:
             "Welcome to Gluon Agent! 🔧\n\n"
             "You can chat naturally or use commands:\n\n"
             "**Natural language examples:**\n"
-            "• \"Show me my projects\"\n"
-            "• \"Run a task on myapp to fix the login bug\"\n"
-            "• \"Resume the last session on nextjs-demo\"\n"
-            "• \"What's the status?\"\n\n"
+            '• "Show me my projects"\n'
+            '• "Run a task on myapp to fix the login bug"\n'
+            '• "Resume the last session on nextjs-demo"\n'
+            '• "What\'s the status?"\n\n'
             "**Commands:**\n"
             "/projects - List registered projects\n"
             "/sessions [project] - List sessions\n"
@@ -81,7 +80,7 @@ class GluonBot:
             "/status - Show overall status\n"
             "/cancel - Cancel current task\n"
             "/help - Show this message",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -102,10 +101,7 @@ class GluonBot:
         projects = self.orchestrator.list_projects()
 
         if not projects:
-            await update.message.reply_text(
-                "No projects registered.\n"
-                "Use CLI: `gluon project add <name> <path>`"
-            )
+            await update.message.reply_text("No projects registered.\nUse CLI: `gluon project add <name> <path>`")
             return
 
         lines = ["**Projects:**\n"]
@@ -200,10 +196,7 @@ class GluonBot:
             return
 
         if not context.args or len(context.args) < 2:
-            await update.message.reply_text(
-                "Usage: /run <project> <prompt>\n"
-                "Example: /run myapp Fix the login bug"
-            )
+            await update.message.reply_text("Usage: /run <project> <prompt>\nExample: /run myapp Fix the login bug")
             return
 
         project_name = context.args[0]
@@ -211,9 +204,7 @@ class GluonBot:
 
         # Check if user already has an active task
         if user_id in self._active_tasks and not self._active_tasks[user_id].done():
-            await update.message.reply_text(
-                "You have an active task running. Use /cancel to stop it first."
-            )
+            await update.message.reply_text("You have an active task running. Use /cancel to stop it first.")
             return
 
         try:
@@ -223,15 +214,12 @@ class GluonBot:
             return
 
         await update.message.reply_text(
-            f"Starting task on `{project_name}`...\n"
-            f"Prompt: _{prompt[:100]}{'...' if len(prompt) > 100 else ''}_",
-            parse_mode="Markdown"
+            f"Starting task on `{project_name}`...\nPrompt: _{prompt[:100]}{'...' if len(prompt) > 100 else ''}_",
+            parse_mode="Markdown",
         )
 
         # Run the task in background
-        task = asyncio.create_task(
-            self._execute_task(update, project_name, prompt, force_new=False)
-        )
+        task = asyncio.create_task(self._execute_task(update, project_name, prompt, force_new=False))
         self._active_tasks[user_id] = task
 
     async def resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -247,8 +235,7 @@ class GluonBot:
 
         if not context.args:
             await update.message.reply_text(
-                "Usage: /resume <project> [prompt]\n"
-                "Example: /resume myapp Also add logging"
+                "Usage: /resume <project> [prompt]\nExample: /resume myapp Also add logging"
             )
             return
 
@@ -257,9 +244,7 @@ class GluonBot:
 
         # Check if user already has an active task
         if user_id in self._active_tasks and not self._active_tasks[user_id].done():
-            await update.message.reply_text(
-                "You have an active task running. Use /cancel to stop it first."
-            )
+            await update.message.reply_text("You have an active task running. Use /cancel to stop it first.")
             return
 
         try:
@@ -267,19 +252,15 @@ class GluonBot:
             session = self.orchestrator.get_resumable_session(project)
             if not session or not session.claude_session_id:
                 await update.message.reply_text(
-                    f"No resumable session for `{project_name}`.\n"
-                    "Use /run to start a new session.",
-                    parse_mode="Markdown"
+                    f"No resumable session for `{project_name}`.\nUse /run to start a new session.",
+                    parse_mode="Markdown",
                 )
                 return
         except ProjectNotFoundError as e:
             await update.message.reply_text(f"Error: {e}")
             return
 
-        await update.message.reply_text(
-            f"Resuming session on `{project_name}`...",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text(f"Resuming session on `{project_name}`...", parse_mode="Markdown")
 
         # Run the task in background
         task = asyncio.create_task(
@@ -364,11 +345,7 @@ class GluonBot:
             # Send result summary
             if result:
                 if result.success:
-                    summary = (
-                        f"✅ **Complete**\n"
-                        f"Cost: ${result.total_cost_usd:.4f}\n"
-                        f"Turns: {result.total_turns}"
-                    )
+                    summary = f"✅ **Complete**\nCost: ${result.total_cost_usd:.4f}\nTurns: {result.total_turns}"
                 else:
                     summary = f"❌ **Failed**: {result.error}"
 
@@ -400,9 +377,7 @@ class GluonBot:
 
         # Check if user already has an active task
         if user_id in self._active_tasks and not self._active_tasks[user_id].done():
-            await update.message.reply_text(
-                "You have an active task running. Use /cancel to stop it first."
-            )
+            await update.message.reply_text("You have an active task running. Use /cancel to stop it first.")
             return
 
         message_text = update.message.text
@@ -504,8 +479,7 @@ def run_bot(token: str | None = None, allowed_users: list[int] | None = None) ->
     bot_token = token or os.environ.get("GLUON_TELEGRAM_TOKEN")
     if not bot_token:
         raise ValueError(
-            "Telegram bot token required. Set GLUON_TELEGRAM_TOKEN environment variable "
-            "or pass token parameter."
+            "Telegram bot token required. Set GLUON_TELEGRAM_TOKEN environment variable or pass token parameter."
         )
 
     # Get allowed users

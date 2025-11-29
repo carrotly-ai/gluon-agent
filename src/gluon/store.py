@@ -82,9 +82,9 @@ class GluonStore:
         """Initialize database schema and run migrations."""
         with self._get_conn() as conn:
             # Check which tables exist
-            existing_tables = {row[0] for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            existing_tables = {
+                row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            }
 
             # Create tables that don't exist
             if "workspaces" not in existing_tables:
@@ -169,9 +169,7 @@ class GluonStore:
     def get_project(self, project_id: str) -> Project | None:
         """Get project by ID."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
             if row:
                 return self._row_to_project(row)
         return None
@@ -179,9 +177,7 @@ class GluonStore:
     def get_project_by_name(self, name: str) -> Project | None:
         """Get project by name."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM projects WHERE name = ?", (name,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM projects WHERE name = ?", (name,)).fetchone()
             if row:
                 return self._row_to_project(row)
         return None
@@ -189,9 +185,7 @@ class GluonStore:
     def list_projects(self) -> list[Project]:
         """List all projects."""
         with self._get_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM projects ORDER BY name"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM projects ORDER BY name").fetchall()
             return [self._row_to_project(row) for row in rows]
 
     def update_project(self, project: Project) -> None:
@@ -216,9 +210,7 @@ class GluonStore:
     def delete_project(self, project_id: str) -> bool:
         """Delete a project and its sessions."""
         with self._get_conn() as conn:
-            cursor = conn.execute(
-                "DELETE FROM projects WHERE id = ?", (project_id,)
-            )
+            cursor = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             return cursor.rowcount > 0
 
     def _row_to_project(self, row: sqlite3.Row) -> Project:
@@ -236,9 +228,7 @@ class GluonStore:
     def get_project_by_path(self, path: Path) -> Project | None:
         """Get project by path."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM projects WHERE path = ?", (str(path.resolve()),)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM projects WHERE path = ?", (str(path.resolve()),)).fetchone()
             if row:
                 return self._row_to_project(row)
         return None
@@ -282,9 +272,7 @@ class GluonStore:
     def get_session(self, session_id: str) -> Session | None:
         """Get session by ID."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM sessions WHERE id = ?", (session_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
             if row:
                 return self._row_to_session(row)
         return None
@@ -331,9 +319,7 @@ class GluonStore:
                     (project_id,),
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM sessions ORDER BY updated_at DESC"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC").fetchall()
             return [self._row_to_session(row) for row in rows]
 
     def update_session(self, session: Session) -> None:
@@ -361,9 +347,7 @@ class GluonStore:
     def delete_session(self, session_id: str) -> bool:
         """Delete a session."""
         with self._get_conn() as conn:
-            cursor = conn.execute(
-                "DELETE FROM sessions WHERE id = ?", (session_id,)
-            )
+            cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             return cursor.rowcount > 0
 
     def _row_to_session(self, row: sqlite3.Row) -> Session:
@@ -388,7 +372,8 @@ class GluonStore:
         with self._get_conn() as conn:
             conn.execute(
                 """
-                INSERT INTO workspaces (id, name, path, created_at, updated_at, scan_depth, auto_discover, ignore_patterns)
+                INSERT INTO workspaces
+                (id, name, path, created_at, updated_at, scan_depth, auto_discover, ignore_patterns)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -407,9 +392,7 @@ class GluonStore:
     def get_workspace(self, workspace_id: str) -> Workspace | None:
         """Get workspace by ID."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM workspaces WHERE id = ?", (workspace_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
             if row:
                 return self._row_to_workspace(row)
         return None
@@ -417,9 +400,7 @@ class GluonStore:
     def get_workspace_by_name(self, name: str) -> Workspace | None:
         """Get workspace by name."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM workspaces WHERE name = ?", (name,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM workspaces WHERE name = ?", (name,)).fetchone()
             if row:
                 return self._row_to_workspace(row)
         return None
@@ -427,9 +408,7 @@ class GluonStore:
     def list_workspaces(self) -> list[Workspace]:
         """List all workspaces."""
         with self._get_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM workspaces ORDER BY name"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM workspaces ORDER BY name").fetchall()
             return [self._row_to_workspace(row) for row in rows]
 
     def update_workspace(self, workspace: Workspace) -> None:
@@ -456,9 +435,7 @@ class GluonStore:
     def delete_workspace(self, workspace_id: str) -> bool:
         """Delete a workspace (projects are kept but unlinked)."""
         with self._get_conn() as conn:
-            cursor = conn.execute(
-                "DELETE FROM workspaces WHERE id = ?", (workspace_id,)
-            )
+            cursor = conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
             return cursor.rowcount > 0
 
     def _row_to_workspace(self, row: sqlite3.Row) -> Workspace:

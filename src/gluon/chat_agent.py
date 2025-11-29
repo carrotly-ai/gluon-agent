@@ -1,26 +1,30 @@
 """Chat agent for natural language interaction with Gluon."""
 
-import json
 import os
 from dataclasses import dataclass
 from typing import Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
-    AssistantMessage,
     ResultMessage,
     TextBlock,
     ToolUseBlock,
-    tool,
     create_sdk_mcp_server,
+    tool,
 )
 
 from gluon.agent import find_claude_cli
-from gluon.core import Orchestrator, ProjectNotFoundError, WorkspaceNotFoundError, WorkspaceExistsError
+from gluon.core import (
+    Orchestrator,
+    ProjectNotFoundError,
+    WorkspaceExistsError,
+    WorkspaceNotFoundError,
+)
 
-
-SYSTEM_PROMPT = """You are Gluon, an AI orchestrator that manages multiple Claude Code agents across different software projects.
+SYSTEM_PROMPT = """You are Gluon, an AI orchestrator that manages multiple Claude Code agents \
+across different software projects.
 
 You help users:
 - List and manage their registered projects and workspaces
@@ -46,6 +50,7 @@ Always confirm what action you're taking before executing it."""
 @dataclass
 class ChatResponse:
     """Response from the chat agent."""
+
     text: str
     action_taken: str | None = None
     action_result: dict[str, Any] | None = None
@@ -80,9 +85,13 @@ class GluonChatAgent:
 
             return {"content": [{"type": "text", "text": result}]}
 
-        @tool("list_sessions", "List sessions for a project or all sessions", {
-            "project_name": str,  # Optional project name
-        })
+        @tool(
+            "list_sessions",
+            "List sessions for a project or all sessions",
+            {
+                "project_name": str,  # Optional project name
+            },
+        )
         async def list_sessions(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name")
 
@@ -101,8 +110,9 @@ class GluonChatAgent:
                     project_lookup[p.id] = p.name
 
             result = f"**Sessions{f' for {project_name}' if project_name else ''}:**\n"
+            status_emojis = {"active": "🟢", "paused": "🟡", "completed": "🔵", "failed": "🔴"}
             for s in sessions[:10]:
-                status_emoji = {"active": "🟢", "paused": "🟡", "completed": "🔵", "failed": "🔴"}.get(s.status.value, "⚪")
+                status_emoji = status_emojis.get(s.status.value, "⚪")
                 proj = project_lookup.get(s.project_id, "") if not project_name else ""
                 result += f"{status_emoji} "
                 if proj:
@@ -121,10 +131,14 @@ class GluonChatAgent:
             )
             return {"content": [{"type": "text", "text": result}]}
 
-        @tool("run_task", "Run a coding task on a project using Claude Code", {
-            "project_name": str,  # Name of the project
-            "prompt": str,  # The task to perform
-        })
+        @tool(
+            "run_task",
+            "Run a coding task on a project using Claude Code",
+            {
+                "project_name": str,  # Name of the project
+                "prompt": str,  # The task to perform
+            },
+        )
         async def run_task(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "")
@@ -146,10 +160,14 @@ class GluonChatAgent:
 
             return {"content": [{"type": "text", "text": f"Starting task on `{project_name}`: {prompt[:100]}..."}]}
 
-        @tool("resume_session", "Resume the last session for a project", {
-            "project_name": str,  # Name of the project
-            "prompt": str,  # Optional follow-up prompt
-        })
+        @tool(
+            "resume_session",
+            "Resume the last session for a project",
+            {
+                "project_name": str,  # Name of the project
+                "prompt": str,  # Optional follow-up prompt
+            },
+        )
         async def resume_session(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "Continue from where you left off.")
@@ -161,7 +179,8 @@ class GluonChatAgent:
                 project = orchestrator.get_project(project_name)
                 session = orchestrator.get_resumable_session(project)
                 if not session or not session.claude_session_id:
-                    return {"content": [{"type": "text", "text": f"No resumable session for `{project_name}`. Use run_task to start a new session."}]}
+                    msg = f"No resumable session for `{project_name}`. Use run_task to start a new session."
+                    return {"content": [{"type": "text", "text": msg}]}
             except ProjectNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
@@ -175,10 +194,14 @@ class GluonChatAgent:
             return {"content": [{"type": "text", "text": f"Resuming session on `{project_name}`..."}]}
 
         # Workspace tools
-        @tool("add_workspace", "Add a workspace directory to auto-discover projects", {
-            "name": str,  # Name for the workspace
-            "path": str,  # Path to the workspace directory (can use ~ for home)
-        })
+        @tool(
+            "add_workspace",
+            "Add a workspace directory to auto-discover projects",
+            {
+                "name": str,  # Name for the workspace
+                "path": str,  # Path to the workspace directory (can use ~ for home)
+            },
+        )
         async def add_workspace(args: dict[str, Any]) -> dict[str, Any]:
             name = args.get("name", "")
             path = args.get("path", "")
@@ -208,7 +231,8 @@ class GluonChatAgent:
         async def list_workspaces(args: dict[str, Any]) -> dict[str, Any]:
             workspaces = orchestrator.list_workspaces()
             if not workspaces:
-                return {"content": [{"type": "text", "text": "No workspaces registered. Use add_workspace to add one."}]}
+                msg = "No workspaces registered. Use add_workspace to add one."
+                return {"content": [{"type": "text", "text": msg}]}
 
             result = "**Workspaces:**\n"
             for w in workspaces:
@@ -217,9 +241,13 @@ class GluonChatAgent:
 
             return {"content": [{"type": "text", "text": result}]}
 
-        @tool("scan_workspace", "Scan a workspace for new projects", {
-            "name": str,  # Name of the workspace to scan
-        })
+        @tool(
+            "scan_workspace",
+            "Scan a workspace for new projects",
+            {
+                "name": str,  # Name of the workspace to scan
+            },
+        )
         async def scan_workspace(args: dict[str, Any]) -> dict[str, Any]:
             name = args.get("name", "")
 
@@ -238,7 +266,16 @@ class GluonChatAgent:
             except WorkspaceNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
-        return [list_projects, list_sessions, get_status, run_task, resume_session, add_workspace, list_workspaces, scan_workspace]
+        return [
+            list_projects,
+            list_sessions,
+            get_status,
+            run_task,
+            resume_session,
+            add_workspace,
+            list_workspaces,
+            scan_workspace,
+        ]
 
     async def chat(self, message: str) -> ChatResponse:
         """
