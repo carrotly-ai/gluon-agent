@@ -22,6 +22,7 @@ from gluon.core import (
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
+from gluon.models_config import ModelTier, get_model_id
 
 SYSTEM_PROMPT = """You are Gluon, an AI orchestrator that manages multiple Claude Code agents \
 across different software projects.
@@ -33,14 +34,20 @@ You help users:
 - Resume previous sessions to continue work
 - Check status of sessions and costs
 
+**Model Selection Guidelines:**
+When running tasks, choose the appropriate model based on task complexity:
+- **opus**: Complex tasks requiring deep reasoning, architecture decisions, or large refactors
+- **sonnet**: Default for most tasks - balanced performance and cost
+- **haiku**: Simple tasks like bug fixes, documentation, or straightforward implementations
+
 When users ask you to do something, use the available tools to help them. Be concise in your responses.
 
 If a user wants to add a workspace directory, use add_workspace.
 If they want to see their workspaces, use list_workspaces.
 If they want to scan a workspace for new projects, use scan_workspace.
-If a user wants to run a task on a project, use the run_task tool.
+If a user wants to run a task on a project, use the run_task tool (with appropriate model).
 If they want to see their projects, use list_projects.
-If they want to resume work, use resume_session.
+If they want to resume work, use resume_session (with appropriate model).
 If they want to see sessions, use list_sessions.
 If they want status info, use get_status.
 
@@ -137,11 +144,13 @@ class GluonChatAgent:
             {
                 "project_name": str,  # Name of the project
                 "prompt": str,  # The task to perform
+                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
             },
         )
         async def run_task(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "")
+            model = args.get("model", "sonnet")
 
             if not project_name or not prompt:
                 return {"content": [{"type": "text", "text": "Error: project_name and prompt are required"}]}
@@ -151,14 +160,36 @@ class GluonChatAgent:
             except ProjectNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
+            # Validate model
+            try:
+                ModelTier(model.lower())
+            except ValueError:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Error: Invalid model '{model}'. Use opus/sonnet/haiku. Defaulting to sonnet.",
+                        }
+                    ]
+                }
+                model = "sonnet"
+
             # Store the pending task - actual execution happens in the bot
             self._pending_task = {
                 "action": "run_task",
                 "project_name": project_name,
                 "prompt": prompt,
+                "model": model,
             }
 
-            return {"content": [{"type": "text", "text": f"Starting task on `{project_name}`: {prompt[:100]}..."}]}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Starting task on `{project_name}` with {model}: {prompt[:100]}...",
+                    }
+                ]
+            }
 
         @tool(
             "resume_session",
@@ -166,11 +197,13 @@ class GluonChatAgent:
             {
                 "project_name": str,  # Name of the project
                 "prompt": str,  # Optional follow-up prompt
+                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
             },
         )
         async def resume_session(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "Continue from where you left off.")
+            model = args.get("model", "sonnet")
 
             if not project_name:
                 return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
@@ -184,14 +217,21 @@ class GluonChatAgent:
             except ProjectNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
+            # Validate model
+            try:
+                ModelTier(model.lower())
+            except ValueError:
+                model = "sonnet"
+
             # Store the pending task
             self._pending_task = {
                 "action": "resume_session",
                 "project_name": project_name,
                 "prompt": prompt,
+                "model": model,
             }
 
-            return {"content": [{"type": "text", "text": f"Resuming session on `{project_name}`..."}]}
+            return {"content": [{"type": "text", "text": f"Resuming session on `{project_name}` with {model}..."}]}
 
         # Workspace tools
         @tool(
@@ -307,6 +347,9 @@ class GluonChatAgent:
         if cli_dir not in current_path:
             os.environ["PATH"] = f"{cli_dir}:{current_path}"
 
+        # Use Haiku for chat agent (fast, efficient for simple conversational tasks)
+        haiku_model = get_model_id(ModelTier.HAIKU)
+
         options = ClaudeAgentOptions(
             system_prompt=SYSTEM_PROMPT,
             mcp_servers={"gluon": server},
@@ -321,7 +364,7 @@ class GluonChatAgent:
                 "mcp__gluon__scan_workspace",
             ],
             max_turns=3,
-            model="sonnet",
+            model=haiku_model,
         )
 
         response_text = ""

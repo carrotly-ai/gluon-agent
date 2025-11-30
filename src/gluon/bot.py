@@ -3,8 +3,10 @@
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -17,6 +19,7 @@ from telegram.ext import (
 from gluon.agent import AgentMessage, AgentResult
 from gluon.chat_agent import GluonChatAgent
 from gluon.core import Orchestrator, ProjectNotFoundError
+from gluon.models_config import ModelTier
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +110,10 @@ class GluonBot:
         lines = ["**Projects:**\n"]
         for p in projects:
             sessions = self.orchestrator.list_sessions(p.name)
+            # Escape path to avoid Markdown parsing issues
+            safe_path = p.path.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
             lines.append(f"- `{p.name}` ({len(sessions)} sessions)")
-            lines.append(f"  {p.path}")
+            lines.append(f"  {safe_path}")
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -292,6 +297,7 @@ class GluonBot:
         project_name: str,
         prompt: str,
         force_new: bool,
+        model: ModelTier | str | None = None,
     ) -> None:
         """Execute a Gluon task and stream updates to Telegram."""
         if not update.message:
@@ -302,7 +308,7 @@ class GluonBot:
         last_update_time = 0.0
 
         try:
-            async for item in self.orchestrator.execute(project_name, prompt, force_new):
+            async for item in self.orchestrator.execute(project_name, prompt, force_new, model=model):
                 if isinstance(item, AgentMessage):
                     if item.type == "text" and item.content:
                         # Buffer text messages
@@ -407,6 +413,7 @@ class GluonBot:
                             pending_task["project_name"],
                             pending_task["prompt"],
                             force_new=False,
+                            model=pending_task.get("model"),
                         )
                     )
                     self._active_tasks[user_id] = task
@@ -418,6 +425,7 @@ class GluonBot:
                             pending_task["project_name"],
                             pending_task["prompt"],
                             force_new=False,
+                            model=pending_task.get("model"),
                         )
                     )
                     self._active_tasks[user_id] = task
@@ -475,6 +483,12 @@ def run_bot(token: str | None = None, allowed_users: list[int] | None = None) ->
         allowed_users: List of authorized Telegram user IDs.
                       If not provided, reads from GLUON_TELEGRAM_USERS env var (comma-separated).
     """
+    # Load .env.local for AWS Bedrock configuration
+    env_path = Path(__file__).parent.parent.parent / ".env.local"
+    if env_path.exists():
+        load_dotenv(env_path)
+        logger.info(f"Loaded environment from {env_path}")
+
     # Get token
     bot_token = token or os.environ.get("GLUON_TELEGRAM_TOKEN")
     if not bot_token:

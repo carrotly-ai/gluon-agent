@@ -5,6 +5,7 @@ from pathlib import Path
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.models import Project, Session, SessionStatus, Workspace
+from gluon.models_config import DEFAULT_MODEL, ModelTier, get_model_id
 from gluon.store import GluonStore
 
 
@@ -41,10 +42,8 @@ class Orchestrator:
     def __init__(
         self,
         store: GluonStore | None = None,
-        agent: GluonAgent | None = None,
     ):
         self.store = store or GluonStore()
-        self.agent = agent or GluonAgent()
 
     # ========== Project Management ==========
 
@@ -291,6 +290,7 @@ class Orchestrator:
         project_name: str,
         prompt: str,
         force_new_session: bool = False,
+        model: ModelTier | str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -302,6 +302,7 @@ class Orchestrator:
             project_name: Name or ID of the project
             prompt: User prompt to execute
             force_new_session: Force creation of new session
+            model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
 
         Yields:
             AgentMessage during execution
@@ -326,10 +327,17 @@ class Orchestrator:
         session.status = SessionStatus.ACTIVE
         self.store.update_session(session)
 
+        # Determine model to use
+        model_tier = model or DEFAULT_MODEL
+        model_id = get_model_id(model_tier)
+
+        # Create agent with specified model
+        agent = GluonAgent(model=model_id)
+
         # Execute via agent
         result: AgentResult | None = None
 
-        async for item in self.agent.execute(
+        async for item in agent.execute(
             working_dir=project.path,
             prompt=prompt,
             resume_session_id=resume_session_id,
@@ -365,6 +373,7 @@ class Orchestrator:
         self,
         project_name: str,
         prompt: str | None = None,
+        model: ModelTier | str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Resume the last session for a project.
@@ -372,6 +381,7 @@ class Orchestrator:
         Args:
             project_name: Name or ID of the project
             prompt: Optional new prompt (uses "Continue" if not provided)
+            model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
 
         Yields:
             AgentMessage during execution
@@ -388,7 +398,7 @@ class Orchestrator:
 
         actual_prompt = prompt or "Continue from where you left off."
 
-        async for item in self.execute(project_name, actual_prompt, force_new_session=False):
+        async for item in self.execute(project_name, actual_prompt, force_new_session=False, model=model):
             yield item
 
     # ========== Status ==========

@@ -19,6 +19,7 @@ from gluon.core import (
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
+from gluon.models_config import ModelTier, describe_models
 
 # Load environment variables from .env files (in order of precedence)
 # Later files override earlier ones
@@ -300,6 +301,7 @@ def run(
     prompt: Annotated[str, typer.Argument(help="Prompt for Claude")],
     new_session: Annotated[bool, typer.Option("--new", "-n", help="Force new session")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
 ):
     """Execute a task on a project."""
     orchestrator = get_orchestrator()
@@ -310,14 +312,26 @@ def run(
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
+    # Validate model if provided
+    model_tier: ModelTier | None = None
+    if model:
+        try:
+            model_tier = ModelTier(model.lower())
+        except ValueError:
+            console.print(f"[red]Error:[/red] Invalid model: {model}")
+            console.print(describe_models())
+            raise typer.Exit(1)
+
     async def _run():
         result: AgentResult | None = None
 
         console.print(f"[bold]Running on project:[/bold] {project}")
         console.print(f"[bold]Prompt:[/bold] {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+        if model_tier:
+            console.print(f"[bold]Model:[/bold] {model_tier.value}")
         console.print()
 
-        async for item in orchestrator.execute(project, prompt, force_new_session=new_session):
+        async for item in orchestrator.execute(project, prompt, force_new_session=new_session, model=model_tier):
             if isinstance(item, AgentMessage):
                 if not quiet:
                     _print_message(item)
@@ -336,6 +350,7 @@ def resume(
     project: Annotated[str, typer.Argument(help="Project name or ID")],
     prompt: Annotated[str | None, typer.Argument(help="Optional follow-up prompt")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
 ):
     """Resume the last session for a project."""
     orchestrator = get_orchestrator()
@@ -346,16 +361,28 @@ def resume(
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
+    # Validate model if provided
+    model_tier: ModelTier | None = None
+    if model:
+        try:
+            model_tier = ModelTier(model.lower())
+        except ValueError:
+            console.print(f"[red]Error:[/red] Invalid model: {model}")
+            console.print(describe_models())
+            raise typer.Exit(1)
+
     async def _resume():
         result: AgentResult | None = None
 
         console.print(f"[bold]Resuming session for:[/bold] {project}")
         if prompt:
             console.print(f"[bold]Prompt:[/bold] {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+        if model_tier:
+            console.print(f"[bold]Model:[/bold] {model_tier.value}")
         console.print()
 
         try:
-            async for item in orchestrator.resume(project, prompt):
+            async for item in orchestrator.resume(project, prompt, model=model_tier):
                 if isinstance(item, AgentMessage):
                     if not quiet:
                         _print_message(item)
