@@ -39,9 +39,7 @@ def get_model_id(tier: ModelTier | str) -> str:
         try:
             tier = ModelTier(tier.lower())
         except ValueError:
-            raise ValueError(
-                f"Invalid model tier: {tier}. Must be one of: {', '.join(t.value for t in ModelTier)}"
-            )
+            raise ValueError(f"Invalid model tier: {tier}. Must be one of: {', '.join(t.value for t in ModelTier)}")
 
     return MODEL_IDS[tier]
 

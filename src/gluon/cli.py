@@ -19,7 +19,10 @@ from gluon.core import (
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
+from gluon.models import RunStatus
 from gluon.models_config import ModelTier, describe_models
+from gluon.runner import TaskRunner, format_duration, format_run_status
+from gluon.store import GluonStore
 
 # Load environment variables from .env files (in order of precedence)
 # Later files override earlier ones
@@ -302,12 +305,13 @@ def run(
     new_session: Annotated[bool, typer.Option("--new", "-n", help="Force new session")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
     model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
+    background: Annotated[bool, typer.Option("--background", "-b", help="Run in background")] = False,
 ):
     """Execute a task on a project."""
     orchestrator = get_orchestrator()
 
     try:
-        orchestrator.get_project(project)
+        proj = orchestrator.get_project(project)
     except ProjectNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -322,6 +326,23 @@ def run(
             console.print(describe_models())
             raise typer.Exit(1)
 
+    # Background execution mode
+    if background:
+        runner = TaskRunner()
+
+        async def _submit():
+            run_obj = await runner.submit(proj.id, prompt, wait=False)
+            console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
+            console.print(f"  Project: {project}")
+            console.print(f"  Prompt: {prompt[:60]}{'...' if len(prompt) > 60 else ''}")
+            console.print()
+            console.print("[dim]Use 'gluon runs' to check status[/dim]")
+            console.print(f"[dim]Use 'gluon logs {run_obj.id[:8]}' to view logs[/dim]")
+
+        anyio.run(_submit)
+        return
+
+    # Foreground execution (existing behavior)
     async def _run():
         result: AgentResult | None = None
 
@@ -528,6 +549,158 @@ def bot(
         raise typer.Exit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]Bot stopped.[/yellow]")
+
+
+# ========== Background Run Commands ==========
+
+
+@app.command("runs")
+def runs(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Filter by project")] = None,
+    active: Annotated[bool, typer.Option("--active", "-a", help="Show only active runs")] = False,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max number of runs")] = 20,
+):
+    """List background execution runs."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    # Refresh status of active runs
+    runner.refresh_all_runs()
+
+    # Get project ID if name provided
+    project_id = None
+    if project:
+        orchestrator = get_orchestrator()
+        try:
+            proj = orchestrator.get_project(project)
+            project_id = proj.id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+    # Get runs
+    statuses = [RunStatus.PENDING, RunStatus.RUNNING] if active else None
+    runs_list = store.list_runs(project_id=project_id, statuses=statuses, limit=limit)
+
+    if not runs_list:
+        console.print("[dim]No runs found.[/dim]")
+        console.print("Use 'gluon run <project> <prompt> --background' to start a background task.")
+        return
+
+    # Build project lookup
+    projects = store.list_projects()
+    project_lookup = {p.id: p.name for p in projects}
+
+    table = Table(title="Execution Runs")
+    table.add_column("ID", style="cyan")
+    table.add_column("Status")
+    table.add_column("Project")
+    table.add_column("Prompt")
+    table.add_column("Duration")
+    table.add_column("Created", style="dim")
+
+    for run in runs_list:
+        emoji, color = format_run_status(run.status)
+        duration = format_duration(run.duration_seconds)
+        proj_name = project_lookup.get(run.project_id, run.project_id[:8])
+
+        table.add_row(
+            run.id[:8],
+            f"[{color}]{emoji} {run.status.value}[/{color}]",
+            proj_name,
+            (run.prompt[:30] + "...") if len(run.prompt) > 30 else run.prompt,
+            duration,
+            run.created_at.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    console.print(table)
+
+    # Show active count
+    active_runs = store.list_active_runs()
+    if active_runs:
+        console.print(f"\n[bold]{len(active_runs)}[/bold] run(s) currently active")
+
+
+@app.command("logs")
+def logs(
+    run_id: Annotated[str, typer.Argument(help="Run ID (can use short prefix)")],
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs in real-time")] = False,
+    tail: Annotated[int | None, typer.Option("--tail", "-n", help="Show last N lines")] = None,
+    stream: Annotated[str, typer.Option("--stream", "-s", help="Log stream: stdout/stderr/messages")] = "stdout",
+):
+    """View logs for a background run."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    # Find run by short ID
+    run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+    if not run:
+        console.print(f"[red]Error:[/red] Run not found: {run_id}")
+        raise typer.Exit(1)
+
+    # Get project name
+    project = store.get_project(run.project_id)
+    proj_name = project.name if project else run.project_id[:8]
+
+    emoji, color = format_run_status(run.status)
+    console.print(f"[bold]Run:[/bold] {run.id[:8]} [{color}]{emoji} {run.status.value}[/{color}]")
+    console.print(f"[bold]Project:[/bold] {proj_name}")
+    console.print(f"[bold]Prompt:[/bold] {run.prompt[:80]}{'...' if len(run.prompt) > 80 else ''}")
+    console.print()
+
+    if follow and run.is_active:
+        # Live tail
+        console.print(f"[dim]Following {stream} logs (Ctrl+C to stop)...[/dim]\n")
+
+        async def _tail():
+            try:
+                async for line in runner.tail_logs(run.id, stream=stream):
+                    console.print(line)
+            except KeyboardInterrupt:
+                pass
+
+        anyio.run(_tail)
+    else:
+        # Static view
+        logs_data = runner.get_logs(run.id, tail=tail)
+        content = logs_data.get(stream, "")
+
+        if not content:
+            console.print(f"[dim]No {stream} logs available.[/dim]")
+        else:
+            console.print(content)
+
+        if run.error_message:
+            console.print(f"\n[red]Error:[/red] {run.error_message}")
+
+
+@app.command("cancel")
+def cancel(
+    run_id: Annotated[str, typer.Argument(help="Run ID to cancel (can use short prefix)")],
+):
+    """Cancel a running background task."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    # Find run by short ID
+    run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+    if not run:
+        console.print(f"[red]Error:[/red] Run not found: {run_id}")
+        raise typer.Exit(1)
+
+    if not run.is_active:
+        console.print(f"[yellow]Run {run.id[:8]} is not active (status: {run.status.value})[/yellow]")
+        return
+
+    async def _cancel():
+        success = await runner.cancel(run.id)
+        if success:
+            console.print(f"[green]✓[/green] Cancelled run {run.id[:8]}")
+        else:
+            console.print(f"[red]Failed to cancel run {run.id[:8]}[/red]")
+            console.print("[dim]Process may have already completed or is not accessible.[/dim]")
+
+    anyio.run(_cancel)
 
 
 # ========== Utility Commands ==========

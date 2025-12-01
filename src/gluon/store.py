@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from gluon.models import Project, Session, SessionStatus, Workspace
+from gluon.models import ExecutionRun, Project, RunStatus, Session, SessionStatus, Workspace
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
 
@@ -61,6 +61,8 @@ MIGRATIONS = [
     ALTER TABLE projects ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL;
     """,
 ]
+
+DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
 
 
 class GluonStore:
@@ -133,6 +135,26 @@ class GluonStore:
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)")
+
+            if "execution_runs" not in existing_tables:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS execution_runs (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        pid INTEGER,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        prompt TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        started_at TEXT,
+                        completed_at TEXT,
+                        exit_code INTEGER,
+                        log_path TEXT,
+                        error_message TEXT
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_project ON execution_runs(project_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_status ON execution_runs(status)")
 
             # Run migrations for existing tables
             for migration in MIGRATIONS:
@@ -473,4 +495,140 @@ class GluonStore:
             project = self.get_project(session.project_id)
             if project:
                 return session, project
+        return None
+
+    # ========== Execution Run CRUD ==========
+
+    def create_run(self, project_id: str, prompt: str) -> ExecutionRun:
+        """Create a new execution run."""
+        run = ExecutionRun(project_id=project_id, prompt=prompt)
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO execution_runs
+                (id, session_id, project_id, pid, status, prompt, created_at,
+                 started_at, completed_at, exit_code, log_path, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.id,
+                    run.session_id,
+                    run.project_id,
+                    run.pid,
+                    run.status.value,
+                    run.prompt,
+                    run.created_at.isoformat(),
+                    run.started_at.isoformat() if run.started_at else None,
+                    run.completed_at.isoformat() if run.completed_at else None,
+                    run.exit_code,
+                    str(run.log_path) if run.log_path else None,
+                    run.error_message,
+                ),
+            )
+        return run
+
+    def get_run(self, run_id: str) -> ExecutionRun | None:
+        """Get execution run by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM execution_runs WHERE id = ?", (run_id,)).fetchone()
+            if row:
+                return self._row_to_run(row)
+        return None
+
+    def get_run_by_short_id(self, short_id: str) -> ExecutionRun | None:
+        """Get execution run by short ID prefix (at least 4 chars)."""
+        if len(short_id) < 4:
+            return None
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM execution_runs WHERE id LIKE ? LIMIT 1",
+                (f"{short_id}%",),
+            ).fetchone()
+            if row:
+                return self._row_to_run(row)
+        return None
+
+    def list_runs(
+        self,
+        project_id: str | None = None,
+        statuses: list[RunStatus] | None = None,
+        limit: int = 50,
+    ) -> list[ExecutionRun]:
+        """List execution runs with optional filters."""
+        with self._get_conn() as conn:
+            query = "SELECT * FROM execution_runs WHERE 1=1"
+            params: list[str | int] = []
+
+            if project_id:
+                query += " AND project_id = ?"
+                params.append(project_id)
+
+            if statuses:
+                placeholders = ",".join("?" for _ in statuses)
+                query += f" AND status IN ({placeholders})"
+                params.extend(s.value for s in statuses)
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_run(row) for row in rows]
+
+    def list_active_runs(self) -> list[ExecutionRun]:
+        """List all pending or running execution runs."""
+        return self.list_runs(statuses=[RunStatus.PENDING, RunStatus.RUNNING])
+
+    def update_run(self, run: ExecutionRun) -> None:
+        """Update an existing execution run."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE execution_runs
+                SET session_id = ?, pid = ?, status = ?, started_at = ?,
+                    completed_at = ?, exit_code = ?, log_path = ?, error_message = ?
+                WHERE id = ?
+                """,
+                (
+                    run.session_id,
+                    run.pid,
+                    run.status.value,
+                    run.started_at.isoformat() if run.started_at else None,
+                    run.completed_at.isoformat() if run.completed_at else None,
+                    run.exit_code,
+                    str(run.log_path) if run.log_path else None,
+                    run.error_message,
+                    run.id,
+                ),
+            )
+
+    def delete_run(self, run_id: str) -> bool:
+        """Delete an execution run."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM execution_runs WHERE id = ?", (run_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_run(self, row: sqlite3.Row) -> ExecutionRun:
+        """Convert database row to ExecutionRun model."""
+        return ExecutionRun(
+            id=row["id"],
+            session_id=row["session_id"],
+            project_id=row["project_id"],
+            pid=row["pid"],
+            status=RunStatus(row["status"]),
+            prompt=row["prompt"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            exit_code=row["exit_code"],
+            log_path=Path(row["log_path"]) if row["log_path"] else None,
+            error_message=row["error_message"],
+        )
+
+    def get_run_with_project(self, run_id: str) -> tuple[ExecutionRun, Project] | None:
+        """Get run and its associated project."""
+        run = self.get_run(run_id)
+        if run:
+            project = self.get_project(run.project_id)
+            if project:
+                return run, project
         return None

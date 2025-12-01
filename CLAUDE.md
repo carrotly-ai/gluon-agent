@@ -63,10 +63,11 @@ Telegram Bot (bot.py) ──▶ Chat Agent (chat_agent.py) ──┐
 
 | File | Purpose |
 |------|---------|
-| `src/gluon/models.py` | Pydantic models: Workspace, Project, Session, SessionStatus |
+| `src/gluon/models.py` | Pydantic models: Workspace, Project, Session, ExecutionRun |
 | `src/gluon/store.py` | SQLite persistence with CRUD for all entities |
 | `src/gluon/agent.py` | GluonAgent wrapping claude-agent-sdk |
 | `src/gluon/core.py` | Orchestrator coordinating store + agent |
+| `src/gluon/runner.py` | Background task execution with subprocess management |
 | `src/gluon/chat_agent.py` | Natural language interface using Claude + MCP tools |
 | `src/gluon/cli.py` | Typer CLI commands |
 | `src/gluon/bot.py` | Telegram bot interface |
@@ -84,6 +85,39 @@ options = ClaudeAgentOptions(
 ```
 
 Session lifecycle: `ACTIVE → PAUSED → ACTIVE (resume) → COMPLETED/FAILED`
+
+## Background Execution
+
+Run tasks in background with log persistence:
+
+```bash
+# Submit background task
+gluon run myproject "fix the bug" --background
+# Returns: Task submitted: abc12345
+
+# List all runs
+gluon runs
+gluon runs --active           # Only running tasks
+gluon runs -p myproject       # Filter by project
+
+# View logs
+gluon logs abc12345           # View stdout
+gluon logs abc12345 -f        # Follow live
+gluon logs abc12345 -s stderr # View stderr
+gluon logs abc12345 -s messages  # View structured JSONL
+
+# Cancel running task
+gluon cancel abc12345
+```
+
+**Storage:**
+- Runs tracked in `execution_runs` table
+- Logs stored at `~/.gluon/logs/{run_id}/`
+  - `stdout.log` - Standard output
+  - `stderr.log` - Standard error
+  - `messages.jsonl` - Structured AgentMessage stream
+
+**Run lifecycle:** `PENDING → RUNNING → COMPLETED/FAILED/CANCELLED`
 
 ## Extension Patterns
 

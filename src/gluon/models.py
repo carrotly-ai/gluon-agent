@@ -18,6 +18,16 @@ class SessionStatus(str, Enum):
     FAILED = "failed"  # Error occurred
 
 
+class RunStatus(str, Enum):
+    """Status of an execution run."""
+
+    PENDING = "pending"  # Queued but not started
+    RUNNING = "running"  # Currently executing
+    COMPLETED = "completed"  # Finished successfully
+    FAILED = "failed"  # Error occurred
+    CANCELLED = "cancelled"  # Manually cancelled
+
+
 # Project markers - files that indicate a directory is a project
 PROJECT_MARKERS = [
     "package.json",  # Node.js/JavaScript
@@ -140,3 +150,58 @@ class Session(BaseModel):
         """Increment turn count."""
         self.total_turns += 1
         self.updated_at = datetime.now()
+
+
+class ExecutionRun(BaseModel):
+    """A background execution run of a Claude Code task."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: str | None = None  # FK to Session (created when run starts)
+    project_id: str  # FK to Project
+    pid: int | None = None  # OS process ID for cancellation
+    status: RunStatus = RunStatus.PENDING
+    prompt: str  # The task prompt
+    created_at: datetime = Field(default_factory=datetime.now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    exit_code: int | None = None
+    log_path: Path | None = None  # Path to log directory
+    error_message: str | None = None
+
+    def mark_running(self, pid: int, log_path: Path) -> None:
+        """Mark run as started."""
+        self.status = RunStatus.RUNNING
+        self.pid = pid
+        self.log_path = log_path
+        self.started_at = datetime.now()
+
+    def mark_completed(self, exit_code: int = 0) -> None:
+        """Mark run as completed."""
+        self.status = RunStatus.COMPLETED
+        self.exit_code = exit_code
+        self.completed_at = datetime.now()
+
+    def mark_failed(self, error: str, exit_code: int = 1) -> None:
+        """Mark run as failed."""
+        self.status = RunStatus.FAILED
+        self.error_message = error
+        self.exit_code = exit_code
+        self.completed_at = datetime.now()
+
+    def mark_cancelled(self) -> None:
+        """Mark run as cancelled."""
+        self.status = RunStatus.CANCELLED
+        self.completed_at = datetime.now()
+
+    @property
+    def is_active(self) -> bool:
+        """Check if run is still active (pending or running)."""
+        return self.status in (RunStatus.PENDING, RunStatus.RUNNING)
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Get duration in seconds if started."""
+        if not self.started_at:
+            return None
+        end = self.completed_at or datetime.now()
+        return (end - self.started_at).total_seconds()
