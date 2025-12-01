@@ -260,7 +260,8 @@ class GluonBot:
         initiator = f"telegram:{user_id}"
         run = self.store.create_run(project.id, prompt, initiator=initiator)
 
-        await update.message.reply_text(
+        # Send initial message and capture its ID for threading
+        start_msg = await update.message.reply_text(
             f"🚀 Task started: `{run.id[:8]}`\n"
             f"Project: `{project_name}`\n"
             f"Prompt: _{prompt[:80]}{'...' if len(prompt) > 80 else ''}_\n\n"
@@ -268,8 +269,12 @@ class GluonBot:
             parse_mode="Markdown",
         )
 
-        # Run the task in background
-        task = asyncio.create_task(self._execute_task_with_runner(update, run, project_name))
+        # Run the task in background, threading replies to start_msg
+        task = asyncio.create_task(
+            self._execute_task_with_runner(
+                update, run, project_name, thread_msg_id=start_msg.message_id
+            )
+        )
         self._active_tasks[run.id] = task
 
     async def resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -363,7 +368,8 @@ class GluonBot:
         initiator = f"telegram:{user_id}"
         run = self.store.create_run(project.id, prompt, initiator=initiator)
 
-        await update.message.reply_text(
+        # Send initial message and capture its ID for threading
+        start_msg = await update.message.reply_text(
             f"🔄 Resuming session: `{session.id[:8]}`\n"
             f"Project: `{project_name}`\n"
             f"Run: `{run.id[:8]}`\n"
@@ -373,7 +379,9 @@ class GluonBot:
 
         # Run the task in background (force_new_session=False to resume existing session)
         task = asyncio.create_task(
-            self._execute_task_with_runner(update, run, project_name, force_new_session=False)
+            self._execute_task_with_runner(
+                update, run, project_name, force_new_session=False, thread_msg_id=start_msg.message_id
+            )
         )
         self._active_tasks[run.id] = task
 
@@ -447,14 +455,39 @@ class GluonBot:
         project_name: str,
         model: ModelTier | str | None = None,
         force_new_session: bool = True,
+        thread_msg_id: int | None = None,
     ) -> None:
-        """Execute a Gluon task with run tracking and stream updates to Telegram."""
+        """Execute a Gluon task with run tracking and stream updates to Telegram.
+
+        Args:
+            thread_msg_id: If provided, all progress messages will reply to this message,
+                          creating a visual thread for this run's output.
+        """
         if not update.message:
+            return
+
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        if not chat_id:
             return
 
         result: AgentResult | None = None
         message_buffer: list[str] = []
         last_update_time = 0.0
+
+        async def send_update(text: str, parse_mode: str | None = None) -> None:
+            """Send a message, threading to start message if available."""
+            try:
+                if thread_msg_id and self.app:
+                    await self.app.bot.send_message(
+                        chat_id=chat_id,
+                        text=text[:4096],
+                        reply_to_message_id=thread_msg_id,
+                        parse_mode=parse_mode,
+                    )
+                else:
+                    await update.message.reply_text(text[:4096], parse_mode=parse_mode)  # type: ignore
+            except Exception as e:
+                logger.warning(f"Failed to send update: {e}")
 
         # Mark run as running
         import os
@@ -479,10 +512,7 @@ class GluonBot:
                                 text = "\n".join(message_buffer[-3:])
                                 if len(text) > 4000:
                                     text = text[-4000:]
-                                try:
-                                    await update.message.reply_text(text[:4096])
-                                except Exception as e:
-                                    logger.warning(f"Failed to send update: {e}")
+                                await send_update(text)
                                 message_buffer.clear()
                                 last_update_time = current_time
 
@@ -494,10 +524,7 @@ class GluonBot:
                     text = "\n".join(message_buffer[-5:])
                     if len(text) > 4000:
                         text = text[-4000:]
-                    try:
-                        await update.message.reply_text(text[:4096])
-                    except Exception as e:
-                        logger.warning(f"Failed to send final update: {e}")
+                    await send_update(text)
 
                 # Update run status and send summary
                 if result:
@@ -512,15 +539,15 @@ class GluonBot:
                     else:
                         run.mark_failed(result.error or "Unknown error", exit_code=1)
                         summary = f"❌ **Failed** (`{run.id[:8]}`): {result.error}"
-                    await update.message.reply_text(summary, parse_mode="Markdown")
+                    await send_update(summary, parse_mode="Markdown")
 
         except asyncio.CancelledError:
             run.mark_cancelled()
-            await update.message.reply_text(f"Task `{run.id[:8]}` was cancelled.")
+            await send_update(f"Task `{run.id[:8]}` was cancelled.")
         except Exception as e:
             logger.exception("Task execution failed")
             run.mark_failed(str(e), exit_code=1)
-            await update.message.reply_text(f"❌ Error (`{run.id[:8]}`): {e}")
+            await send_update(f"❌ Error (`{run.id[:8]}`): {e}")
         finally:
             self.store.update_run(run)
             if run.id in self._active_tasks:
@@ -745,7 +772,8 @@ class GluonBot:
                             initiator = f"telegram:{user_id}"
                             new_run = self.store.create_run(project.id, message_text, initiator=initiator)
 
-                            await update.message.reply_text(
+                            # Send initial message and capture its ID for threading
+                            start_msg = await update.message.reply_text(
                                 f"🔄 Resuming from run `{run_id}`\n"
                                 f"Project: `{project_name}`\n"
                                 f"New run: `{new_run.id[:8]}`",
@@ -754,7 +782,11 @@ class GluonBot:
 
                             task = asyncio.create_task(
                                 self._execute_task_with_runner(
-                                    update, new_run, project_name, force_new_session=False
+                                    update,
+                                    new_run,
+                                    project_name,
+                                    force_new_session=False,
+                                    thread_msg_id=start_msg.message_id,
                                 )
                             )
                             self._active_tasks[new_run.id] = task
