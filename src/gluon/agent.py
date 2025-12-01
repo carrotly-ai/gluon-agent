@@ -81,6 +81,7 @@ class AgentResult:
     total_turns: int
     success: bool
     error: str | None = None
+    session_id: str | None = None  # Gluon session ID (for linking runs)
 
 
 @dataclass

@@ -416,6 +416,9 @@ class Orchestrator:
                 session.mark_failed()
 
             self.store.update_session(session)
+
+            # Add Gluon session ID to result for run linking
+            result.session_id = session.id
             yield result
 
     async def resume(

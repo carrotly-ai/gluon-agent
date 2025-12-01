@@ -501,7 +501,7 @@ class GluonBot:
 
                 # Update run status and send summary
                 if result:
-                    run.session_id = result.claude_session_id
+                    run.session_id = result.session_id  # Link to Gluon session (not claude_session_id)
                     if result.success:
                         run.mark_completed(exit_code=0)
                         summary = (
