@@ -97,6 +97,7 @@ class GluonBot:
             "/runs - List your background runs\n"
             "/status - Show overall status\n"
             "/cancel [run\\_id] - Cancel a run (or latest)\n"
+            "/clear - Clear chat history\n"
             "/help - Show this message",
             parse_mode="Markdown",
         )
@@ -106,6 +107,23 @@ class GluonBot:
         if not update.message:
             return
         await self.start(update, context)
+
+    async def clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /clear command to clear chat history."""
+        if not update.effective_user or not update.message:
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_authorized(user_id):
+            await update.message.reply_text("Not authorized.")
+            return
+
+        # Clear message history for this user
+        if user_id in self._message_history:
+            del self._message_history[user_id]
+
+        await update.message.reply_text("Chat history cleared.")
 
     async def projects(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /projects command."""
@@ -705,6 +723,7 @@ class GluonBot:
         self.app.add_handler(CommandHandler("resume", self.resume))
         self.app.add_handler(CommandHandler("runs", self.runs))
         self.app.add_handler(CommandHandler("cancel", self.cancel))
+        self.app.add_handler(CommandHandler("clear", self.clear))
 
         # Handle plain text messages
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
