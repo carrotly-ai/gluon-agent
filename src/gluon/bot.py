@@ -312,24 +312,22 @@ class GluonBot:
             if 4 <= len(potential_id) <= 36 and all(
                 c in "0123456789abcdef-" for c in potential_id.lower()
             ):
+                # User is attempting to specify an ID - track this even if not found
+                id_arg = potential_id
+                prompt_start_idx = 2
+
                 # First try as a session ID
                 session = self.store.get_session_by_short_id(potential_id, project.id)
-                if session:
-                    id_arg = potential_id
-                    prompt_start_idx = 2
-                else:
+                if not session:
                     # Try as a run ID - get the session from the run
                     run_lookup = self.store.get_run_by_short_id(potential_id)
                     if run_lookup and run_lookup.session_id:
                         session = self.store.get_session(run_lookup.session_id)
-                        if session and session.project_id == project.id:
-                            id_arg = potential_id
-                            prompt_start_idx = 2
-                        else:
+                        if session and session.project_id != project.id:
                             session = None  # Wrong project
 
-        # If no specific session requested, get the latest resumable one
-        if not session:
+        # If no specific session requested (id_arg is None), get the latest resumable one
+        if not session and not id_arg:
             session = self.orchestrator.get_resumable_session(project)
 
         if not session or not session.claude_session_id:
