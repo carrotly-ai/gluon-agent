@@ -21,13 +21,23 @@ uv run gluon --help
 gluon-agent/
 ├── src/gluon/
 │   ├── __init__.py      # Package version
-│   ├── models.py        # Pydantic models (Workspace, Project, Session)
+│   ├── models.py        # Pydantic models (Workspace, Project, Session, ExecutionRun, etc.)
+│   ├── models_config.py # Model tier configuration
 │   ├── store.py         # SQLite persistence layer
 │   ├── agent.py         # Claude Agent SDK wrapper
 │   ├── core.py          # Orchestrator (business logic)
+│   ├── bot_core.py      # Transport-agnostic bot logic
 │   ├── chat_agent.py    # NL interpreter with MCP tools
+│   ├── git_manager.py   # Git synchronization
+│   ├── runner.py        # Background task execution
 │   ├── cli.py           # Typer CLI commands
-│   └── bot.py           # Telegram bot
+│   ├── bot.py           # Telegram bot (legacy, uses TelegramTransport)
+│   └── transport/       # Transport layer
+│       ├── __init__.py  # Exports base classes
+│       ├── base.py      # Transport ABC, Context, Response
+│       ├── capabilities.py  # Platform capabilities
+│       ├── telegram.py  # Telegram transport
+│       └── discord.py   # Discord transport
 ├── tests/
 │   ├── test_models.py
 │   └── test_store.py
@@ -173,6 +183,108 @@ async def new_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # Register in build_application():
 self.app.add_handler(CommandHandler("newcmd", self.new_command))
 ```
+
+### 7. Adding a New Transport
+
+To add support for a new chat platform (e.g., Slack, Matrix):
+
+```python
+# In transport/slack.py (new file)
+
+from gluon.transport.base import Transport, TransportContext, TransportResponse
+from gluon.transport.capabilities import TransportCapabilities
+
+# Define platform capabilities
+SLACK_CAPS = TransportCapabilities(
+    max_message_length=4000,
+    supports_threads=True,
+    supports_editing=True,
+    supports_typing=True,
+    supports_formatting=True,
+)
+
+class SlackTransport(Transport):
+    def __init__(
+        self,
+        token: str,
+        bot_core: GluonBotCore,
+        allowed_users: list[str] | None = None,
+    ):
+        self.token = token
+        self.bot_core = bot_core
+        self._allowed_users = set(allowed_users) if allowed_users else None
+        # Initialize Slack client...
+
+    @property
+    def name(self) -> str:
+        return "slack"
+
+    @property
+    def capabilities(self) -> TransportCapabilities:
+        return SLACK_CAPS
+
+    async def send(self, ctx: TransportContext, response: TransportResponse) -> str:
+        """Send message via Slack API."""
+        text = self.truncate_text(response.text)
+        # ... send via Slack client
+        return message_ts  # Return message ID
+
+    async def edit(self, ctx: TransportContext, message_id: str, response: TransportResponse) -> bool:
+        """Edit message via Slack API."""
+        # ... edit via Slack client
+        return True
+
+    async def send_typing(self, ctx: TransportContext) -> None:
+        """Show typing indicator (if supported)."""
+        pass
+
+    async def start(self) -> None:
+        """Start the Slack bot (websocket or events API)."""
+        self.bot_core.recover_stale_runs("slack")
+        await self.bot_core.git_manager.start_background_sync()
+        # ... start Slack client
+
+    async def stop(self) -> None:
+        """Stop gracefully."""
+        await self.bot_core.git_manager.stop_background_sync()
+        # ... close Slack client
+
+    def _make_context(self, event: SlackEvent) -> TransportContext:
+        """Create TransportContext from Slack event."""
+        return TransportContext(
+            transport="slack",
+            user_id=f"slack:{event.user}",
+            chat_id=event.channel,
+            thread_id=event.thread_ts,
+            project_hint=self._resolve_project(event.channel),
+            message_id=event.ts,
+            raw_data={"event": event},
+        )
+
+    async def _handle_message(self, event: SlackEvent) -> None:
+        """Handle incoming Slack messages."""
+        ctx = self._make_context(event)
+
+        # Check authorization
+        if not self.is_authorized(ctx.user_id):
+            return
+
+        # Delegate to bot_core for task execution
+        async def send_callback(ctx, response):
+            return await self.send(ctx, response)
+
+        # Use bot_core.execute_task() or process_natural_language()
+        await self.bot_core.process_natural_language(ctx, event.text, send_callback)
+```
+
+**Key steps:**
+1. Create `transport/slack.py` with `SlackTransport` class
+2. Define `SLACK_CAPS` with platform capabilities
+3. Implement all abstract methods from `Transport` ABC
+4. Use `GluonBotCore` for shared logic (task execution, concurrency, NL processing)
+5. Add CLI command in `cli.py` (e.g., `gluon slack`)
+6. Add optional dependency in `pyproject.toml`
+7. Export in `transport/__init__.py`
 
 ## Testing
 
@@ -394,9 +506,22 @@ Key dependencies and their purposes:
 | `typer` | CLI framework |
 | `rich` | Beautiful terminal output |
 | `pydantic` | Data validation |
-| `python-telegram-bot` | Telegram bot |
+| `python-telegram-bot` | Telegram bot (optional) |
+| `discord.py` | Discord bot (optional) |
 | `python-dotenv` | Environment variables |
 | `anyio` | Async runtime |
+
+**Optional Dependencies:**
+```bash
+# Install with Telegram support
+pip install 'gluon-agent[telegram]'
+
+# Install with Discord support
+pip install 'gluon-agent[discord]'
+
+# Install with all transports
+pip install 'gluon-agent[all]'
+```
 
 ## Environment Setup
 
@@ -404,12 +529,21 @@ Key dependencies and their purposes:
 - Python 3.12+
 - Claude Code CLI installed and authenticated
 - `uv` package manager
+- AWS credentials for Bedrock (for Claude models)
 
 ### For Telegram Bot
 - Telegram bot token from @BotFather
 - User IDs for access control
+- Environment: `GLUON_TELEGRAM_TOKEN`, `GLUON_TELEGRAM_USERS`
+
+### For Discord Bot
+- Discord bot token from Discord Developer Portal
+- Guild (server) ID
+- Enable MESSAGE CONTENT INTENT in bot settings
+- Environment: `GLUON_DISCORD_TOKEN`, `GLUON_DISCORD_GUILD`, `GLUON_DISCORD_USERS`
 
 ### Files
 - `~/.gluon/gluon.db` - SQLite database
+- `~/.gluon/logs/` - Background run logs
 - `~/.gluon/.env` - Global environment config
 - `.env.local` - Local environment overrides

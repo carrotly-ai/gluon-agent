@@ -2,58 +2,150 @@
 
 ## Overview
 
-Gluon Agent is an AI orchestrator that manages multiple Claude Code agents across different software projects. It provides session persistence, resume capability, workspace-based project discovery, and multiple interfaces (CLI, Telegram bot).
+Gluon Agent is an AI orchestrator that manages multiple Claude Code agents across different software projects. It provides session persistence, resume capability, workspace-based project discovery, git synchronization, and multiple interfaces (CLI, Telegram bot, Discord bot).
 
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Gluon Agent                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────┐  ┌──────────────┐                                         │
-│  │     CLI      │  │  Telegram    │    (User Interfaces)                    │
-│  │   (cli.py)   │  │  Bot (bot.py)│                                         │
-│  └──────┬───────┘  └──────┬───────┘                                         │
-│         │                 │                                                  │
-│         │    ┌────────────┴────────────┐                                    │
-│         │    │    Chat Agent           │   (Natural Language Interpreter)   │
-│         │    │  (chat_agent.py)        │                                    │
-│         │    │  - Claude SDK + MCP     │                                    │
-│         │    └────────────┬────────────┘                                    │
-│         │                 │                                                  │
-│         └────────┬────────┘                                                  │
-│                  ▼                                                           │
-│         ┌───────────────────┐                                               │
-│         │    Orchestrator   │         (Business Logic)                      │
-│         │     (core.py)     │                                               │
-│         │  - Project mgmt   │                                               │
-│         │  - Workspace mgmt │                                               │
-│         │  - Session mgmt   │                                               │
-│         │  - Execution flow │                                               │
-│         └─────────┬─────────┘                                               │
-│                   │                                                          │
-│     ┌─────────────┼─────────────┐                                           │
-│     ▼             ▼             ▼                                           │
-│  ┌────────┐  ┌─────────┐  ┌──────────────┐                                  │
-│  │ Store  │  │  Agent  │  │   Models     │                                  │
-│  │(store) │  │(agent)  │  │  (models)    │                                  │
-│  │        │  │         │  │              │                                  │
-│  │ SQLite │  │ Claude  │  │ - Workspace  │                                  │
-│  │  CRUD  │  │ Agent   │  │ - Project    │                                  │
-│  │        │  │  SDK    │  │ - Session    │                                  │
-│  └────────┘  └─────────┘  └──────────────┘                                  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              Gluon Agent                                         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌──────────────┐  ┌──────────────────────────────────────────────┐             │
+│  │     CLI      │  │              Transport Layer                  │             │
+│  │   (cli.py)   │  │  ┌──────────────┐  ┌──────────────┐          │             │
+│  └──────┬───────┘  │  │  Telegram    │  │   Discord    │          │             │
+│         │          │  │  Transport   │  │  Transport   │          │             │
+│         │          │  └──────┬───────┘  └──────┬───────┘          │             │
+│         │          └─────────┼─────────────────┼──────────────────┘             │
+│         │                    │                 │                                 │
+│         │                    └────────┬────────┘                                 │
+│         │                             ▼                                          │
+│         │                    ┌───────────────────┐                               │
+│         │                    │   GluonBotCore    │   (Shared Bot Logic)          │
+│         │                    │  (bot_core.py)    │                               │
+│         │                    │  - Task execution │                               │
+│         │                    │  - Concurrency    │                               │
+│         │                    │  - Message history│                               │
+│         │                    └─────────┬─────────┘                               │
+│         │                              │                                          │
+│         │    ┌─────────────────────────┤                                          │
+│         │    │                         │                                          │
+│         │    ▼                         │                                          │
+│         │  ┌────────────────┐          │                                          │
+│         │  │   Chat Agent   │          │   (Natural Language Interpreter)        │
+│         │  │(chat_agent.py) │          │                                          │
+│         │  │ Claude + MCP   │          │                                          │
+│         │  └───────┬────────┘          │                                          │
+│         │          │                   │                                          │
+│         └──────────┼───────────────────┤                                          │
+│                    ▼                   ▼                                          │
+│         ┌───────────────────────────────────┐                                    │
+│         │         Orchestrator              │         (Business Logic)           │
+│         │          (core.py)                │                                    │
+│         │  - Project management             │                                    │
+│         │  - Workspace management           │                                    │
+│         │  - Session management             │                                    │
+│         │  - Run management                 │                                    │
+│         │  - Execution coordination         │                                    │
+│         └─────────────┬─────────────────────┘                                    │
+│                       │                                                           │
+│     ┌─────────────────┼─────────────────┬─────────────────┐                      │
+│     ▼                 ▼                 ▼                 ▼                      │
+│  ┌────────┐     ┌─────────┐       ┌──────────┐     ┌──────────────┐              │
+│  │ Store  │     │  Agent  │       │   Git    │     │   Models     │              │
+│  │(store) │     │(agent)  │       │ Manager  │     │  (models)    │              │
+│  │        │     │         │       │(git_mgr) │     │              │              │
+│  │ SQLite │     │ Claude  │       │          │     │ - Workspace  │              │
+│  │  CRUD  │     │ Agent   │       │ Pre/post │     │ - Project    │              │
+│  │        │     │  SDK    │       │ sync     │     │ - Session    │              │
+│  └────────┘     └─────────┘       └──────────┘     │ - ExecRun    │              │
+│                                                     │ - ChannelMap │              │
+│                                                     │ - GitStatus  │              │
+│                                                     └──────────────┘              │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
 
 External Dependencies:
   - Claude Code CLI (claude-agent-sdk)
-  - python-telegram-bot (for bot interface)
+  - python-telegram-bot (for Telegram transport)
+  - discord.py (for Discord transport)
+  - Git (for repository synchronization)
 ```
 
 ## Component Details
 
-### 1. Models (`models.py`)
+### 1. Transport Layer (`transport/`)
+
+Abstract interface for platform-specific bot implementations.
+
+#### Base Classes (`transport/base.py`)
+
+```python
+@dataclass
+class TransportContext:
+    transport: str          # 'telegram', 'discord', 'slack', etc.
+    user_id: str            # Universal ID: '{transport}:{id}'
+    chat_id: str            # Channel/conversation identifier
+    thread_id: str | None   # Thread ID if applicable
+    project_hint: str | None # Project name from context
+    message_id: str | None  # Triggering message ID
+    raw_data: dict          # Platform-specific metadata
+
+@dataclass
+class TransportResponse:
+    text: str               # Message text
+    thread_id: str | None   # Thread to send into
+    reply_to_id: str | None # Message to reply to
+    parse_mode: str         # 'plain', 'markdown', 'html'
+    editable: bool          # May be edited later
+
+class Transport(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> TransportCapabilities: ...
+
+    @abstractmethod
+    async def send(ctx, response) -> str: ...
+
+    @abstractmethod
+    async def edit(ctx, message_id, response) -> bool: ...
+
+    @abstractmethod
+    async def send_typing(ctx) -> None: ...
+
+    async def create_thread(ctx, name, message_id) -> str | None:
+        return None  # Optional, not all transports support threads
+
+    @abstractmethod
+    async def start() -> None: ...
+
+    @abstractmethod
+    async def stop() -> None: ...
+```
+
+#### Transport Capabilities (`transport/capabilities.py`)
+
+```python
+@dataclass
+class TransportCapabilities:
+    max_message_length: int     # Max characters per message
+    supports_threads: bool      # Can create threads
+    supports_editing: bool      # Can edit sent messages
+    supports_typing: bool       # Can show typing indicator
+    supports_formatting: bool   # Supports markdown/rich text
+```
+
+#### Implementations
+
+- **TelegramTransport** (`transport/telegram.py`) - Telegram bot with natural language support
+- **DiscordTransport** (`transport/discord.py`) - Discord bot with channel-project mapping
+
+### 2. Models (`models.py`)
 
 Pydantic models defining the core data structures.
 
@@ -100,46 +192,108 @@ ACTIVE ──▶ PAUSED ──▶ ACTIVE (resume)
 COMPLETED  FAILED
 ```
 
-### 2. Store (`store.py`)
+#### ExecutionRun
+```python
+class ExecutionRun(BaseModel):
+    id: str                      # UUID
+    project_id: str              # FK to Project
+    session_id: str | None       # FK to Session (linked after execution)
+    pid: int | None              # Process ID when running
+    status: RunStatus            # pending, running, completed, failed, cancelled
+    prompt: str                  # Task prompt
+    initiator: str | None        # Who started: 'telegram:123', 'discord:456', 'cli'
+    thread_id: str | None        # Discord/Slack thread ID
+    log_path: Path | None        # Path to log files
+    error_message: str | None    # Error if failed
+```
 
-SQLite persistence layer with CRUD operations.
+**Run Status Lifecycle:**
+```
+PENDING ──▶ RUNNING ──▶ COMPLETED
+                │
+                ├──▶ FAILED
+                │
+                └──▶ CANCELLED
+```
+
+#### ChannelMapping
+```python
+class ChannelMapping(BaseModel):
+    id: str                 # UUID
+    transport: str          # 'telegram', 'discord'
+    channel_id: str         # Platform-specific channel ID
+    project_id: str         # FK to Project
+    project_name: str       # Cached project name
+```
+
+#### GitStatus
+```python
+class GitStatus(BaseModel):
+    is_git_repo: bool
+    branch: str | None
+    remote: str | None
+    remote_url: str | None
+    has_uncommitted: bool
+    uncommitted_count: int
+    commits_ahead: int
+    commits_behind: int
+    is_diverged: bool        # Property: ahead > 0 and behind > 0
+    last_fetch_at: datetime | None
+    last_push_at: datetime | None
+    last_commit_at: datetime | None
+```
+
+### 3. Store (`store.py`)
+
+SQLite persistence layer with CRUD operations for all entities.
 
 **Tables:**
 - `workspaces` - Workspace metadata
-- `projects` - Project registry with optional workspace FK
+- `projects` - Project registry with git status columns
 - `sessions` - Session tracking with Claude session IDs
+- `execution_runs` - Background task tracking
+- `channel_mappings` - Transport channel to project mappings
 
 **Key Methods:**
 ```python
 # Workspace operations
 create_workspace(name, path) -> Workspace
 get_workspace(id) -> Workspace | None
-get_workspace_by_name(name) -> Workspace | None
 list_workspaces() -> list[Workspace]
-update_workspace(workspace) -> None
-delete_workspace(id) -> bool
 
 # Project operations
 create_project(name, path, metadata?, workspace_id?) -> Project
 get_project(id) -> Project | None
 get_project_by_name(name) -> Project | None
-get_project_by_path(path) -> Project | None
 list_projects() -> list[Project]
 list_projects_by_workspace(workspace_id) -> list[Project]
-update_project(project) -> None
-delete_project(id) -> bool
 
 # Session operations
 create_session(project_id, prompt?) -> Session
 get_session(id) -> Session | None
 get_latest_session(project_id, statuses?) -> Session | None
 list_sessions(project_id?) -> list[Session]
-update_session(session) -> None
-delete_session(id) -> bool
 get_active_sessions() -> list[Session]
+
+# Run operations
+create_run(project_id, prompt, initiator?) -> ExecutionRun
+get_run(id) -> ExecutionRun | None
+get_run_by_short_id(short_id) -> ExecutionRun | None
+get_run_by_thread_id(thread_id) -> ExecutionRun | None
+list_runs(project_id?, statuses?, initiator?, limit?) -> list[ExecutionRun]
+list_active_runs() -> list[ExecutionRun]
+
+# Channel mapping operations
+create_channel_mapping(transport, channel_id, project_id, project_name) -> ChannelMapping
+get_channel_mapping(transport, channel_id) -> ChannelMapping | None
+list_channel_mappings(transport?) -> list[ChannelMapping]
+
+# Git status operations
+get_git_status(project_id) -> GitStatus | None
+update_git_status(project_id, status) -> None
 ```
 
-### 3. Agent (`agent.py`)
+### 4. Agent (`agent.py`)
 
 Wrapper around Claude Agent SDK.
 
@@ -175,7 +329,54 @@ options = ClaudeAgentOptions(
 )
 ```
 
-### 4. Orchestrator (`core.py`)
+### 5. GitManager (`git_manager.py`)
+
+Handles git synchronization for projects.
+
+**Key Methods:**
+```python
+async def refresh_status(project) -> GitStatus
+async def pre_task_sync(project) -> GitSyncResult  # Auto-commit, fetch, ff
+async def post_task_sync(project, message, session_id?, run_id?) -> GitSyncResult  # Commit, push
+async def start_background_sync() -> None  # Periodic fetch for all projects
+async def stop_background_sync() -> None
+```
+
+**Sync Flows:**
+
+Pre-task:
+1. Auto-commit uncommitted changes
+2. Fetch from remote
+3. Fast-forward if behind (fails if diverged)
+
+Post-task:
+1. Stage and commit all changes
+2. Push to remote (with retry on conflict)
+
+### 6. GluonBotCore (`bot_core.py`)
+
+Transport-agnostic shared bot logic.
+
+**Key Responsibilities:**
+- Message history per user
+- Concurrency management (semaphore)
+- Task registration and cancellation
+- Project resolution
+- Run info extraction from messages
+- Command formatting
+
+**Key Methods:**
+```python
+async def execute_task(ctx, run, project_name, send_callback, model?,
+                       force_new_session?, session_id?, ...) -> None
+async def process_natural_language(ctx, text, send_callback, reply_context?) -> dict | None
+def format_projects_list(filter_term?, limit?) -> str
+def format_runs_list(initiator?, limit?) -> str
+def format_status() -> str
+def recover_stale_runs(transport_prefix) -> int
+```
+
+### 7. Orchestrator (`core.py`)
 
 Central coordinator connecting all components.
 
@@ -194,7 +395,6 @@ list_workspaces() -> list[Workspace]
 remove_workspace(name_or_id, remove_projects?) -> bool
 scan_workspace(name_or_id) -> list[Project]
 refresh_all_workspaces() -> dict[str, list[Project]]
-list_workspace_projects(name_or_id) -> list[Project]
 
 # Session Management
 list_sessions(project_name?) -> list[Session]
@@ -202,15 +402,27 @@ get_session(session_id) -> Session | None
 get_active_sessions() -> list[Session]
 get_resumable_session(project) -> Session | None
 
+# Run Management
+list_runs(project_name?, active_only?, limit?) -> list[ExecutionRun]
+get_run(run_id) -> ExecutionRun | None
+cancel_run(run_id) -> tuple[bool, str]
+
 # Execution
-async execute(project_name, prompt, force_new?) -> AsyncIterator[AgentMessage | AgentResult]
-async resume(project_name, prompt?) -> AsyncIterator[AgentMessage | AgentResult]
+async execute(project_name, prompt, force_new?, model?, run_id?, session_id?)
+    -> AsyncIterator[AgentMessage | AgentResult]
+async resume(project_name, prompt?, model?) -> AsyncIterator[AgentMessage | AgentResult]
+
+# Git Operations
+async get_git_status(project_name) -> GitStatus | None
+async git_sync(project_name) -> tuple[bool, str]
+async git_push(project_name, commit_message) -> tuple[bool, str]
+async git_fetch(project_name) -> tuple[bool, str]
 
 # Status
 status() -> dict
 ```
 
-### 5. Chat Agent (`chat_agent.py`)
+### 8. Chat Agent (`chat_agent.py`)
 
 Natural language interface using Claude to interpret commands.
 
@@ -220,6 +432,12 @@ Natural language interface using Claude to interpret commands.
 - `get_status` - Get overall status
 - `run_task` - Run a task on a project
 - `resume_session` - Resume last session
+- `add_workspace` - Register a workspace
+- `list_workspaces` - List workspaces
+- `scan_workspace` - Scan for new projects
+- `list_runs` - List execution runs
+- `cancel_run` - Cancel a running task
+- `get_git_status` - Get git status for a project
 
 **Usage Flow:**
 ```
@@ -230,57 +448,41 @@ User Message ──▶ Claude (with MCP tools) ──▶ Tool Calls ──▶ Re
                actual execution by caller
 ```
 
-### 6. CLI (`cli.py`)
+### 9. CLI (`cli.py`)
 
 Typer-based command interface.
 
-**Commands:**
+**Command Groups:**
 ```
-gluon project add <name> <path>     # Register project
-gluon project list                   # List projects
-gluon project remove <name>          # Remove project
-
-gluon workspace add <name> <path>    # Register workspace + auto-scan
-gluon workspace list                 # List workspaces
-gluon workspace remove <name>        # Remove workspace
-gluon workspace scan [name]          # Scan for new projects
-gluon workspace projects <name>      # List projects in workspace
-
-gluon run <project> <prompt>         # Execute task
-gluon resume <project> [prompt]      # Resume session
-gluon sessions [project]             # List sessions
-gluon status                         # Show status
-
-gluon bot                            # Start Telegram bot
-gluon version                        # Show version
+gluon project add/list/remove      # Project management
+gluon workspace add/list/scan/remove  # Workspace management
+gluon run/resume/sessions/status   # Task execution
+gluon runs/logs/cancel             # Background run management
+gluon git status/fetch/sync/push   # Git operations
+gluon bot/discord/serve            # Bot interfaces
 ```
 
-### 7. Telegram Bot (`bot.py`)
+### 10. Runner (`runner.py`)
 
-Always-on daemon for remote interaction.
+Background task execution with subprocess management.
 
-**Commands:**
-- `/start`, `/help` - Welcome and help
-- `/projects` - List projects
-- `/sessions [project]` - List sessions
-- `/run <project> <prompt>` - Run task
-- `/resume <project> [prompt]` - Resume session
-- `/status` - Show status
-- `/cancel` - Cancel current task
-
-**Natural Language:** Plain text messages are processed by `GluonChatAgent`.
+**Key Classes:**
+- `TaskRunner` - Manages background task execution
+- Log file management (stdout, stderr, messages.jsonl)
+- Process lifecycle management
 
 ## Data Flow
 
 ### Task Execution Flow
 
 ```
-1. User Request (CLI/Telegram/NL)
+1. User Request (CLI/Telegram/Discord/NL)
          │
          ▼
-2. Orchestrator.execute(project, prompt)
+2. Orchestrator.execute(project, prompt, session_id?)
          │
-         ├─▶ Find/create Session
+         ├─▶ Pre-task git sync (if git_manager configured)
+         ├─▶ Find/create Session (or resume specific session_id)
          │
          ▼
 3. GluonAgent.execute(working_dir, prompt, resume_id?)
@@ -302,9 +504,40 @@ Always-on daemon for remote interaction.
 6. Update Session in store
          │
          ├─▶ Status: PAUSED (success) or FAILED
+         ├─▶ Post-task git sync (commit + push)
          │
          ▼
 7. Return AgentResult to user
+```
+
+### Message-Based Session Resume (Discord)
+
+```
+1. User @mentions bot with task
+         │
+         ▼
+2. DiscordTransport._handle_task_request()
+         │
+         ├─▶ Create ExecutionRun
+         ├─▶ Send status message
+         ├─▶ Execute via BotCore.execute_task()
+         │
+         ▼
+3. On completion:
+         │
+         ├─▶ Edit status message with "💬 Reply to continue"
+         ├─▶ Store message_id -> run_id in memory map
+         │
+         ▼
+4. User replies to completion message
+         │
+         ▼
+5. DiscordTransport._handle_reply_resume()
+         │
+         ├─▶ Lookup run_id from message map
+         ├─▶ Get session_id from original run
+         ├─▶ Create new run with session_id
+         ├─▶ Execute with session resume
 ```
 
 ### Workspace Discovery Flow
@@ -356,7 +589,18 @@ CREATE TABLE projects (
     workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    metadata TEXT  -- JSON blob
+    metadata TEXT,  -- JSON blob
+    -- Git status columns
+    git_is_repo INTEGER DEFAULT 0,
+    git_branch TEXT,
+    git_remote TEXT,
+    git_remote_url TEXT,
+    git_uncommitted_count INTEGER DEFAULT 0,
+    git_commits_ahead INTEGER DEFAULT 0,
+    git_commits_behind INTEGER DEFAULT 0,
+    git_last_fetch_at TEXT,
+    git_last_push_at TEXT,
+    git_last_commit_at TEXT
 );
 
 CREATE TABLE sessions (
@@ -371,19 +615,64 @@ CREATE TABLE sessions (
     total_turns INTEGER DEFAULT 0
 );
 
+CREATE TABLE execution_runs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    pid INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    prompt TEXT NOT NULL,
+    initiator TEXT,
+    thread_id TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    exit_code INTEGER,
+    log_path TEXT,
+    error_message TEXT
+);
+
+CREATE TABLE channel_mappings (
+    id TEXT PRIMARY KEY,
+    transport TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(transport, channel_id)
+);
+
 -- Indexes
 CREATE INDEX idx_workspaces_name ON workspaces(name);
 CREATE INDEX idx_projects_name ON projects(name);
 CREATE INDEX idx_projects_workspace ON projects(workspace_id);
 CREATE INDEX idx_sessions_project ON sessions(project_id);
 CREATE INDEX idx_sessions_status ON sessions(status);
+CREATE INDEX idx_runs_project ON execution_runs(project_id);
+CREATE INDEX idx_runs_status ON execution_runs(status);
+CREATE INDEX idx_runs_initiator ON execution_runs(initiator);
+CREATE INDEX idx_mappings_transport ON channel_mappings(transport);
+CREATE INDEX idx_mappings_channel ON channel_mappings(transport, channel_id);
 ```
 
 ## Configuration
 
 ### Environment Variables
+
+**Telegram:**
 - `GLUON_TELEGRAM_TOKEN` - Telegram bot token
 - `GLUON_TELEGRAM_USERS` - Comma-separated allowed user IDs
+
+**Discord:**
+- `GLUON_DISCORD_TOKEN` - Discord bot token
+- `GLUON_DISCORD_GUILD` - Discord guild (server) ID
+- `GLUON_DISCORD_USERS` - Comma-separated allowed user IDs
+
+**Git:**
+- `GLUON_GIT_ENABLED` - Enable/disable git sync (default: true)
+- `GLUON_GIT_SYNC_INTERVAL` - Background fetch interval in seconds
+- `GLUON_GIT_AUTO_COMMIT` - Auto-commit before/after tasks
+- `GLUON_GIT_AUTO_PUSH` - Auto-push after tasks
 
 ### Environment Files (loaded in order)
 1. `~/.gluon/.env` - Global config
@@ -392,6 +681,7 @@ CREATE INDEX idx_sessions_status ON sessions(status);
 
 ### Data Storage
 - Default database: `~/.gluon/gluon.db`
+- Logs: `~/.gluon/logs/<run_id>/`
 
 ## Error Handling
 
@@ -401,9 +691,15 @@ ProjectNotFoundError    # Project not found by name/ID
 ProjectExistsError      # Duplicate project name
 WorkspaceNotFoundError  # Workspace not found by name/ID
 WorkspaceExistsError    # Duplicate workspace name
+GitSyncError            # Git sync failed (e.g., diverged branches)
 ```
 
 ### Session Error States
 - On agent execution error: Session marked as `FAILED`
 - On success: Session marked as `PAUSED` (ready for resume)
 - On explicit completion: Session marked as `COMPLETED`
+
+### Run Error States
+- On agent error: Run marked as `FAILED` with error message
+- On cancellation: Run marked as `CANCELLED`
+- On success: Run marked as `COMPLETED` with exit_code=0

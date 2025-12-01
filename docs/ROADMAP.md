@@ -1,6 +1,6 @@
 # Gluon Agent Roadmap
 
-## Current Status (v0.1.0)
+## Current Status (v0.2.0)
 
 ### Completed Features
 
@@ -25,18 +25,52 @@
   - Claude Agent SDK integration
   - Streaming message output
   - Automatic session resume
+  - Model selection (opus/sonnet/haiku)
 
 - [x] **CLI Interface**
   - Project commands (add, list, remove)
   - Workspace commands (add, list, remove, scan, projects)
   - Session commands (list, status)
   - Run/resume commands
+  - Background runs (--background, runs, logs, cancel)
+  - Git commands (status, fetch, sync, push)
+  - Multi-transport serve command
 
 - [x] **Telegram Bot**
   - Slash commands for all operations
   - Natural language processing via Chat Agent
   - User authorization
   - Real-time task updates
+  - Reply to resume sessions
+  - Multiple concurrent tasks
+
+- [x] **Discord Bot** *(NEW)*
+  - @mention-based interaction
+  - Channel-to-project mapping (auto + explicit)
+  - Message-based session resume (reply to continue)
+  - Real-time progress updates
+  - Message editing for status
+
+- [x] **Multi-Transport Support** *(NEW)*
+  - Transport abstraction layer (Transport ABC)
+  - Shared GluonBotCore for all transports
+  - `gluon serve --telegram --discord` for concurrent operation
+  - Cross-platform run visibility
+
+- [x] **Background Execution** *(NEW)*
+  - `gluon run --background` for async tasks
+  - Run tracking in SQLite with status lifecycle
+  - `gluon runs` to list all runs
+  - `gluon logs <run_id>` with --follow
+  - `gluon cancel <run_id>` for cancellation
+  - Log persistence at `~/.gluon/logs/<run_id>/`
+
+- [x] **Git Synchronization** *(NEW)*
+  - Pre-task sync: auto-commit, fetch, fast-forward
+  - Post-task sync: commit and push
+  - Background fetch loop (every 5 minutes)
+  - Git status tracking per project
+  - `gluon git status/fetch/sync/push` commands
 
 ---
 
@@ -149,21 +183,23 @@ Browser-based UI for monitoring and control.
 - React/Next.js frontend
 - WebSocket for real-time updates
 
-### 7. Concurrent Execution
-**Priority: Medium**
+### ~~7. Concurrent Execution~~ ✅ COMPLETED
+**Status: Implemented in v0.2.0**
 
 Run multiple agents simultaneously across different projects.
 
-```python
-# Proposed API
-gluon run --parallel myapp backend frontend "Deploy v2.0"
-gluon config set concurrency.max 3
+```bash
+# Current implementation
+gluon run myapp "Fix bug" --background
+gluon run backend "Add endpoint" --background
+gluon runs --active  # See all running tasks
 ```
 
-**Implementation:**
-- Track multiple active sessions
-- Resource management
-- Progress aggregation
+**Implemented:**
+- Concurrent task execution with semaphore-based limiting (default: 16)
+- Per-transport and cross-transport run tracking
+- `gluon runs` to monitor all active runs
+- Global concurrency limit configurable via `max_concurrent` parameter
 
 ### 8. Project Templates
 **Priority: Low**

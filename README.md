@@ -463,24 +463,29 @@ sequenceDiagram
         Store-->>DiscordTransport: ExecutionRun
 
         DiscordTransport-->>Discord: "🚀 Starting task on `project`"
-        Discord-->>User: Initial message
-
-        DiscordTransport->>Discord: Create thread from message
-        Discord-->>DiscordTransport: thread_id
+        Discord-->>User: Status message
 
         DiscordTransport->>BotCore: execute_task(ctx, run, project)
 
-        loop Streaming in Thread
+        loop Streaming Progress
             BotCore-->>DiscordTransport: AgentMessage
-            DiscordTransport-->>Discord: Send to thread
-            Discord-->>User: Progress in thread
+            DiscordTransport-->>Discord: Send progress
+            Discord-->>User: Progress messages
         end
 
         BotCore-->>DiscordTransport: AgentResult
         DiscordTransport->>Store: update_run(status)
-        DiscordTransport->>Discord: Edit original message
-        Discord-->>User: ✅ Summary (edited)
+        DiscordTransport->>DiscordTransport: Track message for resume
+        DiscordTransport->>Discord: Edit status message
+        Discord-->>User: ✅ Summary + "Reply to continue"
     end
+
+    Note over User,Discord: Later - Resume via reply
+    User->>Discord: Reply to completion: "Also add tests"
+    Discord->>DiscordTransport: on_message (with reference)
+    DiscordTransport->>DiscordTransport: Lookup run from message map
+    DiscordTransport->>BotCore: execute_task(ctx, run, session_id)
+    Note over BotCore: Resumes previous Claude session
 ```
 
 ### Discord Channel Mapping
@@ -495,11 +500,7 @@ flowchart TD
         CHECK1 -->|No| CHECK2{Channel name<br/>matches project?}
 
         CHECK2 -->|Yes| FOUND
-        CHECK2 -->|No| CHECK3{Is thread?<br/>Check parent}
-
-        CHECK3 -->|Yes| PARENT[Check parent channel]
-        PARENT --> CHECK1
-        CHECK3 -->|No| PROMPT[Prompt user to link]
+        CHECK2 -->|No| PROMPT[Prompt user to link]
     end
 
     subgraph "Link Command"
@@ -730,36 +731,32 @@ Discord channels map to projects in two ways:
 
 Once linked, all @mentions execute tasks on that project automatically.
 
-### Threaded Output
+### Message-Based Resume
 
-Task execution creates Discord threads for organized output:
-- Initial message shows task started
-- Thread contains streaming progress
-- Original message is edited with final summary (✅ or ❌)
+Task execution uses Discord's reply feature for session continuity:
+- Initial message shows task status and run ID
+- Progress updates sent as follow-up messages
+- Completion message is edited with final status and "💬 Reply to continue" hint
+- **Reply to any completion message to resume that session**
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph "Discord Channel: #myapp"
         MSG1["🚀 Starting task on myapp<br/>Run: abc12345<br/>Status: Running..."]
-        MSG1 --> THREAD
+        MSG1 -->|progress| P1["Agent output..."]
+        P1 -->|edited| MSG2["✅ myapp - abc12345<br/><i>Fix the login bug...</i><br/>💬 Reply to continue"]
 
-        subgraph THREAD["Thread: Run abc12345"]
-            P1["Agent: Reading files..."]
-            P2["Agent: Making changes..."]
-            P3["Agent: Running tests..."]
-            P1 --> P2 --> P3
+        subgraph "Resume Flow"
+            MSG2 -->|user replies| REPLY["↩️ Also add tests"]
+            REPLY --> MSG3["🔄 Resuming session on myapp<br/>Run: def67890"]
+            MSG3 -->|edited| MSG4["✅ myapp - def67890<br/><i>Also add tests</i><br/>💬 Reply to continue"]
         end
     end
 
-    subgraph "After Completion"
-        MSG2["✅ myapp - abc12345<br/><i>Fix the login bug...</i>"]
-    end
-
-    MSG1 -.->|edited| MSG2
-
     style MSG1 fill:#fff9c4
     style MSG2 fill:#c8e6c9
-    style THREAD fill:#e3f2fd
+    style MSG4 fill:#c8e6c9
+    style REPLY fill:#e3f2fd
 ```
 
 ## Multi-Transport Mode
