@@ -60,6 +60,10 @@ MIGRATIONS = [
     -- Add workspace_id to projects if not exists
     ALTER TABLE projects ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL;
     """,
+    """
+    -- Add initiator to execution_runs if not exists
+    ALTER TABLE execution_runs ADD COLUMN initiator TEXT;
+    """,
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -145,6 +149,7 @@ class GluonStore:
                         pid INTEGER,
                         status TEXT NOT NULL DEFAULT 'pending',
                         prompt TEXT NOT NULL,
+                        initiator TEXT,
                         created_at TEXT NOT NULL,
                         started_at TEXT,
                         completed_at TEXT,
@@ -155,6 +160,7 @@ class GluonStore:
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_project ON execution_runs(project_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_status ON execution_runs(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_initiator ON execution_runs(initiator)")
 
             # Run migrations for existing tables
             for migration in MIGRATIONS:
@@ -499,16 +505,16 @@ class GluonStore:
 
     # ========== Execution Run CRUD ==========
 
-    def create_run(self, project_id: str, prompt: str) -> ExecutionRun:
+    def create_run(self, project_id: str, prompt: str, initiator: str | None = None) -> ExecutionRun:
         """Create a new execution run."""
-        run = ExecutionRun(project_id=project_id, prompt=prompt)
+        run = ExecutionRun(project_id=project_id, prompt=prompt, initiator=initiator)
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO execution_runs
-                (id, session_id, project_id, pid, status, prompt, created_at,
+                (id, session_id, project_id, pid, status, prompt, initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -517,6 +523,7 @@ class GluonStore:
                     run.pid,
                     run.status.value,
                     run.prompt,
+                    run.initiator,
                     run.created_at.isoformat(),
                     run.started_at.isoformat() if run.started_at else None,
                     run.completed_at.isoformat() if run.completed_at else None,
@@ -552,6 +559,7 @@ class GluonStore:
         self,
         project_id: str | None = None,
         statuses: list[RunStatus] | None = None,
+        initiator: str | None = None,
         limit: int = 50,
     ) -> list[ExecutionRun]:
         """List execution runs with optional filters."""
@@ -567,6 +575,10 @@ class GluonStore:
                 placeholders = ",".join("?" for _ in statuses)
                 query += f" AND status IN ({placeholders})"
                 params.extend(s.value for s in statuses)
+
+            if initiator:
+                query += " AND initiator = ?"
+                params.append(initiator)
 
             query += " ORDER BY created_at DESC LIMIT ?"
             params.append(limit)
@@ -616,6 +628,7 @@ class GluonStore:
             pid=row["pid"],
             status=RunStatus(row["status"]),
             prompt=row["prompt"],
+            initiator=row["initiator"] if "initiator" in row.keys() else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
             completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,

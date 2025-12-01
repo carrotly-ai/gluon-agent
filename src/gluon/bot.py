@@ -19,7 +19,10 @@ from telegram.ext import (
 from gluon.agent import AgentMessage, AgentResult
 from gluon.chat_agent import GluonChatAgent
 from gluon.core import Orchestrator, ProjectNotFoundError
+from gluon.models import ExecutionRun, RunStatus
 from gluon.models_config import ModelTier
+from gluon.runner import TaskRunner, format_duration, format_run_status
+from gluon.store import GluonStore
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,7 @@ class GluonBot:
         self,
         token: str,
         allowed_users: list[int] | None = None,
+        max_concurrent: int = 5,
     ):
         """
         Initialize the Gluon Telegram bot.
@@ -39,14 +43,19 @@ class GluonBot:
             token: Telegram bot token from @BotFather
             allowed_users: List of Telegram user IDs allowed to use the bot.
                           If None, all users are allowed (not recommended for production).
+            max_concurrent: Maximum concurrent tasks across all users.
         """
         self.token = token
         self.allowed_users = allowed_users
-        self.orchestrator = Orchestrator()
+        self.store = GluonStore()
+        self.orchestrator = Orchestrator(store=self.store)
+        self.runner = TaskRunner(store=self.store)
         self.chat_agent = GluonChatAgent(self.orchestrator)
         self.app: Application | None = None
-        # Track active tasks per user
-        self._active_tasks: dict[int, asyncio.Task[Any]] = {}
+        # Track active asyncio tasks by run_id (for cancellation within this process)
+        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+        # Global concurrency limit
+        self._semaphore = asyncio.Semaphore(max_concurrent)
         # Enable/disable natural language mode
         self.nl_mode_enabled = True
 
@@ -80,8 +89,9 @@ class GluonBot:
             "/sessions [project] - List sessions\n"
             "/run <project> <prompt> - Run a task\n"
             "/resume <project> [prompt] - Resume last session\n"
+            "/runs - List your background runs\n"
             "/status - Show overall status\n"
-            "/cancel - Cancel current task\n"
+            "/cancel [run\\_id] - Cancel a run (or latest)\n"
             "/help - Show this message",
             parse_mode="Markdown",
         )
@@ -207,25 +217,36 @@ class GluonBot:
         project_name = context.args[0]
         prompt = " ".join(context.args[1:])
 
-        # Check if user already has an active task
-        if user_id in self._active_tasks and not self._active_tasks[user_id].done():
-            await update.message.reply_text("You have an active task running. Use /cancel to stop it first.")
-            return
-
         try:
-            self.orchestrator.get_project(project_name)
+            project = self.orchestrator.get_project(project_name)
         except ProjectNotFoundError as e:
             await update.message.reply_text(f"Error: {e}")
             return
 
+        # Check global concurrency limit
+        active_runs = self.store.list_active_runs()
+        if len(active_runs) >= self._semaphore._value:
+            await update.message.reply_text(
+                f"Max concurrent runs ({self._semaphore._value}) reached.\n"
+                "Use /runs to see active runs or /cancel to stop one."
+            )
+            return
+
+        # Create run record
+        initiator = f"telegram:{user_id}"
+        run = self.store.create_run(project.id, prompt, initiator=initiator)
+
         await update.message.reply_text(
-            f"Starting task on `{project_name}`...\nPrompt: _{prompt[:100]}{'...' if len(prompt) > 100 else ''}_",
+            f"🚀 Task started: `{run.id[:8]}`\n"
+            f"Project: `{project_name}`\n"
+            f"Prompt: _{prompt[:80]}{'...' if len(prompt) > 80 else ''}_\n\n"
+            f"Use /runs to check status",
             parse_mode="Markdown",
         )
 
         # Run the task in background
-        task = asyncio.create_task(self._execute_task(update, project_name, prompt, force_new=False))
-        self._active_tasks[user_id] = task
+        task = asyncio.create_task(self._execute_task_with_runner(update, run, project_name))
+        self._active_tasks[run.id] = task
 
     async def resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /resume command."""
@@ -245,12 +266,7 @@ class GluonBot:
             return
 
         project_name = context.args[0]
-        prompt = " ".join(context.args[1:]) if len(context.args) > 1 else None
-
-        # Check if user already has an active task
-        if user_id in self._active_tasks and not self._active_tasks[user_id].done():
-            await update.message.reply_text("You have an active task running. Use /cancel to stop it first.")
-            return
+        prompt = " ".join(context.args[1:]) if len(context.args) > 1 else "Continue from where you left off."
 
         try:
             project = self.orchestrator.get_project(project_name)
@@ -265,13 +281,29 @@ class GluonBot:
             await update.message.reply_text(f"Error: {e}")
             return
 
-        await update.message.reply_text(f"Resuming session on `{project_name}`...", parse_mode="Markdown")
+        # Check global concurrency limit
+        active_runs = self.store.list_active_runs()
+        if len(active_runs) >= self._semaphore._value:
+            await update.message.reply_text(
+                f"Max concurrent runs ({self._semaphore._value}) reached.\n"
+                "Use /runs to see active runs or /cancel to stop one."
+            )
+            return
+
+        # Create run record
+        initiator = f"telegram:{user_id}"
+        run = self.store.create_run(project.id, prompt, initiator=initiator)
+
+        await update.message.reply_text(
+            f"🔄 Resuming session: `{run.id[:8]}`\n"
+            f"Project: `{project_name}`\n"
+            f"Use /runs to check status",
+            parse_mode="Markdown",
+        )
 
         # Run the task in background
-        task = asyncio.create_task(
-            self._execute_task(update, project_name, prompt or "Continue from where you left off.", force_new=False)
-        )
-        self._active_tasks[user_id] = task
+        task = asyncio.create_task(self._execute_task_with_runner(update, run, project_name))
+        self._active_tasks[run.id] = task
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /cancel command."""
@@ -284,12 +316,149 @@ class GluonBot:
             await update.message.reply_text("Not authorized.")
             return
 
-        if user_id in self._active_tasks and not self._active_tasks[user_id].done():
-            self._active_tasks[user_id].cancel()
-            del self._active_tasks[user_id]
-            await update.message.reply_text("Task cancelled.")
+        run_id_arg = context.args[0] if context.args else None
+
+        if run_id_arg:
+            # Cancel specific run by ID
+            run = self.store.get_run_by_short_id(run_id_arg) or self.store.get_run(run_id_arg)
+            if not run:
+                await update.message.reply_text(f"Run not found: {run_id_arg}")
+                return
+
+            if not run.is_active:
+                await update.message.reply_text(f"Run `{run.id[:8]}` is not active (status: {run.status.value})")
+                return
+
+            # Cancel asyncio task if we have it
+            if run.id in self._active_tasks and not self._active_tasks[run.id].done():
+                self._active_tasks[run.id].cancel()
+                try:
+                    await self._active_tasks[run.id]
+                except asyncio.CancelledError:
+                    pass
+                del self._active_tasks[run.id]
+
+            # Update run status
+            run.mark_cancelled()
+            self.store.update_run(run)
+            await update.message.reply_text(f"✅ Cancelled run `{run.id[:8]}`")
         else:
-            await update.message.reply_text("No active task to cancel.")
+            # Cancel user's latest active run
+            initiator = f"telegram:{user_id}"
+            user_runs = self.store.list_runs(
+                initiator=initiator, statuses=[RunStatus.PENDING, RunStatus.RUNNING], limit=1
+            )
+
+            if not user_runs:
+                await update.message.reply_text(
+                    "No active runs to cancel.\nUse `/cancel <run_id>` to cancel a specific run."
+                )
+                return
+
+            run = user_runs[0]
+            if run.id in self._active_tasks and not self._active_tasks[run.id].done():
+                self._active_tasks[run.id].cancel()
+                try:
+                    await self._active_tasks[run.id]
+                except asyncio.CancelledError:
+                    pass
+                del self._active_tasks[run.id]
+
+            run.mark_cancelled()
+            self.store.update_run(run)
+            await update.message.reply_text(f"✅ Cancelled run `{run.id[:8]}`")
+
+    async def _execute_task_with_runner(
+        self,
+        update: Update,
+        run: ExecutionRun,
+        project_name: str,
+        model: ModelTier | str | None = None,
+    ) -> None:
+        """Execute a Gluon task with run tracking and stream updates to Telegram."""
+        if not update.message:
+            return
+
+        result: AgentResult | None = None
+        message_buffer: list[str] = []
+        last_update_time = 0.0
+
+        # Mark run as running
+        import os
+        from pathlib import Path
+
+        log_dir = Path.home() / ".gluon" / "logs" / run.id
+        log_dir.mkdir(parents=True, exist_ok=True)
+        run.mark_running(pid=os.getpid(), log_path=log_dir)
+        self.store.update_run(run)
+
+        try:
+            async with self._semaphore:
+                execution = self.orchestrator.execute(
+                    project_name, run.prompt, force_new_session=True, model=model
+                )
+                async for item in execution:
+                    if isinstance(item, AgentMessage):
+                        if item.type == "text" and item.content:
+                            message_buffer.append(item.content)
+                            current_time = asyncio.get_event_loop().time()
+                            if current_time - last_update_time > 2.0 and message_buffer:
+                                text = "\n".join(message_buffer[-3:])
+                                if len(text) > 4000:
+                                    text = text[-4000:]
+                                try:
+                                    await update.message.reply_text(text[:4096])
+                                except Exception as e:
+                                    logger.warning(f"Failed to send update: {e}")
+                                message_buffer.clear()
+                                last_update_time = current_time
+
+                        elif item.type == "tool_use":
+                            tool_name = item.metadata.get("tool", "unknown") if item.metadata else "unknown"
+                            try:
+                                await update.message.reply_text(f"🔧 Using: {tool_name}")
+                            except Exception:
+                                pass
+
+                    elif isinstance(item, AgentResult):
+                        result = item
+
+                # Send remaining buffered messages
+                if message_buffer:
+                    text = "\n".join(message_buffer[-5:])
+                    if len(text) > 4000:
+                        text = text[-4000:]
+                    try:
+                        await update.message.reply_text(text[:4096])
+                    except Exception as e:
+                        logger.warning(f"Failed to send final update: {e}")
+
+                # Update run status and send summary
+                if result:
+                    run.session_id = result.claude_session_id
+                    if result.success:
+                        run.mark_completed(exit_code=0)
+                        summary = (
+                            f"✅ **Complete** (`{run.id[:8]}`)\n"
+                            f"Cost: ${result.total_cost_usd:.4f}\n"
+                            f"Turns: {result.total_turns}"
+                        )
+                    else:
+                        run.mark_failed(result.error or "Unknown error", exit_code=1)
+                        summary = f"❌ **Failed** (`{run.id[:8]}`): {result.error}"
+                    await update.message.reply_text(summary, parse_mode="Markdown")
+
+        except asyncio.CancelledError:
+            run.mark_cancelled()
+            await update.message.reply_text(f"Task `{run.id[:8]}` was cancelled.")
+        except Exception as e:
+            logger.exception("Task execution failed")
+            run.mark_failed(str(e), exit_code=1)
+            await update.message.reply_text(f"❌ Error (`{run.id[:8]}`): {e}")
+        finally:
+            self.store.update_run(run)
+            if run.id in self._active_tasks:
+                del self._active_tasks[run.id]
 
     async def _execute_task(
         self,
@@ -299,7 +468,7 @@ class GluonBot:
         force_new: bool,
         model: ModelTier | str | None = None,
     ) -> None:
-        """Execute a Gluon task and stream updates to Telegram."""
+        """Execute a Gluon task and stream updates to Telegram (legacy, no run tracking)."""
         if not update.message:
             return
 
@@ -362,6 +531,57 @@ class GluonBot:
         except Exception as e:
             logger.exception("Task execution failed")
             await update.message.reply_text(f"❌ Error: {e}")
+
+    async def runs(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /runs command to list execution runs."""
+        if not update.effective_user or not update.message:
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_authorized(user_id):
+            await update.message.reply_text("Not authorized.")
+            return
+
+        # Parse options
+        show_all = context.args and context.args[0] == "all"
+        initiator = None if show_all else f"telegram:{user_id}"
+
+        # Get runs
+        runs_list = self.store.list_runs(initiator=initiator, limit=10)
+
+        if not runs_list:
+            if show_all:
+                await update.message.reply_text("No runs found.")
+            else:
+                await update.message.reply_text(
+                    "No runs found.\nUse `/runs all` to see all runs.",
+                    parse_mode="Markdown",
+                )
+            return
+
+        # Build project lookup
+        projects = self.store.list_projects()
+        project_lookup = {p.id: p.name for p in projects}
+
+        lines = ["**Recent Runs:**\n" if show_all else "**Your Runs:**\n"]
+
+        for run in runs_list:
+            emoji, _ = format_run_status(run.status)
+            proj_name = project_lookup.get(run.project_id, run.project_id[:8])
+            duration = format_duration(run.duration_seconds) if run.duration_seconds else "-"
+            prompt_preview = run.prompt[:25] + "..." if len(run.prompt) > 25 else run.prompt
+
+            line = f"{emoji} `{run.id[:8]}` | {proj_name}"
+            line += f"\n   _{prompt_preview}_ ({duration})"
+            lines.append(line)
+
+        # Add count of active runs
+        active_runs = self.store.list_active_runs()
+        if active_runs:
+            lines.append(f"\n**{len(active_runs)}** run(s) currently active")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle plain text messages using natural language understanding."""
@@ -434,6 +654,18 @@ class GluonBot:
             logger.exception("Error processing message")
             await update.message.reply_text(f"Error: {e}")
 
+    def _recover_stale_runs(self) -> None:
+        """Mark stale runs from previous bot instances as failed."""
+        active_runs = self.store.list_active_runs()
+        telegram_runs = [r for r in active_runs if r.initiator and r.initiator.startswith("telegram:")]
+
+        if telegram_runs:
+            logger.info(f"Recovering {len(telegram_runs)} stale Telegram run(s) from previous instance")
+            for run in telegram_runs:
+                run.mark_failed("Bot restarted - run interrupted", exit_code=1)
+                self.store.update_run(run)
+                logger.info(f"Marked run {run.id[:8]} as failed (bot restart)")
+
     def build_application(self) -> Application:
         """Build the Telegram application with handlers."""
         self.app = Application.builder().token(self.token).build()
@@ -446,6 +678,7 @@ class GluonBot:
         self.app.add_handler(CommandHandler("status", self.status))
         self.app.add_handler(CommandHandler("run", self.run))
         self.app.add_handler(CommandHandler("resume", self.resume))
+        self.app.add_handler(CommandHandler("runs", self.runs))
         self.app.add_handler(CommandHandler("cancel", self.cancel))
 
         # Handle plain text messages
@@ -456,6 +689,10 @@ class GluonBot:
     async def run_polling(self) -> None:
         """Run the bot with polling."""
         app = self.build_application()
+
+        # Recover stale runs from previous bot instances
+        self._recover_stale_runs()
+
         await app.initialize()
         await app.start()
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)  # type: ignore

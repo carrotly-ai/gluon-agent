@@ -60,6 +60,7 @@ class TaskRunner:
         project_id: str,
         prompt: str,
         wait: bool = False,
+        initiator: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -68,12 +69,13 @@ class TaskRunner:
             project_id: Project to run task on
             prompt: Task prompt
             wait: If True, wait for completion. If False, return immediately.
+            initiator: Who started the run (e.g., "cli", "telegram:12345")
 
         Returns:
             ExecutionRun with current status
         """
         # Create run record
-        run = self.store.create_run(project_id, prompt)
+        run = self.store.create_run(project_id, prompt, initiator=initiator)
 
         if wait:
             # Execute synchronously
