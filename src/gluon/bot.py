@@ -141,15 +141,26 @@ class GluonBot:
             await update.message.reply_text("No projects registered.\nUse CLI: `gluon project add <name> <path>`")
             return
 
-        lines = ["**Projects:**\n"]
-        for p in projects:
+        lines = [f"**Projects ({len(projects)}):**\n"]
+        for p in projects[:20]:  # Limit to first 20 projects
             sessions = self.orchestrator.list_sessions(p.name)
+            # Truncate long paths
+            path_str = str(p.path)
+            if len(path_str) > 50:
+                path_str = "..." + path_str[-47:]
             # Escape path to avoid Markdown parsing issues
-            safe_path = str(p.path).replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+            safe_path = path_str.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
             lines.append(f"- `{p.name}` ({len(sessions)} sessions)")
             lines.append(f"  {safe_path}")
 
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        if len(projects) > 20:
+            lines.append(f"\n_...and {len(projects) - 20} more projects_")
+
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "\n..."
+
+        await update.message.reply_text(text, parse_mode="Markdown")
 
     async def sessions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /sessions command."""
