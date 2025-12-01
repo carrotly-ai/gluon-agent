@@ -151,14 +151,15 @@ class Transport(ABC):
         """Show typing indicator in the chat."""
         ...
 
-    @abstractmethod
     async def create_thread(
         self,
         ctx: TransportContext,
         name: str,
         message_id: str | None = None,
-    ) -> str:
+    ) -> str | None:
         """Create a thread and return its ID.
+
+        Optional - not all transports support threading.
 
         Args:
             ctx: Context (chat_id)
@@ -166,9 +167,9 @@ class Transport(ABC):
             message_id: Optional message to attach thread to (Discord)
 
         Returns:
-            Thread ID
+            Thread ID, or None if threading not supported
         """
-        ...
+        return None
 
     @abstractmethod
     async def start(self) -> None:
