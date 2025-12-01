@@ -718,47 +718,47 @@ class GluonBot:
         if update.message.reply_to_message and update.message.reply_to_message.text:
             reply_context = update.message.reply_to_message.text
 
-            # Check if replying to a bot message with run/project info - auto-resume
-            run_id, project_name = self._extract_run_info_from_message(reply_context)
-            if run_id and project_name:
+            # Check if replying to a bot message with run info - auto-resume
+            run_id, project_name_hint = self._extract_run_info_from_message(reply_context)
+            if run_id:
                 # Try to find the session from the run
                 run = self.store.get_run_by_short_id(run_id)
                 if run and run.session_id:
                     session = self.store.get_session(run.session_id)
                     if session and session.claude_session_id:
-                        # Verify project matches
-                        try:
-                            project = self.orchestrator.get_project(project_name)
-                            if project.id == session.project_id:
-                                # Check concurrency limit
-                                active_runs = self.store.list_active_runs()
-                                if len(active_runs) >= self._semaphore._value:
-                                    await update.message.reply_text(
-                                        f"Max concurrent runs ({self._semaphore._value}) reached.\n"
-                                        "Use /runs to see active runs or /cancel to stop one."
-                                    )
-                                    return
+                        # Get project from the run (more reliable than parsing message)
+                        project = self.store.get_project(run.project_id)
+                        if project:
+                            # Use project name from message hint or look it up
+                            project_name = project_name_hint or project.name
 
-                                # Create run and resume
-                                initiator = f"telegram:{user_id}"
-                                new_run = self.store.create_run(project.id, message_text, initiator=initiator)
-
+                            # Check concurrency limit
+                            active_runs = self.store.list_active_runs()
+                            if len(active_runs) >= self._semaphore._value:
                                 await update.message.reply_text(
-                                    f"🔄 Resuming from run `{run_id}`\n"
-                                    f"Project: `{project_name}`\n"
-                                    f"New run: `{new_run.id[:8]}`",
-                                    parse_mode="Markdown",
+                                    f"Max concurrent runs ({self._semaphore._value}) reached.\n"
+                                    "Use /runs to see active runs or /cancel to stop one."
                                 )
-
-                                task = asyncio.create_task(
-                                    self._execute_task_with_runner(
-                                        update, new_run, project_name, force_new_session=False
-                                    )
-                                )
-                                self._active_tasks[new_run.id] = task
                                 return
-                        except Exception:
-                            pass  # Fall through to normal chat handling
+
+                            # Create run and resume
+                            initiator = f"telegram:{user_id}"
+                            new_run = self.store.create_run(project.id, message_text, initiator=initiator)
+
+                            await update.message.reply_text(
+                                f"🔄 Resuming from run `{run_id}`\n"
+                                f"Project: `{project_name}`\n"
+                                f"New run: `{new_run.id[:8]}`",
+                                parse_mode="Markdown",
+                            )
+
+                            task = asyncio.create_task(
+                                self._execute_task_with_runner(
+                                    update, new_run, project_name, force_new_session=False
+                                )
+                            )
+                            self._active_tasks[new_run.id] = task
+                            return
 
         # Get conversation history for this user
         history = self._get_history(user_id)
