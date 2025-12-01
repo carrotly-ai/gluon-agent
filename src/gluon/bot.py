@@ -145,7 +145,7 @@ class GluonBot:
         for p in projects:
             sessions = self.orchestrator.list_sessions(p.name)
             # Escape path to avoid Markdown parsing issues
-            safe_path = p.path.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+            safe_path = str(p.path).replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
             lines.append(f"- `{p.name}` ({len(sessions)} sessions)")
             lines.append(f"  {safe_path}")
 
