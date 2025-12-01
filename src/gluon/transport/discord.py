@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import TYPE_CHECKING
 
 try:
     import discord
@@ -20,9 +19,6 @@ from gluon.core import ProjectNotFoundError
 from gluon.transport.base import Transport, TransportContext, TransportResponse
 from gluon.transport.capabilities import DISCORD_CAPS, TransportCapabilities
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
 
 
@@ -31,9 +27,9 @@ class DiscordTransport(Transport):
 
     Features:
     - Channel-to-project mapping (hybrid: auto-match by name, prompt to link)
-    - @mention handling for commands
-    - Native Discord threads for run output
-    - Message editing for final status summary
+    - @mention handling for commands and tasks
+    - Reply to completion message to resume session
+    - Message editing for status updates
     """
 
     def __init__(
@@ -72,6 +68,9 @@ class DiscordTransport(Transport):
         # Channel-to-project explicit mappings (loaded from DB)
         self._channel_project_map: dict[int, str] = {}
 
+        # Message ID -> Run ID mapping for reply-based resume
+        self._message_run_map: dict[int, str] = {}
+
     @property
     def name(self) -> str:
         return "discord"
@@ -99,11 +98,7 @@ class DiscordTransport(Transport):
         self._channel_project_map = {int(m.channel_id): m.project_name for m in mappings}
         logger.info(f"Loaded {len(self._channel_project_map)} Discord channel mappings")
 
-    def _make_context(
-        self,
-        message: discord.Message,
-        thread_id: str | None = None,
-    ) -> TransportContext:
+    def _make_context(self, message: discord.Message) -> TransportContext:
         """Create TransportContext from Discord message."""
         # Resolve project from channel
         project_hint = self._resolve_project(message.channel)
@@ -112,21 +107,14 @@ class DiscordTransport(Transport):
             transport="discord",
             user_id=f"discord:{message.author.id}",
             chat_id=str(message.channel.id),
-            thread_id=thread_id,
             project_hint=project_hint,
             message_id=str(message.id),
             raw_data={"message": message},
         )
 
     def _resolve_project(self, channel: discord.abc.Messageable) -> str | None:
-        """Resolve project name from channel context.
-
-        Strategy (hybrid):
-        1. Check explicit mapping first (from DB)
-        2. Try auto-matching channel name to project name
-        3. Return None if no match (caller should prompt to link)
-        """
-        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+        """Resolve project name from channel context."""
+        if not isinstance(channel, discord.TextChannel):
             return None
 
         channel_id = channel.id
@@ -142,19 +130,6 @@ class DiscordTransport(Transport):
             return project.name
         except ProjectNotFoundError:
             pass
-
-        # 3. If this is a thread, check parent channel
-        if isinstance(channel, discord.Thread) and channel.parent:
-            parent_id = channel.parent.id
-            if parent_id in self._channel_project_map:
-                return self._channel_project_map[parent_id]
-
-            parent_name = channel.parent.name.lower().replace("-", "_")
-            try:
-                project = self.bot_core.orchestrator.get_project(parent_name)
-                return project.name
-            except ProjectNotFoundError:
-                pass
 
         return None
 
@@ -176,26 +151,17 @@ class DiscordTransport(Transport):
         """Send a message to Discord."""
         text = self.truncate_text(response.text)
 
-        # Get channel
-        channel_id = int(response.thread_id or ctx.thread_id or ctx.chat_id)
+        channel_id = int(ctx.chat_id)
         channel = self.bot.get_channel(channel_id)
 
         if not channel:
-            try:
-                channel = await self.bot.fetch_channel(channel_id)
-            except Exception as e:
-                logger.warning(f"Failed to fetch channel {channel_id}: {e}")
-                raise
+            channel = await self.bot.fetch_channel(channel_id)
 
-        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+        if not isinstance(channel, discord.TextChannel):
             raise ValueError(f"Cannot send to channel type: {type(channel)}")
 
-        try:
-            msg = await channel.send(text)
-            return str(msg.id)
-        except Exception as e:
-            logger.warning(f"Failed to send message: {e}")
-            raise
+        msg = await channel.send(text)
+        return str(msg.id)
 
     async def edit(
         self,
@@ -215,7 +181,7 @@ class DiscordTransport(Transport):
             except Exception:
                 return False
 
-        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+        if not isinstance(channel, discord.TextChannel):
             return False
 
         try:
@@ -231,50 +197,11 @@ class DiscordTransport(Transport):
         channel_id = int(ctx.chat_id)
         channel = self.bot.get_channel(channel_id)
 
-        if channel and isinstance(channel, (discord.TextChannel, discord.Thread)):
+        if channel and isinstance(channel, discord.TextChannel):
             try:
                 await channel.typing()
             except Exception as e:
                 logger.debug(f"Failed to send typing: {e}")
-
-    async def create_thread(
-        self,
-        ctx: TransportContext,
-        name: str,
-        message_id: str | None = None,
-    ) -> str:
-        """Create a Discord thread.
-
-        If message_id is provided, creates thread attached to that message.
-        Otherwise creates a standalone thread.
-        """
-        channel_id = int(ctx.chat_id)
-        channel = self.bot.get_channel(channel_id)
-
-        if not channel:
-            channel = await self.bot.fetch_channel(channel_id)
-
-        if not isinstance(channel, discord.TextChannel):
-            raise ValueError("Can only create threads in text channels")
-
-        try:
-            if message_id:
-                # Create thread from message
-                message = await channel.fetch_message(int(message_id))
-                thread = await message.create_thread(
-                    name=name[:100],  # Discord thread name limit
-                    auto_archive_duration=1440,  # 24 hours
-                )
-            else:
-                # Create standalone thread
-                thread = await channel.create_thread(
-                    name=name[:100],
-                    auto_archive_duration=1440,
-                )
-            return str(thread.id)
-        except Exception as e:
-            logger.warning(f"Failed to create thread: {e}")
-            raise
 
     async def start(self) -> None:
         """Start the Discord bot."""
@@ -299,17 +226,15 @@ class DiscordTransport(Transport):
         if message.author == self.bot.user:
             return
 
-        # Check if this is a thread reply (for session resume)
-        is_thread = isinstance(message.channel, discord.Thread)
-        has_mention = self.bot.user in message.mentions
-
-        # Thread replies without @mention trigger resume
-        if is_thread and not has_mention:
-            await self._handle_thread_reply(message)
-            return
+        # Check if this is a reply to a bot message (for session resume)
+        if message.reference and message.reference.message_id:
+            ref_id = message.reference.message_id
+            if ref_id in self._message_run_map:
+                await self._handle_reply_resume(message, ref_id)
+                return
 
         # Regular messages require @mention
-        if not has_mention:
+        if self.bot.user not in message.mentions:
             return
 
         # Extract text (strip mention)
@@ -443,10 +368,13 @@ class DiscordTransport(Transport):
         self.bot_core.store.update_run(run)
         await message.reply(f"✅ Cancelled run `{run.id[:8]}`")
 
-    async def _handle_thread_reply(self, message: discord.Message) -> None:
-        """Handle a reply in a task thread to resume the session."""
-        thread_id = str(message.channel.id)
+    async def _handle_reply_resume(self, message: discord.Message, ref_message_id: int) -> None:
+        """Handle a reply to a completion message to resume the session."""
         prompt = message.content.strip()
+
+        # Strip @mention if present
+        if self.bot.user in message.mentions:
+            prompt = re.sub(rf"<@!?{self.bot.user.id}>", "", prompt).strip()
 
         if not prompt:
             return
@@ -457,14 +385,14 @@ class DiscordTransport(Transport):
             await message.reply("You are not authorized to use this bot.")
             return
 
-        # Look up the run by thread_id
-        run = self.bot_core.store.get_run_by_thread_id(thread_id)
+        # Look up the run by message ID
+        run_id = self._message_run_map.get(ref_message_id)
+        if not run_id:
+            return
+
+        run = self.bot_core.store.get_run(run_id)
         if not run or not run.session_id:
-            # No run found or no session to resume - treat as new task if project linked
-            ctx = self._make_context(message, thread_id=thread_id)
-            project_name = ctx.project_hint
-            if project_name:
-                await self._handle_task_request(message, ctx, project_name, prompt)
+            await message.reply("Cannot resume: session not found.")
             return
 
         # Get project for the run
@@ -487,13 +415,13 @@ class DiscordTransport(Transport):
             prompt,
             initiator=user_id,
         )
-        new_run.thread_id = thread_id
-        self.bot_core.store.update_run(new_run)
 
         # Send acknowledgment
-        await message.reply(f"🔄 **Resuming session** on `{project.name}`\nRun: `{new_run.id[:8]}`")
+        status_msg = await message.reply(
+            f"🔄 **Resuming session** on `{project.name}`\nRun: `{new_run.id[:8]}`\nStatus: Running..."
+        )
 
-        ctx = self._make_context(message, thread_id=thread_id)
+        ctx = self._make_context(message)
 
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
             return await self.send(ctx, response)
@@ -506,17 +434,27 @@ class DiscordTransport(Transport):
                     run=new_run,
                     project_name=project.name,
                     send_callback=send_callback,
-                    force_new_session=False,  # Resume existing session
-                    session_id=run.session_id,  # Use previous session
+                    force_new_session=False,
+                    session_id=run.session_id,
                 )
 
-                # Update run status
+                # Update status message and track for future resume
                 run_updated = self.bot_core.store.get_run(new_run.id)
                 if run_updated:
                     emoji = "✅" if run_updated.status.value == "completed" else "❌"
-                    await message.channel.send(f"{emoji} Resume complete - `{new_run.id[:8]}`")
+                    await status_msg.edit(
+                        content=(
+                            f"{emoji} **{project.name}** - `{new_run.id[:8]}`\n"
+                            f"_{prompt[:60]}{'...' if len(prompt) > 60 else ''}_\n"
+                            f"💬 Reply to continue"
+                        )
+                    )
+                    # Track this message for future resume
+                    self._message_run_map[status_msg.id] = new_run.id
+
             except Exception:
                 logger.exception("Resume task failed")
+                await status_msg.edit(content=f"❌ **Failed** - `{new_run.id[:8]}`")
 
         task = asyncio.create_task(execute_resume())
         self.bot_core.register_task(new_run.id, task)
@@ -545,72 +483,44 @@ class DiscordTransport(Transport):
             initiator=user_id,
         )
 
-        # Send initial message (will be edited with final summary)
-        initial_msg = await message.reply(
+        # Send initial status message
+        status_msg = await message.reply(
             f"🚀 **Starting task** on `{project_name}`\nRun: `{run.id[:8]}`\nStatus: Running..."
-        )
-
-        # Create thread attached to initial message
-        thread_name = f"Run {run.id[:8]}: {prompt[:40]}..."
-        try:
-            thread_id = await self.create_thread(ctx, thread_name, str(initial_msg.id))
-            # Save thread_id to run for resume detection
-            if thread_id:
-                run.thread_id = thread_id
-                self.bot_core.store.update_run(run)
-        except Exception as e:
-            logger.warning(f"Failed to create thread: {e}")
-            thread_id = None
-
-        # Update context with thread
-        task_ctx = TransportContext(
-            transport="discord",
-            user_id=user_id,
-            chat_id=ctx.chat_id,
-            thread_id=thread_id,
-            project_hint=project_name,
-            message_id=str(initial_msg.id),
         )
 
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
             return await self.send(ctx, response)
 
-        async def create_thread_callback(ctx: TransportContext, name: str, msg_id: str | None) -> str | None:
-            # Thread already created above
-            return thread_id
-
-        # Custom execution with edit on completion
-        async def execute_with_edit():
+        # Execute task
+        async def execute_task():
             try:
                 await self.bot_core.execute_task(
-                    ctx=task_ctx,
+                    ctx=ctx,
                     run=run,
                     project_name=project_name,
                     send_callback=send_callback,
                     force_new_session=True,
-                    initial_msg_id=str(initial_msg.id),
-                    create_thread_callback=create_thread_callback,
                 )
 
-                # Edit original message with final summary
+                # Update status message with completion
                 run_updated = self.bot_core.store.get_run(run.id)
                 if run_updated:
                     emoji = "✅" if run_updated.status.value == "completed" else "❌"
-                    await self.edit(
-                        task_ctx,
-                        str(initial_msg.id),
-                        TransportResponse(
-                            text=(
-                                f"{emoji} **{project_name}** - `{run.id[:8]}`\n"
-                                f"_{prompt[:60]}{'...' if len(prompt) > 60 else ''}_"
-                            )
-                        ),
+                    await status_msg.edit(
+                        content=(
+                            f"{emoji} **{project_name}** - `{run.id[:8]}`\n"
+                            f"_{prompt[:60]}{'...' if len(prompt) > 60 else ''}_\n"
+                            f"💬 Reply to continue"
+                        )
                     )
+                    # Track this message for future resume
+                    self._message_run_map[status_msg.id] = run.id
+
             except Exception:
                 logger.exception("Task execution failed")
+                await status_msg.edit(content=f"❌ **Failed** - `{run.id[:8]}`")
 
-        # Run task in background
-        task = asyncio.create_task(execute_with_edit())
+        task = asyncio.create_task(execute_task())
         self.bot_core.register_task(run.id, task)
 
 
