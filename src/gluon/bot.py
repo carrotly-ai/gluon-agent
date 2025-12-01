@@ -91,7 +91,7 @@ class GluonBot:
             '• "Resume the last session on nextjs-demo"\n'
             '• "What\'s the status?"\n\n'
             "**Commands:**\n"
-            "/projects - List registered projects\n"
+            "/projects [filter] - List projects (filter by name)\n"
             "/sessions [project] - List sessions\n"
             "/run <project> <prompt> - Run a task\n"
             "/resume <project> [prompt] - Resume last session\n"
@@ -137,11 +137,20 @@ class GluonBot:
 
         projects = self.orchestrator.list_projects()
 
+        # Filter by search term if provided (case-insensitive substring match)
+        filter_term = context.args[0].lower() if context.args else None
+        if filter_term:
+            projects = [p for p in projects if filter_term in p.name.lower()]
+
         if not projects:
-            await update.message.reply_text("No projects registered.\nUse CLI: `gluon project add <name> <path>`")
+            if filter_term:
+                await update.message.reply_text(f"No projects matching `{filter_term}`.")
+            else:
+                await update.message.reply_text("No projects registered.\nUse CLI: `gluon project add <name> <path>`")
             return
 
-        lines = [f"**Projects ({len(projects)}):**\n"]
+        header = f"**Projects matching `{filter_term}` ({len(projects)}):**\n" if filter_term else f"**Projects ({len(projects)}):**\n"
+        lines = [header]
         for p in projects[:20]:  # Limit to first 20 projects
             sessions = self.orchestrator.list_sessions(p.name)
             # Truncate long paths
