@@ -485,14 +485,25 @@ class GluonBot:
         message_buffer: list[str] = []
         last_update_time = 0.0
 
-        async def send_update(text: str, parse_mode: str | None = None) -> None:
-            """Send a message, threading to start message if available."""
+        async def send_update(text: str, parse_mode: str | None = None, thread: bool = False) -> None:
+            """Send a message, optionally threading to start message.
+
+            Args:
+                thread: If True and thread_msg_id is set, reply to the start message.
+                       Only use for final/important messages to avoid noisy quote headers.
+            """
             try:
-                if thread_msg_id and self.app:
+                if thread and thread_msg_id and self.app:
                     await self.app.bot.send_message(
                         chat_id=chat_id,
                         text=text[:4096],
                         reply_to_message_id=thread_msg_id,
+                        parse_mode=parse_mode,
+                    )
+                elif self.app:
+                    await self.app.bot.send_message(
+                        chat_id=chat_id,
+                        text=text[:4096],
                         parse_mode=parse_mode,
                     )
                 else:
@@ -550,15 +561,16 @@ class GluonBot:
                     else:
                         run.mark_failed(result.error or "Unknown error", exit_code=1)
                         summary = f"❌ **Failed** (`{run.id[:8]}`): {result.error}"
-                    await send_update(summary, parse_mode="Markdown")
+                    # Thread completion to start message for easy reference
+                    await send_update(summary, parse_mode="Markdown", thread=True)
 
         except asyncio.CancelledError:
             run.mark_cancelled()
-            await send_update(f"Task `{run.id[:8]}` was cancelled.")
+            await send_update(f"Task `{run.id[:8]}` was cancelled.", thread=True)
         except Exception as e:
             logger.exception("Task execution failed")
             run.mark_failed(str(e), exit_code=1)
-            await send_update(f"❌ Error (`{run.id[:8]}`): {e}")
+            await send_update(f"❌ Error (`{run.id[:8]}`): {e}", thread=True)
         finally:
             self.store.update_run(run)
             if run.id in self._active_tasks:
