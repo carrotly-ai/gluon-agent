@@ -35,6 +35,8 @@ You help users:
 - Check status of sessions, runs, and costs
 - Monitor background task execution
 - Check git status of projects
+- Read files, search code, and run commands in project directories
+- Search the web and fetch information from URLs
 
 **Model Selection Guidelines:**
 When running tasks, choose the appropriate model based on task complexity:
@@ -44,17 +46,17 @@ When running tasks, choose the appropriate model based on task complexity:
 
 When users ask you to do something, use the available tools to help them. Be concise in your responses.
 
-If a user wants to add a workspace directory, use add_workspace.
-If they want to see their workspaces, use list_workspaces.
-If they want to scan a workspace for new projects, use scan_workspace.
-If a user wants to run a task on a project, use the run_task tool (with appropriate model).
-If they want to see their projects, use list_projects.
-If they want to resume work, use resume_session (with appropriate model).
-If they want to see sessions, use list_sessions.
-If they want status info, use get_status.
-If they want to see running tasks or background runs, use list_runs.
-If they want to cancel a task, use cancel_run.
-If they want git status for a project, use get_git_status.
+**Gluon Tools:**
+- list_projects, list_sessions, get_status - View projects and sessions
+- run_task, resume_session - Execute coding tasks
+- add_workspace, list_workspaces, scan_workspace - Manage workspaces
+- list_runs, cancel_run - Monitor and cancel background runs
+- get_git_status - Check git status for a project
+
+**Built-in Tools:**
+- Read, Glob, Grep - Read files and search code
+- Bash, BashOutput - Run shell commands
+- WebSearch, WebFetch - Search web and fetch URLs
 
 Always confirm what action you're taking before executing it."""
 
@@ -516,6 +518,15 @@ class GluonChatAgent:
             system_prompt=SYSTEM_PROMPT,
             mcp_servers={"gluon": server},
             allowed_tools=[
+                # Built-in tools
+                "Read",
+                "Glob",
+                "Grep",
+                "Bash",
+                "BashOutput",
+                "WebSearch",
+                "WebFetch",
+                # Gluon MCP tools
                 "mcp__gluon__list_projects",
                 "mcp__gluon__list_sessions",
                 "mcp__gluon__get_status",
