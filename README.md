@@ -58,6 +58,299 @@ gluon resume myapp 'Also add logging'
 
 - `gluon bot` - Run Telegram bot interface
 
+## Architecture
+
+### High-Level Overview
+
+```mermaid
+graph TB
+    subgraph Interfaces
+        CLI[CLI - gluon]
+        TG[Telegram Bot]
+    end
+
+    subgraph Core
+        ORCH[Orchestrator]
+        RUNNER[TaskRunner]
+        STORE[GluonStore]
+    end
+
+    subgraph Execution
+        AGENT[GluonAgent]
+        SDK[Claude Agent SDK]
+        CLAUDE[Claude CLI]
+    end
+
+    subgraph Storage
+        DB[(SQLite DB)]
+        LOGS[Log Files]
+    end
+
+    CLI --> ORCH
+    CLI --> RUNNER
+    TG --> ORCH
+    TG --> RUNNER
+
+    ORCH --> STORE
+    ORCH --> AGENT
+    RUNNER --> STORE
+    RUNNER --> AGENT
+
+    AGENT --> SDK
+    SDK --> CLAUDE
+
+    STORE --> DB
+    RUNNER --> LOGS
+
+    CLAUDE -.->|spawns| BEDROCK[AWS Bedrock]
+```
+
+### Data Model
+
+```mermaid
+erDiagram
+    Workspace ||--o{ Project : contains
+    Project ||--o{ Session : has
+    Project ||--o{ ExecutionRun : has
+    Session ||--o| ExecutionRun : "created by"
+
+    Workspace {
+        string id PK
+        string name UK
+        string path
+        int scan_depth
+        bool auto_discover
+    }
+
+    Project {
+        string id PK
+        string name UK
+        string path
+        string workspace_id FK
+    }
+
+    Session {
+        string id PK
+        string project_id FK
+        string claude_session_id
+        string status
+        float total_cost_usd
+        int total_turns
+    }
+
+    ExecutionRun {
+        string id PK
+        string project_id FK
+        string session_id FK
+        int pid
+        string status
+        string prompt
+        string initiator
+        string log_path
+    }
+```
+
+### CLI Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Orchestrator
+    participant GluonAgent
+    participant ClaudeSDK
+    participant ClaudeCLI
+
+    User->>CLI: gluon run myapp "Fix bug"
+    CLI->>Orchestrator: execute(project, prompt)
+    Orchestrator->>Orchestrator: Get/Create Session
+    Orchestrator->>GluonAgent: execute(working_dir, prompt)
+    GluonAgent->>ClaudeSDK: ClaudeSDKClient(options)
+    ClaudeSDK->>ClaudeCLI: spawn subprocess
+    GluonAgent->>ClaudeSDK: client.query(prompt)
+
+    loop Streaming Response
+        ClaudeCLI-->>ClaudeSDK: messages
+        ClaudeSDK-->>GluonAgent: AssistantMessage/ResultMessage
+        GluonAgent-->>Orchestrator: AgentMessage
+        Orchestrator-->>CLI: AgentMessage
+        CLI-->>User: Display output
+    end
+
+    ClaudeSDK-->>GluonAgent: ResultMessage (final)
+    GluonAgent-->>Orchestrator: AgentResult
+    Orchestrator->>Orchestrator: Update Session
+    Orchestrator-->>CLI: AgentResult
+    CLI-->>User: Display summary
+```
+
+### Background Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant TaskRunner
+    participant Store
+    participant GluonAgent
+    participant LogFiles
+
+    User->>CLI: gluon run myapp "Task" --background
+    CLI->>Store: create_run(project_id, prompt)
+    Store-->>CLI: ExecutionRun (PENDING)
+    CLI-->>User: "Task submitted: abc123"
+
+    CLI->>TaskRunner: submit(project_id, prompt)
+    TaskRunner->>TaskRunner: asyncio.create_task()
+
+    Note over TaskRunner: Background execution starts
+
+    TaskRunner->>Store: update_run(RUNNING)
+    TaskRunner->>GluonAgent: execute(working_dir, prompt)
+
+    loop Execution
+        GluonAgent-->>TaskRunner: AgentMessage
+        TaskRunner->>LogFiles: Write to stdout.log
+        TaskRunner->>LogFiles: Write to messages.jsonl
+    end
+
+    GluonAgent-->>TaskRunner: AgentResult
+    TaskRunner->>Store: update_run(COMPLETED/FAILED)
+
+    Note over User: Later...
+    User->>CLI: gluon logs abc123
+    CLI->>TaskRunner: get_logs(run_id)
+    TaskRunner->>LogFiles: Read logs
+    LogFiles-->>CLI: Log content
+    CLI-->>User: Display logs
+```
+
+### Telegram Bot Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Telegram
+    participant GluonBot
+    participant Store
+    participant Orchestrator
+    participant GluonAgent
+
+    User->>Telegram: /run myapp "Fix bug"
+    Telegram->>GluonBot: Update (command)
+
+    GluonBot->>GluonBot: Check authorization
+    GluonBot->>Store: list_active_runs()
+    Store-->>GluonBot: active_runs
+
+    alt Concurrency limit reached
+        GluonBot-->>Telegram: "Max concurrent runs reached"
+        Telegram-->>User: Error message
+    else Under limit
+        GluonBot->>Store: create_run(project_id, prompt, initiator)
+        Store-->>GluonBot: ExecutionRun
+        GluonBot-->>Telegram: "Task started: abc123"
+        Telegram-->>User: Confirmation
+
+        GluonBot->>GluonBot: asyncio.create_task(_execute_task_with_runner)
+
+        loop Execution with Semaphore
+            GluonAgent-->>GluonBot: AgentMessage
+            GluonBot-->>Telegram: Progress update
+            Telegram-->>User: Status message
+        end
+
+        GluonAgent-->>GluonBot: AgentResult
+        GluonBot->>Store: update_run(status)
+        GluonBot-->>Telegram: "Complete" or "Failed"
+        Telegram-->>User: Final result
+    end
+```
+
+### Bot Startup Recovery
+
+```mermaid
+flowchart TD
+    A[Bot Starts] --> B[_recover_stale_runs]
+    B --> C{Any active runs<br/>from telegram:*?}
+    C -->|Yes| D[Mark as FAILED<br/>'Bot restarted']
+    C -->|No| E[Continue]
+    D --> E
+    E --> F[build_application]
+    F --> G[Start Polling]
+    G --> H[Ready for Commands]
+```
+
+### Agent Execution Detail
+
+```mermaid
+flowchart LR
+    subgraph GluonAgent
+        A[execute] --> B[Build Options]
+        B --> C[ClaudeSDKClient]
+    end
+
+    subgraph ClaudeSDK
+        C --> D[query prompt]
+        D --> E[receive_response]
+    end
+
+    subgraph "Claude CLI Process"
+        E --> F[claude CLI]
+        F --> G[AWS Bedrock API]
+    end
+
+    G --> H{Model}
+    H --> I[claude-opus-4.5]
+    H --> J[claude-sonnet-4.5]
+    H --> K[claude-haiku-4.5]
+
+    style G fill:#ff9900
+    style I fill:#6b5b95
+    style J fill:#88b04b
+    style K fill:#92a8d1
+```
+
+### Concurrency Model
+
+```mermaid
+flowchart TB
+    subgraph "Telegram Bot Process"
+        SEM[Semaphore<br/>max_concurrent=5]
+
+        subgraph "Active Tasks"
+            T1[Task 1<br/>run_id: abc]
+            T2[Task 2<br/>run_id: def]
+            T3[Task 3<br/>run_id: ghi]
+        end
+
+        SEM --> T1
+        SEM --> T2
+        SEM --> T3
+    end
+
+    subgraph "SQLite Store"
+        DB[(gluon.db)]
+        R1[ExecutionRun abc<br/>RUNNING]
+        R2[ExecutionRun def<br/>RUNNING]
+        R3[ExecutionRun ghi<br/>RUNNING]
+    end
+
+    T1 -.-> R1
+    T2 -.-> R2
+    T3 -.-> R3
+
+    subgraph "Log Files"
+        L1[~/.gluon/logs/abc/]
+        L2[~/.gluon/logs/def/]
+        L3[~/.gluon/logs/ghi/]
+    end
+
+    T1 --> L1
+    T2 --> L2
+    T3 --> L3
+```
+
 ## Background Execution
 
 Gluon supports running tasks in the background with persistent tracking:
@@ -142,12 +435,30 @@ gluon bot --token "your-bot-token" --users "123456789"
 
 ### Model Selection
 
-Use the `--model` flag to select a model tier:
+Gluon uses Claude models via AWS Bedrock:
+
+| Tier | Model | Use Case |
+|------|-------|----------|
+| `haiku` | claude-haiku-4.5 | Fast, economical tasks |
+| `sonnet` | claude-sonnet-4.5 | Balanced performance (default) |
+| `opus` | claude-opus-4.5 | Complex, demanding tasks |
 
 ```bash
-gluon run myapp 'Fix bug' --model haiku    # Fast, economical
-gluon run myapp 'Complex refactor' --model sonnet  # Balanced (default)
-gluon run myapp 'Architecture review' --model opus  # Most capable
+gluon run myapp 'Fix bug' --model haiku
+gluon run myapp 'Complex refactor' --model sonnet
+gluon run myapp 'Architecture review' --model opus
+```
+
+## File Structure
+
+```
+~/.gluon/
+├── gluon.db          # SQLite database (projects, sessions, runs)
+└── logs/
+    └── <run_id>/     # Per-run log directories
+        ├── stdout.log
+        ├── stderr.log
+        └── messages.jsonl
 ```
 
 ## Development
@@ -163,14 +474,8 @@ ruff check src/ tests/
 ruff format src/ tests/
 ```
 
-## Architecture
+## Limitations
 
-```
-~/.gluon/
-├── gluon.db          # SQLite database (projects, sessions, runs)
-└── logs/
-    └── <run_id>/     # Per-run log directories
-        ├── stdout.log
-        ├── stderr.log
-        └── messages.jsonl
-```
+- **No interactive STDIN**: Once a task starts, you cannot send additional input to the running Claude process. To continue work, wait for completion and use `resume` with a new prompt.
+- **Single-process concurrency**: The semaphore only limits concurrency within a single process. Multiple CLI `--background` invocations each run in separate processes.
+- **Fire-and-forget execution**: The Claude Agent SDK sends the prompt once via `client.query()` and then only receives responses.
