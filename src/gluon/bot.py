@@ -35,7 +35,7 @@ class GluonBot:
         self,
         token: str,
         allowed_users: list[int] | None = None,
-        max_concurrent: int = 5,
+        max_concurrent: int = 16,
     ):
         """
         Initialize the Gluon Telegram bot.

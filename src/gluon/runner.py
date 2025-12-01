@@ -22,7 +22,7 @@ from gluon.store import DEFAULT_LOG_PATH, GluonStore
 class RunnerConfig:
     """Configuration for the task runner."""
 
-    max_concurrent: int = 3  # Max parallel runs
+    max_concurrent: int = 16  # Max parallel runs
     log_path: Path = DEFAULT_LOG_PATH
 
 
