@@ -301,31 +301,41 @@ class GluonBot:
             await update.message.reply_text(f"Error: {e}")
             return
 
-        # Check if second arg looks like a session ID (4-36 hex chars)
+        # Check if second arg looks like a session/run ID (4-36 hex chars)
         session = None
-        session_id_arg = None
+        id_arg = None
         prompt_start_idx = 1
 
         if len(context.args) > 1:
-            potential_session_id = context.args[1]
-            # Session IDs are hex UUIDs - check if it looks like one
-            if 4 <= len(potential_session_id) <= 36 and all(
-                c in "0123456789abcdef-" for c in potential_session_id.lower()
+            potential_id = context.args[1]
+            # IDs are hex UUIDs - check if it looks like one
+            if 4 <= len(potential_id) <= 36 and all(
+                c in "0123456789abcdef-" for c in potential_id.lower()
             ):
-                # Try to find this session
-                session = self.store.get_session_by_short_id(potential_session_id, project.id)
+                # First try as a session ID
+                session = self.store.get_session_by_short_id(potential_id, project.id)
                 if session:
-                    session_id_arg = potential_session_id
+                    id_arg = potential_id
                     prompt_start_idx = 2
+                else:
+                    # Try as a run ID - get the session from the run
+                    run_lookup = self.store.get_run_by_short_id(potential_id)
+                    if run_lookup and run_lookup.session_id:
+                        session = self.store.get_session(run_lookup.session_id)
+                        if session and session.project_id == project.id:
+                            id_arg = potential_id
+                            prompt_start_idx = 2
+                        else:
+                            session = None  # Wrong project
 
         # If no specific session requested, get the latest resumable one
         if not session:
             session = self.orchestrator.get_resumable_session(project)
 
         if not session or not session.claude_session_id:
-            if session_id_arg:
+            if id_arg:
                 await update.message.reply_text(
-                    f"Session `{session_id_arg}` not found for `{project_name}`.",
+                    f"Session/run `{id_arg}` not found for `{project_name}`.",
                     parse_mode="Markdown",
                 )
             else:
