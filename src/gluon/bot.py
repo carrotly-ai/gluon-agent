@@ -418,13 +418,6 @@ class GluonBot:
                                 message_buffer.clear()
                                 last_update_time = current_time
 
-                        elif item.type == "tool_use":
-                            tool_name = item.metadata.get("tool", "unknown") if item.metadata else "unknown"
-                            try:
-                                await update.message.reply_text(f"🔧 Using: {tool_name}")
-                            except Exception:
-                                pass
-
                     elif isinstance(item, AgentResult):
                         result = item
 
@@ -500,14 +493,6 @@ class GluonBot:
                                 logger.warning(f"Failed to send update: {e}")
                             message_buffer.clear()
                             last_update_time = current_time
-
-                    elif item.type == "tool_use":
-                        # Notify about tool usage
-                        tool_name = item.metadata.get("tool", "unknown") if item.metadata else "unknown"
-                        try:
-                            await update.message.reply_text(f"🔧 Using: {tool_name}")
-                        except Exception:
-                            pass
 
                 elif isinstance(item, AgentResult):
                     result = item
