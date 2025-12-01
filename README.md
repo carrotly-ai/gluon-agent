@@ -488,7 +488,7 @@ gluon bot --token "your-bot-token" --users "123456789"
 - `/projects` - List registered projects
 - `/sessions [project]` - List sessions
 - `/run <project> <prompt>` - Run a task
-- `/resume <project> [prompt]` - Resume last session
+- `/resume <project> [session_id] [prompt]` - Resume session (latest or specific)
 - `/runs` - List your background runs
 - `/runs all` - List all runs
 - `/status` - Show overall status

@@ -393,6 +393,25 @@ class GluonStore:
                 return self._row_to_session(row)
         return None
 
+    def get_session_by_short_id(self, short_id: str, project_id: str | None = None) -> Session | None:
+        """Get session by short ID prefix (at least 4 chars), optionally filtered by project."""
+        if len(short_id) < 4:
+            return None
+        with self._get_conn() as conn:
+            if project_id:
+                row = conn.execute(
+                    "SELECT * FROM sessions WHERE id LIKE ? AND project_id = ? LIMIT 1",
+                    (f"{short_id}%", project_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM sessions WHERE id LIKE ? LIMIT 1",
+                    (f"{short_id}%",),
+                ).fetchone()
+            if row:
+                return self._row_to_session(row)
+        return None
+
     def get_latest_session(
         self,
         project_id: str,

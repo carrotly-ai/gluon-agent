@@ -284,25 +284,62 @@ class GluonBot:
 
         if not context.args:
             await update.message.reply_text(
-                "Usage: /resume <project> [prompt]\nExample: /resume myapp Also add logging"
+                "Usage: /resume <project> [session\\_id] [prompt]\n"
+                "Examples:\n"
+                "  /resume myapp\n"
+                "  /resume myapp 36bac5aa\n"
+                "  /resume myapp 36bac5aa Also add logging",
+                parse_mode="Markdown",
             )
             return
 
         project_name = context.args[0]
-        prompt = " ".join(context.args[1:]) if len(context.args) > 1 else "Continue from where you left off."
 
         try:
             project = self.orchestrator.get_project(project_name)
+        except ProjectNotFoundError as e:
+            await update.message.reply_text(f"Error: {e}")
+            return
+
+        # Check if second arg looks like a session ID (4-36 hex chars)
+        session = None
+        session_id_arg = None
+        prompt_start_idx = 1
+
+        if len(context.args) > 1:
+            potential_session_id = context.args[1]
+            # Session IDs are hex UUIDs - check if it looks like one
+            if 4 <= len(potential_session_id) <= 36 and all(
+                c in "0123456789abcdef-" for c in potential_session_id.lower()
+            ):
+                # Try to find this session
+                session = self.store.get_session_by_short_id(potential_session_id, project.id)
+                if session:
+                    session_id_arg = potential_session_id
+                    prompt_start_idx = 2
+
+        # If no specific session requested, get the latest resumable one
+        if not session:
             session = self.orchestrator.get_resumable_session(project)
-            if not session or not session.claude_session_id:
+
+        if not session or not session.claude_session_id:
+            if session_id_arg:
+                await update.message.reply_text(
+                    f"Session `{session_id_arg}` not found for `{project_name}`.",
+                    parse_mode="Markdown",
+                )
+            else:
                 await update.message.reply_text(
                     f"No resumable session for `{project_name}`.\nUse /run to start a new session.",
                     parse_mode="Markdown",
                 )
-                return
-        except ProjectNotFoundError as e:
-            await update.message.reply_text(f"Error: {e}")
             return
+
+        prompt = (
+            " ".join(context.args[prompt_start_idx:])
+            if len(context.args) > prompt_start_idx
+            else "Continue from where you left off."
+        )
 
         # Check global concurrency limit
         active_runs = self.store.list_active_runs()
@@ -318,8 +355,9 @@ class GluonBot:
         run = self.store.create_run(project.id, prompt, initiator=initiator)
 
         await update.message.reply_text(
-            f"🔄 Resuming session: `{run.id[:8]}`\n"
+            f"🔄 Resuming session: `{session.id[:8]}`\n"
             f"Project: `{project_name}`\n"
+            f"Run: `{run.id[:8]}`\n"
             f"Use /runs to check status",
             parse_mode="Markdown",
         )
