@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 from gluon.agent import AgentMessage, AgentResult
-from gluon.chat_agent import GluonChatAgent
+from gluon.chat_agent import ChatMessage, GluonChatAgent
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.git_manager import GitManager
 from gluon.models import ExecutionRun, RunStatus
@@ -60,6 +60,9 @@ class GluonBot:
         self._semaphore = asyncio.Semaphore(max_concurrent)
         # Enable/disable natural language mode
         self.nl_mode_enabled = True
+        # Message history per user for context (last 10 messages)
+        self._message_history: dict[int, list[ChatMessage]] = {}
+        self._max_history_per_user = 10
 
     def _is_authorized(self, user_id: int) -> bool:
         """Check if a user is authorized to use the bot."""
@@ -585,6 +588,21 @@ class GluonBot:
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+    def _add_to_history(self, user_id: int, role: str, text: str) -> None:
+        """Add a message to user's conversation history."""
+        if user_id not in self._message_history:
+            self._message_history[user_id] = []
+
+        self._message_history[user_id].append(ChatMessage(role=role, text=text))
+
+        # Trim to max history
+        if len(self._message_history[user_id]) > self._max_history_per_user:
+            self._message_history[user_id] = self._message_history[user_id][-self._max_history_per_user :]
+
+    def _get_history(self, user_id: int) -> list[ChatMessage]:
+        """Get conversation history for a user."""
+        return self._message_history.get(user_id, [])
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle plain text messages using natural language understanding."""
         if not update.effective_user or not update.message or not update.message.text:
@@ -610,18 +628,38 @@ class GluonBot:
 
         message_text = update.message.text
 
+        # Extract reply context if user is replying to a message
+        reply_context: str | None = None
+        if update.message.reply_to_message and update.message.reply_to_message.text:
+            reply_context = update.message.reply_to_message.text
+
+        # Get conversation history for this user
+        history = self._get_history(user_id)
+
         # Show typing indicator
         await update.message.chat.send_action("typing")
 
         try:
-            # Use chat agent to interpret the message
-            response = await self.chat_agent.chat(message_text)
+            # Use chat agent to interpret the message with context
+            response = await self.chat_agent.chat(
+                message_text,
+                history=history,
+                reply_context=reply_context,
+            )
+
+            # Store user message in history
+            self._add_to_history(user_id, "user", message_text)
 
             # Send the response text
+            response_text = ""
             if response.text:
                 # Split long messages
-                text = response.text[:4000]
-                await update.message.reply_text(text, parse_mode="Markdown")
+                response_text = response.text[:4000]
+                await update.message.reply_text(response_text, parse_mode="Markdown")
+
+            # Store assistant response in history
+            if response_text:
+                self._add_to_history(user_id, "assistant", response_text)
 
             # Check if there's a pending task to execute
             pending_task = self.chat_agent.get_pending_task()

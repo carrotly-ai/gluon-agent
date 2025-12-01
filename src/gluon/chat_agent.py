@@ -55,6 +55,14 @@ Always confirm what action you're taking before executing it."""
 
 
 @dataclass
+class ChatMessage:
+    """A message in the conversation history."""
+
+    role: str  # "user" or "assistant"
+    text: str
+
+
+@dataclass
 class ChatResponse:
     """Response from the chat agent."""
 
@@ -317,13 +325,42 @@ class GluonChatAgent:
             scan_workspace,
         ]
 
-    async def chat(self, message: str) -> ChatResponse:
+    async def chat(
+        self,
+        message: str,
+        history: list[ChatMessage] | None = None,
+        reply_context: str | None = None,
+    ) -> ChatResponse:
         """
         Process a natural language message and return a response.
+
+        Args:
+            message: The user's message
+            history: Recent conversation history (oldest first)
+            reply_context: If the user is replying to a specific message, that message's text
 
         May set self._pending_task if an action needs to be executed by the caller.
         """
         self._pending_task = None
+
+        # Build the full message with context
+        full_message = ""
+
+        # Add reply context if present (user is replying to a specific message)
+        if reply_context:
+            full_message += f"[User is replying to this previous message: \"{reply_context}\"]\n\n"
+
+        # Add recent conversation history
+        if history:
+            full_message += "[Recent conversation history:]\n"
+            for msg in history[-10:]:  # Last 10 messages max
+                prefix = "User" if msg.role == "user" else "Assistant"
+                # Truncate long messages in history
+                text = msg.text[:500] + "..." if len(msg.text) > 500 else msg.text
+                full_message += f"{prefix}: {text}\n"
+            full_message += "\n[Current message:]\n"
+
+        full_message += message
 
         tools = self._create_tools()
         server = create_sdk_mcp_server(
@@ -372,7 +409,7 @@ class GluonChatAgent:
 
         try:
             async with ClaudeSDKClient(options=options) as client:
-                await client.query(message)
+                await client.query(full_message)
 
                 async for msg in client.receive_response():
                     if isinstance(msg, AssistantMessage):
