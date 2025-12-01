@@ -75,6 +75,8 @@ MIGRATIONS = [
     "ALTER TABLE projects ADD COLUMN git_last_fetch_at TEXT;",
     "ALTER TABLE projects ADD COLUMN git_last_push_at TEXT;",
     "ALTER TABLE projects ADD COLUMN git_last_commit_at TEXT;",
+    # Thread tracking for session resume
+    "ALTER TABLE execution_runs ADD COLUMN thread_id TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -713,7 +715,7 @@ class GluonStore:
                 """
                 UPDATE execution_runs
                 SET session_id = ?, pid = ?, status = ?, started_at = ?,
-                    completed_at = ?, exit_code = ?, log_path = ?, error_message = ?
+                    completed_at = ?, exit_code = ?, log_path = ?, error_message = ?, thread_id = ?
                 WHERE id = ?
                 """,
                 (
@@ -725,6 +727,7 @@ class GluonStore:
                     run.exit_code,
                     str(run.log_path) if run.log_path else None,
                     run.error_message,
+                    run.thread_id,
                     run.id,
                 ),
             )
@@ -745,6 +748,7 @@ class GluonStore:
             status=RunStatus(row["status"]),
             prompt=row["prompt"],
             initiator=row["initiator"] if "initiator" in row.keys() else None,
+            thread_id=row["thread_id"] if "thread_id" in row.keys() else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
             completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
@@ -752,6 +756,17 @@ class GluonStore:
             log_path=Path(row["log_path"]) if row["log_path"] else None,
             error_message=row["error_message"],
         )
+
+    def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
+        """Get the most recent execution run for a thread ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM execution_runs WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1",
+                (thread_id,),
+            ).fetchone()
+            if row:
+                return self._row_to_run(row)
+        return None
 
     def get_run_with_project(self, run_id: str) -> tuple[ExecutionRun, Project] | None:
         """Get run and its associated project."""

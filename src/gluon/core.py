@@ -309,6 +309,7 @@ class Orchestrator:
         force_new_session: bool = False,
         model: ModelTier | str | None = None,
         run_id: str | None = None,
+        session_id: str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -322,6 +323,7 @@ class Orchestrator:
             force_new_session: Force creation of new session
             model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
             run_id: Optional run ID for git commit metadata
+            session_id: Specific session ID to resume (overrides auto-detection)
 
         Yields:
             AgentMessage during execution
@@ -345,7 +347,12 @@ class Orchestrator:
         session: Session | None = None
         resume_session_id: str | None = None
 
-        if not force_new_session:
+        # If specific session_id provided, use that
+        if session_id:
+            session = self.store.get_session(session_id)
+            if session and session.claude_session_id:
+                resume_session_id = session.claude_session_id
+        elif not force_new_session:
             session = self.get_resumable_session(project)
             if session and session.claude_session_id:
                 resume_session_id = session.claude_session_id

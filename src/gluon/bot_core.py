@@ -235,6 +235,7 @@ class GluonBotCore:
         send_callback: SendCallback,
         model: ModelTier | str | None = None,
         force_new_session: bool = True,
+        session_id: str | None = None,
         initial_msg_id: str | None = None,
         create_thread_callback: Callable[[TransportContext, str, str | None], Coroutine[Any, Any, str | None]]
         | None = None,
@@ -251,6 +252,7 @@ class GluonBotCore:
             send_callback: Async callback to send messages
             model: Model tier to use
             force_new_session: Force new session vs resume
+            session_id: Specific session ID to resume (from previous run)
             initial_msg_id: ID of initial message (for threading)
             create_thread_callback: Optional callback to create threads
         """
@@ -292,6 +294,7 @@ class GluonBotCore:
                     run.prompt,
                     force_new_session=force_new_session,
                     model=model,
+                    session_id=session_id,
                 )
 
                 async for item in execution:

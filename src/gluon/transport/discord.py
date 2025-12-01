@@ -299,8 +299,17 @@ class DiscordTransport(Transport):
         if message.author == self.bot.user:
             return
 
-        # Check for @mention
-        if self.bot.user not in message.mentions:
+        # Check if this is a thread reply (for session resume)
+        is_thread = isinstance(message.channel, discord.Thread)
+        has_mention = self.bot.user in message.mentions
+
+        # Thread replies without @mention trigger resume
+        if is_thread and not has_mention:
+            await self._handle_thread_reply(message)
+            return
+
+        # Regular messages require @mention
+        if not has_mention:
             return
 
         # Extract text (strip mention)
@@ -434,6 +443,84 @@ class DiscordTransport(Transport):
         self.bot_core.store.update_run(run)
         await message.reply(f"✅ Cancelled run `{run.id[:8]}`")
 
+    async def _handle_thread_reply(self, message: discord.Message) -> None:
+        """Handle a reply in a task thread to resume the session."""
+        thread_id = str(message.channel.id)
+        prompt = message.content.strip()
+
+        if not prompt:
+            return
+
+        # Check authorization
+        user_id = f"discord:{message.author.id}"
+        if not self.is_authorized(user_id):
+            await message.reply("You are not authorized to use this bot.")
+            return
+
+        # Look up the run by thread_id
+        run = self.bot_core.store.get_run_by_thread_id(thread_id)
+        if not run or not run.session_id:
+            # No run found or no session to resume - treat as new task if project linked
+            ctx = self._make_context(message, thread_id=thread_id)
+            project_name = ctx.project_hint
+            if project_name:
+                await self._handle_task_request(message, ctx, project_name, prompt)
+            return
+
+        # Get project for the run
+        project = self.bot_core.store.get_project(run.project_id)
+        if not project:
+            await message.reply("Project not found for this session.")
+            return
+
+        # Check capacity
+        if self.bot_core.is_at_capacity():
+            await message.reply(
+                f"Max concurrent runs ({self.bot_core._semaphore._value}) reached.\n"
+                "Use `runs` to see active runs or `cancel` to stop one."
+            )
+            return
+
+        # Create new run for the resume
+        new_run = self.bot_core.store.create_run(
+            project.id,
+            prompt,
+            initiator=user_id,
+        )
+        new_run.thread_id = thread_id
+        self.bot_core.store.update_run(new_run)
+
+        # Send acknowledgment
+        await message.reply(f"🔄 **Resuming session** on `{project.name}`\nRun: `{new_run.id[:8]}`")
+
+        ctx = self._make_context(message, thread_id=thread_id)
+
+        async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
+            return await self.send(ctx, response)
+
+        # Execute resume task
+        async def execute_resume():
+            try:
+                await self.bot_core.execute_task(
+                    ctx=ctx,
+                    run=new_run,
+                    project_name=project.name,
+                    send_callback=send_callback,
+                    force_new_session=False,  # Resume existing session
+                    session_id=run.session_id,  # Use previous session
+                )
+
+                # Update run status
+                run_updated = self.bot_core.store.get_run(new_run.id)
+                if run_updated:
+                    emoji = "✅" if run_updated.status.value == "completed" else "❌"
+                    await message.channel.send(f"{emoji} Resume complete - `{new_run.id[:8]}`")
+            except Exception:
+                logger.exception("Resume task failed")
+
+        task = asyncio.create_task(execute_resume())
+        self.bot_core.register_task(new_run.id, task)
+
     async def _handle_task_request(
         self,
         message: discord.Message,
@@ -467,6 +554,10 @@ class DiscordTransport(Transport):
         thread_name = f"Run {run.id[:8]}: {prompt[:40]}..."
         try:
             thread_id = await self.create_thread(ctx, thread_name, str(initial_msg.id))
+            # Save thread_id to run for resume detection
+            if thread_id:
+                run.thread_id = thread_id
+                self.bot_core.store.update_run(run)
         except Exception as e:
             logger.warning(f"Failed to create thread: {e}")
             thread_id = None
