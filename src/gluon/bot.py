@@ -19,6 +19,7 @@ from telegram.ext import (
 from gluon.agent import AgentMessage, AgentResult
 from gluon.chat_agent import GluonChatAgent
 from gluon.core import Orchestrator, ProjectNotFoundError
+from gluon.git_manager import GitManager
 from gluon.models import ExecutionRun, RunStatus
 from gluon.models_config import ModelTier
 from gluon.runner import TaskRunner, format_duration, format_run_status
@@ -48,7 +49,8 @@ class GluonBot:
         self.token = token
         self.allowed_users = allowed_users
         self.store = GluonStore()
-        self.orchestrator = Orchestrator(store=self.store)
+        self.git_manager = GitManager(store=self.store)
+        self.orchestrator = Orchestrator(store=self.store, git_manager=self.git_manager)
         self.runner = TaskRunner(store=self.store)
         self.chat_agent = GluonChatAgent(self.orchestrator)
         self.app: Application | None = None
@@ -693,6 +695,9 @@ class GluonBot:
         # Recover stale runs from previous bot instances
         self._recover_stale_runs()
 
+        # Start background git sync
+        await self.git_manager.start_background_sync()
+
         await app.initialize()
         await app.start()
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)  # type: ignore
@@ -706,6 +711,8 @@ class GluonBot:
         except asyncio.CancelledError:
             pass
         finally:
+            # Stop background git sync
+            await self.git_manager.stop_background_sync()
             await app.updater.stop()  # type: ignore
             await app.stop()
             await app.shutdown()

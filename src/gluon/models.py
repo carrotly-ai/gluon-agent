@@ -206,3 +206,81 @@ class ExecutionRun(BaseModel):
             return None
         end = self.completed_at or datetime.now()
         return (end - self.started_at).total_seconds()
+
+
+# ========== Git Models ==========
+
+
+class GitStatus(BaseModel):
+    """Git repository status for a project (cached in database)."""
+
+    is_git_repo: bool = False
+    branch: str | None = None
+    remote: str | None = None  # e.g., "origin"
+    remote_url: str | None = None
+
+    # Working tree status
+    has_uncommitted: bool = False
+    uncommitted_count: int = 0
+
+    # Sync status relative to remote
+    commits_ahead: int = 0  # Local commits not pushed
+    commits_behind: int = 0  # Remote commits not pulled
+
+    # Timestamps
+    last_fetch_at: datetime | None = None
+    last_push_at: datetime | None = None
+    last_commit_at: datetime | None = None
+
+    @property
+    def is_diverged(self) -> bool:
+        """True if local and remote have diverged (both ahead and behind)."""
+        return self.commits_ahead > 0 and self.commits_behind > 0
+
+    @property
+    def is_clean(self) -> bool:
+        """True if working tree is clean and in sync with remote."""
+        return (
+            not self.has_uncommitted
+            and self.commits_ahead == 0
+            and self.commits_behind == 0
+        )
+
+    @property
+    def needs_pull(self) -> bool:
+        """True if behind remote and can fast-forward."""
+        return self.commits_behind > 0 and self.commits_ahead == 0
+
+    @property
+    def needs_push(self) -> bool:
+        """True if ahead of remote."""
+        return self.commits_ahead > 0 and self.commits_behind == 0
+
+
+class GitSyncResult(BaseModel):
+    """Result of a git sync operation."""
+
+    success: bool
+    action: str  # "none", "commit", "pull", "push", "commit+push", "commit+pull+push"
+    message: str
+    error: str | None = None
+
+    # Operation details
+    commits_pulled: int = 0
+    commits_pushed: int = 0
+    files_committed: int = 0
+
+    @classmethod
+    def ok(cls, action: str, message: str, **kwargs: Any) -> "GitSyncResult":
+        """Create a successful result."""
+        return cls(success=True, action=action, message=message, **kwargs)
+
+    @classmethod
+    def fail(cls, error: str, action: str = "none") -> "GitSyncResult":
+        """Create a failed result."""
+        return cls(success=False, action=action, message=f"Failed: {error}", error=error)
+
+    @classmethod
+    def skip(cls, reason: str) -> "GitSyncResult":
+        """Create a skipped result (not a git repo, etc.)."""
+        return cls(success=True, action="none", message=reason)

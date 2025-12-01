@@ -19,6 +19,7 @@ from gluon.core import (
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
+from gluon.git_manager import GitManager
 from gluon.models import RunStatus
 from gluon.models_config import ModelTier, describe_models
 from gluon.runner import TaskRunner, format_duration, format_run_status
@@ -41,6 +42,9 @@ app.add_typer(project_app, name="project")
 
 workspace_app = typer.Typer(help="Manage workspaces")
 app.add_typer(workspace_app, name="workspace")
+
+git_app = typer.Typer(help="Git operations for projects")
+app.add_typer(git_app, name="git")
 
 console = Console()
 
@@ -293,6 +297,203 @@ def workspace_projects(
         table.add_row(p.name, str(p.path), str(len(sessions)))
 
     console.print(table)
+
+
+# ========== Git Commands ==========
+
+
+@git_app.command("status")
+def git_status(
+    project: Annotated[str | None, typer.Argument(help="Project name (optional, shows all if not specified)")] = None,
+):
+    """Show git status for project(s)."""
+    store = GluonStore()
+    git_manager = GitManager(store=store)
+    orchestrator = get_orchestrator()
+
+    if project:
+        try:
+            proj = orchestrator.get_project(project)
+            projects = [proj]
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+    else:
+        projects = orchestrator.list_projects()
+
+    if not projects:
+        console.print("[dim]No projects registered.[/dim]")
+        return
+
+    table = Table(title="Git Status")
+    table.add_column("Project", style="cyan")
+    table.add_column("Branch")
+    table.add_column("Remote")
+    table.add_column("Status")
+    table.add_column("Ahead/Behind")
+    table.add_column("Last Fetch", style="dim")
+
+    for proj in projects:
+        status = git_manager.get_cached_status(proj)
+
+        if not status or not status.is_git_repo:
+            table.add_row(proj.name, "-", "-", "[dim]Not a git repo[/dim]", "-", "-")
+            continue
+
+        # Status indicator
+        if status.is_diverged:
+            status_text = "[red]Diverged[/red]"
+        elif status.has_uncommitted:
+            status_text = f"[yellow]{status.uncommitted_count} uncommitted[/yellow]"
+        elif status.is_clean:
+            status_text = "[green]Clean[/green]"
+        else:
+            status_text = "[yellow]Changes pending[/yellow]"
+
+        # Ahead/behind
+        ahead_behind = ""
+        if status.commits_ahead > 0:
+            ahead_behind += f"[green]+{status.commits_ahead}[/green]"
+        if status.commits_behind > 0:
+            if ahead_behind:
+                ahead_behind += "/"
+            ahead_behind += f"[yellow]-{status.commits_behind}[/yellow]"
+        if not ahead_behind:
+            ahead_behind = "[dim]-[/dim]"
+
+        # Last fetch time
+        last_fetch = "-"
+        if status.last_fetch_at:
+            last_fetch = status.last_fetch_at.strftime("%Y-%m-%d %H:%M")
+
+        table.add_row(
+            proj.name,
+            status.branch or "-",
+            status.remote or "-",
+            status_text,
+            ahead_behind,
+            last_fetch,
+        )
+
+    console.print(table)
+
+
+@git_app.command("fetch")
+def git_fetch(
+    project: Annotated[str | None, typer.Argument(help="Project name (optional, fetches all if not specified)")] = None,
+):
+    """Fetch latest changes from remote for project(s)."""
+    store = GluonStore()
+    git_manager = GitManager(store=store)
+    orchestrator = get_orchestrator()
+
+    if project:
+        try:
+            proj = orchestrator.get_project(project)
+            projects = [proj]
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+    else:
+        projects = orchestrator.list_projects()
+
+    if not projects:
+        console.print("[dim]No projects registered.[/dim]")
+        return
+
+    async def _fetch():
+        for proj in projects:
+            console.print(f"Fetching {proj.name}...", end=" ")
+            status = await git_manager.refresh_status(proj)
+
+            if not status.is_git_repo:
+                console.print("[dim]skipped (not a git repo)[/dim]")
+                continue
+
+            if status.is_diverged:
+                console.print(
+                    f"[red]diverged[/red] ({status.commits_ahead} ahead, {status.commits_behind} behind)"
+                )
+            elif status.commits_behind > 0:
+                console.print(f"[yellow]{status.commits_behind} commits behind[/yellow]")
+            elif status.commits_ahead > 0:
+                console.print(f"[green]{status.commits_ahead} commits ahead[/green]")
+            else:
+                console.print("[green]up to date[/green]")
+
+    anyio.run(_fetch)
+
+
+@git_app.command("sync")
+def git_sync(
+    project: Annotated[str, typer.Argument(help="Project name")],
+):
+    """Sync a project: commit uncommitted changes, fetch, and fast-forward."""
+    store = GluonStore()
+    git_manager = GitManager(store=store)
+    orchestrator = get_orchestrator()
+
+    try:
+        proj = orchestrator.get_project(project)
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    async def _sync():
+        console.print(f"Syncing {proj.name}...")
+        result = await git_manager.pre_task_sync(proj)
+
+        if not result.success:
+            console.print(f"[red]Error:[/red] {result.error}")
+            raise typer.Exit(1)
+
+        if result.action == "none":
+            console.print(f"[green]✓[/green] {result.message}")
+        else:
+            console.print(f"[green]✓[/green] {result.message}")
+            if result.files_committed > 0:
+                console.print(f"  Committed {result.files_committed} files")
+            if result.commits_pulled > 0:
+                console.print(f"  Pulled {result.commits_pulled} commits")
+
+    anyio.run(_sync)
+
+
+@git_app.command("push")
+def git_push(
+    project: Annotated[str, typer.Argument(help="Project name")],
+    message: Annotated[str | None, typer.Option("--message", "-m", help="Commit message")] = None,
+):
+    """Commit any uncommitted changes and push to remote."""
+    store = GluonStore()
+    git_manager = GitManager(store=store)
+    orchestrator = get_orchestrator()
+
+    try:
+        proj = orchestrator.get_project(project)
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    async def _push():
+        console.print(f"Pushing {proj.name}...")
+        commit_msg = message or "gluon: manual push"
+        result = await git_manager.post_task_sync(proj, commit_msg)
+
+        if not result.success:
+            console.print(f"[red]Error:[/red] {result.error}")
+            raise typer.Exit(1)
+
+        if result.action == "none":
+            console.print(f"[green]✓[/green] {result.message}")
+        else:
+            console.print(f"[green]✓[/green] {result.message}")
+            if result.files_committed > 0:
+                console.print(f"  Committed {result.files_committed} files")
+            if result.commits_pushed > 0:
+                console.print("  Pushed to remote")
+
+    anyio.run(_push)
 
 
 # ========== Execution Commands ==========

@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from gluon.models import ExecutionRun, Project, RunStatus, Session, SessionStatus, Workspace
+from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
 
@@ -64,6 +64,17 @@ MIGRATIONS = [
     -- Add initiator to execution_runs if not exists
     ALTER TABLE execution_runs ADD COLUMN initiator TEXT;
     """,
+    # Git status columns
+    "ALTER TABLE projects ADD COLUMN git_is_repo INTEGER DEFAULT 0;",
+    "ALTER TABLE projects ADD COLUMN git_branch TEXT;",
+    "ALTER TABLE projects ADD COLUMN git_remote TEXT;",
+    "ALTER TABLE projects ADD COLUMN git_remote_url TEXT;",
+    "ALTER TABLE projects ADD COLUMN git_uncommitted_count INTEGER DEFAULT 0;",
+    "ALTER TABLE projects ADD COLUMN git_commits_ahead INTEGER DEFAULT 0;",
+    "ALTER TABLE projects ADD COLUMN git_commits_behind INTEGER DEFAULT 0;",
+    "ALTER TABLE projects ADD COLUMN git_last_fetch_at TEXT;",
+    "ALTER TABLE projects ADD COLUMN git_last_push_at TEXT;",
+    "ALTER TABLE projects ADD COLUMN git_last_commit_at TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -269,6 +280,83 @@ class GluonStore:
                 (workspace_id,),
             ).fetchall()
             return [self._row_to_project(row) for row in rows]
+
+    # ========== Git Status CRUD ==========
+
+    def get_git_status(self, project_id: str) -> GitStatus | None:
+        """Get cached git status for a project."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT git_is_repo, git_branch, git_remote, git_remote_url,
+                       git_uncommitted_count, git_commits_ahead, git_commits_behind,
+                       git_last_fetch_at, git_last_push_at, git_last_commit_at
+                FROM projects WHERE id = ?
+                """,
+                (project_id,),
+            ).fetchone()
+            if row and row["git_is_repo"] is not None:
+                return GitStatus(
+                    is_git_repo=bool(row["git_is_repo"]),
+                    branch=row["git_branch"],
+                    remote=row["git_remote"],
+                    remote_url=row["git_remote_url"],
+                    has_uncommitted=row["git_uncommitted_count"] > 0,
+                    uncommitted_count=row["git_uncommitted_count"] or 0,
+                    commits_ahead=row["git_commits_ahead"] or 0,
+                    commits_behind=row["git_commits_behind"] or 0,
+                    last_fetch_at=(
+                        datetime.fromisoformat(row["git_last_fetch_at"])
+                        if row["git_last_fetch_at"]
+                        else None
+                    ),
+                    last_push_at=(
+                        datetime.fromisoformat(row["git_last_push_at"])
+                        if row["git_last_push_at"]
+                        else None
+                    ),
+                    last_commit_at=(
+                        datetime.fromisoformat(row["git_last_commit_at"])
+                        if row["git_last_commit_at"]
+                        else None
+                    ),
+                )
+        return None
+
+    def update_git_status(self, project_id: str, status: GitStatus) -> None:
+        """Update cached git status for a project."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE projects SET
+                    git_is_repo = ?,
+                    git_branch = ?,
+                    git_remote = ?,
+                    git_remote_url = ?,
+                    git_uncommitted_count = ?,
+                    git_commits_ahead = ?,
+                    git_commits_behind = ?,
+                    git_last_fetch_at = ?,
+                    git_last_push_at = ?,
+                    git_last_commit_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    1 if status.is_git_repo else 0,
+                    status.branch,
+                    status.remote,
+                    status.remote_url,
+                    status.uncommitted_count,
+                    status.commits_ahead,
+                    status.commits_behind,
+                    status.last_fetch_at.isoformat() if status.last_fetch_at else None,
+                    status.last_push_at.isoformat() if status.last_push_at else None,
+                    status.last_commit_at.isoformat() if status.last_commit_at else None,
+                    datetime.now().isoformat(),
+                    project_id,
+                ),
+            )
 
     # ========== Session CRUD ==========
 

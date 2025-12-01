@@ -54,6 +54,13 @@ gluon resume myapp 'Also add logging'
 - `gluon logs <run_id> --follow` - Tail logs in real-time
 - `gluon cancel <run_id>` - Cancel a running task
 
+### Git Management
+
+- `gluon git status [project]` - Show git status for project(s)
+- `gluon git fetch [project]` - Fetch latest from remote
+- `gluon git sync <project>` - Commit, fetch, and fast-forward
+- `gluon git push <project>` - Commit and push changes
+
 ### Telegram Bot
 
 - `gluon bot` - Run Telegram bot interface
@@ -73,6 +80,7 @@ graph TB
         ORCH[Orchestrator]
         RUNNER[TaskRunner]
         STORE[GluonStore]
+        GIT[GitManager]
     end
 
     subgraph Execution
@@ -86,15 +94,25 @@ graph TB
         LOGS[Log Files]
     end
 
+    subgraph External
+        BEDROCK[AWS Bedrock]
+        REMOTE[Git Remote]
+    end
+
     CLI --> ORCH
     CLI --> RUNNER
+    CLI --> GIT
     TG --> ORCH
     TG --> RUNNER
 
     ORCH --> STORE
     ORCH --> AGENT
+    ORCH --> GIT
     RUNNER --> STORE
     RUNNER --> AGENT
+
+    GIT --> STORE
+    GIT -.->|fetch/push| REMOTE
 
     AGENT --> SDK
     SDK --> CLAUDE
@@ -102,7 +120,7 @@ graph TB
     STORE --> DB
     RUNNER --> LOGS
 
-    CLAUDE -.->|spawns| BEDROCK[AWS Bedrock]
+    CLAUDE -.->|spawns| BEDROCK
 ```
 
 ### Data Model
@@ -127,6 +145,11 @@ erDiagram
         string name UK
         string path
         string workspace_id FK
+        bool git_is_repo
+        string git_branch
+        string git_remote
+        int git_commits_ahead
+        int git_commits_behind
     }
 
     Session {
@@ -448,6 +471,108 @@ gluon run myapp 'Fix bug' --model haiku
 gluon run myapp 'Complex refactor' --model sonnet
 gluon run myapp 'Architecture review' --model opus
 ```
+
+## Git Synchronization
+
+Gluon automatically keeps projects synchronized with remote Git repositories to prevent conflicts when multiple Claude instances work on the same codebase.
+
+### Pre-task Sync Flow
+
+```mermaid
+flowchart TD
+    A[pre_task_sync] --> B{Is git repo?}
+    B -->|No| Z[Return success - skip]
+    B -->|Yes| C{Has uncommitted?}
+
+    C -->|Yes| D[git add -A]
+    D --> E[git commit -m 'gluon: auto-commit']
+    C -->|No| F[git fetch origin]
+    E --> F
+
+    F --> G{Behind remote?}
+    G -->|No| Z2[Return success]
+    G -->|Yes| H{Diverged?}
+    H -->|Yes| X[FAIL: Manual merge needed]
+    H -->|No| I[git pull --ff-only]
+    I --> Z2
+```
+
+### Post-task Sync Flow
+
+```mermaid
+flowchart TD
+    A[post_task_sync] --> B{Is git repo?}
+    B -->|No| Z[Return success - skip]
+    B -->|Yes| C{Has changes?}
+
+    C -->|No| Z
+    C -->|Yes| D[git add -A]
+    D --> E[git commit -m message]
+    E --> F{Has remote?}
+
+    F -->|No| Z2[Return success - local only]
+    F -->|Yes| G[git push]
+
+    G --> H{Push success?}
+    H -->|Yes| Z3[Return success]
+    H -->|No| I[git pull --rebase]
+    I --> J[git push retry]
+    J --> K{Success?}
+    K -->|Yes| Z3
+    K -->|No| X[FAIL: Push rejected]
+```
+
+### Background Sync
+
+```mermaid
+flowchart LR
+    subgraph "Telegram Bot"
+        LOOP[Background Loop]
+        LOOP -->|every 5 min| FETCH
+    end
+
+    subgraph "For Each Project"
+        FETCH[git fetch] --> STATUS[Update GitStatus]
+        STATUS --> DB[(SQLite)]
+    end
+
+    STATUS --> WARN{Diverged?}
+    WARN -->|Yes| LOG[Log Warning]
+```
+
+### Automatic Behavior
+
+- **Pre-task**: Before running a task, Gluon will:
+  1. Auto-commit any uncommitted changes
+  2. Fetch from remote
+  3. Fast-forward if behind (fails if diverged)
+
+- **Post-task**: After successful task completion:
+  1. Stage and commit all changes
+  2. Push to remote
+
+- **Background**: The Telegram bot periodically fetches all projects (every 5 minutes) to maintain status awareness
+
+### Configuration
+
+```bash
+# Environment variables
+GLUON_GIT_ENABLED=true              # Enable/disable git sync (default: true)
+GLUON_GIT_SYNC_INTERVAL=300         # Background fetch interval in seconds
+GLUON_GIT_AUTO_COMMIT=true          # Auto-commit before/after tasks
+GLUON_GIT_AUTO_PUSH=true            # Auto-push after tasks
+GLUON_GIT_COMMIT_PREFIX="gluon:"    # Prefix for auto-commit messages
+```
+
+### Error Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Not a git repo | Skip git operations, proceed normally |
+| No remote configured | Commit locally only |
+| Diverged branches | **FAIL** pre-task with error |
+| Push rejected | Pull with rebase, retry once |
+| Network error (fetch) | **WARN** but proceed |
 
 ## File Structure
 

@@ -1,12 +1,21 @@
 """Core orchestrator for Gluon Agent."""
 
+from __future__ import annotations
+
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.models import Project, Session, SessionStatus, Workspace
 from gluon.models_config import DEFAULT_MODEL, ModelTier, get_model_id
 from gluon.store import GluonStore
+
+if TYPE_CHECKING:
+    from gluon.git_manager import GitManager
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectNotFoundError(Exception):
@@ -33,6 +42,12 @@ class WorkspaceExistsError(Exception):
     pass
 
 
+class GitSyncError(Exception):
+    """Raised when git sync fails and cannot proceed."""
+
+    pass
+
+
 class Orchestrator:
     """
     Core orchestrator that coordinates project management,
@@ -42,8 +57,10 @@ class Orchestrator:
     def __init__(
         self,
         store: GluonStore | None = None,
+        git_manager: GitManager | None = None,
     ):
         self.store = store or GluonStore()
+        self.git_manager = git_manager
 
     # ========== Project Management ==========
 
@@ -291,6 +308,7 @@ class Orchestrator:
         prompt: str,
         force_new_session: bool = False,
         model: ModelTier | str | None = None,
+        run_id: str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -303,12 +321,25 @@ class Orchestrator:
             prompt: User prompt to execute
             force_new_session: Force creation of new session
             model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
+            run_id: Optional run ID for git commit metadata
 
         Yields:
             AgentMessage during execution
             AgentResult as final yield
         """
         project = self.get_project(project_name)
+
+        # Pre-task git sync
+        if self.git_manager:
+            sync_result = await self.git_manager.pre_task_sync(project)
+            if not sync_result.success:
+                raise GitSyncError(sync_result.error or sync_result.message)
+            if sync_result.action != "none":
+                yield AgentMessage(
+                    type="system",
+                    content=f"Git: {sync_result.message}",
+                    metadata={"git_action": sync_result.action},
+                )
 
         # Find or create session
         session: Session | None = None
@@ -363,6 +394,24 @@ class Orchestrator:
 
             if result.success:
                 session.mark_paused()  # Ready for resume
+
+                # Post-task git sync (only on success)
+                if self.git_manager:
+                    commit_msg = prompt[:50] + ("..." if len(prompt) > 50 else "")
+                    sync_result = await self.git_manager.post_task_sync(
+                        project,
+                        commit_msg,
+                        session_id=session.id,
+                        run_id=run_id,
+                    )
+                    if sync_result.action != "none":
+                        yield AgentMessage(
+                            type="system",
+                            content=f"Git: {sync_result.message}",
+                            metadata={"git_action": sync_result.action},
+                        )
+                    if not sync_result.success:
+                        logger.warning(f"Post-task git sync failed: {sync_result.error}")
             else:
                 session.mark_failed()
 
