@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
+from gluon.models import ChannelMapping, ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
 
@@ -173,6 +173,23 @@ class GluonStore:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_status ON execution_runs(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_initiator ON execution_runs(initiator)")
 
+            if "channel_mappings" not in existing_tables:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS channel_mappings (
+                        id TEXT PRIMARY KEY,
+                        transport TEXT NOT NULL,
+                        channel_id TEXT NOT NULL,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        project_name TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(transport, channel_id)
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_mappings_transport ON channel_mappings(transport)")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_mappings_channel ON channel_mappings(transport, channel_id)"
+                )
+
             # Run migrations for existing tables
             for migration in MIGRATIONS:
                 try:
@@ -306,19 +323,11 @@ class GluonStore:
                     commits_ahead=row["git_commits_ahead"] or 0,
                     commits_behind=row["git_commits_behind"] or 0,
                     last_fetch_at=(
-                        datetime.fromisoformat(row["git_last_fetch_at"])
-                        if row["git_last_fetch_at"]
-                        else None
+                        datetime.fromisoformat(row["git_last_fetch_at"]) if row["git_last_fetch_at"] else None
                     ),
-                    last_push_at=(
-                        datetime.fromisoformat(row["git_last_push_at"])
-                        if row["git_last_push_at"]
-                        else None
-                    ),
+                    last_push_at=(datetime.fromisoformat(row["git_last_push_at"]) if row["git_last_push_at"] else None),
                     last_commit_at=(
-                        datetime.fromisoformat(row["git_last_commit_at"])
-                        if row["git_last_commit_at"]
-                        else None
+                        datetime.fromisoformat(row["git_last_commit_at"]) if row["git_last_commit_at"] else None
                     ),
                 )
         return None
@@ -752,3 +761,83 @@ class GluonStore:
             if project:
                 return run, project
         return None
+
+    # ========== Channel Mapping CRUD ==========
+
+    def create_channel_mapping(
+        self,
+        transport: str,
+        channel_id: str,
+        project_id: str,
+        project_name: str,
+    ) -> ChannelMapping:
+        """Create or update a channel-to-project mapping."""
+        mapping = ChannelMapping(
+            transport=transport,
+            channel_id=channel_id,
+            project_id=project_id,
+            project_name=project_name,
+        )
+        with self._get_conn() as conn:
+            # Upsert: replace if exists
+            conn.execute(
+                """
+                INSERT INTO channel_mappings (id, transport, channel_id, project_id, project_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(transport, channel_id) DO UPDATE SET
+                    project_id = excluded.project_id,
+                    project_name = excluded.project_name
+                """,
+                (
+                    mapping.id,
+                    mapping.transport,
+                    mapping.channel_id,
+                    mapping.project_id,
+                    mapping.project_name,
+                    mapping.created_at.isoformat(),
+                ),
+            )
+        return mapping
+
+    def get_channel_mapping(self, transport: str, channel_id: str) -> ChannelMapping | None:
+        """Get channel mapping by transport and channel ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM channel_mappings WHERE transport = ? AND channel_id = ?",
+                (transport, channel_id),
+            ).fetchone()
+            if row:
+                return self._row_to_channel_mapping(row)
+        return None
+
+    def list_channel_mappings(self, transport: str | None = None) -> list[ChannelMapping]:
+        """List channel mappings, optionally filtered by transport."""
+        with self._get_conn() as conn:
+            if transport:
+                rows = conn.execute(
+                    "SELECT * FROM channel_mappings WHERE transport = ? ORDER BY created_at DESC",
+                    (transport,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM channel_mappings ORDER BY transport, created_at DESC").fetchall()
+            return [self._row_to_channel_mapping(row) for row in rows]
+
+    def delete_channel_mapping(self, transport: str, channel_id: str) -> bool:
+        """Delete a channel mapping."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM channel_mappings WHERE transport = ? AND channel_id = ?",
+                (transport, channel_id),
+            )
+            return cursor.rowcount > 0
+
+    def _row_to_channel_mapping(self, row: sqlite3.Row) -> ChannelMapping:
+        """Convert database row to ChannelMapping model."""
+        return ChannelMapping(
+            id=row["id"],
+            transport=row["transport"],
+            channel_id=row["channel_id"],
+            project_id=row["project_id"],
+            project_name=row["project_name"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )

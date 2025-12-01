@@ -411,9 +411,7 @@ def git_fetch(
                 continue
 
             if status.is_diverged:
-                console.print(
-                    f"[red]diverged[/red] ({status.commits_ahead} ahead, {status.commits_behind} behind)"
-                )
+                console.print(f"[red]diverged[/red] ({status.commits_ahead} ahead, {status.commits_behind} behind)")
             elif status.commits_behind > 0:
                 console.print(f"[yellow]{status.commits_behind} commits behind[/yellow]")
             elif status.commits_ahead > 0:
@@ -750,6 +748,187 @@ def bot(
         raise typer.Exit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]Bot stopped.[/yellow]")
+
+
+@app.command("discord")
+def discord_bot(
+    token: Annotated[str | None, typer.Option("--token", "-t", help="Discord bot token")] = None,
+    guild: Annotated[int | None, typer.Option("--guild", "-g", help="Discord guild (server) ID")] = None,
+    users: Annotated[str | None, typer.Option("--users", "-u", help="Comma-separated allowed user IDs")] = None,
+):
+    """
+    Run Discord bot interface.
+
+    Set GLUON_DISCORD_TOKEN env var or use --token.
+    Set GLUON_DISCORD_GUILD env var or use --guild.
+    Set GLUON_DISCORD_USERS env var or use --users to restrict access.
+
+    To create a Discord bot:
+    1. Go to https://discord.com/developers/applications
+    2. Create New Application and add a Bot
+    3. Copy the bot token
+    4. Enable MESSAGE CONTENT INTENT in Bot settings
+    5. Invite to your server with bot + applications.commands scopes
+
+    To get your user ID:
+    1. Enable Developer Mode in Discord settings
+    2. Right-click your name and Copy ID
+    """
+    import os
+
+    try:
+        from gluon.transport.discord import DiscordTransport, run_discord_transport
+
+        _ = DiscordTransport  # Verify import succeeded
+    except ImportError:
+        console.print("[red]Error:[/red] Discord support not installed.")
+        console.print("Install with: [cyan]pip install 'gluon-agent[discord]'[/cyan]")
+        raise typer.Exit(1)
+
+    from gluon.bot_core import GluonBotCore
+
+    # Get token
+    bot_token = token or os.environ.get("GLUON_DISCORD_TOKEN")
+    if not bot_token:
+        console.print("[red]Error:[/red] Discord bot token required.")
+        console.print("Set GLUON_DISCORD_TOKEN env var or use --token.")
+        raise typer.Exit(1)
+
+    # Get guild ID
+    guild_id = guild or int(os.environ.get("GLUON_DISCORD_GUILD", "0"))
+    if not guild_id:
+        console.print("[red]Error:[/red] Discord guild ID required.")
+        console.print("Set GLUON_DISCORD_GUILD env var or use --guild.")
+        raise typer.Exit(1)
+
+    # Get allowed users
+    allowed_users: list[int] | None = None
+    users_str = users or os.environ.get("GLUON_DISCORD_USERS", "")
+    if users_str:
+        allowed_users = [int(u.strip()) for u in users_str.split(",") if u.strip()]
+
+    try:
+        console.print("[bold]Starting Gluon Discord Bot...[/bold]")
+        console.print(f"[dim]Guild ID: {guild_id}[/dim]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]")
+
+        bot_core = GluonBotCore()
+        anyio.run(run_discord_transport, bot_token, guild_id, bot_core, allowed_users)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Discord bot stopped.[/yellow]")
+
+
+@app.command("serve")
+def serve(
+    telegram: Annotated[bool, typer.Option("--telegram", help="Enable Telegram transport")] = False,
+    discord: Annotated[bool, typer.Option("--discord", help="Enable Discord transport")] = False,
+):
+    """
+    Run multiple bot transports concurrently.
+
+    Example: gluon serve --telegram --discord
+
+    Configure each transport with environment variables:
+    - Telegram: GLUON_TELEGRAM_TOKEN, GLUON_TELEGRAM_USERS
+    - Discord: GLUON_DISCORD_TOKEN, GLUON_DISCORD_GUILD, GLUON_DISCORD_USERS
+    """
+    import os
+
+    if not telegram and not discord:
+        console.print("[red]Error:[/red] At least one transport must be enabled.")
+        console.print("Use --telegram and/or --discord flags.")
+        raise typer.Exit(1)
+
+    from gluon.bot_core import GluonBotCore
+
+    # Create shared bot core
+    bot_core = GluonBotCore()
+    transports_to_run: list[tuple[str, any]] = []
+
+    # Configure Telegram
+    if telegram:
+        telegram_token = os.environ.get("GLUON_TELEGRAM_TOKEN")
+        if not telegram_token:
+            console.print("[red]Error:[/red] GLUON_TELEGRAM_TOKEN required for Telegram.")
+            raise typer.Exit(1)
+
+        telegram_users_str = os.environ.get("GLUON_TELEGRAM_USERS", "")
+        telegram_users = (
+            [int(u.strip()) for u in telegram_users_str.split(",") if u.strip()] if telegram_users_str else None
+        )
+
+        from gluon.transport.telegram import TelegramTransport
+
+        tg_transport = TelegramTransport(telegram_token, bot_core, telegram_users)
+        transports_to_run.append(("Telegram", tg_transport))
+        console.print("[green]✓[/green] Telegram transport configured")
+
+    # Configure Discord
+    if discord:
+        try:
+            from gluon.transport.discord import DiscordTransport
+
+            _ = DiscordTransport  # Verify import succeeded
+        except ImportError:
+            console.print("[red]Error:[/red] Discord support not installed.")
+            console.print("Install with: [cyan]pip install 'gluon-agent[discord]'[/cyan]")
+            raise typer.Exit(1)
+
+        discord_token = os.environ.get("GLUON_DISCORD_TOKEN")
+        if not discord_token:
+            console.print("[red]Error:[/red] GLUON_DISCORD_TOKEN required for Discord.")
+            raise typer.Exit(1)
+
+        discord_guild = int(os.environ.get("GLUON_DISCORD_GUILD", "0"))
+        if not discord_guild:
+            console.print("[red]Error:[/red] GLUON_DISCORD_GUILD required for Discord.")
+            raise typer.Exit(1)
+
+        discord_users_str = os.environ.get("GLUON_DISCORD_USERS", "")
+        discord_users = (
+            [int(u.strip()) for u in discord_users_str.split(",") if u.strip()] if discord_users_str else None
+        )
+
+        from gluon.transport.discord import DiscordTransport
+
+        dc_transport = DiscordTransport(discord_token, discord_guild, bot_core, discord_users)
+        transports_to_run.append(("Discord", dc_transport))
+        console.print("[green]✓[/green] Discord transport configured")
+
+    async def _run_all():
+        """Run all configured transports concurrently."""
+        import asyncio
+
+        console.print(f"\n[bold]Starting {len(transports_to_run)} transport(s)...[/bold]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        # Start git background sync once (shared across transports)
+        await bot_core.git_manager.start_background_sync()
+
+        try:
+            # Run all transports concurrently
+            tasks = [transport.start() for _, transport in transports_to_run]
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Stop git sync
+            await bot_core.git_manager.stop_background_sync()
+            # Stop all transports
+            for name, transport in transports_to_run:
+                try:
+                    await transport.stop()
+                    console.print(f"[dim]{name} stopped[/dim]")
+                except Exception as e:
+                    console.print(f"[yellow]Warning: {name} stop failed: {e}[/yellow]")
+
+    try:
+        anyio.run(_run_all)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]All transports stopped.[/yellow]")
 
 
 # ========== Background Run Commands ==========

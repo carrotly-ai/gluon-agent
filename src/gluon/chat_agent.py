@@ -551,7 +551,7 @@ class GluonChatAgent:
 
         # Add reply context if present (user is replying to a specific message)
         if reply_context:
-            full_message += f"[User is replying to this previous message: \"{reply_context}\"]\n\n"
+            full_message += f'[User is replying to this previous message: "{reply_context}"]\n\n'
 
         # Add recent conversation history
         if history:

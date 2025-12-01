@@ -149,7 +149,11 @@ class GluonBot:
                 await update.message.reply_text("No projects registered.\nUse CLI: `gluon project add <name> <path>`")
             return
 
-        header = f"**Projects matching `{filter_term}` ({len(projects)}):**\n" if filter_term else f"**Projects ({len(projects)}):**\n"
+        header = (
+            f"**Projects matching `{filter_term}` ({len(projects)}):**\n"
+            if filter_term
+            else f"**Projects ({len(projects)}):**\n"
+        )
         lines = [header]
         for p in projects[:20]:  # Limit to first 20 projects
             sessions = self.orchestrator.list_sessions(p.name)
@@ -291,9 +295,7 @@ class GluonBot:
 
         # Run the task in background, threading replies to start_msg
         task = asyncio.create_task(
-            self._execute_task_with_runner(
-                update, run, project_name, thread_msg_id=start_msg.message_id
-            )
+            self._execute_task_with_runner(update, run, project_name, thread_msg_id=start_msg.message_id)
         )
         self._active_tasks[run.id] = task
 
@@ -335,9 +337,7 @@ class GluonBot:
         if len(context.args) > 1:
             potential_id = context.args[1]
             # IDs are hex UUIDs - check if it looks like one
-            if 4 <= len(potential_id) <= 36 and all(
-                c in "0123456789abcdef-" for c in potential_id.lower()
-            ):
+            if 4 <= len(potential_id) <= 36 and all(c in "0123456789abcdef-" for c in potential_id.lower()):
                 # User is attempting to specify an ID - track this even if not found
                 id_arg = potential_id
                 prompt_start_idx = 2
@@ -984,3 +984,48 @@ def run_bot(token: str | None = None, allowed_users: list[int] | None = None) ->
 
     bot = GluonBot(token=bot_token, allowed_users=allowed_users)
     asyncio.run(bot.run_polling())
+
+
+def run_bot_v2(token: str | None = None, allowed_users: list[int] | None = None) -> None:
+    """
+    Run the Gluon Telegram bot using the new transport architecture.
+
+    This is the new implementation using the transport abstraction layer.
+    Use this for new deployments or when testing multi-transport features.
+
+    Args:
+        token: Telegram bot token. If not provided, reads from GLUON_TELEGRAM_TOKEN env var.
+        allowed_users: List of authorized Telegram user IDs.
+                      If not provided, reads from GLUON_TELEGRAM_USERS env var (comma-separated).
+    """
+    from gluon.bot_core import GluonBotCore
+    from gluon.transport.telegram import run_telegram_transport
+
+    # Load .env.local for AWS Bedrock configuration
+    env_path = Path(__file__).parent.parent.parent / ".env.local"
+    if env_path.exists():
+        load_dotenv(env_path)
+        logger.info(f"Loaded environment from {env_path}")
+
+    # Get token
+    bot_token = token or os.environ.get("GLUON_TELEGRAM_TOKEN")
+    if not bot_token:
+        raise ValueError(
+            "Telegram bot token required. Set GLUON_TELEGRAM_TOKEN environment variable or pass token parameter."
+        )
+
+    # Get allowed users
+    if allowed_users is None:
+        users_env = os.environ.get("GLUON_TELEGRAM_USERS", "")
+        if users_env:
+            allowed_users = [int(u.strip()) for u in users_env.split(",") if u.strip()]
+
+    # Setup logging
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
+    )
+
+    # Create bot core and run transport
+    bot_core = GluonBotCore()
+    asyncio.run(run_telegram_transport(bot_token, bot_core, allowed_users))

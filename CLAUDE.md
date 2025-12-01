@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Gluon Agent?
 
-AI orchestrator for managing multiple Claude Code agents across projects. Provides session persistence, resume capability, workspace-based project discovery, and multiple interfaces (CLI, Telegram bot).
+AI orchestrator for managing multiple Claude Code agents across projects. Provides session persistence, resume capability, workspace-based project discovery, and multiple interfaces (CLI, Telegram, Discord).
 
 ## Commands
 
@@ -21,6 +21,14 @@ uv run gluon run <project> '<prompt>'
 # Run Telegram bot
 export GLUON_TELEGRAM_TOKEN="your-token"
 uv run gluon bot
+
+# Run Discord bot
+export GLUON_DISCORD_TOKEN="your-token"
+export GLUON_DISCORD_GUILD="your-guild-id"
+uv run gluon discord
+
+# Run both transports
+uv run gluon serve --telegram --discord
 
 # Tests
 uv run pytest                           # all tests
@@ -39,18 +47,27 @@ sqlite3 ~/.gluon/gluon.db
 ## Architecture
 
 ```
-CLI (cli.py) ──────────────┐
-                           ▼
-Telegram Bot (bot.py) ──▶ Chat Agent (chat_agent.py) ──┐
-                          [Claude + MCP tools]          │
-                                                        ▼
-                                              Orchestrator (core.py)
-                                                   [Business Logic]
+CLI (cli.py) ───────────────────────────────────────────┐
                                                         │
-                    ┌──────────────────┬────────────────┤
-                    ▼                  ▼                ▼
-              Store (store.py)   Agent (agent.py)  Models (models.py)
-              [SQLite CRUD]      [Claude SDK]      [Pydantic]
+                Transport Layer (transport/)            │
+                ┌─────────────┬─────────────┐           │
+                ▼             ▼             ▼           ▼
+         TelegramTransport  DiscordTransport  ...    Orchestrator (core.py)
+                └─────────────┴─────────────┘           [Business Logic]
+                              │                              │
+                              ▼                              │
+                       GluonBotCore (bot_core.py) ◄──────────┤
+                       [Shared bot logic]                    │
+                              │                              │
+                    ┌─────────┴─────────┐                    │
+                    ▼                   ▼                    ▼
+             Chat Agent           Orchestrator ───────► Agent (agent.py)
+             (chat_agent.py)      (core.py)            [Claude SDK]
+                    │                   │
+                    └─────────┬─────────┘
+                              ▼
+                        Store (store.py)
+                        [SQLite CRUD]
 ```
 
 **Key Data Flow:**
@@ -63,14 +80,18 @@ Telegram Bot (bot.py) ──▶ Chat Agent (chat_agent.py) ──┐
 
 | File | Purpose |
 |------|---------|
-| `src/gluon/models.py` | Pydantic models: Workspace, Project, Session, ExecutionRun |
+| `src/gluon/models.py` | Pydantic models: Workspace, Project, Session, ExecutionRun, ChannelMapping |
 | `src/gluon/store.py` | SQLite persistence with CRUD for all entities |
 | `src/gluon/agent.py` | GluonAgent wrapping claude-agent-sdk |
 | `src/gluon/core.py` | Orchestrator coordinating store + agent |
 | `src/gluon/runner.py` | Background task execution with subprocess management |
 | `src/gluon/chat_agent.py` | Natural language interface using Claude + MCP tools |
 | `src/gluon/cli.py` | Typer CLI commands |
-| `src/gluon/bot.py` | Telegram bot interface |
+| `src/gluon/bot.py` | Telegram bot interface (legacy, see bot_core.py) |
+| `src/gluon/bot_core.py` | Transport-agnostic bot business logic |
+| `src/gluon/transport/base.py` | Transport ABC and dataclasses |
+| `src/gluon/transport/telegram.py` | TelegramTransport implementation |
+| `src/gluon/transport/discord.py` | DiscordTransport implementation (optional dep) |
 
 ## Session Resume
 
@@ -164,7 +185,21 @@ from gluon.core import ProjectNotFoundError, ProjectExistsError, WorkspaceNotFou
 
 ## Environment Variables
 
+**Telegram:**
 - `GLUON_TELEGRAM_TOKEN` - Telegram bot token
 - `GLUON_TELEGRAM_USERS` - Comma-separated allowed user IDs
 
+**Discord:**
+- `GLUON_DISCORD_TOKEN` - Discord bot token
+- `GLUON_DISCORD_GUILD` - Discord guild (server) ID
+- `GLUON_DISCORD_USERS` - Comma-separated allowed user IDs
+
 Data stored at `~/.gluon/gluon.db`
+
+## Adding a New Transport
+
+1. Create `src/gluon/transport/myplatform.py`
+2. Implement `Transport` ABC from `transport/base.py`
+3. Add capabilities to `transport/capabilities.py`
+4. Add CLI command in `cli.py`
+5. Export in `transport/__init__.py`

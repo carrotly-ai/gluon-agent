@@ -30,9 +30,7 @@ class GitManager:
 
     # ========== Git Command Helpers ==========
 
-    async def _run_git(
-        self, cwd: Path, *args: str, check: bool = False
-    ) -> tuple[int, str, str]:
+    async def _run_git(self, cwd: Path, *args: str, check: bool = False) -> tuple[int, str, str]:
         """Run a git command and return (returncode, stdout, stderr)."""
         cmd = ["git", *args]
         try:
@@ -69,9 +67,7 @@ class GitManager:
     async def _get_remote(self, path: Path) -> tuple[str | None, str | None]:
         """Get remote name and URL for the current branch."""
         # Get the tracking remote for current branch
-        rc, remote, _ = await self._run_git(
-            path, "config", "--get", "branch.$(git branch --show-current).remote"
-        )
+        rc, remote, _ = await self._run_git(path, "config", "--get", "branch.$(git branch --show-current).remote")
         if rc != 0:
             # Fallback to origin if it exists
             rc, remotes, _ = await self._run_git(path, "remote")
@@ -102,9 +98,7 @@ class GitManager:
             return 0, 0
 
         # Get ahead/behind counts
-        rc, stdout, _ = await self._run_git(
-            path, "rev-list", "--left-right", "--count", f"{remote}/{branch}...HEAD"
-        )
+        rc, stdout, _ = await self._run_git(path, "rev-list", "--left-right", "--count", f"{remote}/{branch}...HEAD")
         if rc != 0:
             return 0, 0
 
@@ -120,9 +114,7 @@ class GitManager:
 
     async def _get_last_commit_time(self, path: Path) -> datetime | None:
         """Get timestamp of the last commit."""
-        rc, stdout, _ = await self._run_git(
-            path, "log", "-1", "--format=%cI"
-        )
+        rc, stdout, _ = await self._run_git(path, "log", "-1", "--format=%cI")
         if rc == 0 and stdout:
             try:
                 return datetime.fromisoformat(stdout)
@@ -247,8 +239,7 @@ class GitManager:
             if ahead > 0:
                 # Diverged - cannot auto-resolve
                 return GitSyncResult.fail(
-                    f"Branch has diverged: {ahead} commits ahead, {behind} behind. "
-                    "Manual merge required."
+                    f"Branch has diverged: {ahead} commits ahead, {behind} behind. Manual merge required."
                 )
 
             # Fast-forward
@@ -343,9 +334,7 @@ class GitManager:
                     logger.warning(f"Push failed, attempting pull --rebase: {stderr}")
                     rc2, _, stderr2 = await self._run_git(path, "pull", "--rebase")
                     if rc2 != 0:
-                        return GitSyncResult.fail(
-                            f"Push rejected and rebase failed: {stderr2}"
-                        )
+                        return GitSyncResult.fail(f"Push rejected and rebase failed: {stderr2}")
 
                     rc3, _, stderr3 = await self._run_git(path, "push")
                     if rc3 != 0:
@@ -433,15 +422,12 @@ class GitManager:
                         project = self.store.get_project(project_id)
                         name = project.name if project else project_id
                         logger.warning(
-                            f"Project {name} has diverged: "
-                            f"{status.commits_ahead} ahead, {status.commits_behind} behind"
+                            f"Project {name} has diverged: {status.commits_ahead} ahead, {status.commits_behind} behind"
                         )
                     elif status.commits_behind > 0:
                         project = self.store.get_project(project_id)
                         name = project.name if project else project_id
-                        logger.info(
-                            f"Project {name} is {status.commits_behind} commits behind"
-                        )
+                        logger.info(f"Project {name} is {status.commits_behind} commits behind")
 
             except asyncio.CancelledError:
                 break

@@ -240,11 +240,7 @@ class GitStatus(BaseModel):
     @property
     def is_clean(self) -> bool:
         """True if working tree is clean and in sync with remote."""
-        return (
-            not self.has_uncommitted
-            and self.commits_ahead == 0
-            and self.commits_behind == 0
-        )
+        return not self.has_uncommitted and self.commits_ahead == 0 and self.commits_behind == 0
 
     @property
     def needs_pull(self) -> bool:
@@ -284,3 +280,14 @@ class GitSyncResult(BaseModel):
     def skip(cls, reason: str) -> "GitSyncResult":
         """Create a skipped result (not a git repo, etc.)."""
         return cls(success=True, action="none", message=reason)
+
+
+class ChannelMapping(BaseModel):
+    """Maps a chat channel to a project for multi-transport support."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    transport: str  # "discord", "slack", etc.
+    channel_id: str  # Channel ID (platform-specific)
+    project_id: str  # Project ID (FK)
+    project_name: str  # Cached project name for convenience
+    created_at: datetime = Field(default_factory=datetime.utcnow)

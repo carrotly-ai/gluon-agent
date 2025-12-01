@@ -61,9 +61,11 @@ gluon resume myapp 'Also add logging'
 - `gluon git sync <project>` - Commit, fetch, and fast-forward
 - `gluon git push <project>` - Commit and push changes
 
-### Telegram Bot
+### Bot Interfaces
 
 - `gluon bot` - Run Telegram bot interface
+- `gluon discord` - Run Discord bot interface
+- `gluon serve --telegram --discord` - Run multiple transports concurrently
 
 ## Architecture
 
@@ -74,9 +76,11 @@ graph TB
     subgraph Interfaces
         CLI[CLI - gluon]
         TG[Telegram Bot]
+        DC[Discord Bot]
     end
 
     subgraph Core
+        BOTCORE[GluonBotCore]
         ORCH[Orchestrator]
         RUNNER[TaskRunner]
         STORE[GluonStore]
@@ -104,9 +108,11 @@ graph TB
     CLI --> ORCH
     CLI --> RUNNER
     CLI --> GIT
-    TG --> ORCH
-    TG --> RUNNER
-    TG --> CHAT
+    TG --> BOTCORE
+    DC --> BOTCORE
+    BOTCORE --> ORCH
+    BOTCORE --> RUNNER
+    BOTCORE --> CHAT
 
     CHAT --> ORCH
     CHAT --> SDK
@@ -137,6 +143,7 @@ erDiagram
     Workspace ||--o{ Project : contains
     Project ||--o{ Session : has
     Project ||--o{ ExecutionRun : has
+    Project ||--o{ ChannelMapping : "mapped by"
     Session ||--o| ExecutionRun : "created by"
 
     Workspace {
@@ -177,6 +184,14 @@ erDiagram
         string prompt
         string initiator
         string log_path
+    }
+
+    ChannelMapping {
+        string id PK
+        string transport
+        string channel_id UK
+        string project_id FK
+        string project_name
     }
 ```
 
@@ -301,14 +316,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Bot Starts] --> B[_recover_stale_runs]
-    B --> C{Any active runs<br/>from telegram:*?}
+    A[Transport Starts] --> B[recover_stale_runs]
+    B --> C{Any active runs<br/>from this transport?}
     C -->|Yes| D[Mark as FAILED<br/>'Bot restarted']
     C -->|No| E[Continue]
     D --> E
-    E --> F[build_application]
-    F --> G[Start Polling]
-    G --> H[Ready for Commands]
+    E --> F[Start GitManager<br/>background sync]
+    F --> G[Initialize Transport]
+    G --> H[Ready for Messages]
 ```
 
 ### Agent Execution Detail
@@ -345,13 +360,13 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph "Telegram Bot Process"
+    subgraph "GluonBotCore (shared)"
         SEM[Semaphore<br/>max_concurrent=16]
 
         subgraph "Active Tasks"
-            T1[Task 1<br/>run_id: abc]
-            T2[Task 2<br/>run_id: def]
-            T3[Task 3<br/>run_id: ghi]
+            T1[Task 1<br/>telegram:123]
+            T2[Task 2<br/>discord:456]
+            T3[Task 3<br/>telegram:789]
         end
 
         SEM --> T1
@@ -361,9 +376,9 @@ flowchart TB
 
     subgraph "SQLite Store"
         DB[(gluon.db)]
-        R1[ExecutionRun abc<br/>RUNNING]
-        R2[ExecutionRun def<br/>RUNNING]
-        R3[ExecutionRun ghi<br/>RUNNING]
+        R1[ExecutionRun abc<br/>initiator: telegram:123]
+        R2[ExecutionRun def<br/>initiator: discord:456]
+        R3[ExecutionRun ghi<br/>initiator: telegram:789]
     end
 
     T1 -.-> R1
@@ -381,14 +396,135 @@ flowchart TB
     T3 --> L3
 ```
 
+### Transport Layer Architecture
+
+```mermaid
+flowchart TB
+    subgraph "Transport Layer"
+        ABC[Transport ABC<br/>base.py]
+
+        subgraph "Implementations"
+            TG[TelegramTransport<br/>telegram.py]
+            DC[DiscordTransport<br/>discord.py]
+            FUTURE[Future Transports<br/>slack.py, matrix.py...]
+        end
+
+        ABC --> TG
+        ABC --> DC
+        ABC -.-> FUTURE
+    end
+
+    subgraph "Core Components"
+        CTX[TransportContext<br/>user_id, chat_id, thread_id]
+        MSG[TransportMessage<br/>text, metadata]
+        RSP[TransportResponse<br/>text, thread_id]
+        CAPS[TransportCapabilities<br/>max_length, threading, editing]
+    end
+
+    ABC --> CTX
+    ABC --> MSG
+    ABC --> RSP
+    ABC --> CAPS
+
+    subgraph "Shared Logic"
+        CORE[GluonBotCore<br/>bot_core.py]
+    end
+
+    TG --> CORE
+    DC --> CORE
+
+    style ABC fill:#e1bee7
+    style CORE fill:#bbdefb
+```
+
+### Discord Bot Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Discord
+    participant DiscordTransport
+    participant BotCore
+    participant Store
+    participant Orchestrator
+
+    User->>Discord: @GluonBot Fix the bug
+    Discord->>DiscordTransport: on_message event
+
+    DiscordTransport->>DiscordTransport: Check @mention
+    DiscordTransport->>DiscordTransport: Check authorization
+    DiscordTransport->>DiscordTransport: Resolve project from channel
+
+    alt No project linked
+        DiscordTransport-->>Discord: "Link channel with @GluonBot link <project>"
+        Discord-->>User: Prompt to link
+    else Project found
+        DiscordTransport->>Store: create_run(project_id, prompt, initiator)
+        Store-->>DiscordTransport: ExecutionRun
+
+        DiscordTransport-->>Discord: "🚀 Starting task on `project`"
+        Discord-->>User: Initial message
+
+        DiscordTransport->>Discord: Create thread from message
+        Discord-->>DiscordTransport: thread_id
+
+        DiscordTransport->>BotCore: execute_task(ctx, run, project)
+
+        loop Streaming in Thread
+            BotCore-->>DiscordTransport: AgentMessage
+            DiscordTransport-->>Discord: Send to thread
+            Discord-->>User: Progress in thread
+        end
+
+        BotCore-->>DiscordTransport: AgentResult
+        DiscordTransport->>Store: update_run(status)
+        DiscordTransport->>Discord: Edit original message
+        Discord-->>User: ✅ Summary (edited)
+    end
+```
+
+### Discord Channel Mapping
+
+```mermaid
+flowchart TD
+    subgraph "Channel Resolution"
+        MSG[Incoming Message<br/>#myapp channel]
+        MSG --> CHECK1{Explicit mapping<br/>in DB?}
+
+        CHECK1 -->|Yes| FOUND[Use mapped project]
+        CHECK1 -->|No| CHECK2{Channel name<br/>matches project?}
+
+        CHECK2 -->|Yes| FOUND
+        CHECK2 -->|No| CHECK3{Is thread?<br/>Check parent}
+
+        CHECK3 -->|Yes| PARENT[Check parent channel]
+        PARENT --> CHECK1
+        CHECK3 -->|No| PROMPT[Prompt user to link]
+    end
+
+    subgraph "Link Command"
+        LINK["@GluonBot link myproject"]
+        LINK --> SAVE[Save to channel_mappings table]
+        SAVE --> CACHE[Update local cache]
+        CACHE --> CONFIRM["✅ Channel linked"]
+    end
+
+    style FOUND fill:#c8e6c9
+    style PROMPT fill:#ffecb3
+```
+
 ### Chat Agent Architecture
 
 ```mermaid
 flowchart TB
-    subgraph "Telegram Bot"
+    subgraph "Any Transport"
         MSG[User Message]
         HIST[Message History<br/>last 10 per user]
-        REPLY[Reply Context]
+        CTX[TransportContext]
+    end
+
+    subgraph "GluonBotCore"
+        NL[process_natural_language]
     end
 
     subgraph "GluonChatAgent"
@@ -412,9 +548,10 @@ flowchart TB
         end
     end
 
-    MSG --> CHAT
-    HIST --> CHAT
-    REPLY --> CHAT
+    MSG --> NL
+    HIST --> NL
+    CTX --> NL
+    NL --> CHAT
     CHAT --> SDK
     SDK --> PROJ
     SDK --> TASK
@@ -428,6 +565,7 @@ flowchart TB
     style WEB fill:#4a90d9
     style FILE fill:#88b04b
     style EXEC fill:#ff9900
+    style NL fill:#bbdefb
 ```
 
 ## Background Execution
@@ -529,12 +667,210 @@ The chat agent has access to:
 - **Shell tools**: Bash, BashOutput for running commands
 - **Web tools**: WebSearch, WebFetch for internet lookups
 
+## Discord Bot
+
+Run Gluon as a Discord bot with channel-based project mapping and threaded task output.
+
+### Installation
+
+Discord support is an optional dependency:
+
+```bash
+pip install 'gluon-agent[discord]'
+# or for all optional features
+pip install 'gluon-agent[all]'
+```
+
+### Setup
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create a New Application
+3. Go to "Bot" tab and click "Add Bot"
+4. Copy the bot token
+5. Enable "MESSAGE CONTENT INTENT" in Bot settings
+6. Go to "OAuth2" → "URL Generator"
+7. Select scopes: `bot`, `applications.commands`
+8. Select permissions: `Send Messages`, `Create Public Threads`, `Read Message History`
+9. Copy the generated URL and open it to invite the bot to your server
+
+### Run the Bot
+
+```bash
+# Set required environment variables
+export GLUON_DISCORD_TOKEN="your-bot-token"
+export GLUON_DISCORD_GUILD="your-guild-id"
+
+# Optional: restrict to specific users (comma-separated Discord user IDs)
+export GLUON_DISCORD_USERS="123456789,987654321"
+
+# Start the bot
+gluon discord
+
+# Or pass options directly
+gluon discord --token "token" --guild 123456789
+```
+
+### Bot Commands
+
+Mention the bot (`@GluonBot`) with a command:
+
+- `@GluonBot link <project>` - Link this channel to a project
+- `@GluonBot projects` - List registered projects
+- `@GluonBot runs` - List your runs
+- `@GluonBot status` - Show overall status
+- `@GluonBot cancel [run_id]` - Cancel a run
+- `@GluonBot <any task>` - Execute task on the linked project
+
+### Channel-Project Mapping
+
+Discord channels map to projects in two ways:
+
+1. **Auto-match**: Channel name matches project name (e.g., `#myapp` → `myapp` project)
+2. **Explicit link**: Use `@GluonBot link <project>` to bind any channel
+
+Once linked, all @mentions execute tasks on that project automatically.
+
+### Threaded Output
+
+Task execution creates Discord threads for organized output:
+- Initial message shows task started
+- Thread contains streaming progress
+- Original message is edited with final summary (✅ or ❌)
+
+```mermaid
+flowchart LR
+    subgraph "Discord Channel: #myapp"
+        MSG1["🚀 Starting task on myapp<br/>Run: abc12345<br/>Status: Running..."]
+        MSG1 --> THREAD
+
+        subgraph THREAD["Thread: Run abc12345"]
+            P1["Agent: Reading files..."]
+            P2["Agent: Making changes..."]
+            P3["Agent: Running tests..."]
+            P1 --> P2 --> P3
+        end
+    end
+
+    subgraph "After Completion"
+        MSG2["✅ myapp - abc12345<br/><i>Fix the login bug...</i>"]
+    end
+
+    MSG1 -.->|edited| MSG2
+
+    style MSG1 fill:#fff9c4
+    style MSG2 fill:#c8e6c9
+    style THREAD fill:#e3f2fd
+```
+
+## Multi-Transport Mode
+
+Run both Telegram and Discord simultaneously with a shared bot core:
+
+```bash
+# Set all required environment variables
+export GLUON_TELEGRAM_TOKEN="telegram-token"
+export GLUON_TELEGRAM_USERS="123456789"
+export GLUON_DISCORD_TOKEN="discord-token"
+export GLUON_DISCORD_GUILD="987654321"
+export GLUON_DISCORD_USERS="111222333"
+
+# Run both transports
+gluon serve --telegram --discord
+```
+
+### Multi-Transport Architecture
+
+```mermaid
+flowchart TB
+    subgraph "gluon serve Process"
+        CLI[CLI: gluon serve]
+
+        subgraph "Transports (Concurrent)"
+            TG[TelegramTransport]
+            DC[DiscordTransport]
+        end
+
+        subgraph "Shared State"
+            CORE[GluonBotCore]
+            STORE[(SQLite Store)]
+            GIT[GitManager]
+            SEM[Semaphore<br/>max_concurrent=16]
+        end
+
+        CLI --> TG
+        CLI --> DC
+
+        TG --> CORE
+        DC --> CORE
+
+        CORE --> STORE
+        CORE --> GIT
+        CORE --> SEM
+    end
+
+    subgraph "External Services"
+        TGAPI[Telegram API]
+        DCAPI[Discord API]
+        BEDROCK[AWS Bedrock]
+    end
+
+    TG <--> TGAPI
+    DC <--> DCAPI
+    CORE -.-> BEDROCK
+
+    style CORE fill:#bbdefb
+    style STORE fill:#fff9c4
+    style SEM fill:#ffccbc
+```
+
+### Cross-Platform Visibility
+
+```mermaid
+sequenceDiagram
+    participant TGUser as Telegram User
+    participant TG as Telegram Transport
+    participant Core as GluonBotCore
+    participant DC as Discord Transport
+    participant DCUser as Discord User
+
+    TGUser->>TG: /run myapp "Fix bug"
+    TG->>Core: execute_task(initiator="telegram:123")
+    Core->>Core: Store run in SQLite
+
+    Note over Core: Run executes...
+
+    DCUser->>DC: @GluonBot runs
+    DC->>Core: format_runs_list()
+    Core-->>DC: All runs (including telegram:123)
+    DC-->>DCUser: Shows run from Telegram user
+
+    Note over Core: Run completes
+
+    Core-->>TG: AgentResult
+    TG-->>TGUser: ✅ Complete
+```
+
+### Features
+
+- **Shared project, session, and run state** - All transports read/write to the same SQLite database
+- **Shared git background sync** - Single GitManager instance fetches for all transports
+- **Shared concurrency limits** - Global semaphore prevents overload across all platforms
+- **Cross-platform run visibility** - Users on any platform can see runs from other platforms
+
 ## Configuration
 
 ### Environment Variables
 
+**Telegram:**
 - `GLUON_TELEGRAM_TOKEN` - Telegram bot token
 - `GLUON_TELEGRAM_USERS` - Comma-separated list of allowed Telegram user IDs
+
+**Discord:**
+- `GLUON_DISCORD_TOKEN` - Discord bot token
+- `GLUON_DISCORD_GUILD` - Discord guild (server) ID
+- `GLUON_DISCORD_USERS` - Comma-separated list of allowed Discord user IDs
+
+**AWS Bedrock:**
 - AWS credentials for Bedrock models (see `.env.local.example`)
 
 ### Model Selection
@@ -607,7 +943,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph "Telegram Bot"
+    subgraph "Bot Process (any transport)"
         LOOP[Background Loop]
         LOOP -->|every 5 min| FETCH
     end
@@ -632,7 +968,7 @@ flowchart LR
   1. Stage and commit all changes
   2. Push to remote
 
-- **Background**: The Telegram bot periodically fetches all projects (every 5 minutes) to maintain status awareness
+- **Background**: Bot transports (Telegram, Discord) periodically fetch all projects (every 5 minutes) to maintain status awareness
 
 ### Configuration
 
@@ -683,5 +1019,6 @@ ruff format src/ tests/
 ## Limitations
 
 - **No interactive STDIN**: Once a task starts, you cannot send additional input to the running Claude process. To continue work, wait for completion and use `resume` with a new prompt.
-- **Single-process concurrency**: The semaphore only limits concurrency within a single process. Multiple CLI `--background` invocations each run in separate processes.
+- **Single-process concurrency**: The semaphore only limits concurrency within a single process. Multiple CLI `--background` invocations each run in separate processes. However, `gluon serve` runs all transports in a single process with shared concurrency limits.
 - **Fire-and-forget execution**: The Claude Agent SDK sends the prompt once via `client.query()` and then only receives responses.
+- **Discord requires optional dependency**: Install with `pip install 'gluon-agent[discord]'` to enable Discord support.
