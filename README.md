@@ -504,6 +504,7 @@ gluon bot --token "your-bot-token" --users "123456789"
 - **Global concurrency limit**: Configurable limit (default: 16) prevents resource exhaustion
 - **Natural language support**: Chat naturally instead of using commands
 - **Conversation context**: Bot remembers recent messages for follow-up questions
+- **Reply to resume**: Reply to a completion message to automatically resume that session
 - **Real-time updates**: Get progress updates as tasks execute
 
 ### Natural Language Examples
@@ -520,6 +521,7 @@ Instead of commands, you can chat naturally:
 | "Search the web for React best practices" | Performs web search |
 | "Read the README in myapp" | Reads file contents from project |
 | "Find all Python files in myapp" | Searches for files by pattern |
+| *(reply to completion)* "Also add tests" | Resumes the session with follow-up prompt |
 
 The chat agent has access to:
 - **Gluon tools**: Project management, task execution, run monitoring, git status
