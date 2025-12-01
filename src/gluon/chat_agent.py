@@ -32,7 +32,9 @@ You help users:
 - Add workspaces to auto-discover projects in a directory
 - Run coding tasks on projects using Claude Code agents
 - Resume previous sessions to continue work
-- Check status of sessions and costs
+- Check status of sessions, runs, and costs
+- Monitor background task execution
+- Check git status of projects
 
 **Model Selection Guidelines:**
 When running tasks, choose the appropriate model based on task complexity:
@@ -50,6 +52,9 @@ If they want to see their projects, use list_projects.
 If they want to resume work, use resume_session (with appropriate model).
 If they want to see sessions, use list_sessions.
 If they want status info, use get_status.
+If they want to see running tasks or background runs, use list_runs.
+If they want to cancel a task, use cancel_run.
+If they want git status for a project, use get_git_status.
 
 Always confirm what action you're taking before executing it."""
 
@@ -314,6 +319,123 @@ class GluonChatAgent:
             except WorkspaceNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
+        # Run management tools
+        @tool(
+            "list_runs",
+            "List background execution runs",
+            {
+                "project_name": str,  # Optional: filter by project name
+                "active_only": bool,  # Optional: only show active runs (default: false)
+            },
+        )
+        async def list_runs(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project_name")
+            active_only = args.get("active_only", False)
+
+            try:
+                runs = orchestrator.list_runs(
+                    project_name=project_name,
+                    active_only=active_only,
+                    limit=10,
+                )
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            if not runs:
+                return {"content": [{"type": "text", "text": "No runs found."}]}
+
+            # Build project lookup for display
+            project_lookup = {p.id: p.name for p in orchestrator.list_projects()}
+
+            status_emojis = {
+                "pending": "⏳",
+                "running": "🔄",
+                "completed": "✅",
+                "failed": "❌",
+                "cancelled": "🚫",
+            }
+
+            result = "**Runs:**\n"
+            for r in runs:
+                emoji = status_emojis.get(r.status.value, "❓")
+                proj_name = project_lookup.get(r.project_id, r.project_id[:8])
+                prompt_preview = r.prompt[:30] + "..." if len(r.prompt) > 30 else r.prompt
+                result += f"{emoji} `{r.id[:8]}` | {proj_name}\n"
+                result += f"   _{prompt_preview}_\n"
+
+            active_count = len(orchestrator.list_runs(active_only=True))
+            if active_count:
+                result += f"\n**{active_count}** run(s) currently active"
+
+            return {"content": [{"type": "text", "text": result}]}
+
+        @tool(
+            "cancel_run",
+            "Cancel a running task",
+            {
+                "run_id": str,  # Run ID (can be short ID like 'abc123')
+            },
+        )
+        async def cancel_run(args: dict[str, Any]) -> dict[str, Any]:
+            run_id = args.get("run_id", "")
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            success, message = orchestrator.cancel_run(run_id)
+            if success:
+                return {"content": [{"type": "text", "text": f"✅ {message}"}]}
+            else:
+                return {"content": [{"type": "text", "text": f"Error: {message}"}]}
+
+        # Git tools
+        @tool(
+            "get_git_status",
+            "Get git status for a project (branch, uncommitted changes, ahead/behind)",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def get_git_status(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project_name", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                status = await orchestrator.get_git_status(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            if not status:
+                return {"content": [{"type": "text", "text": f"No git status available for `{project_name}`."}]}
+
+            if not status.is_git_repo:
+                return {"content": [{"type": "text", "text": f"`{project_name}` is not a git repository."}]}
+
+            result = f"**Git Status for `{project_name}`:**\n"
+            result += f"Branch: `{status.branch or 'unknown'}`\n"
+
+            if status.remote:
+                result += f"Remote: {status.remote}\n"
+
+            if status.has_uncommitted:
+                result += f"⚠️ {status.uncommitted_count} uncommitted change(s)\n"
+            else:
+                result += "✅ Working tree clean\n"
+
+            if status.commits_ahead or status.commits_behind:
+                if status.is_diverged:
+                    result += f"⚠️ Diverged: {status.commits_ahead} ahead, {status.commits_behind} behind\n"
+                elif status.commits_ahead:
+                    result += f"↑ {status.commits_ahead} commit(s) ahead\n"
+                elif status.commits_behind:
+                    result += f"↓ {status.commits_behind} commit(s) behind\n"
+            else:
+                result += "✅ Up to date with remote\n"
+
+            return {"content": [{"type": "text", "text": result}]}
+
         return [
             list_projects,
             list_sessions,
@@ -323,6 +445,9 @@ class GluonChatAgent:
             add_workspace,
             list_workspaces,
             scan_workspace,
+            list_runs,
+            cancel_run,
+            get_git_status,
         ]
 
     async def chat(
@@ -399,6 +524,9 @@ class GluonChatAgent:
                 "mcp__gluon__add_workspace",
                 "mcp__gluon__list_workspaces",
                 "mcp__gluon__scan_workspace",
+                "mcp__gluon__list_runs",
+                "mcp__gluon__cancel_run",
+                "mcp__gluon__get_git_status",
             ],
             max_turns=3,
             model=haiku_model,

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
-from gluon.models import Project, Session, SessionStatus, Workspace
+from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
 from gluon.models_config import DEFAULT_MODEL, ModelTier, get_model_id
 from gluon.store import GluonStore
 
@@ -469,3 +469,95 @@ class Orchestrator:
                 for p in projects
             ],
         }
+
+    # ========== Run Management ==========
+
+    def list_runs(
+        self,
+        project_name: str | None = None,
+        active_only: bool = False,
+        limit: int = 10,
+    ) -> list[ExecutionRun]:
+        """
+        List execution runs.
+
+        Args:
+            project_name: Filter by project name
+            active_only: Only return active runs
+            limit: Maximum number of runs to return
+
+        Returns:
+            List of ExecutionRun objects
+        """
+        project_id = None
+        if project_name:
+            project = self.get_project(project_name)
+            project_id = project.id
+
+        if active_only:
+            runs = self.store.list_active_runs()
+            if project_id:
+                runs = [r for r in runs if r.project_id == project_id]
+            return runs[:limit]
+
+        statuses = None
+        return self.store.list_runs(project_id=project_id, statuses=statuses, limit=limit)
+
+    def get_run(self, run_id: str) -> ExecutionRun | None:
+        """Get a run by ID (supports short IDs)."""
+        return self.store.get_run_by_short_id(run_id) or self.store.get_run(run_id)
+
+    def cancel_run(self, run_id: str) -> tuple[bool, str]:
+        """
+        Cancel a running task.
+
+        Args:
+            run_id: Run ID (can be short ID)
+
+        Returns:
+            Tuple of (success, message)
+        """
+        import os
+        import signal
+
+        run = self.get_run(run_id)
+        if not run:
+            return False, f"Run not found: {run_id}"
+
+        if not run.is_active:
+            return False, f"Run is not active (status: {run.status.value})"
+
+        # Try to kill by PID if running
+        if run.pid and run.status == RunStatus.RUNNING:
+            try:
+                os.kill(run.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass  # Process already gone or can't kill
+
+        # Mark as cancelled
+        run.mark_cancelled()
+        self.store.update_run(run)
+        return True, f"Cancelled run {run.id[:8]}"
+
+    # ========== Git Status ==========
+
+    async def get_git_status(self, project_name: str) -> GitStatus | None:
+        """
+        Get git status for a project.
+
+        Args:
+            project_name: Name or ID of the project
+
+        Returns:
+            GitStatus or None if not a git repo or git_manager not configured
+        """
+        project = self.get_project(project_name)
+
+        # First check cached status in DB
+        cached = self.store.get_git_status(project.id)
+
+        # If we have git_manager, refresh the status
+        if self.git_manager:
+            return await self.git_manager.refresh_status(project)
+
+        return cached
