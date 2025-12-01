@@ -324,8 +324,10 @@ class GluonBot:
             parse_mode="Markdown",
         )
 
-        # Run the task in background
-        task = asyncio.create_task(self._execute_task_with_runner(update, run, project_name))
+        # Run the task in background (force_new_session=False to resume existing session)
+        task = asyncio.create_task(
+            self._execute_task_with_runner(update, run, project_name, force_new_session=False)
+        )
         self._active_tasks[run.id] = task
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -397,6 +399,7 @@ class GluonBot:
         run: ExecutionRun,
         project_name: str,
         model: ModelTier | str | None = None,
+        force_new_session: bool = True,
     ) -> None:
         """Execute a Gluon task with run tracking and stream updates to Telegram."""
         if not update.message:
@@ -418,7 +421,7 @@ class GluonBot:
         try:
             async with self._semaphore:
                 execution = self.orchestrator.execute(
-                    project_name, run.prompt, force_new_session=True, model=model
+                    project_name, run.prompt, force_new_session=force_new_session, model=model
                 )
                 async for item in execution:
                     if isinstance(item, AgentMessage):
