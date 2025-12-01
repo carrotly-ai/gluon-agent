@@ -52,6 +52,9 @@ When users ask you to do something, use the available tools to help them. Be con
 - add_workspace, list_workspaces, scan_workspace - Manage workspaces
 - list_runs, cancel_run - Monitor and cancel background runs
 - get_git_status - Check git status for a project
+- git_sync - Auto-commit, fetch, and fast-forward a project
+- git_push - Commit and push changes to remote
+- git_fetch - Fetch from remote to see what's new
 
 **Built-in Tools:**
 - Read, Glob, Grep - Read files and search code
@@ -438,6 +441,76 @@ class GluonChatAgent:
 
             return {"content": [{"type": "text", "text": result}]}
 
+        @tool(
+            "git_sync",
+            "Sync a project: auto-commit uncommitted changes, fetch from remote, and fast-forward",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def git_sync(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project_name", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                success, message = await orchestrator.git_sync(project_name)
+                if success:
+                    return {"content": [{"type": "text", "text": f"✅ {message}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"❌ {message}"}]}
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+        @tool(
+            "git_push",
+            "Commit all changes and push to remote",
+            {
+                "project_name": str,  # Name of the project
+                "commit_message": str,  # Message for the commit
+            },
+        )
+        async def git_push(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project_name", "")
+            commit_message = args.get("commit_message", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+            if not commit_message:
+                return {"content": [{"type": "text", "text": "Error: commit_message is required"}]}
+
+            try:
+                success, message = await orchestrator.git_push(project_name, commit_message)
+                if success:
+                    return {"content": [{"type": "text", "text": f"✅ {message}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"❌ {message}"}]}
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+        @tool(
+            "git_fetch",
+            "Fetch from remote to see what's new (without merging)",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def git_fetch(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project_name", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                success, message = await orchestrator.git_fetch(project_name)
+                if success:
+                    return {"content": [{"type": "text", "text": f"✅ {message}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"❌ {message}"}]}
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
         return [
             list_projects,
             list_sessions,
@@ -450,6 +523,9 @@ class GluonChatAgent:
             list_runs,
             cancel_run,
             get_git_status,
+            git_sync,
+            git_push,
+            git_fetch,
         ]
 
     async def chat(
@@ -538,6 +614,9 @@ class GluonChatAgent:
                 "mcp__gluon__list_runs",
                 "mcp__gluon__cancel_run",
                 "mcp__gluon__get_git_status",
+                "mcp__gluon__git_sync",
+                "mcp__gluon__git_push",
+                "mcp__gluon__git_fetch",
             ],
             max_turns=3,
             model=haiku_model,

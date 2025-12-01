@@ -542,7 +542,7 @@ class Orchestrator:
         self.store.update_run(run)
         return True, f"Cancelled run {run.id[:8]}"
 
-    # ========== Git Status ==========
+    # ========== Git Operations ==========
 
     async def get_git_status(self, project_name: str) -> GitStatus | None:
         """
@@ -564,3 +564,79 @@ class Orchestrator:
             return await self.git_manager.refresh_status(project)
 
         return cached
+
+    async def git_sync(self, project_name: str) -> tuple[bool, str]:
+        """
+        Sync a project: auto-commit uncommitted changes, fetch, and fast-forward.
+
+        Args:
+            project_name: Name or ID of the project
+
+        Returns:
+            Tuple of (success, message)
+        """
+        if not self.git_manager:
+            return False, "Git manager not configured"
+
+        project = self.get_project(project_name)
+        result = await self.git_manager.pre_task_sync(project)
+
+        if result.success:
+            return True, result.message
+        return False, result.error or result.message
+
+    async def git_push(self, project_name: str, commit_message: str) -> tuple[bool, str]:
+        """
+        Commit all changes and push to remote.
+
+        Args:
+            project_name: Name or ID of the project
+            commit_message: Message for the commit
+
+        Returns:
+            Tuple of (success, message)
+        """
+        if not self.git_manager:
+            return False, "Git manager not configured"
+
+        project = self.get_project(project_name)
+        result = await self.git_manager.post_task_sync(project, commit_message)
+
+        if result.success:
+            return True, result.message
+        return False, result.error or result.message
+
+    async def git_fetch(self, project_name: str) -> tuple[bool, str]:
+        """
+        Fetch from remote without merging.
+
+        Args:
+            project_name: Name or ID of the project
+
+        Returns:
+            Tuple of (success, message) with ahead/behind info
+        """
+        if not self.git_manager:
+            return False, "Git manager not configured"
+
+        project = self.get_project(project_name)
+        status = await self.git_manager.refresh_status(project)
+
+        if not status.is_git_repo:
+            return False, f"{project_name} is not a git repository"
+
+        if not status.remote:
+            return True, "No remote configured (local-only repository)"
+
+        msg_parts = [f"Fetched from {status.remote}"]
+        if status.commits_ahead or status.commits_behind:
+            if status.is_diverged:
+                msg_parts.append(f"⚠️ Diverged: {status.commits_ahead} ahead, {status.commits_behind} behind")
+            elif status.commits_ahead:
+                msg_parts.append(f"↑ {status.commits_ahead} commit(s) to push")
+            elif status.commits_behind:
+                msg_parts.append(f"↓ {status.commits_behind} commit(s) to pull")
+        else:
+            msg_parts.append("Up to date")
+
+        return True, ". ".join(msg_parts)
