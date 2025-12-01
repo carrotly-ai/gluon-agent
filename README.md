@@ -81,6 +81,7 @@ graph TB
         RUNNER[TaskRunner]
         STORE[GluonStore]
         GIT[GitManager]
+        CHAT[ChatAgent]
     end
 
     subgraph Execution
@@ -97,6 +98,7 @@ graph TB
     subgraph External
         BEDROCK[AWS Bedrock]
         REMOTE[Git Remote]
+        WEB[Web/URLs]
     end
 
     CLI --> ORCH
@@ -104,6 +106,11 @@ graph TB
     CLI --> GIT
     TG --> ORCH
     TG --> RUNNER
+    TG --> CHAT
+
+    CHAT --> ORCH
+    CHAT --> SDK
+    CHAT -.->|WebSearch/Fetch| WEB
 
     ORCH --> STORE
     ORCH --> AGENT
@@ -339,7 +346,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph "Telegram Bot Process"
-        SEM[Semaphore<br/>max_concurrent=5]
+        SEM[Semaphore<br/>max_concurrent=16]
 
         subgraph "Active Tasks"
             T1[Task 1<br/>run_id: abc]
@@ -372,6 +379,55 @@ flowchart TB
     T1 --> L1
     T2 --> L2
     T3 --> L3
+```
+
+### Chat Agent Architecture
+
+```mermaid
+flowchart TB
+    subgraph "Telegram Bot"
+        MSG[User Message]
+        HIST[Message History<br/>last 10 per user]
+        REPLY[Reply Context]
+    end
+
+    subgraph "GluonChatAgent"
+        CHAT[chat method]
+        SDK[Claude Agent SDK<br/>Haiku model]
+    end
+
+    subgraph "Available Tools"
+        subgraph "Gluon MCP Tools"
+            PROJ[list_projects<br/>list_sessions<br/>get_status]
+            TASK[run_task<br/>resume_session]
+            WS[add_workspace<br/>list_workspaces<br/>scan_workspace]
+            RUN[list_runs<br/>cancel_run]
+            GIT[get_git_status]
+        end
+
+        subgraph "Built-in Tools"
+            FILE[Read, Glob, Grep]
+            EXEC[Bash, BashOutput]
+            WEB[WebSearch, WebFetch]
+        end
+    end
+
+    MSG --> CHAT
+    HIST --> CHAT
+    REPLY --> CHAT
+    CHAT --> SDK
+    SDK --> PROJ
+    SDK --> TASK
+    SDK --> WS
+    SDK --> RUN
+    SDK --> GIT
+    SDK --> FILE
+    SDK --> EXEC
+    SDK --> WEB
+
+    style WEB fill:#4a90d9
+    style FILE fill:#88b04b
+    style EXEC fill:#ff9900
 ```
 
 ## Background Execution
@@ -438,15 +494,38 @@ gluon bot --token "your-bot-token" --users "123456789"
 - `/status` - Show overall status
 - `/cancel` - Cancel your latest active run
 - `/cancel <run_id>` - Cancel specific run
+- `/clear` - Clear chat history
 - `/help` - Show help
 
 ### Features
 
 - **Multiple concurrent tasks**: Run tasks across multiple projects simultaneously
 - **Persistent tracking**: All runs are tracked in SQLite and survive bot restarts
-- **Global concurrency limit**: Configurable limit (default: 5) prevents resource exhaustion
+- **Global concurrency limit**: Configurable limit (default: 16) prevents resource exhaustion
 - **Natural language support**: Chat naturally instead of using commands
+- **Conversation context**: Bot remembers recent messages for follow-up questions
 - **Real-time updates**: Get progress updates as tasks execute
+
+### Natural Language Examples
+
+Instead of commands, you can chat naturally:
+
+| What you say | What happens |
+|--------------|--------------|
+| "Show me my projects" | Lists all registered projects |
+| "What's the git status of myapp?" | Shows git branch, uncommitted changes, ahead/behind |
+| "Run a task on myapp to fix the login bug" | Starts a coding task with Claude |
+| "What tasks are running?" | Lists active background runs |
+| "Cancel the last task" | Cancels most recent active run |
+| "Search the web for React best practices" | Performs web search |
+| "Read the README in myapp" | Reads file contents from project |
+| "Find all Python files in myapp" | Searches for files by pattern |
+
+The chat agent has access to:
+- **Gluon tools**: Project management, task execution, run monitoring, git status
+- **File tools**: Read, Glob, Grep for exploring project code
+- **Shell tools**: Bash, BashOutput for running commands
+- **Web tools**: WebSearch, WebFetch for internet lookups
 
 ## Configuration
 
