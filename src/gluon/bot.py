@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -655,6 +656,38 @@ class GluonBot:
         """Get conversation history for a user."""
         return self._message_history.get(user_id, [])
 
+    def _extract_run_info_from_message(self, text: str) -> tuple[str | None, str | None]:
+        """
+        Extract run ID and project name from a bot message (completion/status messages).
+
+        Returns:
+            Tuple of (run_id, project_name) - either may be None if not found
+        """
+        run_id = None
+        project_name = None
+
+        # Pattern: "✅ Complete (abc12345)" or "❌ Failed (abc12345)"
+        complete_match = re.search(r"[✅❌]\s*\*?\*?(?:Complete|Failed)\*?\*?\s*\(`?([a-f0-9]{8})`?\)", text)
+        if complete_match:
+            run_id = complete_match.group(1)
+
+        # Pattern: "Run: abc12345" or "Run: `abc12345`"
+        run_match = re.search(r"Run:\s*`?([a-f0-9]{8})`?", text)
+        if run_match:
+            run_id = run_match.group(1)
+
+        # Pattern: "Task started: abc12345" or "Task `abc12345`"
+        task_match = re.search(r"Task\s*(?:started:)?\s*`?([a-f0-9]{8})`?", text)
+        if task_match and not run_id:
+            run_id = task_match.group(1)
+
+        # Pattern: "Project: myapp" or "Project: `myapp`"
+        project_match = re.search(r"Project:\s*`?([a-zA-Z0-9_/-]+)`?", text)
+        if project_match:
+            project_name = project_match.group(1)
+
+        return run_id, project_name
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle plain text messages using natural language understanding."""
         if not update.effective_user or not update.message or not update.message.text:
@@ -684,6 +717,48 @@ class GluonBot:
         reply_context: str | None = None
         if update.message.reply_to_message and update.message.reply_to_message.text:
             reply_context = update.message.reply_to_message.text
+
+            # Check if replying to a bot message with run/project info - auto-resume
+            run_id, project_name = self._extract_run_info_from_message(reply_context)
+            if run_id and project_name:
+                # Try to find the session from the run
+                run = self.store.get_run_by_short_id(run_id)
+                if run and run.session_id:
+                    session = self.store.get_session(run.session_id)
+                    if session and session.claude_session_id:
+                        # Verify project matches
+                        try:
+                            project = self.orchestrator.get_project(project_name)
+                            if project.id == session.project_id:
+                                # Check concurrency limit
+                                active_runs = self.store.list_active_runs()
+                                if len(active_runs) >= self._semaphore._value:
+                                    await update.message.reply_text(
+                                        f"Max concurrent runs ({self._semaphore._value}) reached.\n"
+                                        "Use /runs to see active runs or /cancel to stop one."
+                                    )
+                                    return
+
+                                # Create run and resume
+                                initiator = f"telegram:{user_id}"
+                                new_run = self.store.create_run(project.id, message_text, initiator=initiator)
+
+                                await update.message.reply_text(
+                                    f"🔄 Resuming from run `{run_id}`\n"
+                                    f"Project: `{project_name}`\n"
+                                    f"New run: `{new_run.id[:8]}`",
+                                    parse_mode="Markdown",
+                                )
+
+                                task = asyncio.create_task(
+                                    self._execute_task_with_runner(
+                                        update, new_run, project_name, force_new_session=False
+                                    )
+                                )
+                                self._active_tasks[new_run.id] = task
+                                return
+                        except Exception:
+                            pass  # Fall through to normal chat handling
 
         # Get conversation history for this user
         history = self._get_history(user_id)
