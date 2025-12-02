@@ -4,7 +4,7 @@ import { RunDetailDialog } from './components/RunDetailDialog'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { cancelRun } from './lib/api'
 import type { Run } from './lib/types'
-import { Activity, Wifi, WifiOff, Zap } from 'lucide-react'
+import { Loader2, Wifi, WifiOff } from 'lucide-react'
 
 function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
@@ -37,80 +37,45 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Mission Control Header */}
-      <header className="mission-header sticky top-0 z-10">
-        <div className="flex items-center justify-between px-6 py-4">
-          {/* Brand */}
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#00f5ff] to-[#bf5af2] flex items-center justify-center">
-                <Zap className="w-5 h-5 text-[#0a0a0f]" />
-              </div>
-              <div>
-                <h1 className="brand-logo">GLUON</h1>
-                <p className="brand-subtitle">Mission Control</p>
-              </div>
-            </div>
-
-            {/* Stats */}
-            <div className="hidden md:flex items-center gap-4 ml-8 pl-8 border-l border-[#2a2a3a]">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[#00f5ff]" />
-                <span className="font-mono text-xs text-[#888]">
-                  <span className="text-[#00f5ff] font-semibold">{activeRuns}</span> active
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-[#ffbe0b]" />
-                <span className="font-mono text-xs text-[#888]">
-                  <span className="text-[#ffbe0b] font-semibold">{pendingRuns}</span> queued
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-[#888]">
-                  <span className="text-[#e4e4e7] font-semibold">{runs.length}</span> total
-                </span>
-              </div>
+      {/* Header */}
+      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-4 h-12">
+          {/* Left */}
+          <div className="flex items-center gap-4">
+            <h1 className="text-sm font-semibold">Gluon</h1>
+            <div className="flex items-center gap-3 text-xs text-zinc-500">
+              <span><span className="text-blue-400">{activeRuns}</span> active</span>
+              <span><span className="text-yellow-400">{pendingRuns}</span> queued</span>
+              <span className="text-zinc-600">{runs.length} total</span>
             </div>
           </div>
 
-          {/* Right side */}
-          <div className="flex items-center gap-4">
-            {/* Connection status */}
-            <div className={`connection-badge ${connected ? 'connected' : 'disconnected'}`}>
-              {connected ? (
-                <>
-                  <Wifi className="w-3 h-3" />
-                  <span>LIVE</span>
-                  <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-3 h-3" />
-                  <span>OFFLINE</span>
-                </>
-              )}
-            </div>
+          {/* Right */}
+          <div className="flex items-center gap-2 text-xs">
+            {connected ? (
+              <span className="flex items-center gap-1.5 text-emerald-500">
+                <Wifi className="w-3 h-3" />
+                Live
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-zinc-500">
+                <WifiOff className="w-3 h-3" />
+                Offline
+              </span>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main */}
       <main className="flex-1 overflow-hidden">
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div className="mission-loader" />
-            <p className="font-mono text-sm text-[#666]">Initializing systems...</p>
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center p-8 bg-[#12121a] border border-[#ff3366]/30 rounded-lg max-w-md">
-              <div className="w-12 h-12 rounded-full bg-[#ff3366]/10 flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">⚠</span>
-              </div>
-              <p className="text-[#ff3366] font-mono text-sm mb-2">SYSTEM ERROR</p>
-              <p className="text-[#888] text-sm">{error}</p>
-            </div>
+            <p className="text-sm text-red-400">{error}</p>
           </div>
         ) : (
           <KanbanBoard
@@ -121,7 +86,6 @@ function App() {
         )}
       </main>
 
-      {/* Run detail dialog */}
       <RunDetailDialog
         run={selectedRun}
         open={dialogOpen}

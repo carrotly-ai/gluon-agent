@@ -6,12 +6,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  XCircle, RefreshCw, Clock, Timer, User, Folder,
-  Terminal, AlertTriangle, CheckCircle2, Loader2, Ban,
-  Hash, ExternalLink
-} from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { X, RefreshCw, Clock, Timer, User, Folder, AlertCircle } from 'lucide-react'
 import type { Run, RunDetail, RunStatus } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -23,48 +22,12 @@ interface RunDetailDialogProps {
   onRunUpdated: (run: Run) => void
 }
 
-const STATUS_CONFIG: Record<RunStatus, {
-  color: string
-  bgColor: string
-  borderColor: string
-  icon: React.ElementType
-  label: string
-}> = {
-  pending: {
-    color: 'text-[#ffbe0b]',
-    bgColor: 'bg-[#ffbe0b]/10',
-    borderColor: 'border-[#ffbe0b]/30',
-    icon: Clock,
-    label: 'QUEUED'
-  },
-  running: {
-    color: 'text-[#00f5ff]',
-    bgColor: 'bg-[#00f5ff]/10',
-    borderColor: 'border-[#00f5ff]/30',
-    icon: Loader2,
-    label: 'ACTIVE'
-  },
-  completed: {
-    color: 'text-[#39ff14]',
-    bgColor: 'bg-[#39ff14]/10',
-    borderColor: 'border-[#39ff14]/30',
-    icon: CheckCircle2,
-    label: 'COMPLETE'
-  },
-  failed: {
-    color: 'text-[#ff3366]',
-    bgColor: 'bg-[#ff3366]/10',
-    borderColor: 'border-[#ff3366]/30',
-    icon: AlertTriangle,
-    label: 'FAILED'
-  },
-  cancelled: {
-    color: 'text-[#6b7280]',
-    bgColor: 'bg-[#6b7280]/10',
-    borderColor: 'border-[#6b7280]/30',
-    icon: Ban,
-    label: 'ABORTED'
-  },
+const STATUS_BADGE: Record<RunStatus, string> = {
+  pending: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
+  running: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+  completed: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+  failed: 'bg-red-500/10 text-red-500 border-red-500/20',
+  cancelled: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
 }
 
 function formatDuration(seconds: number | null): string {
@@ -82,11 +45,10 @@ function formatDateTime(dateStr: string | null): string {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState<'details' | 'stdout' | 'stderr'>('details')
+  const [activeTab, setActiveTab] = useState('details')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
-  // Load run details and logs when dialog opens
   useEffect(() => {
     if (!open || !run) {
       setDetail(null)
@@ -105,10 +67,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
           fetchLogs(runId, 'stderr').catch(() => ({ content: '' })),
         ])
         setDetail(runDetail)
-        setLogs({
-          stdout: stdoutLogs.content || '',
-          stderr: stderrLogs.content || '',
-        })
+        setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '' })
       } catch (err) {
         console.error('Failed to load run details:', err)
       } finally {
@@ -142,10 +101,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
         fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
       ])
       setDetail(runDetail)
-      setLogs({
-        stdout: stdoutLogs.content || '',
-        stderr: stderrLogs.content || '',
-      })
+      setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '' })
       onRunUpdated(runDetail)
     } catch (err) {
       console.error('Failed to refresh:', err)
@@ -155,200 +111,125 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   }
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
-  const config = run ? STATUS_CONFIG[run.status] : null
-  const StatusIcon = config?.icon || Terminal
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="mission-dialog max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-        {/* Header */}
-        <DialogHeader className="p-4 border-b border-[#2a2a3a] bg-[#0a0a0f]">
+      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-2">
-                {config && (
-                  <div className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 rounded-md border',
-                    config.bgColor,
-                    config.borderColor,
-                    config.color
-                  )}>
-                    <StatusIcon className={cn('w-4 h-4', run?.status === 'running' && 'animate-spin')} />
-                    <span className="font-mono text-xs font-semibold">{config.label}</span>
-                  </div>
+              <div className="flex items-center gap-2 mb-1">
+                <code className="text-xs text-zinc-500">{run?.id.slice(0, 8)}</code>
+                {run && (
+                  <Badge variant="outline" className={cn('text-xs', STATUS_BADGE[run.status])}>
+                    {run.status}
+                  </Badge>
                 )}
-                <span className="font-mono text-xs text-[#666]">
-                  <Hash className="w-3 h-3 inline mr-1" />
-                  {run?.id.slice(0, 8)}
-                </span>
               </div>
-              <DialogTitle className="text-base font-medium text-[#e4e4e7]">
-                {run?.prompt || 'Mission Details'}
+              <DialogTitle className="text-sm font-medium truncate">
+                {run?.prompt || 'Run Details'}
               </DialogTitle>
-              <DialogDescription className="text-[#666] text-sm mt-1">
+              <DialogDescription className="text-xs">
                 {run?.project_name}
               </DialogDescription>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                className="mission-button"
-                onClick={handleRefresh}
-                disabled={loading}
-              >
-                <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
-                REFRESH
-              </button>
+              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading}>
+                <RefreshCw className={cn('w-3 h-3 mr-1', loading && 'animate-spin')} />
+                Refresh
+              </Button>
               {isActive && (
-                <button
-                  className="mission-button danger"
-                  onClick={handleCancel}
-                  disabled={cancelling}
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  ABORT
-                </button>
+                <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>
+                  <X className="w-3 h-3 mr-1" />
+                  Cancel
+                </Button>
               )}
             </div>
           </div>
         </DialogHeader>
 
-        {/* Tabs */}
-        <div className="flex border-b border-[#2a2a3a] bg-[#12121a]">
-          {(['details', 'stdout', 'stderr'] as const).map((tab) => (
-            <button
-              key={tab}
-              className={cn(
-                'mission-tab',
-                activeTab === tab && 'active'
-              )}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab === 'details' && <Terminal className="w-3 h-3 mr-2 inline" />}
-              {tab.toUpperCase()}
-              {tab === 'stderr' && logs.stderr && (
-                <span className="ml-2 w-2 h-2 rounded-full bg-[#ff3366] inline-block" />
-              )}
-            </button>
-          ))}
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+          <TabsList className="shrink-0">
+            <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+            <TabsTrigger value="stdout" className="text-xs">Output</TabsTrigger>
+            <TabsTrigger value="stderr" className="text-xs">
+              Errors
+              {logs.stderr && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-red-500" />}
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden bg-[#0a0a0f]">
-          {activeTab === 'details' && (
-            <ScrollArea className="h-full">
-              <div className="p-6 space-y-6">
-                {/* Metadata grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
-                      <Folder className="h-4 w-4" />
-                      PROJECT
-                    </div>
-                    <p className="text-[#e4e4e7] font-medium">{run?.project_name}</p>
-                  </div>
-                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
-                      <User className="h-4 w-4" />
-                      INITIATOR
-                    </div>
-                    <p className="text-[#e4e4e7] font-medium">{run?.initiator || 'CLI'}</p>
-                  </div>
-                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
-                      <Clock className="h-4 w-4" />
-                      CREATED
-                    </div>
-                    <p className="text-[#e4e4e7] font-medium font-mono text-sm">
-                      {formatDateTime(run?.created_at ?? null)}
-                    </p>
-                  </div>
-                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
-                      <Timer className="h-4 w-4" />
-                      DURATION
-                    </div>
-                    <p className="text-[#e4e4e7] font-medium font-mono text-sm">
-                      {formatDuration(run?.duration_seconds ?? null)}
-                    </p>
-                  </div>
+          <TabsContent value="details" className="flex-1 overflow-auto mt-4">
+            <div className="space-y-4 text-sm">
+              {/* Metadata */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Folder className="w-4 h-4" />
+                  <span className="text-zinc-500">Project:</span>
+                  <span className="text-zinc-200">{run?.project_name}</span>
                 </div>
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <User className="w-4 h-4" />
+                  <span className="text-zinc-500">Initiator:</span>
+                  <span className="text-zinc-200">{run?.initiator || 'CLI'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-zinc-500">Created:</span>
+                  <span className="text-zinc-200">{formatDateTime(run?.created_at ?? null)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Timer className="w-4 h-4" />
+                  <span className="text-zinc-500">Duration:</span>
+                  <span className="text-zinc-200">{formatDuration(run?.duration_seconds ?? null)}</span>
+                </div>
+              </div>
 
-                {/* Full prompt */}
+              {/* Prompt */}
+              <div>
+                <h4 className="text-xs font-medium text-zinc-500 mb-2">Prompt</h4>
+                <pre className="text-xs bg-zinc-900 border border-zinc-800 rounded-md p-3 whitespace-pre-wrap">
+                  {run?.prompt}
+                </pre>
+              </div>
+
+              {/* Error */}
+              {run?.error_message && (
                 <div>
-                  <h4 className="text-xs font-mono text-[#666] mb-3 flex items-center gap-2">
-                    <Terminal className="w-4 h-4" />
-                    MISSION PROMPT
+                  <h4 className="text-xs font-medium text-red-400 mb-2 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> Error
                   </h4>
-                  <div className="log-viewer">
-                    <pre>{run?.prompt}</pre>
-                  </div>
-                </div>
-
-                {/* Error message */}
-                {run?.error_message && (
-                  <div>
-                    <h4 className="text-xs font-mono text-[#ff3366] mb-3 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" />
-                      ERROR
-                    </h4>
-                    <div className="log-viewer border-[#ff3366]/30 bg-[#ff3366]/5">
-                      <pre className="text-[#ff3366]">{run.error_message}</pre>
-                    </div>
-                  </div>
-                )}
-
-                {/* Additional details */}
-                {detail && (detail.session_id || detail.exit_code !== null) && (
-                  <div className="border-t border-[#2a2a3a] pt-4">
-                    <h4 className="text-xs font-mono text-[#666] mb-3">SYSTEM INFO</h4>
-                    <div className="flex items-center gap-4 text-xs font-mono text-[#888]">
-                      {detail.session_id && (
-                        <span className="flex items-center gap-1">
-                          <ExternalLink className="w-3 h-3" />
-                          Session: {detail.session_id.slice(0, 12)}...
-                        </span>
-                      )}
-                      {detail.exit_code !== null && (
-                        <span className={cn(
-                          'px-2 py-0.5 rounded',
-                          detail.exit_code === 0
-                            ? 'bg-[#39ff14]/10 text-[#39ff14]'
-                            : 'bg-[#ff3366]/10 text-[#ff3366]'
-                        )}>
-                          Exit: {detail.exit_code}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          )}
-
-          {activeTab === 'stdout' && (
-            <ScrollArea className="h-[500px]">
-              <div className="p-4">
-                <div className="log-viewer min-h-[400px]">
-                  <pre>
-                    {logs.stdout || <span className="text-[#444]">// No output captured</span>}
+                  <pre className="text-xs bg-red-500/5 border border-red-500/20 text-red-400 rounded-md p-3 whitespace-pre-wrap">
+                    {run.error_message}
                   </pre>
                 </div>
-              </div>
-            </ScrollArea>
-          )}
+              )}
 
-          {activeTab === 'stderr' && (
-            <ScrollArea className="h-[500px]">
-              <div className="p-4">
-                <div className="log-viewer min-h-[400px] border-[#ff3366]/20">
-                  <pre className={logs.stderr ? 'text-[#ff3366]' : ''}>
-                    {logs.stderr || <span className="text-[#444]">// No errors captured</span>}
-                  </pre>
+              {/* System info */}
+              {detail && (detail.session_id || detail.exit_code !== null) && (
+                <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
+                  {detail.session_id && <span>Session: {detail.session_id.slice(0, 12)}...</span>}
+                  {detail.exit_code !== null && <span className="ml-4">Exit: {detail.exit_code}</span>}
                 </div>
-              </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="stdout" className="flex-1 min-h-0 mt-4">
+            <ScrollArea className="h-80 rounded-md border border-zinc-800">
+              <pre className="p-3 text-xs font-mono whitespace-pre-wrap text-zinc-300">
+                {logs.stdout || <span className="text-zinc-600">No output</span>}
+              </pre>
             </ScrollArea>
-          )}
-        </div>
+          </TabsContent>
+
+          <TabsContent value="stderr" className="flex-1 min-h-0 mt-4">
+            <ScrollArea className="h-80 rounded-md border border-zinc-800">
+              <pre className="p-3 text-xs font-mono whitespace-pre-wrap text-red-400">
+                {logs.stderr || <span className="text-zinc-600">No errors</span>}
+              </pre>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   )
