@@ -3,7 +3,7 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { X, RotateCw, ChevronLeft, Copy, Check, Play } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -180,12 +180,11 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             </button>
             {isActive && (
               <button
-                className="p-2 text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)] transition-colors"
+                className="px-2 py-1 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 hover:text-[var(--color-vermillion)] border border-[var(--color-stone)]/20 hover:border-[var(--color-vermillion)]/40 rounded-sm transition-colors"
                 onClick={handleCancel}
                 disabled={cancelling}
-                title="Cancel run"
               >
-                <X className="w-3.5 h-3.5" />
+                {cancelling ? 'Cancelling...' : 'Cancel'}
               </button>
             )}
           </div>
