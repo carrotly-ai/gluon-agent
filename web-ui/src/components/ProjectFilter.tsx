@@ -89,7 +89,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
               >
                 <Folder className="w-3 h-3" />
                 {workspace}
-                <span className="ml-auto text-[#a3a3a3]/40">({workspaceProjects.length})</span>
+                <span className="ml-auto text-[#a3a3a3]/55">({workspaceProjects.length})</span>
               </button>
 
               {/* Projects in workspace */}

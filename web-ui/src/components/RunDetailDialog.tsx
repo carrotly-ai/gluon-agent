@@ -44,6 +44,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [logsCopied, setLogsCopied] = useState(false)
 
   useEffect(() => {
     if (!open || !run) {
@@ -114,12 +115,20 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleCopyLogs = async () => {
+    const content = activeTab === 'output' ? logs.stdout : logs.stderr
+    if (!content) return
+    await navigator.clipboard.writeText(content)
+    setLogsCopied(true)
+    setTimeout(() => setLogsCopied(false), 2000)
+  }
+
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dialog-content max-w-4xl w-[90vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent className="dialog-content sm:max-w-6xl w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Compact Header Bar */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[#0c0c0c]">
           {/* Left: Back (mobile) + Status */}
@@ -133,12 +142,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             <div className="flex items-center gap-2">
               <div className={cn('mark', `mark-${run?.status}`)} />
               <span className="text-mono text-[#a3a3a3]/60 text-[0.625rem]">{run?.id.slice(0, 8)}</span>
-              <span className="text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/40">{run?.status}</span>
+              <span className="text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/55">{run?.status}</span>
             </div>
           </div>
 
           {/* Right: Actions */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 pr-5">
             <button
               className="p-2 text-[#a3a3a3]/60 hover:text-[#fafaf9] transition-colors"
               onClick={handleRefresh}
@@ -175,14 +184,16 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               )}
             </div>
 
-            {/* Prompt - Hero Section */}
-            <div className="mb-6 shrink-0">
+            {/* Prompt - Constrained height with scroll */}
+            <div className="mb-4 shrink-0">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[0.9375rem] text-[#fafaf9] leading-relaxed font-light">
-                  {run?.prompt}
-                </p>
+                <div className="max-h-24 overflow-y-auto flex-1 pr-2 scrollbar-thin">
+                  <p className="text-[0.8125rem] text-[#fafaf9] leading-relaxed font-light">
+                    {run?.prompt}
+                  </p>
+                </div>
                 <button
-                  className="p-1.5 text-[#a3a3a3]/40 hover:text-[#fafaf9] transition-colors shrink-0 mt-0.5"
+                  className="p-1.5 text-[#a3a3a3]/55 hover:text-[#fafaf9] transition-colors shrink-0"
                   onClick={handleCopyPrompt}
                   title="Copy prompt"
                 >
@@ -204,31 +215,47 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             {/* Logs Section */}
             <div className="flex flex-col flex-1 min-h-0">
               {/* Tab Bar */}
-              <div className="flex items-center gap-1 mb-3 shrink-0">
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <div className="flex items-center gap-1">
+                  <button
+                    className={cn(
+                      'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                      activeTab === 'output'
+                        ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
+                        : 'text-[#a3a3a3]/60 hover:text-[#a3a3a3]'
+                    )}
+                    onClick={() => setActiveTab('output')}
+                  >
+                    Output
+                  </button>
+                  <button
+                    className={cn(
+                      'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                      activeTab === 'errors'
+                        ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
+                        : 'text-[#a3a3a3]/60 hover:text-[#a3a3a3]'
+                    )}
+                    onClick={() => setActiveTab('errors')}
+                  >
+                    Errors
+                    {hasErrors && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#c73e3a]" />
+                    )}
+                  </button>
+                </div>
                 <button
                   className={cn(
-                    'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
-                    activeTab === 'output'
-                      ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
-                      : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
+                    'flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                    (activeTab === 'output' ? logs.stdout : logs.stderr)
+                      ? 'text-[#a3a3a3]/60 hover:text-[#fafaf9]'
+                      : 'text-[#a3a3a3]/40 cursor-not-allowed'
                   )}
-                  onClick={() => setActiveTab('output')}
+                  onClick={handleCopyLogs}
+                  disabled={!(activeTab === 'output' ? logs.stdout : logs.stderr)}
+                  title={`Copy ${activeTab}`}
                 >
-                  Output
-                </button>
-                <button
-                  className={cn(
-                    'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
-                    activeTab === 'errors'
-                      ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
-                      : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
-                  )}
-                  onClick={() => setActiveTab('errors')}
-                >
-                  Errors
-                  {hasErrors && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#c73e3a]" />
-                  )}
+                  {logsCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  <span className="hidden sm:inline">{logsCopied ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
 
@@ -236,13 +263,13 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               <div className="bg-[#0c0c0c] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
                   <pre className="p-3 text-mono text-[#fafaf9]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed">
-                    {logs.stdout || <span className="text-[#a3a3a3]/30 italic">No output</span>}
+                    {logs.stdout || <span className="text-[#a3a3a3]/50 italic">No output</span>}
                   </pre>
                 )}
                 {activeTab === 'errors' && (
                   <pre className={cn(
                     'p-3 text-mono whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed',
-                    logs.stderr ? 'text-[#c73e3a]/90' : 'text-[#a3a3a3]/30 italic'
+                    logs.stderr ? 'text-[#c73e3a]/90' : 'text-[#a3a3a3]/50 italic'
                   )}>
                     {logs.stderr || 'No errors'}
                   </pre>
@@ -253,7 +280,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             {/* Footer Meta */}
             {detail?.session_id && (
               <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0">
-                <span className="text-mono text-[0.625rem] text-[#a3a3a3]/30">
+                <span className="text-mono text-[0.625rem] text-[#a3a3a3]/50">
                   session {detail.session_id.slice(0, 12)}
                 </span>
               </div>

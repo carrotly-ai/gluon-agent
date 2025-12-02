@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
+import { Plus } from 'lucide-react'
 import { KanbanBoard } from './components/KanbanBoard'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { ProjectFilter } from './components/ProjectFilter'
+import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { cancelRun, fetchProjects } from './lib/api'
@@ -12,6 +14,7 @@ function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const { filter, setFilter } = useHashFilter()
 
@@ -88,12 +91,21 @@ function App() {
             )}
           </div>
 
-          {/* Right - connection */}
-          <div className="flex items-center gap-2">
-            <div className={`mark ${connected ? 'mark-running' : 'mark-cancelled'}`} />
-            <span className="text-caption hidden sm:inline">
-              {connected ? 'connected' : 'offline'}
-            </span>
+          {/* Right - create + connection */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <button
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[0.625rem] uppercase tracking-widest text-[#0c0c0c] bg-[#fafaf9] hover:bg-[#e5e5e5] transition-colors rounded-sm"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="w-3 h-3" />
+              <span className="hidden sm:inline">New</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <div className={`mark ${connected ? 'mark-running' : 'mark-cancelled'}`} />
+              <span className="text-caption hidden sm:inline">
+                {connected ? 'connected' : 'offline'}
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -122,6 +134,13 @@ function App() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onRunUpdated={handleRunUpdated}
+      />
+
+      <CreateTaskDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onTaskCreated={() => {}}
+        initialProject={filter.type === 'project' ? filter.value || undefined : undefined}
       />
     </div>
   )

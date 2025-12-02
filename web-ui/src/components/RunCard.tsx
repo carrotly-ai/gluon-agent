@@ -50,11 +50,11 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
           <span className="text-mono text-[#a3a3a3]/60 truncate max-w-[100px] sm:max-w-none">
             {run.project_name}
           </span>
-          <span className="text-mono text-[#a3a3a3]/40 hidden sm:inline">
+          <span className="text-mono text-[#a3a3a3]/55 hidden sm:inline">
             {formatTime(run.created_at)}
           </span>
           {run.duration_seconds !== null && (
-            <span className="text-mono text-[#a3a3a3]/40">
+            <span className="text-mono text-[#a3a3a3]/55">
               {formatDuration(run.duration_seconds)}
             </span>
           )}
@@ -62,7 +62,7 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
 
         {isActive && onCancel && (
           <button
-            className="p-1.5 sm:p-1 text-[#a3a3a3]/40 hover:text-[#c73e3a] transition-colors shrink-0"
+            className="p-1.5 sm:p-1 text-[#a3a3a3]/55 hover:text-[#c73e3a] transition-colors shrink-0"
             onClick={(e) => {
               e.stopPropagation()
               onCancel()
