@@ -77,6 +77,8 @@ MIGRATIONS = [
     "ALTER TABLE projects ADD COLUMN git_last_commit_at TEXT;",
     # Thread tracking for session resume
     "ALTER TABLE execution_runs ADD COLUMN thread_id TEXT;",
+    # Claude SDK session ID for resume (separate from internal session FK)
+    "ALTER TABLE execution_runs ADD COLUMN claude_session_id TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -623,9 +625,15 @@ class GluonStore:
 
     # ========== Execution Run CRUD ==========
 
-    def create_run(self, project_id: str, prompt: str, initiator: str | None = None) -> ExecutionRun:
+    def create_run(
+        self,
+        project_id: str,
+        prompt: str,
+        initiator: str | None = None,
+        session_id: str | None = None,
+    ) -> ExecutionRun:
         """Create a new execution run."""
-        run = ExecutionRun(project_id=project_id, prompt=prompt, initiator=initiator)
+        run = ExecutionRun(project_id=project_id, prompt=prompt, initiator=initiator, session_id=session_id)
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -714,12 +722,13 @@ class GluonStore:
             conn.execute(
                 """
                 UPDATE execution_runs
-                SET session_id = ?, pid = ?, status = ?, started_at = ?,
+                SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, started_at = ?,
                     completed_at = ?, exit_code = ?, log_path = ?, error_message = ?, thread_id = ?
                 WHERE id = ?
                 """,
                 (
                     run.session_id,
+                    run.claude_session_id,
                     run.pid,
                     run.status.value,
                     run.started_at.isoformat() if run.started_at else None,
@@ -743,6 +752,7 @@ class GluonStore:
         return ExecutionRun(
             id=row["id"],
             session_id=row["session_id"],
+            claude_session_id=row["claude_session_id"] if "claude_session_id" in row.keys() else None,
             project_id=row["project_id"],
             pid=row["pid"],
             status=RunStatus(row["status"]),

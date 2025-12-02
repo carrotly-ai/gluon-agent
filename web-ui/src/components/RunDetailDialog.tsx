@@ -3,9 +3,9 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { X, RotateCw, ChevronLeft, Copy, Check } from 'lucide-react'
+import { X, RotateCw, ChevronLeft, Copy, Check, Play } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface RunDetailDialogProps {
@@ -40,17 +40,22 @@ function formatDate(dateStr: string | null): string {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState<'output' | 'errors'>('output')
+  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'continue'>('output')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [copied, setCopied] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
+  const [resumePrompt, setResumePrompt] = useState('')
+  const [resuming, setResuming] = useState(false)
+  const [resumeError, setResumeError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open || !run) {
       setDetail(null)
       setLogs({ stdout: '', stderr: '' })
       setActiveTab('output')
+      setResumePrompt('')
+      setResumeError(null)
       return
     }
 
@@ -123,8 +128,25 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     setTimeout(() => setLogsCopied(false), 2000)
   }
 
+  const handleResume = async () => {
+    if (!run || !resumePrompt.trim()) return
+    setResuming(true)
+    setResumeError(null)
+    try {
+      await resumeRun(run.id, resumePrompt.trim())
+      // Success - close dialog and let WebSocket update show new run
+      setResumePrompt('')
+      onOpenChange(false)
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : 'Failed to resume run')
+    } finally {
+      setResuming(false)
+    }
+  }
+
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
+  const isResumable = (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -242,6 +264,19 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       <span className="w-1.5 h-1.5 rounded-full bg-[#c73e3a]" />
                     )}
                   </button>
+                  {isResumable && (
+                    <button
+                      className={cn(
+                        'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                        activeTab === 'continue'
+                          ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
+                          : 'text-[#a3a3a3]/60 hover:text-[#a3a3a3]'
+                      )}
+                      onClick={() => setActiveTab('continue')}
+                    >
+                      Continue
+                    </button>
+                  )}
                 </div>
                 <button
                   className={cn(
@@ -273,6 +308,43 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   )}>
                     {logs.stderr || 'No errors'}
                   </pre>
+                )}
+                {activeTab === 'continue' && (
+                  <div className="p-4 flex flex-col h-full">
+                    <p className="text-[0.6875rem] text-[#a3a3a3]/70 mb-3">
+                      Continue this session with a follow-up prompt. The agent will resume from where it left off.
+                    </p>
+                    <textarea
+                      className="flex-1 min-h-[120px] bg-[#171717] border border-[rgba(163,163,163,0.1)] rounded-sm p-3 text-[0.8125rem] text-[#fafaf9] placeholder:text-[#a3a3a3]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none"
+                      placeholder="Enter follow-up prompt..."
+                      value={resumePrompt}
+                      onChange={(e) => setResumePrompt(e.target.value)}
+                      disabled={resuming}
+                    />
+                    {resumeError && (
+                      <div className="mt-3 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+                        <p className="text-[0.6875rem] text-[#c73e3a]">{resumeError}</p>
+                      </div>
+                    )}
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-[0.625rem] text-[#a3a3a3]/50">
+                        Session: {detail?.session_id?.slice(0, 12)}...
+                      </span>
+                      <button
+                        className={cn(
+                          'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors',
+                          resumePrompt.trim() && !resuming
+                            ? 'bg-[#fafaf9] text-[#0c0c0c] hover:bg-[#fafaf9]/90'
+                            : 'bg-[#a3a3a3]/20 text-[#a3a3a3]/50 cursor-not-allowed'
+                        )}
+                        onClick={handleResume}
+                        disabled={!resumePrompt.trim() || resuming}
+                      >
+                        <Play className="w-3 h-3" />
+                        {resuming ? 'Resuming...' : 'Resume'}
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

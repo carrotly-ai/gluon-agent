@@ -157,6 +157,7 @@ class ExecutionRun(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str | None = None  # FK to Session (created when run starts)
+    claude_session_id: str | None = None  # Claude SDK session ID for resume (NOT a FK)
     project_id: str  # FK to Project
     pid: int | None = None  # OS process ID for cancellation
     status: RunStatus = RunStatus.PENDING

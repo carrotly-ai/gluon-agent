@@ -63,6 +63,7 @@ class TaskRunner:
         prompt: str,
         wait: bool = False,
         initiator: str | None = None,
+        claude_session_id: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -72,12 +73,14 @@ class TaskRunner:
             prompt: Task prompt
             wait: If True, wait for completion. If False, return immediately.
             initiator: Who started the run (e.g., "cli", "telegram:12345")
+            claude_session_id: Optional Claude SDK session ID to resume from
 
         Returns:
             ExecutionRun with current status
         """
         # Create run record
         run = self.store.create_run(project_id, prompt, initiator=initiator)
+        run.claude_session_id = claude_session_id  # Set for resume
 
         if wait:
             # Execute synchronously
@@ -146,10 +149,11 @@ class TaskRunner:
                 open(stderr_path, "w") as stderr_file,
                 open(messages_path, "w") as messages_file,
             ):
-                # Execute via agent
+                # Execute via agent (pass claude_session_id for resume if set)
                 async for item in self.agent.execute(
                     working_dir=project.path,
                     prompt=run.prompt,
+                    resume_session_id=run.claude_session_id,
                 ):
                     if isinstance(item, AgentMessage):
                         # Log message
@@ -183,8 +187,8 @@ class TaskRunner:
                         }
                         messages_file.write(json.dumps(result_dict) + "\n")
 
-                        # Update run
-                        run.session_id = item.claude_session_id
+                        # Update run with Claude session ID for future resume
+                        run.claude_session_id = item.claude_session_id
                         if item.success:
                             run.mark_completed(exit_code=0)
                         else:

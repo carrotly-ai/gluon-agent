@@ -91,6 +91,18 @@ export interface SystemStatus {
   total_runs: number
 }
 
+/** Request body for resuming a run */
+export interface ResumeRunRequest {
+  prompt: string
+}
+
+/** Response from resume operation */
+export interface ResumeRunResponse {
+  original_run_id: string
+  new_run_id: string
+  status: string
+}
+
 /** WebSocket message types */
 export type WebSocketMessageType = 'run_created' | 'run_updated' | 'log_line' | 'subscribed' | 'unsubscribed' | 'pong'
 

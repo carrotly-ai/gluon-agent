@@ -1,4 +1,4 @@
-import type { Run, RunDetail, CreateRunRequest, LogResponse, Project, SystemStatus } from './types'
+import type { Run, RunDetail, CreateRunRequest, LogResponse, Project, SystemStatus, ResumeRunResponse } from './types'
 
 const API_BASE = '/api'
 
@@ -51,6 +51,14 @@ export async function createRun(request: CreateRunRequest): Promise<Run> {
 export async function cancelRun(runId: string): Promise<Run> {
   return fetchJson<Run>(`/runs/${runId}/cancel`, {
     method: 'POST',
+  })
+}
+
+/** Resume a completed/failed run with a follow-up prompt */
+export async function resumeRun(runId: string, prompt: string): Promise<ResumeRunResponse> {
+  return fetchJson<ResumeRunResponse>(`/runs/${runId}/resume`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt }),
   })
 }
 

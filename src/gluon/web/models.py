@@ -27,7 +27,7 @@ class RunResponse(BaseModel):
 class RunDetailResponse(RunResponse):
     """Detailed response model for a single run."""
 
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, description="Claude SDK session ID for resume")
     exit_code: int | None = None
     log_path: str | None = None
 
@@ -114,3 +114,20 @@ class UnsubscribeLogsRequest(BaseModel):
 
     type: str = "unsubscribe_logs"
     run_id: str
+
+
+# Resume API models
+
+
+class ResumeRunRequest(BaseModel):
+    """Request model for resuming a run."""
+
+    prompt: str = Field(description="Follow-up prompt to continue the session")
+
+
+class ResumeRunResponse(BaseModel):
+    """Response model for resume operation."""
+
+    original_run_id: str = Field(description="ID of the run being resumed")
+    new_run_id: str = Field(description="ID of the new continuation run")
+    status: str = Field(description="Status of the new run")
