@@ -25,6 +25,15 @@ html {
   color-scheme: dark;
 }
 
+html.light {
+  color-scheme: light;
+  --color-void: #fafaf9;
+  --color-ink: #ffffff;
+  --color-paper: #0c0c0c;
+  --color-stone: #6b7280;
+  --color-mist: #e5e7eb;
+}
+
 body {
   font-family: var(--font-sans);
   background: var(--color-void);
@@ -34,6 +43,7 @@ body {
   font-weight: 300;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 #root {
@@ -57,6 +67,14 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(163, 163, 163, 0.5);
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 /* Japanese-inspired status marks */
@@ -314,4 +332,36 @@ body {
   .header-stats {
     display: flex;
   }
+}
+
+/* Light mode overrides */
+.light .column-header {
+  background: var(--color-void);
+}
+
+.light .card {
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.light .card:hover {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.light .hover-whisper:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.light .dialog-content {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.light .mark-running {
+  background: var(--color-paper);
+}
+
+.light .kanban-divider {
+  background: rgba(0, 0, 0, 0.08);
 }

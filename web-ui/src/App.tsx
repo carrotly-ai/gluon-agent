@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Sun, Moon } from 'lucide-react'
 import { KanbanBoard } from './components/KanbanBoard'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { ProjectFilter } from './components/ProjectFilter'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
+import { useTheme } from './hooks/useTheme'
 import { cancelRun, fetchProjects } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
@@ -17,6 +18,7 @@ function App() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const { filter, setFilter } = useHashFilter()
+  const { theme, toggleTheme } = useTheme()
 
   // Fetch projects for workspace mapping
   useEffect(() => {
@@ -91,10 +93,21 @@ function App() {
             )}
           </div>
 
-          {/* Right - create + connection */}
+          {/* Right - theme + create + connection */}
           <div className="flex items-center gap-3 sm:gap-4">
             <button
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[0.625rem] uppercase tracking-widest text-[#0c0c0c] bg-[#fafaf9] hover:bg-[#e5e5e5] transition-colors rounded-sm"
+              className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-[var(--color-stone)]" />
+              ) : (
+                <Moon className="w-4 h-4 text-[var(--color-stone)]" />
+              )}
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 transition-colors rounded-sm"
               onClick={() => setCreateDialogOpen(true)}
             >
               <Plus className="w-3 h-3" />
