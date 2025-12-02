@@ -21,6 +21,9 @@ class RunResponse(BaseModel):
     error_message: str | None = None
     # Cost tracking (available in list responses for RunCard display)
     cost_usd: float | None = Field(default=None, description="Total cost in USD for this run")
+    # Git indicators (available in list responses for RunCard display)
+    use_worktree: bool = Field(default=False, description="Whether worktree was used")
+    branch_name: str | None = Field(default=None, description="Git branch name")
 
     class Config:
         from_attributes = True
@@ -37,6 +40,14 @@ class RunDetailResponse(RunResponse):
     input_tokens: int | None = Field(default=None, description="Input tokens used")
     output_tokens: int | None = Field(default=None, description="Output tokens generated")
     model_used: str | None = Field(default=None, description="Model tier used (e.g., sonnet, opus)")
+    # Git/worktree fields (Phase 7.1)
+    branch_name: str | None = Field(default=None, description="Git branch name")
+    source_branch: str | None = Field(default=None, description="Source branch (e.g., main)")
+    use_worktree: bool = Field(default=False, description="Whether worktree was used")
+    git_commit_sha: str | None = Field(default=None, description="Final commit SHA")
+    pr_number: int | None = Field(default=None, description="GitHub PR number")
+    pr_url: str | None = Field(default=None, description="GitHub PR URL")
+    pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
 
 
 class CreateRunRequest(BaseModel):
@@ -145,3 +156,70 @@ class SessionHistoryResponse(BaseModel):
 
     session_id: str = Field(description="Claude session ID")
     runs: list[RunResponse] = Field(description="All runs in this session, chronologically ordered")
+
+
+# Phase 7.2: Drag-and-Drop Status Transition Models
+
+
+class UpdateStatusRequest(BaseModel):
+    """Request model for updating run status (drag-and-drop)."""
+
+    status: str = Field(description="Target RunStatus value")
+    reason: str | None = Field(default=None, description="Optional note for audit")
+
+
+class UpdateStatusResponse(BaseModel):
+    """Response model for status update."""
+
+    run: RunResponse
+    previous_status: str
+    new_status: str
+
+
+# Phase 7.3: Project Management Models
+
+
+class CreateProjectRequest(BaseModel):
+    """Request model for creating a project."""
+
+    name: str = Field(description="Project name (must be unique)")
+    path: str = Field(description="Absolute path to project directory")
+    workspace_id: str | None = Field(default=None, description="Optional workspace ID to associate with")
+
+
+class ProjectDetailResponse(ProjectResponse):
+    """Detailed response model for a single project."""
+
+    workspace_id: str | None = None
+    workspace_name: str | None = None
+    run_count: int = 0
+    last_run_at: datetime | None = None
+
+
+class CreateWorkspaceRequest(BaseModel):
+    """Request model for creating a workspace."""
+
+    name: str = Field(description="Workspace name (must be unique)")
+    path: str = Field(description="Absolute path to workspace directory")
+    auto_scan: bool = Field(default=True, description="Auto-scan for projects on creation")
+
+
+class WorkspaceResponse(BaseModel):
+    """Response model for workspaces."""
+
+    id: str
+    name: str
+    path: str
+    project_count: int = 0
+    auto_discover: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+class ScanResultResponse(BaseModel):
+    """Response model for workspace scan operation."""
+
+    workspace_id: str
+    projects_found: int
+    projects_added: list[str] = Field(description="Names of newly added projects")

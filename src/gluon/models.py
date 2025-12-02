@@ -177,6 +177,16 @@ class ExecutionRun(BaseModel):
     output_tokens: int | None = None  # Output tokens generated
     model_used: str | None = None  # Model tier (e.g., "sonnet", "opus")
 
+    # Git/worktree tracking (Phase 7.1)
+    branch_name: str | None = None  # "gluon-task/abc123"
+    source_branch: str | None = None  # "main", "develop"
+    worktree_path: str | None = None  # Path used for execution
+    use_worktree: bool = False  # Whether worktree was used
+    git_commit_sha: str | None = None  # SHA of final commit
+    pr_number: int | None = None  # GitHub PR number
+    pr_url: str | None = None  # GitHub PR URL
+    pr_status: str | None = None  # 'open', 'merged', 'closed', 'draft'
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING

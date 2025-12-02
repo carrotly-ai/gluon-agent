@@ -84,6 +84,15 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN input_tokens INTEGER;",
     "ALTER TABLE execution_runs ADD COLUMN output_tokens INTEGER;",
     "ALTER TABLE execution_runs ADD COLUMN model_used TEXT;",
+    # Git/worktree tracking for execution runs (Phase 7.1)
+    "ALTER TABLE execution_runs ADD COLUMN branch_name TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN source_branch TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN worktree_path TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN use_worktree INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN git_commit_sha TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN pr_number INTEGER;",
+    "ALTER TABLE execution_runs ADD COLUMN pr_url TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN pr_status TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -738,7 +747,9 @@ class GluonStore:
                 UPDATE execution_runs
                 SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, started_at = ?,
                     completed_at = ?, exit_code = ?, log_path = ?, error_message = ?, thread_id = ?,
-                    cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?
+                    cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?,
+                    branch_name = ?, source_branch = ?, worktree_path = ?, use_worktree = ?,
+                    git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?
                 WHERE id = ?
                 """,
                 (
@@ -756,9 +767,28 @@ class GluonStore:
                     run.input_tokens,
                     run.output_tokens,
                     run.model_used,
+                    run.branch_name,
+                    run.source_branch,
+                    run.worktree_path,
+                    1 if run.use_worktree else 0,
+                    run.git_commit_sha,
+                    run.pr_number,
+                    run.pr_url,
+                    run.pr_status,
                     run.id,
                 ),
             )
+
+    def update_run_status(self, run_id: str, new_status: RunStatus) -> ExecutionRun | None:
+        """Update run status (for manual transitions via drag-and-drop)."""
+        run = self.get_run(run_id)
+        if not run:
+            return None
+        run.status = new_status
+        if new_status == RunStatus.CANCELLED:
+            run.completed_at = datetime.now()
+        self.update_run(run)
+        return run
 
     def delete_run(self, run_id: str) -> bool:
         """Delete an execution run."""
@@ -790,6 +820,15 @@ class GluonStore:
             input_tokens=row["input_tokens"] if "input_tokens" in keys else None,
             output_tokens=row["output_tokens"] if "output_tokens" in keys else None,
             model_used=row["model_used"] if "model_used" in keys else None,
+            # Git/worktree tracking
+            branch_name=row["branch_name"] if "branch_name" in keys else None,
+            source_branch=row["source_branch"] if "source_branch" in keys else None,
+            worktree_path=row["worktree_path"] if "worktree_path" in keys else None,
+            use_worktree=bool(row["use_worktree"]) if "use_worktree" in keys and row["use_worktree"] is not None else False,
+            git_commit_sha=row["git_commit_sha"] if "git_commit_sha" in keys else None,
+            pr_number=row["pr_number"] if "pr_number" in keys else None,
+            pr_url=row["pr_url"] if "pr_url" in keys else None,
+            pr_status=row["pr_status"] if "pr_status" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:

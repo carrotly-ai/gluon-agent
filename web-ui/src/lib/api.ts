@@ -1,4 +1,20 @@
-import type { Run, RunDetail, CreateRunRequest, LogResponse, Project, SystemStatus, ResumeRunResponse, SessionHistoryResponse } from './types'
+import type {
+  Run,
+  RunDetail,
+  RunStatus,
+  CreateRunRequest,
+  LogResponse,
+  Project,
+  ProjectDetail,
+  CreateProjectRequest,
+  Workspace,
+  CreateWorkspaceRequest,
+  ScanResultResponse,
+  SystemStatus,
+  ResumeRunResponse,
+  SessionHistoryResponse,
+  UpdateStatusResponse,
+} from './types'
 
 const API_BASE = '/api'
 
@@ -86,4 +102,69 @@ export async function fetchProjects(): Promise<Project[]> {
 /** Fetch system status */
 export async function fetchStatus(): Promise<SystemStatus> {
   return fetchJson<SystemStatus>('/status')
+}
+
+// ========== Status Transition API (Phase 7.2 Drag-and-Drop) ==========
+
+/** Update run status via drag-and-drop */
+export async function updateRunStatus(
+  runId: string,
+  status: RunStatus,
+  reason?: string
+): Promise<UpdateStatusResponse> {
+  return fetchJson<UpdateStatusResponse>(`/runs/${runId}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status, reason }),
+  })
+}
+
+// ========== Project Management API (Phase 7.3) ==========
+
+/** Fetch a single project by ID */
+export async function fetchProject(projectId: string): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>(`/projects/${projectId}`)
+}
+
+/** Create a new project */
+export async function createProject(request: CreateProjectRequest): Promise<Project> {
+  return fetchJson<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+/** Delete a project */
+export async function deleteProject(projectId: string): Promise<{ deleted: boolean; project_id: string }> {
+  return fetchJson<{ deleted: boolean; project_id: string }>(`/projects/${projectId}`, {
+    method: 'DELETE',
+  })
+}
+
+// ========== Workspace Management API (Phase 7.3) ==========
+
+/** Fetch all workspaces */
+export async function fetchWorkspaces(): Promise<Workspace[]> {
+  return fetchJson<Workspace[]>('/workspaces')
+}
+
+/** Create a new workspace */
+export async function createWorkspace(request: CreateWorkspaceRequest): Promise<Workspace> {
+  return fetchJson<Workspace>('/workspaces', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+/** Delete a workspace */
+export async function deleteWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
+  return fetchJson<{ deleted: boolean; workspace_id: string }>(`/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+  })
+}
+
+/** Scan a workspace for new projects */
+export async function scanWorkspace(workspaceId: string): Promise<ScanResultResponse> {
+  return fetchJson<ScanResultResponse>(`/workspaces/${workspaceId}/scan`, {
+    method: 'POST',
+  })
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Play, X, ChevronDown } from 'lucide-react'
+import { Play, X, ChevronDown, GitBranch } from 'lucide-react'
 import { fetchProjects, createRun } from '@/lib/api'
 import { groupProjectsByWorkspace } from '@/lib/types'
 import type { Project, ProjectWithWorkspace } from '@/lib/types'
@@ -13,13 +13,23 @@ interface CreateTaskDialogProps {
   initialProject?: string
 }
 
+const MODEL_OPTIONS = [
+  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', description: 'Fast, intelligent' },
+  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', description: 'Balanced' },
+  { value: 'claude-opus-4-20250514', label: 'Claude Opus 4', description: 'Most capable' },
+  { value: 'claude-haiku-3-5-20241022', label: 'Claude Haiku 3.5', description: 'Fastest' },
+]
+
 export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialProject }: CreateTaskDialogProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [prompt, setPrompt] = useState('')
+  const [model, setModel] = useState(MODEL_OPTIONS[0].value)
+  const [useWorktree, setUseWorktree] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -37,6 +47,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       setPrompt('')
       setSelectedProject(initialProject || '')
       setError(null)
+      setModel(MODEL_OPTIONS[0].value)
+      setUseWorktree(false)
     }
   }, [open, initialProject])
 
@@ -53,6 +65,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       await createRun({
         project_name: selectedProject,
         prompt: prompt.trim(),
+        model,
+        use_worktree: useWorktree,
       })
       onTaskCreated()
       onOpenChange(false)
@@ -63,6 +77,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       setSubmitting(false)
     }
   }
+
+  const selectedModelOption = MODEL_OPTIONS.find(m => m.value === model)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -140,6 +156,79 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               className="w-full px-3 py-2.5 text-[0.8125rem] text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
             />
+          </div>
+
+          {/* Model Select */}
+          <div>
+            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+              Model
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-3 py-2 text-[0.8125rem] text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+              >
+                <span className="text-[var(--color-paper)]">
+                  {selectedModelOption?.label}
+                  <span className="ml-2 text-[var(--color-stone)]/60">{selectedModelOption?.description}</span>
+                </span>
+                <ChevronDown className={cn('w-4 h-4 text-[var(--color-stone)]/60 transition-transform', modelDropdownOpen && 'rotate-180')} />
+              </button>
+
+              {modelDropdownOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                  {MODEL_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={cn(
+                        'w-full px-3 py-2 text-left text-[0.8125rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                        model === option.value
+                          ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                          : 'text-[var(--color-stone)]'
+                      )}
+                      onClick={() => {
+                        setModel(option.value)
+                        setModelDropdownOpen(false)
+                      }}
+                    >
+                      {option.label}
+                      <span className="ml-2 text-[var(--color-stone)]/60">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Worktree Toggle */}
+          <div className="flex items-center justify-between py-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
+              <div>
+                <span className="text-[0.8125rem] text-[var(--color-paper)]">Use Git Worktree</span>
+                <p className="text-[0.6875rem] text-[var(--color-stone)]/60">Run in isolated branch</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={cn(
+                'relative w-10 h-5 rounded-full transition-colors',
+                useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
+              )}
+              onClick={() => setUseWorktree(!useWorktree)}
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                  useWorktree
+                    ? 'left-5.5 bg-[var(--color-void)]'
+                    : 'left-0.5 bg-[var(--color-stone)]'
+                )}
+                style={{ left: useWorktree ? '22px' : '2px' }}
+              />
+            </button>
           </div>
 
           {/* Error */}

@@ -16,6 +16,9 @@ export interface Run {
   error_message: string | null
   // Cost tracking (available in list responses for RunCard display)
   cost_usd: number | null
+  // Git indicators (for RunCard display)
+  use_worktree?: boolean
+  branch_name?: string | null
 }
 
 /** Detailed run response (includes additional fields) */
@@ -28,6 +31,14 @@ export interface RunDetail extends Run {
   input_tokens: number | null
   output_tokens: number | null
   model_used: string | null
+  // Git/worktree tracking (Phase 7.1)
+  branch_name: string | null
+  source_branch: string | null
+  use_worktree: boolean
+  git_commit_sha: string | null
+  pr_number: number | null
+  pr_url: string | null
+  pr_status: 'open' | 'merged' | 'closed' | 'draft' | null
 }
 
 /** Request body for creating a new run */
@@ -151,7 +162,80 @@ export type WSMessage = RunCreatedMessage | RunUpdatedMessage | LogLineMessage |
 export const KANBAN_COLUMNS = {
   pending: { label: 'Queued', color: 'bg-yellow-500' },
   running: { label: 'Running', color: 'bg-blue-500' },
+  review: { label: 'Review', color: 'bg-purple-500' },
   completed: { label: 'Completed', color: 'bg-green-500' },
   failed: { label: 'Failed', color: 'bg-red-500' },
   cancelled: { label: 'Cancelled', color: 'bg-gray-500' },
 } as const
+
+/** Kanban column type (includes virtual "review" column) */
+export type KanbanColumn = keyof typeof KANBAN_COLUMNS
+
+// ========== Status Transition Types (Phase 7.2 Drag-and-Drop) ==========
+
+/** Request to update run status via drag-and-drop */
+export interface UpdateStatusRequest {
+  status: RunStatus
+  reason?: string
+}
+
+/** Response from status update */
+export interface UpdateStatusResponse {
+  run: Run
+  previous_status: RunStatus
+  new_status: RunStatus
+}
+
+/** Allowed status transitions for drag-and-drop */
+export const ALLOWED_TRANSITIONS: Record<RunStatus, Set<RunStatus>> = {
+  pending: new Set(['cancelled']),
+  running: new Set(['cancelled']),
+  completed: new Set(['pending']),
+  failed: new Set(['pending']),
+  cancelled: new Set(['pending']),
+}
+
+/** Check if a status transition is allowed */
+export function isTransitionAllowed(from: RunStatus, to: RunStatus): boolean {
+  return ALLOWED_TRANSITIONS[from]?.has(to) ?? false
+}
+
+// ========== Project Management Types (Phase 7.3) ==========
+
+/** Detailed project response */
+export interface ProjectDetail extends Project {
+  workspace_id: string | null
+  workspace_name: string | null
+  run_count: number
+  last_run_at: string | null
+}
+
+/** Request to create a new project */
+export interface CreateProjectRequest {
+  name: string
+  path: string
+  workspace_id?: string
+}
+
+/** Workspace response */
+export interface Workspace {
+  id: string
+  name: string
+  path: string
+  project_count: number
+  auto_discover: boolean
+}
+
+/** Request to create a new workspace */
+export interface CreateWorkspaceRequest {
+  name: string
+  path: string
+  auto_scan?: boolean
+}
+
+/** Response from workspace scan */
+export interface ScanResultResponse {
+  workspace_id: string
+  projects_found: number
+  projects_added: string[]
+}

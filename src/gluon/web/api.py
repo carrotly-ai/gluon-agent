@@ -15,15 +15,22 @@ from gluon.models import RunStatus
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
+    CreateProjectRequest,
     CreateRunRequest,
+    CreateWorkspaceRequest,
     LogResponse,
+    ProjectDetailResponse,
     ProjectResponse,
     ResumeRunRequest,
     ResumeRunResponse,
     RunDetailResponse,
     RunResponse,
+    ScanResultResponse,
     SessionHistoryResponse,
     StatusResponse,
+    UpdateStatusRequest,
+    UpdateStatusResponse,
+    WorkspaceResponse,
 )
 from gluon.web.websocket import ws_manager
 
@@ -126,6 +133,14 @@ def create_app() -> FastAPI:
             input_tokens=run.input_tokens,
             output_tokens=run.output_tokens,
             model_used=run.model_used,
+            # Git/worktree tracking
+            branch_name=run.branch_name,
+            source_branch=run.source_branch,
+            use_worktree=run.use_worktree,
+            git_commit_sha=run.git_commit_sha,
+            pr_number=run.pr_number,
+            pr_url=run.pr_url,
+            pr_status=run.pr_status,
         )
 
     @app.post("/api/runs", response_model=RunResponse)
@@ -319,6 +334,253 @@ def create_app() -> FastAPI:
             total_projects=len(projects),
             active_runs=len(active_runs),
             total_runs=len(all_runs),
+        )
+
+    # ========== Phase 7.2: Status Transitions (Drag-and-Drop) ==========
+
+    # Allowed status transitions for drag-and-drop
+    ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+        "pending": {"cancelled"},
+        "running": {"cancelled"},
+        "completed": {"pending"},  # Re-queue for retry
+        "failed": {"pending"},  # Retry
+        "cancelled": {"pending"},  # Retry
+    }
+
+    @app.post("/api/runs/{run_id}/status", response_model=UpdateStatusResponse)
+    async def update_run_status(run_id: str, body: UpdateStatusRequest) -> UpdateStatusResponse:
+        """
+        Manually transition a run's status (for drag-and-drop).
+
+        Allowed transitions:
+        - pending → cancelled (abort before start)
+        - running → cancelled (manual abort - also kills process)
+        - completed → pending (re-queue for retry)
+        - failed → pending (re-queue for retry)
+        - cancelled → pending (re-queue)
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Validate transition
+        current_status = run.status.value
+        new_status = body.status
+
+        try:
+            new_status_enum = RunStatus(new_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
+
+        if new_status not in ALLOWED_TRANSITIONS.get(current_status, set()):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot transition from {current_status} to {new_status}",
+            )
+
+        # Handle special case: cancelling a running process
+        if current_status == "running" and new_status == "cancelled":
+            await runner.cancel(run.id)
+
+        # Update status
+        previous_status = current_status
+        updated_run = store.update_run_status(run.id, new_status_enum)
+        if not updated_run:
+            raise HTTPException(status_code=500, detail="Failed to update run status")
+
+        project_lookup = get_project_lookup()
+        response_run = run_to_response(updated_run, project_lookup)
+
+        # Broadcast update
+        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
+        await ws_manager.broadcast_run_update(updated_run, project_name)
+
+        return UpdateStatusResponse(
+            run=response_run,
+            previous_status=previous_status,
+            new_status=new_status,
+        )
+
+    # ========== Phase 7.3: Project Management ==========
+
+    @app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse)
+    async def get_project(project_id: str) -> ProjectDetailResponse:
+        """Get detailed info for a specific project."""
+        project = store.get_project(project_id)
+        if not project:
+            # Try by name
+            project = store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        # Get workspace info if applicable
+        workspace_name = None
+        if project.workspace_id:
+            workspace = store.get_workspace(project.workspace_id)
+            if workspace:
+                workspace_name = workspace.name
+
+        # Get run stats
+        runs = store.list_runs(project_id=project.id, limit=1000)
+        last_run_at = runs[0].created_at if runs else None
+
+        return ProjectDetailResponse(
+            id=project.id,
+            name=project.name,
+            path=str(project.path),
+            session_count=len(store.list_sessions(project.id)),
+            workspace_id=project.workspace_id,
+            workspace_name=workspace_name,
+            run_count=len(runs),
+            last_run_at=last_run_at,
+        )
+
+    @app.post("/api/projects", response_model=ProjectResponse)
+    async def create_project(body: CreateProjectRequest) -> ProjectResponse:
+        """Register a new project."""
+        from pathlib import Path
+
+        # Check if project with same name exists
+        existing = store.get_project_by_name(body.name)
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Project already exists: {body.name}")
+
+        # Check if path exists
+        project_path = Path(body.path)
+        if not project_path.exists():
+            raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
+
+        # Create project
+        project = store.create_project(
+            name=body.name,
+            path=project_path,
+            workspace_id=body.workspace_id,
+        )
+
+        return ProjectResponse(
+            id=project.id,
+            name=project.name,
+            path=str(project.path),
+            session_count=0,
+        )
+
+    @app.delete("/api/projects/{project_id}")
+    async def delete_project(project_id: str) -> dict:
+        """Delete a project (cascades to sessions/runs)."""
+        project = store.get_project(project_id)
+        if not project:
+            project = store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        success = store.delete_project(project.id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete project")
+
+        return {"deleted": True, "project_id": project.id}
+
+    # ========== Workspace Management ==========
+
+    @app.get("/api/workspaces", response_model=list[WorkspaceResponse])
+    async def list_workspaces() -> list[WorkspaceResponse]:
+        """List all workspaces."""
+        workspaces = store.list_workspaces()
+        result = []
+        for ws in workspaces:
+            projects = store.list_projects_by_workspace(ws.id)
+            result.append(
+                WorkspaceResponse(
+                    id=ws.id,
+                    name=ws.name,
+                    path=str(ws.path),
+                    project_count=len(projects),
+                    auto_discover=ws.auto_discover,
+                )
+            )
+        return result
+
+    @app.post("/api/workspaces", response_model=WorkspaceResponse)
+    async def create_workspace(body: CreateWorkspaceRequest) -> WorkspaceResponse:
+        """Create a new workspace."""
+        from pathlib import Path
+
+        # Check if workspace with same name exists
+        existing = store.get_workspace_by_name(body.name)
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Workspace already exists: {body.name}")
+
+        # Check if path exists
+        workspace_path = Path(body.path)
+        if not workspace_path.exists():
+            raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
+
+        # Create workspace
+        workspace = store.create_workspace(name=body.name, path=workspace_path)
+
+        # Auto-scan for projects if requested
+        projects_added = []
+        if body.auto_scan:
+            for project_path in workspace.scan_for_projects():
+                project_name = project_path.name
+                existing_project = store.get_project_by_name(project_name)
+                if not existing_project:
+                    store.create_project(
+                        name=project_name,
+                        path=project_path,
+                        workspace_id=workspace.id,
+                    )
+                    projects_added.append(project_name)
+
+        return WorkspaceResponse(
+            id=workspace.id,
+            name=workspace.name,
+            path=str(workspace.path),
+            project_count=len(projects_added),
+            auto_discover=workspace.auto_discover,
+        )
+
+    @app.delete("/api/workspaces/{workspace_id}")
+    async def delete_workspace(workspace_id: str) -> dict:
+        """Delete a workspace (projects are kept but unlinked)."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            workspace = store.get_workspace_by_name(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        success = store.delete_workspace(workspace.id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete workspace")
+
+        return {"deleted": True, "workspace_id": workspace.id}
+
+    @app.post("/api/workspaces/{workspace_id}/scan", response_model=ScanResultResponse)
+    async def scan_workspace(workspace_id: str) -> ScanResultResponse:
+        """Rescan workspace for new projects."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            workspace = store.get_workspace_by_name(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        projects_added = []
+        project_paths = workspace.scan_for_projects()
+
+        for project_path in project_paths:
+            project_name = project_path.name
+            existing = store.get_project_by_name(project_name)
+            if not existing:
+                store.create_project(
+                    name=project_name,
+                    path=project_path,
+                    workspace_id=workspace.id,
+                )
+                projects_added.append(project_name)
+
+        return ScanResultResponse(
+            workspace_id=workspace.id,
+            projects_found=len(project_paths),
+            projects_added=projects_added,
         )
 
     # ========== WebSocket ==========

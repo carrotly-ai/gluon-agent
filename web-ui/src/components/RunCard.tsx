@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { X, GitBranch } from 'lucide-react'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -50,6 +50,17 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
           <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
             {run.project_name}
           </span>
+          {run.use_worktree && (
+            <span
+              className="flex items-center gap-1 text-purple-400"
+              title={run.branch_name || 'Worktree'}
+            >
+              <GitBranch className="w-3 h-3" />
+              {run.branch_name && (
+                <span className="text-[0.625rem] truncate max-w-[80px]">{run.branch_name}</span>
+              )}
+            </span>
+          )}
           <span className="text-mono text-[var(--color-stone)]/55 hidden sm:inline">
             {formatTime(run.created_at)}
           </span>

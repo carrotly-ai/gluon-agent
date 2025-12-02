@@ -3,7 +3,7 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -43,7 +43,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'history' | 'continue'>('output')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
   const [resuming, setResuming] = useState(false)
@@ -130,13 +129,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleCopyPrompt = async () => {
-    if (!run?.prompt) return
-    await navigator.clipboard.writeText(run.prompt)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }
 
   const handleCopyLogs = async () => {
@@ -240,7 +232,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <div className="p-4 sm:p-5 flex flex-col flex-1 min-h-0">
             {/* Project + Meta Row */}
-            <div className="flex items-center gap-4 text-[0.6875rem] text-[var(--color-stone)]/60 mb-4 shrink-0">
+            <div className="flex items-center gap-4 text-[0.6875rem] text-[var(--color-stone)]/60 mb-4 shrink-0 flex-wrap">
               <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
               <span className="hidden sm:inline">{formatDate(run?.created_at ?? null)}</span>
               {run?.duration_seconds !== null && (
@@ -257,6 +249,45 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               )}
             </div>
 
+            {/* Git Info Row - if using worktree */}
+            {detail?.use_worktree && (
+              <div className="flex items-center gap-3 text-[0.6875rem] mb-4 shrink-0 flex-wrap">
+                {detail.branch_name && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] rounded-sm">
+                    <GitBranch className="w-3 h-3 text-purple-400" />
+                    <span className="text-purple-300">{detail.branch_name}</span>
+                    {detail.source_branch && (
+                      <span className="text-[var(--color-stone)]/50">from {detail.source_branch}</span>
+                    )}
+                  </div>
+                )}
+                {detail.git_commit_sha && (
+                  <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60">
+                    <GitCommit className="w-3 h-3" />
+                    <span className="text-mono">{detail.git_commit_sha.slice(0, 7)}</span>
+                  </div>
+                )}
+                {detail.pr_number && detail.pr_url && (
+                  <a
+                    href={detail.pr_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
+                      detail.pr_status === 'open' && 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                      detail.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                      detail.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                      detail.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
+                    )}
+                  >
+                    <span>PR #{detail.pr_number}</span>
+                    <span className="text-[0.5rem] uppercase">{detail.pr_status}</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </div>
+            )}
+
             {/* Prompt - Constrained height with scroll */}
             <div className="mb-4 shrink-0">
               <div className="flex items-start justify-between gap-3">
@@ -265,13 +296,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     {run?.prompt}
                   </p>
                 </div>
-                <button
-                  className="p-1.5 text-[var(--color-stone)]/55 hover:text-[var(--color-paper)] transition-colors shrink-0"
-                  onClick={handleCopyPrompt}
-                  title="Copy prompt"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
               </div>
             </div>
 

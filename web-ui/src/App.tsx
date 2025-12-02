@@ -152,6 +152,7 @@ function App() {
             runs={filteredRuns}
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
+            onRunUpdate={handleRunUpdated}
           />
         )}
       </main>
