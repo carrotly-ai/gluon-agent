@@ -316,9 +316,17 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     </p>
                     <textarea
                       className="flex-1 min-h-[120px] bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm p-3 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none"
-                      placeholder="Enter follow-up prompt..."
+                      placeholder="Enter follow-up prompt... (⌘+Enter to submit)"
                       value={resumePrompt}
                       onChange={(e) => setResumePrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                          e.preventDefault()
+                          if (resumePrompt.trim() && !resuming) {
+                            handleResume()
+                          }
+                        }
+                      }}
                       disabled={resuming}
                     />
                     {resumeError && (
