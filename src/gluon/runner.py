@@ -8,6 +8,8 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -83,10 +85,35 @@ class TaskRunner:
             # Refresh from DB
             return self.store.get_run(run.id) or run
         else:
-            # Execute in background
-            task = asyncio.create_task(self._execute_run(run))
-            self._active_tasks[run.id] = task
+            # Execute in background subprocess
+            self._spawn_background_process(run)
             return run
+
+    def _spawn_background_process(self, run: ExecutionRun) -> None:
+        """Spawn a detached subprocess to execute the run."""
+        # Use the same Python interpreter to run the worker
+        cmd = [
+            sys.executable,
+            "-m",
+            "gluon.runner",
+            "--run-id",
+            run.id,
+        ]
+
+        # Spawn detached process
+        # On Unix, use start_new_session to detach from terminal
+        # Redirect stdout/stderr to /dev/null since we capture logs ourselves
+        with open(os.devnull, "w") as devnull:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=devnull,
+                stderr=devnull,
+                stdin=devnull,
+                start_new_session=True,
+            )
+            # Store PID in run record
+            run.mark_running(pid=proc.pid, log_path=self._get_log_dir(run.id))
+            self.store.update_run(run)
 
     async def _execute_run(self, run: ExecutionRun) -> None:
         """Execute a run with semaphore control."""
@@ -359,3 +386,31 @@ def format_run_status(status: RunStatus) -> tuple[str, str]:
         RunStatus.FAILED: ("❌", "red"),
         RunStatus.CANCELLED: ("🚫", "dim"),
     }.get(status, ("❓", "white"))
+
+
+def _run_worker(run_id: str) -> None:
+    """Worker entry point for subprocess execution."""
+    import anyio
+
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    run = store.get_run(run_id)
+    if not run:
+        print(f"Run not found: {run_id}", file=sys.stderr)
+        sys.exit(1)
+
+    async def _execute():
+        await runner._execute_run(run)
+
+    anyio.run(_execute)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Gluon background task worker")
+    parser.add_argument("--run-id", required=True, help="Run ID to execute")
+    args = parser.parse_args()
+
+    _run_worker(args.run_id)
