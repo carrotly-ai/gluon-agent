@@ -101,10 +101,18 @@ export function useRunsWithWebSocket() {
   const handleMessage = useCallback((message: WSMessage) => {
     if (message.type === 'run_created') {
       const runMessage = message as { type: 'run_created'; run: Run }
-      setRuns(prev => [runMessage.run, ...prev])
+      // Don't add archived runs
+      if (!runMessage.run.archived) {
+        setRuns(prev => [runMessage.run, ...prev])
+      }
     } else if (message.type === 'run_updated') {
       const runMessage = message as { type: 'run_updated'; run: Run }
-      setRuns(prev => prev.map(r => r.id === runMessage.run.id ? runMessage.run : r))
+      // If run is archived, remove it from the list; otherwise update it
+      if (runMessage.run.archived) {
+        setRuns(prev => prev.filter(r => r.id !== runMessage.run.id))
+      } else {
+        setRuns(prev => prev.map(r => r.id === runMessage.run.id ? runMessage.run : r))
+      }
     }
   }, [])
 
