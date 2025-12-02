@@ -20,7 +20,6 @@ import type { Run, RunStatus, KanbanColumn } from '@/lib/types'
 import { isTransitionAllowed } from '@/lib/types'
 import { updateRunStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { GripVertical } from 'lucide-react'
 
 interface KanbanBoardProps {
   runs: Run[]
@@ -63,18 +62,13 @@ function DraggableRunCard({ run, onClick, onCancel, isDragging }: DraggableRunCa
   }
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative">
-      {/* Drag handle - only on desktop */}
-      <div
-        {...attributes}
-        {...listeners}
-        className="absolute left-0 top-0 bottom-0 w-6 hidden md:flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity z-10"
-      >
-        <GripVertical className="w-4 h-4 text-[var(--color-stone)]" />
-      </div>
-      <div className="md:pl-4">
-        <RunCard run={run} onClick={onClick} onCancel={onCancel} />
-      </div>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+    >
+      <RunCard run={run} onClick={onClick} onCancel={onCancel} />
     </div>
   )
 }

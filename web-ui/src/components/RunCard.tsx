@@ -20,32 +20,51 @@ function formatTime(dateStr: string | null): string {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+// Map status to border color
+function getStatusBorderClass(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'border-l-[var(--color-sky)]'
+    case 'pending':
+      return 'border-l-[var(--color-harvest)]'
+    case 'completed':
+      return 'border-l-[var(--color-jade)]'
+    case 'failed':
+      return 'border-l-[var(--color-vermillion)]'
+    case 'cancelled':
+      return 'border-l-[var(--color-stone)]/50'
+    default:
+      return 'border-l-[var(--color-stone)]/30'
+  }
+}
+
 export function RunCard({ run, onClick, onCancel }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
 
   return (
-    <div className="card hover-whisper" onClick={onClick}>
-      {/* Top row: mark + prompt */}
-      <div className="flex items-start gap-2 sm:gap-3">
-        <div className={cn('mark mt-1.5', `mark-${run.status}`)} />
-        <div className="flex-1 min-w-0">
-          <p
-            className="text-title text-[var(--color-paper)] leading-relaxed break-words"
-            style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden'
-            }}
-            title={run.prompt}
-          >
-            {run.prompt}
-          </p>
-        </div>
-      </div>
+    <div
+      className={cn(
+        'card hover-whisper border-l-[3px] cursor-grab active:cursor-grabbing',
+        getStatusBorderClass(run.status)
+      )}
+      onClick={onClick}
+    >
+      {/* Prompt - no mark indicator */}
+      <p
+        className="text-title text-[var(--color-paper)] leading-relaxed break-words"
+        style={{
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden'
+        }}
+        title={run.prompt}
+      >
+        {run.prompt}
+      </p>
 
       {/* Bottom row: metadata */}
-      <div className="flex items-center justify-between mt-2 sm:mt-3 pl-4 sm:pl-[18px] gap-2">
+      <div className="flex items-center justify-between mt-2 sm:mt-3 gap-2">
         <div className="flex items-center gap-2 sm:gap-4 flex-wrap min-w-0">
           <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
             {run.project_name}
@@ -67,11 +86,6 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
           {run.duration_seconds !== null && (
             <span className="text-mono text-[var(--color-stone)]/55">
               {formatDuration(run.duration_seconds)}
-            </span>
-          )}
-          {run.cost_usd != null && run.cost_usd > 0 && (
-            <span className="text-mono text-[var(--color-harvest)]/70">
-              ${run.cost_usd.toFixed(2)}
             </span>
           )}
         </div>
