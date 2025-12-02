@@ -3,7 +3,6 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { X, RotateCw, ChevronLeft, Copy, Check } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
@@ -120,7 +119,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dialog-content max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent className="dialog-content max-w-4xl w-[90vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Compact Header Bar */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[#0c0c0c]">
           {/* Left: Back (mobile) + Status */}
@@ -161,11 +160,11 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
           </div>
         </div>
 
-        {/* Main Content - Scrollable */}
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="p-4 sm:p-5">
+        {/* Main Content */}
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div className="p-4 sm:p-5 flex flex-col flex-1 min-h-0">
             {/* Project + Meta Row */}
-            <div className="flex items-center gap-4 text-[0.6875rem] text-[#a3a3a3]/60 mb-4">
+            <div className="flex items-center gap-4 text-[0.6875rem] text-[#a3a3a3]/60 mb-4 shrink-0">
               <span className="text-[#fafaf9]/80">{run?.project_name}</span>
               <span className="hidden sm:inline">{formatDate(run?.created_at ?? null)}</span>
               {run?.duration_seconds !== null && (
@@ -177,7 +176,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             </div>
 
             {/* Prompt - Hero Section */}
-            <div className="mb-6">
+            <div className="mb-6 shrink-0">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-[0.9375rem] text-[#fafaf9] leading-relaxed font-light">
                   {run?.prompt}
@@ -194,7 +193,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
 
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
-              <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+              <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
                 <p className="text-[0.625rem] uppercase tracking-widest text-[#c73e3a]/70 mb-1.5">Error</p>
                 <pre className="text-[0.75rem] text-[#c73e3a] whitespace-pre-wrap break-words font-mono">
                   {run.error_message}
@@ -203,9 +202,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             )}
 
             {/* Logs Section */}
-            <div>
+            <div className="flex flex-col flex-1 min-h-0">
               {/* Tab Bar */}
-              <div className="flex items-center gap-1 mb-3">
+              <div className="flex items-center gap-1 mb-3 shrink-0">
                 <button
                   className={cn(
                     'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
@@ -234,7 +233,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               </div>
 
               {/* Log Content */}
-              <div className="bg-[#0c0c0c] border border-[rgba(163,163,163,0.08)] rounded-sm min-h-[200px] max-h-[320px] overflow-auto">
+              <div className="bg-[#0c0c0c] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
                   <pre className="p-3 text-mono text-[#fafaf9]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed">
                     {logs.stdout || <span className="text-[#a3a3a3]/30 italic">No output</span>}
@@ -253,14 +252,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
 
             {/* Footer Meta */}
             {detail?.session_id && (
-              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)]">
+              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0">
                 <span className="text-mono text-[0.625rem] text-[#a3a3a3]/30">
                   session {detail.session_id.slice(0, 12)}
                 </span>
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )
