@@ -7,10 +7,13 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+!src/gluon/web/dist/
 downloads/
 eggs/
 .eggs/
+# Python lib directories (but not web-ui/src/lib)
 lib/
+!web-ui/src/lib/
 lib64/
 parts/
 sdist/
