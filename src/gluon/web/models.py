@@ -131,3 +131,10 @@ class ResumeRunResponse(BaseModel):
     original_run_id: str = Field(description="ID of the run being resumed")
     new_run_id: str = Field(description="ID of the new continuation run")
     status: str = Field(description="Status of the new run")
+
+
+class SessionHistoryResponse(BaseModel):
+    """Response model for session history (all runs in a session)."""
+
+    session_id: str = Field(description="Claude session ID")
+    runs: list[RunResponse] = Field(description="All runs in this session, chronologically ordered")

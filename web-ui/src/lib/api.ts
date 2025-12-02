@@ -1,4 +1,4 @@
-import type { Run, RunDetail, CreateRunRequest, LogResponse, Project, SystemStatus, ResumeRunResponse } from './types'
+import type { Run, RunDetail, CreateRunRequest, LogResponse, Project, SystemStatus, ResumeRunResponse, SessionHistoryResponse } from './types'
 
 const API_BASE = '/api'
 
@@ -71,6 +71,11 @@ export async function fetchLogs(
   const params = new URLSearchParams({ stream })
   if (tail) params.set('tail', String(tail))
   return fetchJson<LogResponse>(`/runs/${runId}/logs?${params}`)
+}
+
+/** Fetch session history (all runs in the same session) */
+export async function fetchSessionHistory(runId: string): Promise<SessionHistoryResponse> {
+  return fetchJson<SessionHistoryResponse>(`/runs/${runId}/session-history`)
 }
 
 /** Fetch all projects */

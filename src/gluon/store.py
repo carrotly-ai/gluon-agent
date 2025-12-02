@@ -712,6 +712,15 @@ class GluonStore:
             rows = conn.execute(query, params).fetchall()
             return [self._row_to_run(row) for row in rows]
 
+    def list_runs_by_claude_session(self, claude_session_id: str) -> list[ExecutionRun]:
+        """List all runs that share the same Claude session (for session history)."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM execution_runs WHERE claude_session_id = ? ORDER BY created_at ASC",
+                (claude_session_id,),
+            ).fetchall()
+            return [self._row_to_run(row) for row in rows]
+
     def list_active_runs(self) -> list[ExecutionRun]:
         """List all pending or running execution runs."""
         return self.list_runs(statuses=[RunStatus.PENDING, RunStatus.RUNNING])

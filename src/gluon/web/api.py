@@ -22,6 +22,7 @@ from gluon.web.models import (
     ResumeRunResponse,
     RunDetailResponse,
     RunResponse,
+    SessionHistoryResponse,
     StatusResponse,
 )
 from gluon.web.websocket import ws_manager
@@ -228,6 +229,33 @@ def create_app() -> FastAPI:
             original_run_id=original_run.id,
             new_run_id=new_run.id,
             status=new_run.status.value,
+        )
+
+    @app.get("/api/runs/{run_id}/session-history", response_model=SessionHistoryResponse)
+    async def get_session_history(run_id: str) -> SessionHistoryResponse:
+        """
+        Get the session history for a run - all runs that share the same Claude session.
+
+        This is useful for viewing the full conversation history when a run has been
+        resumed multiple times.
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.claude_session_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Run does not have a session",
+            )
+
+        # Get all runs in this session
+        session_runs = store.list_runs_by_claude_session(run.claude_session_id)
+        project_lookup = get_project_lookup()
+
+        return SessionHistoryResponse(
+            session_id=run.claude_session_id,
+            runs=[run_to_response(r, project_lookup) for r in session_runs],
         )
 
     @app.get("/api/runs/{run_id}/logs", response_model=LogResponse)

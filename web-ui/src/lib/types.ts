@@ -103,6 +103,12 @@ export interface ResumeRunResponse {
   status: string
 }
 
+/** Response from session history */
+export interface SessionHistoryResponse {
+  session_id: string
+  runs: Run[]
+}
+
 /** WebSocket message types */
 export type WebSocketMessageType = 'run_created' | 'run_updated' | 'log_line' | 'subscribed' | 'unsubscribed' | 'pong'
 

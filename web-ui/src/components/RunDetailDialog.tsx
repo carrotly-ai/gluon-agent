@@ -3,9 +3,9 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface RunDetailDialogProps {
@@ -40,7 +40,7 @@ function formatDate(dateStr: string | null): string {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'continue'>('output')
+  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'history' | 'continue'>('output')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -48,6 +48,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [resumePrompt, setResumePrompt] = useState('')
   const [resuming, setResuming] = useState(false)
   const [resumeError, setResumeError] = useState<string | null>(null)
+  const [sessionHistory, setSessionHistory] = useState<Run[]>([])
+  const [expandedHistoryRun, setExpandedHistoryRun] = useState<string | null>(null)
+  const [historyLogs, setHistoryLogs] = useState<Record<string, { stdout: string; stderr: string }>>({})
 
   useEffect(() => {
     if (!open || !run) {
@@ -56,6 +59,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       setActiveTab('output')
       setResumePrompt('')
       setResumeError(null)
+      setSessionHistory([])
+      setExpandedHistoryRun(null)
+      setHistoryLogs({})
       return
     }
 
@@ -71,6 +77,19 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
         ])
         setDetail(runDetail)
         setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '' })
+
+        // Fetch session history if there's a session
+        if (runDetail.session_id) {
+          try {
+            const history = await fetchSessionHistory(runId)
+            // Filter out the current run and only show previous runs
+            const previousRuns = history.runs.filter(r => r.id !== runId)
+            setSessionHistory(previousRuns)
+          } catch {
+            // Session history is optional, don't fail if it errors
+            setSessionHistory([])
+          }
+        }
       } catch (err) {
         console.error('Failed to load run details:', err)
       } finally {
@@ -144,9 +163,36 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     }
   }
 
+  const handleExpandHistoryRun = async (historyRunId: string) => {
+    if (expandedHistoryRun === historyRunId) {
+      setExpandedHistoryRun(null)
+      return
+    }
+    setExpandedHistoryRun(historyRunId)
+    // Load logs if not already cached
+    if (!historyLogs[historyRunId]) {
+      try {
+        const [stdout, stderr] = await Promise.all([
+          fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
+          fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
+        ])
+        setHistoryLogs(prev => ({
+          ...prev,
+          [historyRunId]: { stdout: stdout.content || '', stderr: stderr.content || '' }
+        }))
+      } catch {
+        setHistoryLogs(prev => ({
+          ...prev,
+          [historyRunId]: { stdout: '', stderr: '' }
+        }))
+      }
+    }
+  }
+
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
   const isResumable = (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
+  const hasHistory = sessionHistory.length > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -263,6 +309,21 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-vermillion)]" />
                     )}
                   </button>
+                  {hasHistory && (
+                    <button
+                      className={cn(
+                        'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                        activeTab === 'history'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                      )}
+                      onClick={() => setActiveTab('history')}
+                    >
+                      <Clock className="w-3 h-3" />
+                      History
+                      <span className="text-[0.5rem] text-[var(--color-stone)]/50">({sessionHistory.length})</span>
+                    </button>
+                  )}
                   {isResumable && (
                     <button
                       className={cn(
@@ -307,6 +368,50 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   )}>
                     {logs.stderr || 'No errors'}
                   </pre>
+                )}
+                {activeTab === 'history' && (
+                  <div className="p-3 overflow-y-auto h-full">
+                    <p className="text-[0.6875rem] text-[var(--color-stone)]/70 mb-3">
+                      Previous runs in this session (oldest first):
+                    </p>
+                    <div className="space-y-2">
+                      {sessionHistory.map((historyRun) => (
+                        <div key={historyRun.id} className="border border-[rgba(163,163,163,0.08)] rounded-sm">
+                          <button
+                            className="w-full p-3 flex items-center justify-between hover:bg-[var(--color-paper)]/5 transition-colors"
+                            onClick={() => handleExpandHistoryRun(historyRun.id)}
+                          >
+                            <div className="flex items-center gap-3 text-left">
+                              <div className={cn('mark', `mark-${historyRun.status}`)} />
+                              <div>
+                                <p className="text-[0.75rem] text-[var(--color-paper)]/80 line-clamp-1">
+                                  {historyRun.prompt}
+                                </p>
+                                <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-0.5">
+                                  {formatDate(historyRun.created_at)} · {formatDuration(historyRun.duration_seconds)}
+                                </p>
+                              </div>
+                            </div>
+                            <ChevronDown className={cn(
+                              'w-4 h-4 text-[var(--color-stone)]/50 transition-transform',
+                              expandedHistoryRun === historyRun.id && 'rotate-180'
+                            )} />
+                          </button>
+                          {expandedHistoryRun === historyRun.id && (
+                            <div className="border-t border-[rgba(163,163,163,0.08)] p-3">
+                              {historyLogs[historyRun.id] ? (
+                                <pre className="text-mono text-[0.625rem] text-[var(--color-paper)]/60 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                                  {historyLogs[historyRun.id].stdout || <span className="text-[var(--color-stone)]/40 italic">No output</span>}
+                                </pre>
+                              ) : (
+                                <span className="text-[0.625rem] text-[var(--color-stone)]/50">Loading...</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
                 {activeTab === 'continue' && (
                   <div className="p-4 flex flex-col h-full">
