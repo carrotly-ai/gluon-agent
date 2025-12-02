@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { Plus, Sun, Moon, LayoutGrid, BarChart3 } from 'lucide-react'
+import { Plus, Sun, Moon, LayoutGrid, BarChart3, Settings } from 'lucide-react'
 import { KanbanBoard } from './components/KanbanBoard'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { ProjectFilter } from './components/ProjectFilter'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { UsagePage } from './components/UsagePage'
+import { SettingsPage } from './components/SettingsPage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
@@ -13,7 +14,7 @@ import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
 
-type ViewMode = 'board' | 'usage'
+type ViewMode = 'board' | 'usage' | 'settings'
 
 function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
@@ -170,6 +171,18 @@ function App() {
               >
                 <BarChart3 className="w-3.5 h-3.5" />
               </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-sm transition-colors',
+                  viewMode === 'settings'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('settings')}
+                title="Settings"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
             </div>
             <button
               className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
@@ -201,7 +214,9 @@ function App() {
 
       {/* Main */}
       <main className="flex-1 overflow-hidden min-h-0">
-        {viewMode === 'usage' ? (
+        {viewMode === 'settings' ? (
+          <SettingsPage />
+        ) : viewMode === 'usage' ? (
           <UsagePage />
         ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
           <div className="flex items-center justify-center h-full">

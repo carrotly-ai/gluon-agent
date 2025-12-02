@@ -336,12 +336,18 @@ def create_app() -> FastAPI:
 
         for project in projects:
             sessions = orchestrator.list_sessions(project.name)
+            # Get git branch from cached status or live
+            git_branch = None
+            if hasattr(project, 'cached_git_branch') and project.cached_git_branch:
+                git_branch = project.cached_git_branch
             result.append(
                 ProjectResponse(
                     id=project.id,
                     name=project.name,
                     path=str(project.path),
                     session_count=len(sessions),
+                    workspace_id=project.workspace_id,
+                    git_branch=git_branch,
                 )
             )
 

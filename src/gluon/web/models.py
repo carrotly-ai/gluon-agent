@@ -80,6 +80,8 @@ class ProjectResponse(BaseModel):
     name: str
     path: str
     session_count: int = 0
+    workspace_id: str | None = None
+    git_branch: str | None = Field(default=None, description="Current git branch")
 
     class Config:
         from_attributes = True

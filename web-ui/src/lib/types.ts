@@ -68,6 +68,8 @@ export interface Project {
   name: string
   path: string
   session_count: number
+  workspace_id?: string | null
+  git_branch?: string | null
 }
 
 /** Project with derived workspace info */
