@@ -47,6 +47,43 @@ export interface Project {
   session_count: number
 }
 
+/** Project with derived workspace info */
+export interface ProjectWithWorkspace extends Project {
+  workspace: string
+}
+
+/** Extract workspace name from project path */
+export function getWorkspaceFromPath(path: string): string {
+  // Pattern: /Users/.../workspaces/{workspace}/{project}
+  const match = path.match(/\/workspaces\/([^/]+)\//)
+  return match ? match[1] : 'other'
+}
+
+/** Group projects by workspace */
+export function groupProjectsByWorkspace(projects: Project[]): Map<string, ProjectWithWorkspace[]> {
+  const groups = new Map<string, ProjectWithWorkspace[]>()
+
+  for (const project of projects) {
+    const workspace = getWorkspaceFromPath(project.path)
+    const projectWithWorkspace = { ...project, workspace }
+
+    if (!groups.has(workspace)) {
+      groups.set(workspace, [])
+    }
+    groups.get(workspace)!.push(projectWithWorkspace)
+  }
+
+  // Sort workspaces alphabetically, projects within each workspace alphabetically
+  const sortedGroups = new Map<string, ProjectWithWorkspace[]>()
+  const sortedKeys = Array.from(groups.keys()).sort()
+
+  for (const key of sortedKeys) {
+    sortedGroups.set(key, groups.get(key)!.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  return sortedGroups
+}
+
 /** API response for system status */
 export interface SystemStatus {
   total_projects: number

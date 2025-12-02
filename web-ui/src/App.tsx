@@ -1,14 +1,51 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { KanbanBoard } from './components/KanbanBoard'
 import { RunDetailDialog } from './components/RunDetailDialog'
+import { ProjectFilter } from './components/ProjectFilter'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
-import { cancelRun } from './lib/api'
-import type { Run } from './lib/types'
+import { useHashFilter } from './hooks/useHashFilter'
+import { cancelRun, fetchProjects } from './lib/api'
+import { getWorkspaceFromPath } from './lib/types'
+import type { Run, Project } from './lib/types'
 
 function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [projects, setProjects] = useState<Project[]>([])
+  const { filter, setFilter } = useHashFilter()
+
+  // Fetch projects for workspace mapping
+  useEffect(() => {
+    fetchProjects().then(setProjects).catch(console.error)
+  }, [])
+
+  // Build project name -> workspace mapping
+  const projectWorkspaceMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const project of projects) {
+      map.set(project.name, getWorkspaceFromPath(project.path))
+    }
+    return map
+  }, [projects])
+
+  // Filter runs based on current filter
+  const filteredRuns = useMemo(() => {
+    if (filter.type === 'all') return runs
+
+    if (filter.type === 'project') {
+      return runs.filter(run => run.project_name === filter.value)
+    }
+
+    if (filter.type === 'workspace') {
+      return runs.filter(run => {
+        const workspace = projectWorkspaceMap.get(run.project_name)
+        return workspace === filter.value
+      })
+    }
+
+    return runs
+  }, [runs, filter, projectWorkspaceMap])
 
   const handleRunClick = useCallback((run: Run) => {
     setSelectedRun(run)
@@ -31,18 +68,19 @@ function App() {
     }
   }, [setRuns, selectedRun?.id])
 
-  const activeRuns = runs.filter(r => r.status === 'running').length
+  const activeRuns = filteredRuns.filter(r => r.status === 'running').length
 
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="border-b border-[rgba(163,163,163,0.1)] shrink-0">
         <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
-          {/* Left - wordmark */}
-          <div className="flex items-baseline gap-4 sm:gap-6">
+          {/* Left - wordmark + filter */}
+          <div className="flex items-center gap-3 sm:gap-5">
             <span className="text-[0.75rem] sm:text-[0.8125rem] font-normal tracking-[0.1em] text-[#fafaf9]">
               GLUON
             </span>
+            <ProjectFilter filter={filter} onFilterChange={setFilter} />
             {activeRuns > 0 && (
               <span className="text-caption header-stats">
                 {activeRuns} active
@@ -72,7 +110,7 @@ function App() {
           </div>
         ) : (
           <KanbanBoard
-            runs={runs}
+            runs={filteredRuns}
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
           />
