@@ -44,11 +44,13 @@ export async function fetchRuns(params?: {
   project_id?: string
   status?: string[]
   limit?: number
+  archived?: boolean
 }): Promise<Run[]> {
   const searchParams = new URLSearchParams()
   if (params?.project_id) searchParams.set('project_id', params.project_id)
   if (params?.status) params.status.forEach(s => searchParams.append('status', s))
   if (params?.limit) searchParams.set('limit', String(params.limit))
+  if (params?.archived !== undefined) searchParams.set('archived', String(params.archived))
 
   const query = searchParams.toString()
   return fetchJson<Run[]>(`/runs${query ? `?${query}` : ''}`)

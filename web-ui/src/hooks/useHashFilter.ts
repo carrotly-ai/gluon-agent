@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export type FilterType = 'all' | 'workspace' | 'project'
+export type FilterType = 'all' | 'workspace' | 'project' | 'archived'
 
 export interface HashFilter {
   type: FilterType
@@ -17,12 +17,16 @@ function parseHash(): HashFilter {
   if (hash.startsWith('project:')) {
     return { type: 'project', value: hash.slice('project:'.length) }
   }
+  if (hash === 'archived') {
+    return { type: 'archived', value: null }
+  }
 
   return { type: 'all', value: null }
 }
 
 function buildHash(filter: HashFilter): string {
   if (filter.type === 'all') return ''
+  if (filter.type === 'archived') return 'archived'
   return `${filter.type}:${filter.value}`
 }
 

@@ -93,6 +93,7 @@ def create_app() -> FastAPI:
         project_id: str | None = None,
         status: Annotated[list[str] | None, Query()] = None,
         limit: int = 50,
+        archived: bool = False,
     ) -> list[RunResponse]:
         """List execution runs with optional filters."""
         # Refresh status of active runs
@@ -106,7 +107,19 @@ def create_app() -> FastAPI:
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid status: {e}")
 
-        runs = store.list_runs(project_id=project_id, statuses=statuses, limit=limit)
+        runs = store.list_runs(
+            project_id=project_id,
+            statuses=statuses,
+            limit=limit,
+            include_archived=archived,
+        )
+
+        # When viewing archived, only show archived runs; otherwise only show non-archived
+        if archived:
+            runs = [r for r in runs if r.archived]
+        else:
+            runs = [r for r in runs if not r.archived]
+
         project_lookup = get_project_lookup()
 
         return [run_to_response(run, project_lookup) for run in runs]

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
+import { ChevronDown, Folder, FolderOpen, Archive } from 'lucide-react'
 import { fetchProjects } from '@/lib/api'
 import { groupProjectsByWorkspace, type Project, type ProjectWithWorkspace } from '@/lib/types'
 import { type HashFilter } from '@/hooks/useHashFilter'
@@ -35,6 +35,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
   // Get display label
   const getDisplayLabel = (): string => {
     if (filter.type === 'all') return 'All Projects'
+    if (filter.type === 'archived') return 'Archived'
     if (filter.type === 'workspace') return filter.value || 'All Projects'
     if (filter.type === 'project') {
       const project = projects.find(p => p.name === filter.value)
@@ -70,6 +71,18 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
           >
             <FolderOpen className="w-3 h-3" />
             All Projects
+          </button>
+
+          {/* Archived option */}
+          <button
+            className={cn(
+              'w-full px-3 py-2 text-left text-[0.6875rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors flex items-center gap-2',
+              filter.type === 'archived' ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]' : 'text-[var(--color-stone)]'
+            )}
+            onClick={() => handleSelect({ type: 'archived', value: null })}
+          >
+            <Archive className="w-3 h-3" />
+            Archived
           </button>
 
           <div className="border-t border-[rgba(163,163,163,0.08)] my-1" />

@@ -8,7 +8,7 @@ import { UsagePage } from './components/UsagePage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, archiveRun, fetchProjects } from './lib/api'
+import { cancelRun, archiveRun, fetchProjects, fetchRuns } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
@@ -24,11 +24,24 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('board')
   const { filter, setFilter } = useHashFilter()
   const { theme, toggleTheme } = useTheme()
+  const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
+  const [archivedLoading, setArchivedLoading] = useState(false)
 
   // Fetch projects for workspace mapping
   useEffect(() => {
     fetchProjects().then(setProjects).catch(console.error)
   }, [])
+
+  // Fetch archived runs when viewing archived filter
+  useEffect(() => {
+    if (filter.type === 'archived') {
+      setArchivedLoading(true)
+      fetchRuns({ archived: true, limit: 100 })
+        .then(setArchivedRuns)
+        .catch(console.error)
+        .finally(() => setArchivedLoading(false))
+    }
+  }, [filter.type])
 
   // Build project name -> workspace mapping
   const projectWorkspaceMap = useMemo(() => {
@@ -41,6 +54,9 @@ function App() {
 
   // Filter runs based on current filter
   const filteredRuns = useMemo(() => {
+    // When viewing archived, use archivedRuns
+    if (filter.type === 'archived') return archivedRuns
+
     if (filter.type === 'all') return runs
 
     if (filter.type === 'project') {
@@ -55,7 +71,7 @@ function App() {
     }
 
     return runs
-  }, [runs, filter, projectWorkspaceMap])
+  }, [runs, filter, projectWorkspaceMap, archivedRuns])
 
   const handleRunClick = useCallback((run: Run) => {
     setSelectedRun(run)
@@ -183,7 +199,7 @@ function App() {
       <main className="flex-1 overflow-hidden min-h-0">
         {viewMode === 'usage' ? (
           <UsagePage />
-        ) : loading ? (
+        ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
           <div className="flex items-center justify-center h-full">
             <div className="mark mark-running w-2 h-2" />
           </div>
