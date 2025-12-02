@@ -2,11 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { X, RotateCw, ChevronLeft } from 'lucide-react'
+import { X, RotateCw, ChevronLeft, Copy, Check } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -25,23 +23,34 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
 }
 
-function formatDateTime(dateStr: string | null): string {
+function formatTime(dateStr: string | null): string {
   if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString()
+  const date = new Date(dateStr)
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  const today = new Date()
+  const isToday = date.toDateString() === today.toDateString()
+  if (isToday) return `Today, ${formatTime(dateStr)}`
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + formatTime(dateStr)
 }
 
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState<'info' | 'output' | 'errors'>('info')
+  const [activeTab, setActiveTab] = useState<'output' | 'errors'>('output')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!open || !run) {
       setDetail(null)
       setLogs({ stdout: '', stderr: '' })
-      setActiveTab('info')
+      setActiveTab('output')
       return
     }
 
@@ -99,157 +108,159 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     }
   }
 
+  const handleCopyPrompt = async () => {
+    if (!run?.prompt) return
+    await navigator.clipboard.writeText(run.prompt)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const isActive = run?.status === 'running' || run?.status === 'pending'
+  const hasErrors = !!logs.stderr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dialog-content max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
-        {/* Header */}
-        <DialogHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b border-[rgba(163,163,163,0.1)]">
-          {/* Mobile back button */}
-          <button
-            className="md:hidden flex items-center gap-1 text-caption mb-3 -ml-1"
-            onClick={() => onOpenChange(false)}
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back
-          </button>
-
-          <div className="flex items-start gap-3 sm:gap-4">
-            <div className={cn('mark mt-1', `mark-${run?.status}`)} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
-                <span className="text-mono text-[#a3a3a3]/50">{run?.id.slice(0, 8)}</span>
-                <span className="text-caption uppercase tracking-widest">{run?.status}</span>
-              </div>
-              <DialogTitle className="text-title text-[#fafaf9] font-normal break-words">
-                {run?.prompt}
-              </DialogTitle>
-              <p className="text-caption mt-1">{run?.project_name}</p>
+      <DialogContent className="dialog-content max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+        {/* Compact Header Bar */}
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[#0c0c0c]">
+          {/* Left: Back (mobile) + Status */}
+          <div className="flex items-center gap-3">
+            <button
+              className="md:hidden p-1 -ml-1 text-[#a3a3a3] hover:text-[#fafaf9] transition-colors"
+              onClick={() => onOpenChange(false)}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className={cn('mark', `mark-${run?.status}`)} />
+              <span className="text-mono text-[#a3a3a3]/60 text-[0.625rem]">{run?.id.slice(0, 8)}</span>
+              <span className="text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/40">{run?.status}</span>
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 mt-3 sm:mt-4">
+          {/* Right: Actions */}
+          <div className="flex items-center gap-1">
             <button
-              className="text-caption hover:text-[#fafaf9] transition-colors flex items-center gap-1.5 p-1 -ml-1"
+              className="p-2 text-[#a3a3a3]/60 hover:text-[#fafaf9] transition-colors"
               onClick={handleRefresh}
               disabled={loading}
+              title="Refresh"
             >
-              <RotateCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-              Refresh
+              <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
             </button>
             {isActive && (
               <button
-                className="text-caption hover:text-[#c73e3a] transition-colors flex items-center gap-1.5 p-1"
+                className="p-2 text-[#a3a3a3]/60 hover:text-[#c73e3a] transition-colors"
                 onClick={handleCancel}
                 disabled={cancelling}
+                title="Cancel run"
               >
-                <X className="w-3 h-3" />
-                Cancel
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
-        </DialogHeader>
-
-        {/* Tabs */}
-        <div className="flex border-b border-[rgba(163,163,163,0.1)] overflow-x-auto">
-          {(['info', 'output', 'errors'] as const).map((tab) => (
-            <button
-              key={tab}
-              className={cn(
-                'px-4 sm:px-6 py-3 text-caption uppercase tracking-widest transition-colors whitespace-nowrap shrink-0',
-                activeTab === tab
-                  ? 'text-[#fafaf9] border-b border-[#fafaf9]'
-                  : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
-              )}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab}
-              {tab === 'errors' && logs.stderr && (
-                <span className="ml-2 w-1 h-1 rounded-full bg-[#c73e3a] inline-block" />
-              )}
-            </button>
-          ))}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden min-h-0">
-          {activeTab === 'info' && (
-            <ScrollArea className="h-full">
-              <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-                {/* Metadata - responsive grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-y-4 sm:gap-x-8">
-                  <div>
-                    <p className="text-caption mb-1">Project</p>
-                    <p className="text-body text-[#fafaf9]">{run?.project_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-caption mb-1">Initiator</p>
-                    <p className="text-body text-[#fafaf9]">{run?.initiator || 'CLI'}</p>
-                  </div>
-                  <div>
-                    <p className="text-caption mb-1">Created</p>
-                    <p className="text-mono text-[#fafaf9] text-[0.625rem] sm:text-[0.6875rem]">
-                      {formatDateTime(run?.created_at ?? null)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-caption mb-1">Duration</p>
-                    <p className="text-mono text-[#fafaf9]">{formatDuration(run?.duration_seconds ?? null)}</p>
-                  </div>
-                </div>
+        {/* Main Content - Scrollable */}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-4 sm:p-5">
+            {/* Project + Meta Row */}
+            <div className="flex items-center gap-4 text-[0.6875rem] text-[#a3a3a3]/60 mb-4">
+              <span className="text-[#fafaf9]/80">{run?.project_name}</span>
+              <span className="hidden sm:inline">{formatDate(run?.created_at ?? null)}</span>
+              {run?.duration_seconds !== null && (
+                <span className="text-mono">{formatDuration(run?.duration_seconds ?? null)}</span>
+              )}
+              {detail?.exit_code !== null && detail?.exit_code !== undefined && (
+                <span className="text-mono">exit {detail?.exit_code}</span>
+              )}
+            </div>
 
-                {/* Prompt */}
-                <div>
-                  <p className="text-caption mb-2">Prompt</p>
-                  <pre className="text-body text-[#fafaf9] bg-[#0c0c0c] p-3 sm:p-4 whitespace-pre-wrap break-words border border-[rgba(163,163,163,0.08)] text-[0.6875rem]">
-                    {run?.prompt}
+            {/* Prompt - Hero Section */}
+            <div className="mb-6">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[0.9375rem] text-[#fafaf9] leading-relaxed font-light">
+                  {run?.prompt}
+                </p>
+                <button
+                  className="p-1.5 text-[#a3a3a3]/40 hover:text-[#fafaf9] transition-colors shrink-0 mt-0.5"
+                  onClick={handleCopyPrompt}
+                  title="Copy prompt"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Error Message - Prominent if exists */}
+            {run?.error_message && (
+              <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+                <p className="text-[0.625rem] uppercase tracking-widest text-[#c73e3a]/70 mb-1.5">Error</p>
+                <pre className="text-[0.75rem] text-[#c73e3a] whitespace-pre-wrap break-words font-mono">
+                  {run.error_message}
+                </pre>
+              </div>
+            )}
+
+            {/* Logs Section */}
+            <div>
+              {/* Tab Bar */}
+              <div className="flex items-center gap-1 mb-3">
+                <button
+                  className={cn(
+                    'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                    activeTab === 'output'
+                      ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
+                      : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
+                  )}
+                  onClick={() => setActiveTab('output')}
+                >
+                  Output
+                </button>
+                <button
+                  className={cn(
+                    'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                    activeTab === 'errors'
+                      ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
+                      : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
+                  )}
+                  onClick={() => setActiveTab('errors')}
+                >
+                  Errors
+                  {hasErrors && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#c73e3a]" />
+                  )}
+                </button>
+              </div>
+
+              {/* Log Content */}
+              <div className="bg-[#0c0c0c] border border-[rgba(163,163,163,0.08)] rounded-sm min-h-[200px] max-h-[320px] overflow-auto">
+                {activeTab === 'output' && (
+                  <pre className="p-3 text-mono text-[#fafaf9]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed">
+                    {logs.stdout || <span className="text-[#a3a3a3]/30 italic">No output</span>}
                   </pre>
-                </div>
-
-                {/* Error */}
-                {run?.error_message && (
-                  <div>
-                    <p className="text-caption mb-2 accent-vermillion">Error</p>
-                    <pre className="text-body accent-vermillion bg-[rgba(199,62,58,0.05)] p-3 sm:p-4 whitespace-pre-wrap break-words border border-[rgba(199,62,58,0.15)] text-[0.6875rem]">
-                      {run.error_message}
-                    </pre>
-                  </div>
                 )}
-
-                {/* Session info */}
-                {detail && (detail.session_id || detail.exit_code !== null) && (
-                  <div className="pt-3 sm:pt-4 border-t border-[rgba(163,163,163,0.08)]">
-                    <div className="flex items-center gap-4 sm:gap-6 text-mono text-[#a3a3a3]/40 flex-wrap">
-                      {detail.session_id && <span>session {detail.session_id.slice(0, 8)}</span>}
-                      {detail.exit_code !== null && <span>exit {detail.exit_code}</span>}
-                    </div>
-                  </div>
+                {activeTab === 'errors' && (
+                  <pre className={cn(
+                    'p-3 text-mono whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed',
+                    logs.stderr ? 'text-[#c73e3a]/90' : 'text-[#a3a3a3]/30 italic'
+                  )}>
+                    {logs.stderr || 'No errors'}
+                  </pre>
                 )}
               </div>
-            </ScrollArea>
-          )}
+            </div>
 
-          {activeTab === 'output' && (
-            <ScrollArea className="h-64 sm:h-80">
-              <pre className="p-4 sm:p-6 text-mono text-[#fafaf9]/80 whitespace-pre-wrap break-words text-[0.625rem] sm:text-[0.6875rem]">
-                {logs.stdout || <span className="text-[#a3a3a3]/30">No output</span>}
-              </pre>
-            </ScrollArea>
-          )}
-
-          {activeTab === 'errors' && (
-            <ScrollArea className="h-64 sm:h-80">
-              <pre className={cn(
-                'p-4 sm:p-6 text-mono whitespace-pre-wrap break-words text-[0.625rem] sm:text-[0.6875rem]',
-                logs.stderr ? 'accent-vermillion' : 'text-[#a3a3a3]/30'
-              )}>
-                {logs.stderr || 'No errors'}
-              </pre>
-            </ScrollArea>
-          )}
-        </div>
+            {/* Footer Meta */}
+            {detail?.session_id && (
+              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)]">
+                <span className="text-mono text-[0.625rem] text-[#a3a3a3]/30">
+                  session {detail.session_id.slice(0, 12)}
+                </span>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )
