@@ -73,6 +73,11 @@ def create_app() -> FastAPI:
             duration_seconds=run.duration_seconds,
             error_message=run.error_message,
             cost_usd=run.cost_usd,
+            # Git/PR fields for Kanban routing
+            use_worktree=run.use_worktree,
+            branch_name=run.branch_name,
+            pr_number=run.pr_number,
+            pr_status=run.pr_status,
         )
 
     # ========== REST API Routes ==========

@@ -167,14 +167,14 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onRunUpdate }: Kanb
   const runsByColumn = runs.reduce<Record<KanbanColumn, Run[]>>(
     (acc, run) => {
       // "Review" column: completed runs with open PRs
-      // Since pr_status is only in RunDetail, we check if the run might need review
-      // For now, we just keep completed runs in "completed" unless they have PR context
-      // This will be enhanced when we have full RunDetail in list view
-
-      // Use the actual status column
-      const col = run.status as KanbanColumn
-      if (col in acc) {
-        acc[col].push(run)
+      if (run.status === 'completed' && run.pr_status === 'open') {
+        acc['review'].push(run)
+      } else {
+        // Use the actual status column
+        const col = run.status as KanbanColumn
+        if (col in acc) {
+          acc[col].push(run)
+        }
       }
       return acc
     },

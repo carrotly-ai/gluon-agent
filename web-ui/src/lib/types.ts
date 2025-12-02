@@ -19,6 +19,9 @@ export interface Run {
   // Git indicators (for RunCard display)
   use_worktree?: boolean
   branch_name?: string | null
+  // PR info (for Review column routing)
+  pr_number?: number | null
+  pr_status?: 'open' | 'merged' | 'closed' | 'draft' | null
 }
 
 /** Detailed run response (includes additional fields) */
