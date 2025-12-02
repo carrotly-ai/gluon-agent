@@ -14,10 +14,9 @@ interface CreateTaskDialogProps {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', description: 'Fast, intelligent' },
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', description: 'Balanced' },
-  { value: 'claude-opus-4-20250514', label: 'Claude Opus 4', description: 'Most capable' },
-  { value: 'claude-haiku-3-5-20241022', label: 'Claude Haiku 3.5', description: 'Fastest' },
+  { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5', description: 'Fast, high-quality' },
+  { value: 'claude-opus-4.5', label: 'Claude Opus 4.5', description: 'Highest quality' },
+  { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5', description: 'Fastest' },
 ]
 
 export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialProject }: CreateTaskDialogProps) {

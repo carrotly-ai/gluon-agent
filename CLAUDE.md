@@ -6,6 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI orchestrator for managing multiple Claude Code agents across projects. Provides session persistence, resume capability, workspace-based project discovery, and multiple interfaces (CLI, Telegram, Discord).
 
+## LLM models supported
+
+IMPORTANT: We only support the following LLM models:
+
+| Name                | AWS Bedrock Model ID                                 | Purpose                                           |
+|---------------------|------------------------------------------------------|---------------------------------------------------|
+| claude-opus-4.5     | global.anthropic.claude-opus-4-5-20251101-v1:0       | Highest quality Claude model for reasoning & tasks |
+| claude-sonnet-4.5   | global.anthropic.claude-sonnet-4-5-20250929-v1:0     | Fast, high-quality Claude model for general use    |
+| claude-haiku-4.5    | global.anthropic.claude-haiku-4-5-20251001-v1:0      | Lightweight, fast Claude model for low latency     |
+
 ## Commands
 
 ```bash
