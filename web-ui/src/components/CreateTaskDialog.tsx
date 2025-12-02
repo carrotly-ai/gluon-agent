@@ -68,10 +68,10 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[#0c0c0c]">
-          <span className="text-[0.75rem] text-[#fafaf9] font-normal">New Task</span>
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
+          <span className="text-[0.75rem] text-[var(--color-paper)] font-normal">New Task</span>
           <button
-            className="p-1 text-[#a3a3a3]/60 hover:text-[#fafaf9] transition-colors"
+            className="p-1 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
             onClick={() => onOpenChange(false)}
           >
             <X className="w-4 h-4" />
@@ -81,26 +81,26 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
         <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
           {/* Project Select */}
           <div>
-            <label className="block text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/70 mb-2">
+            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Project
             </label>
             <div className="relative">
               <button
                 type="button"
-                className="w-full flex items-center justify-between px-3 py-2 text-[0.8125rem] text-left bg-[#0c0c0c] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-[0.8125rem] text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
                 onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
               >
-                <span className={selectedProject ? 'text-[#fafaf9]' : 'text-[#a3a3a3]/60'}>
+                <span className={selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'}>
                   {selectedProject || 'Select a project...'}
                 </span>
-                <ChevronDown className={cn('w-4 h-4 text-[#a3a3a3]/60 transition-transform', projectDropdownOpen && 'rotate-180')} />
+                <ChevronDown className={cn('w-4 h-4 text-[var(--color-stone)]/60 transition-transform', projectDropdownOpen && 'rotate-180')} />
               </button>
 
               {projectDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[#171717] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
                   {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
                     <div key={workspace}>
-                      <div className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/60 bg-[#0c0c0c]">
+                      <div className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
                         {workspace}
                       </div>
                       {workspaceProjects.map((project: ProjectWithWorkspace) => (
@@ -110,8 +110,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
                           className={cn(
                             'w-full px-3 py-2 text-left text-[0.8125rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors',
                             selectedProject === project.name
-                              ? 'text-[#fafaf9] bg-[rgba(163,163,163,0.08)]'
-                              : 'text-[#a3a3a3]'
+                              ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                              : 'text-[var(--color-stone)]'
                           )}
                           onClick={() => {
                             setSelectedProject(project.name)
@@ -130,28 +130,28 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
 
           {/* Prompt */}
           <div>
-            <label className="block text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/70 mb-2">
+            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Prompt
             </label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="What would you like the agent to do?"
-              className="w-full px-3 py-2.5 text-[0.8125rem] text-[#fafaf9] bg-[#0c0c0c] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[#a3a3a3]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
+              className="w-full px-3 py-2.5 text-[0.8125rem] text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
             />
           </div>
 
           {/* Error */}
           {error && (
-            <p className="text-[0.75rem] text-[#c73e3a]">{error}</p>
+            <p className="text-[0.75rem] text-[var(--color-vermillion)]">{error}</p>
           )}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
               type="button"
-              className="px-4 py-2 text-[0.6875rem] uppercase tracking-widest text-[#a3a3a3] hover:text-[#fafaf9] transition-colors"
+              className="px-4 py-2 text-[0.6875rem] uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
               onClick={() => onOpenChange(false)}
             >
               Cancel
@@ -162,8 +162,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               className={cn(
                 'flex items-center gap-2 px-4 py-2 text-[0.6875rem] uppercase tracking-widest rounded-sm transition-colors',
                 selectedProject && prompt.trim() && !submitting
-                  ? 'bg-[#fafaf9] text-[#0c0c0c] hover:bg-[#e5e5e5]'
-                  : 'bg-[rgba(163,163,163,0.1)] text-[#a3a3a3]/60 cursor-not-allowed'
+                  ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                  : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
               )}
             >
               <Play className="w-3 h-3" />

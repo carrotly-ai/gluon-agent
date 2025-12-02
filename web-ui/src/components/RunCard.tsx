@@ -30,7 +30,7 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
         <div className={cn('mark mt-1.5', `mark-${run.status}`)} />
         <div className="flex-1 min-w-0">
           <p
-            className="text-title text-[#fafaf9] leading-relaxed break-words"
+            className="text-title text-[var(--color-paper)] leading-relaxed break-words"
             style={{
               display: '-webkit-box',
               WebkitLineClamp: 2,
@@ -47,14 +47,14 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
       {/* Bottom row: metadata */}
       <div className="flex items-center justify-between mt-2 sm:mt-3 pl-4 sm:pl-[18px] gap-2">
         <div className="flex items-center gap-2 sm:gap-4 flex-wrap min-w-0">
-          <span className="text-mono text-[#a3a3a3]/60 truncate max-w-[100px] sm:max-w-none">
+          <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
             {run.project_name}
           </span>
-          <span className="text-mono text-[#a3a3a3]/55 hidden sm:inline">
+          <span className="text-mono text-[var(--color-stone)]/55 hidden sm:inline">
             {formatTime(run.created_at)}
           </span>
           {run.duration_seconds !== null && (
-            <span className="text-mono text-[#a3a3a3]/55">
+            <span className="text-mono text-[var(--color-stone)]/55">
               {formatDuration(run.duration_seconds)}
             </span>
           )}
@@ -62,7 +62,7 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
 
         {isActive && onCancel && (
           <button
-            className="p-1.5 sm:p-1 text-[#a3a3a3]/55 hover:text-[#c73e3a] transition-colors shrink-0"
+            className="p-1.5 sm:p-1 text-[var(--color-stone)]/55 hover:text-[var(--color-vermillion)] transition-colors shrink-0"
             onClick={(e) => {
               e.stopPropagation()
               onCancel()

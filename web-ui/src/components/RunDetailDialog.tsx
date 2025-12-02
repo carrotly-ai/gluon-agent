@@ -152,26 +152,26 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dialog-content sm:max-w-6xl w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Compact Header Bar */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[#0c0c0c]">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
           {/* Left: Back (mobile) + Status */}
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden p-1 -ml-1 text-[#a3a3a3] hover:text-[#fafaf9] transition-colors"
+              className="md:hidden p-1 -ml-1 text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
               onClick={() => onOpenChange(false)}
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <div className="flex items-center gap-2">
               <div className={cn('mark', `mark-${run?.status}`)} />
-              <span className="text-mono text-[#a3a3a3]/60 text-[0.625rem]">{run?.id.slice(0, 8)}</span>
-              <span className="text-[0.625rem] uppercase tracking-widest text-[#a3a3a3]/55">{run?.status}</span>
+              <span className="text-mono text-[var(--color-stone)]/60 text-[0.625rem]">{run?.id.slice(0, 8)}</span>
+              <span className="text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/55">{run?.status}</span>
             </div>
           </div>
 
           {/* Right: Actions */}
           <div className="flex items-center gap-1 pr-5">
             <button
-              className="p-2 text-[#a3a3a3]/60 hover:text-[#fafaf9] transition-colors"
+              className="p-2 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
               onClick={handleRefresh}
               disabled={loading}
               title="Refresh"
@@ -180,7 +180,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             </button>
             {isActive && (
               <button
-                className="p-2 text-[#a3a3a3]/60 hover:text-[#c73e3a] transition-colors"
+                className="p-2 text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)] transition-colors"
                 onClick={handleCancel}
                 disabled={cancelling}
                 title="Cancel run"
@@ -195,8 +195,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <div className="p-4 sm:p-5 flex flex-col flex-1 min-h-0">
             {/* Project + Meta Row */}
-            <div className="flex items-center gap-4 text-[0.6875rem] text-[#a3a3a3]/60 mb-4 shrink-0">
-              <span className="text-[#fafaf9]/80">{run?.project_name}</span>
+            <div className="flex items-center gap-4 text-[0.6875rem] text-[var(--color-stone)]/60 mb-4 shrink-0">
+              <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
               <span className="hidden sm:inline">{formatDate(run?.created_at ?? null)}</span>
               {run?.duration_seconds !== null && (
                 <span className="text-mono">{formatDuration(run?.duration_seconds ?? null)}</span>
@@ -210,12 +210,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             <div className="mb-4 shrink-0">
               <div className="flex items-start justify-between gap-3">
                 <div className="max-h-24 overflow-y-auto flex-1 pr-2 scrollbar-thin">
-                  <p className="text-[0.8125rem] text-[#fafaf9] leading-relaxed font-light">
+                  <p className="text-[0.8125rem] text-[var(--color-paper)] leading-relaxed font-light">
                     {run?.prompt}
                   </p>
                 </div>
                 <button
-                  className="p-1.5 text-[#a3a3a3]/55 hover:text-[#fafaf9] transition-colors shrink-0"
+                  className="p-1.5 text-[var(--color-stone)]/55 hover:text-[var(--color-paper)] transition-colors shrink-0"
                   onClick={handleCopyPrompt}
                   title="Copy prompt"
                 >
@@ -227,8 +227,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
               <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
-                <p className="text-[0.625rem] uppercase tracking-widest text-[#c73e3a]/70 mb-1.5">Error</p>
-                <pre className="text-[0.75rem] text-[#c73e3a] whitespace-pre-wrap break-words font-mono">
+                <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">Error</p>
+                <pre className="text-[0.75rem] text-[var(--color-vermillion)] whitespace-pre-wrap break-words font-mono">
                   {run.error_message}
                 </pre>
               </div>
@@ -243,8 +243,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     className={cn(
                       'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
                       activeTab === 'output'
-                        ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
-                        : 'text-[#a3a3a3]/60 hover:text-[#a3a3a3]'
+                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
                     )}
                     onClick={() => setActiveTab('output')}
                   >
@@ -254,14 +254,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     className={cn(
                       'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
                       activeTab === 'errors'
-                        ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
-                        : 'text-[#a3a3a3]/60 hover:text-[#a3a3a3]'
+                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
                     )}
                     onClick={() => setActiveTab('errors')}
                   >
                     Errors
                     {hasErrors && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#c73e3a]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-vermillion)]" />
                     )}
                   </button>
                   {isResumable && (
@@ -269,8 +269,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       className={cn(
                         'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
                         activeTab === 'continue'
-                          ? 'bg-[rgba(250,250,249,0.08)] text-[#fafaf9]'
-                          : 'text-[#a3a3a3]/60 hover:text-[#a3a3a3]'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
                       )}
                       onClick={() => setActiveTab('continue')}
                     >
@@ -282,8 +282,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   className={cn(
                     'flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
                     (activeTab === 'output' ? logs.stdout : logs.stderr)
-                      ? 'text-[#a3a3a3]/60 hover:text-[#fafaf9]'
-                      : 'text-[#a3a3a3]/40 cursor-not-allowed'
+                      ? 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
+                      : 'text-[var(--color-stone)]/40 cursor-not-allowed'
                   )}
                   onClick={handleCopyLogs}
                   disabled={!(activeTab === 'output' ? logs.stdout : logs.stderr)}
@@ -295,27 +295,27 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               </div>
 
               {/* Log Content */}
-              <div className="bg-[#0c0c0c] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
+              <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
-                  <pre className="p-3 text-mono text-[#fafaf9]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed">
-                    {logs.stdout || <span className="text-[#a3a3a3]/50 italic">No output</span>}
+                  <pre className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed">
+                    {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
                   </pre>
                 )}
                 {activeTab === 'errors' && (
                   <pre className={cn(
                     'p-3 text-mono whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed',
-                    logs.stderr ? 'text-[#c73e3a]/90' : 'text-[#a3a3a3]/50 italic'
+                    logs.stderr ? 'text-[var(--color-vermillion)]/90' : 'text-[var(--color-stone)]/50 italic'
                   )}>
                     {logs.stderr || 'No errors'}
                   </pre>
                 )}
                 {activeTab === 'continue' && (
                   <div className="p-4 flex flex-col h-full">
-                    <p className="text-[0.6875rem] text-[#a3a3a3]/70 mb-3">
+                    <p className="text-[0.6875rem] text-[var(--color-stone)]/70 mb-3">
                       Continue this session with a follow-up prompt. The agent will resume from where it left off.
                     </p>
                     <textarea
-                      className="flex-1 min-h-[120px] bg-[#171717] border border-[rgba(163,163,163,0.1)] rounded-sm p-3 text-[0.8125rem] text-[#fafaf9] placeholder:text-[#a3a3a3]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none"
+                      className="flex-1 min-h-[120px] bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm p-3 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none"
                       placeholder="Enter follow-up prompt..."
                       value={resumePrompt}
                       onChange={(e) => setResumePrompt(e.target.value)}
@@ -323,19 +323,19 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     />
                     {resumeError && (
                       <div className="mt-3 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
-                        <p className="text-[0.6875rem] text-[#c73e3a]">{resumeError}</p>
+                        <p className="text-[0.6875rem] text-[var(--color-vermillion)]">{resumeError}</p>
                       </div>
                     )}
                     <div className="mt-3 flex items-center justify-between">
-                      <span className="text-[0.625rem] text-[#a3a3a3]/50">
+                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">
                         Session: {detail?.session_id?.slice(0, 12)}...
                       </span>
                       <button
                         className={cn(
                           'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors',
                           resumePrompt.trim() && !resuming
-                            ? 'bg-[#fafaf9] text-[#0c0c0c] hover:bg-[#fafaf9]/90'
-                            : 'bg-[#a3a3a3]/20 text-[#a3a3a3]/50 cursor-not-allowed'
+                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
                         )}
                         onClick={handleResume}
                         disabled={!resumePrompt.trim() || resuming}
@@ -352,7 +352,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             {/* Footer Meta */}
             {detail?.session_id && (
               <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0">
-                <span className="text-mono text-[0.625rem] text-[#a3a3a3]/50">
+                <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/50">
                   session {detail.session_id.slice(0, 12)}
                 </span>
               </div>
