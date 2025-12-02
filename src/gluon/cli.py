@@ -834,21 +834,24 @@ def discord_bot(
 def serve(
     telegram: Annotated[bool, typer.Option("--telegram", help="Enable Telegram transport")] = False,
     discord: Annotated[bool, typer.Option("--discord", help="Enable Discord transport")] = False,
+    web: Annotated[bool, typer.Option("--web", help="Enable web dashboard")] = False,
+    web_port: Annotated[int, typer.Option("--web-port", help="Web dashboard port")] = 8000,
 ):
     """
     Run multiple bot transports concurrently.
 
-    Example: gluon serve --telegram --discord
+    Example: gluon serve --telegram --discord --web
 
     Configure each transport with environment variables:
     - Telegram: GLUON_TELEGRAM_TOKEN, GLUON_TELEGRAM_USERS
     - Discord: GLUON_DISCORD_TOKEN, GLUON_DISCORD_GUILD, GLUON_DISCORD_USERS
+    - Web: No configuration needed (runs on --web-port, default 8000)
     """
     import os
 
-    if not telegram and not discord:
+    if not telegram and not discord and not web:
         console.print("[red]Error:[/red] At least one transport must be enabled.")
-        console.print("Use --telegram and/or --discord flags.")
+        console.print("Use --telegram, --discord, and/or --web flags.")
         raise typer.Exit(1)
 
     from gluon.bot_core import GluonBotCore
@@ -907,25 +910,50 @@ def serve(
         transports_to_run.append(("Discord", dc_transport))
         console.print("[green]✓[/green] Discord transport configured")
 
+    # Configure Web dashboard
+    web_server = None
+    if web:
+        try:
+            import uvicorn
+
+            from gluon.web import create_app
+
+            web_app = create_app()
+            web_server = uvicorn.Server(
+                uvicorn.Config(web_app, host="0.0.0.0", port=web_port, log_level="warning")
+            )
+            console.print(f"[green]✓[/green] Web dashboard configured (port {web_port})")
+        except ImportError:
+            console.print("[red]Error:[/red] Web dashboard dependencies not installed.")
+            console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
+            raise typer.Exit(1)
+
     async def _run_all():
         """Run all configured transports concurrently."""
         import asyncio
 
-        console.print(f"\n[bold]Starting {len(transports_to_run)} transport(s)...[/bold]")
+        service_count = len(transports_to_run) + (1 if web_server else 0)
+        console.print(f"\n[bold]Starting {service_count} service(s)...[/bold]")
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
         # Start git background sync once (shared across transports)
         await bot_core.git_manager.start_background_sync()
 
         try:
-            # Run all transports concurrently
+            # Run all transports and web server concurrently
             tasks = [transport.start() for _, transport in transports_to_run]
+            if web_server:
+                tasks.append(web_server.serve())
             await asyncio.gather(*tasks)
         except asyncio.CancelledError:
             pass
         finally:
             # Stop git sync
             await bot_core.git_manager.stop_background_sync()
+            # Stop web server
+            if web_server:
+                web_server.should_exit = True
+                console.print("[dim]Web dashboard stopped[/dim]")
             # Stop all transports
             for name, transport in transports_to_run:
                 try:
@@ -1090,6 +1118,50 @@ def cancel(
             console.print("[dim]Process may have already completed or is not accessible.[/dim]")
 
     anyio.run(_cancel)
+
+
+# ========== Web Dashboard Commands ==========
+
+
+@app.command("web")
+def web(
+    host: Annotated[str, typer.Option("--host", "-h", help="Host to bind to")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 8000,
+    reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload for development")] = False,
+    no_browser: Annotated[bool, typer.Option("--no-browser", help="Don't open browser automatically")] = False,
+):
+    """
+    Start the Gluon web dashboard.
+
+    Opens a browser to the dashboard at http://localhost:8000
+
+    Install dependencies: pip install 'gluon-agent[web]'
+    """
+    try:
+        import uvicorn
+
+        from gluon.web import create_app
+    except ImportError:
+        console.print("[red]Error:[/red] Web dashboard dependencies not installed.")
+        console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
+        raise typer.Exit(1)
+
+    console.print("[bold]Starting Gluon Web Dashboard...[/bold]")
+    console.print(f"[dim]URL: http://{host}:{port}[/dim]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]")
+
+    # Open browser unless disabled
+    if not no_browser:
+        import webbrowser
+
+        webbrowser.open(f"http://{host}:{port}")
+
+    try:
+        # Create the app
+        app_instance = create_app()
+        uvicorn.run(app_instance, host=host, port=port, reload=reload, log_level="info")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Web dashboard stopped.[/yellow]")
 
 
 # ========== Utility Commands ==========

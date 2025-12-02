@@ -18,8 +18,14 @@ dependencies = [
 discord = [
     "discord.py>=2.3.0",
 ]
+web = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
 all = [
     "discord.py>=2.3.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
 ]
 dev = [
     "pytest>=8.0.0",

@@ -1,0 +1,180 @@
+"""WebSocket connection manager for real-time updates."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from typing import TYPE_CHECKING, Any
+
+from fastapi import WebSocket
+
+if TYPE_CHECKING:
+    from gluon.models import ExecutionRun
+
+logger = logging.getLogger(__name__)
+
+
+class WebSocketManager:
+    """Manages WebSocket connections and message broadcasting."""
+
+    def __init__(self) -> None:
+        """Initialize the WebSocket manager."""
+        self.connections: set[WebSocket] = set()
+        self.log_subscriptions: dict[str, set[WebSocket]] = {}  # run_id → clients
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        """Accept and register a new WebSocket connection."""
+        await websocket.accept()
+        async with self._lock:
+            self.connections.add(websocket)
+        logger.debug(f"WebSocket connected. Total connections: {len(self.connections)}")
+
+    async def disconnect(self, websocket: WebSocket) -> None:
+        """Remove a WebSocket connection."""
+        async with self._lock:
+            self.connections.discard(websocket)
+            # Remove from all log subscriptions
+            for run_id, subscribers in list(self.log_subscriptions.items()):
+                subscribers.discard(websocket)
+                if not subscribers:
+                    del self.log_subscriptions[run_id]
+        logger.debug(f"WebSocket disconnected. Total connections: {len(self.connections)}")
+
+    async def subscribe_logs(self, websocket: WebSocket, run_id: str) -> None:
+        """Subscribe a client to log updates for a specific run."""
+        async with self._lock:
+            if run_id not in self.log_subscriptions:
+                self.log_subscriptions[run_id] = set()
+            self.log_subscriptions[run_id].add(websocket)
+        logger.debug(f"Client subscribed to logs for run {run_id[:8]}")
+
+    async def unsubscribe_logs(self, websocket: WebSocket, run_id: str) -> None:
+        """Unsubscribe a client from log updates."""
+        async with self._lock:
+            if run_id in self.log_subscriptions:
+                self.log_subscriptions[run_id].discard(websocket)
+                if not self.log_subscriptions[run_id]:
+                    del self.log_subscriptions[run_id]
+        logger.debug(f"Client unsubscribed from logs for run {run_id[:8]}")
+
+    async def broadcast(self, message: dict[str, Any]) -> None:
+        """Broadcast a message to all connected clients."""
+        if not self.connections:
+            return
+
+        disconnected: set[WebSocket] = set()
+        async with self._lock:
+            connections = list(self.connections)
+
+        for websocket in connections:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.add(websocket)
+
+        # Clean up disconnected clients
+        if disconnected:
+            async with self._lock:
+                self.connections -= disconnected
+
+    async def broadcast_run_update(self, run: ExecutionRun, project_name: str) -> None:
+        """Notify all clients of a run status change."""
+        message = {
+            "type": "run_updated",
+            "run": {
+                "id": run.id,
+                "project_id": run.project_id,
+                "project_name": project_name,
+                "status": run.status.value,
+                "prompt": run.prompt,
+                "initiator": run.initiator,
+                "created_at": run.created_at.isoformat(),
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                "duration_seconds": run.duration_seconds,
+                "error_message": run.error_message,
+            },
+        }
+        await self.broadcast(message)
+
+    async def broadcast_run_created(self, run: ExecutionRun, project_name: str) -> None:
+        """Notify all clients of a new run."""
+        message = {
+            "type": "run_created",
+            "run": {
+                "id": run.id,
+                "project_id": run.project_id,
+                "project_name": project_name,
+                "status": run.status.value,
+                "prompt": run.prompt,
+                "initiator": run.initiator,
+                "created_at": run.created_at.isoformat(),
+                "started_at": None,
+                "completed_at": None,
+                "duration_seconds": None,
+                "error_message": None,
+            },
+        }
+        await self.broadcast(message)
+
+    async def stream_log_line(self, run_id: str, stream: str, line: str) -> None:
+        """Send a log line to subscribed clients."""
+        async with self._lock:
+            subscribers = self.log_subscriptions.get(run_id, set()).copy()
+
+        if not subscribers:
+            return
+
+        message = {
+            "type": "log_line",
+            "run_id": run_id,
+            "stream": stream,
+            "line": line,
+        }
+
+        disconnected: set[WebSocket] = set()
+        for websocket in subscribers:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.add(websocket)
+
+        # Clean up disconnected clients
+        if disconnected:
+            async with self._lock:
+                for ws in disconnected:
+                    self.connections.discard(ws)
+                    if run_id in self.log_subscriptions:
+                        self.log_subscriptions[run_id].discard(ws)
+
+    async def handle_client_message(self, websocket: WebSocket, data: str) -> None:
+        """Handle incoming WebSocket message from client."""
+        try:
+            message = json.loads(data)
+            msg_type = message.get("type")
+
+            if msg_type == "subscribe_logs":
+                run_id = message.get("run_id")
+                if run_id:
+                    await self.subscribe_logs(websocket, run_id)
+                    await websocket.send_json({"type": "subscribed", "run_id": run_id})
+
+            elif msg_type == "unsubscribe_logs":
+                run_id = message.get("run_id")
+                if run_id:
+                    await self.unsubscribe_logs(websocket, run_id)
+                    await websocket.send_json({"type": "unsubscribed", "run_id": run_id})
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid JSON received: {data[:100]}")
+        except Exception as e:
+            logger.error(f"Error handling WebSocket message: {e}")
+
+
+# Global instance
+ws_manager = WebSocketManager()
