@@ -15,6 +15,11 @@
   --color-mist: #e5e5e5;
   --color-vermillion: #c73e3a;
   --color-indigo: #3d5a80;
+
+  /* Status colors */
+  --color-sky: #38bdf8;
+  --color-harvest: #f59e0b;
+  --color-jade: #10b981;
 }
 
 * {
