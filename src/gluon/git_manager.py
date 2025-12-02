@@ -122,6 +122,55 @@ class GitManager:
                 pass
         return None
 
+    async def _get_commit_sha(self, path: Path) -> str | None:
+        """Get the current HEAD commit SHA."""
+        rc, stdout, _ = await self._run_git(path, "rev-parse", "HEAD")
+        return stdout if rc == 0 and stdout else None
+
+    async def _get_pr_info(self, path: Path, branch: str | None = None) -> dict | None:
+        """
+        Get PR info for the current branch using GitHub CLI.
+        Returns dict with: number, url, state (open/merged/closed/draft)
+        """
+        if not branch:
+            branch = await self._get_branch(path)
+            if not branch:
+                return None
+
+        try:
+            # Use gh pr view to get PR info for this branch
+            proc = await asyncio.create_subprocess_exec(
+                "gh", "pr", "view", branch, "--json", "number,url,state,isDraft",
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                return None
+
+            import json as json_module
+
+            data = json_module.loads(stdout.decode())
+            # Map state to our pr_status values
+            state = data.get("state", "").lower()
+            if data.get("isDraft"):
+                state = "draft"
+            elif state == "merged":
+                state = "merged"
+            elif state == "closed":
+                state = "closed"
+            else:
+                state = "open"
+
+            return {
+                "number": data.get("number"),
+                "url": data.get("url"),
+                "status": state,
+            }
+        except (FileNotFoundError, Exception):
+            return None
+
     # ========== Status Operations ==========
 
     async def refresh_status(self, project: Project) -> GitStatus:
@@ -364,6 +413,41 @@ class GitManager:
             files_committed=files_committed,
             commits_pushed=commits_pushed,
         )
+
+    # ========== Run Git Capture ==========
+
+    async def capture_run_git_info(self, project_path: Path) -> dict:
+        """
+        Capture git info for a completed run.
+        Returns dict with branch_name, git_commit_sha, pr_number, pr_url, pr_status.
+        """
+        result = {
+            "branch_name": None,
+            "git_commit_sha": None,
+            "pr_number": None,
+            "pr_url": None,
+            "pr_status": None,
+        }
+
+        # Check if git repo
+        if not await self._is_git_repo(project_path):
+            return result
+
+        # Get branch
+        result["branch_name"] = await self._get_branch(project_path)
+
+        # Get commit SHA
+        result["git_commit_sha"] = await self._get_commit_sha(project_path)
+
+        # Get PR info if branch exists
+        if result["branch_name"]:
+            pr_info = await self._get_pr_info(project_path, result["branch_name"])
+            if pr_info:
+                result["pr_number"] = pr_info.get("number")
+                result["pr_url"] = pr_info.get("url")
+                result["pr_status"] = pr_info.get("status")
+
+        return result
 
     # ========== Background Sync ==========
 

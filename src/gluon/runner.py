@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
+from gluon.git_manager import GitManager
 from gluon.models import ExecutionRun, RunStatus
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
 
@@ -45,6 +46,7 @@ class TaskRunner:
         self.store = store or GluonStore()
         self.agent = agent or GluonAgent()
         self.config = config or RunnerConfig()
+        self.git_manager = GitManager(self.store)
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
         self._active_tasks: dict[str, asyncio.Task] = {}
 
@@ -197,6 +199,19 @@ class TaskRunner:
                         run.input_tokens = item.input_tokens
                         run.output_tokens = item.output_tokens
                         run.model_used = item.model_used
+
+                        # Capture git info (branch, commit, PR) after task completion
+                        try:
+                            git_info = await self.git_manager.capture_run_git_info(project.path)
+                            run.branch_name = git_info.get("branch_name")
+                            run.git_commit_sha = git_info.get("git_commit_sha")
+                            run.pr_number = git_info.get("pr_number")
+                            run.pr_url = git_info.get("pr_url")
+                            run.pr_status = git_info.get("pr_status")
+                        except Exception as git_err:
+                            # Don't fail the run if git capture fails
+                            stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
+
                         if item.success:
                             run.mark_completed(exit_code=0)
                         else:
