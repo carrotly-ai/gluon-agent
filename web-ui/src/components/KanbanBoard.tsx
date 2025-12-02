@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { RunCard } from './RunCard'
 import type { Run, RunStatus } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 interface KanbanBoardProps {
   runs: Run[]
@@ -16,27 +18,27 @@ interface KanbanColumnProps {
   onCancelRun: (run: Run) => void
 }
 
-const COLUMNS: Record<RunStatus, string> = {
-  pending: 'Queue',
-  running: 'Active',
-  completed: 'Done',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-}
+const COLUMNS: { status: RunStatus; label: string }[] = [
+  { status: 'pending', label: 'Queue' },
+  { status: 'running', label: 'Active' },
+  { status: 'completed', label: 'Done' },
+  { status: 'failed', label: 'Failed' },
+  { status: 'cancelled', label: 'Cancelled' },
+]
 
 function KanbanColumn({ status, runs, label, onRunClick, onCancelRun }: KanbanColumnProps) {
   return (
     <div className="column">
-      {/* Header */}
-      <div className="column-header">
+      {/* Header - hidden on mobile (we use tabs instead) */}
+      <div className="column-header hidden md:flex">
         <div className={`mark mark-${status}`} />
         <span className="column-title">{label}</span>
         <span className="column-count">{runs.length}</span>
       </div>
 
-      {/* Cards with Ma spacing */}
+      {/* Cards */}
       <ScrollArea className="flex-1">
-        <div className="p-3 space-y-2">
+        <div className="p-2 sm:p-3 space-y-2">
           {runs.length === 0 ? (
             <p className="text-caption text-center py-8 opacity-40">Empty</p>
           ) : (
@@ -60,6 +62,8 @@ function KanbanColumn({ status, runs, label, onRunClick, onCancelRun }: KanbanCo
 }
 
 export function KanbanBoard({ runs, onRunClick, onCancelRun }: KanbanBoardProps) {
+  const [activeTab, setActiveTab] = useState<RunStatus>('running')
+
   const runsByStatus = runs.reduce<Record<RunStatus, Run[]>>(
     (acc, run) => {
       acc[run.status].push(run)
@@ -72,24 +76,49 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun }: KanbanBoardProps)
     columnRuns.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   })
 
-  const columnOrder: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled']
-
   return (
-    <div className="flex gap-0 overflow-x-auto h-full">
-      {columnOrder.map((status, i) => (
-        <div key={status} className="flex">
-          <KanbanColumn
-            status={status}
-            runs={runsByStatus[status]}
-            label={COLUMNS[status]}
-            onRunClick={onRunClick}
-            onCancelRun={onCancelRun}
-          />
-          {i < columnOrder.length - 1 && (
-            <div className="w-px bg-[rgba(163,163,163,0.08)]" />
-          )}
-        </div>
-      ))}
+    <div className="kanban-container">
+      {/* Mobile: Tab navigation */}
+      <div className="kanban-tabs md:hidden">
+        {COLUMNS.map(({ status, label }) => (
+          <button
+            key={status}
+            className={cn('kanban-tab', activeTab === status && 'active')}
+            onClick={() => setActiveTab(status)}
+          >
+            <span className={`mark mark-${status} inline-block mr-2`} />
+            {label}
+            <span className="ml-1 opacity-50">({runsByStatus[status].length})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Mobile: Single column view */}
+      <div className="kanban-column-mobile md:hidden">
+        <KanbanColumn
+          status={activeTab}
+          runs={runsByStatus[activeTab]}
+          label={COLUMNS.find(c => c.status === activeTab)?.label || ''}
+          onRunClick={onRunClick}
+          onCancelRun={onCancelRun}
+        />
+      </div>
+
+      {/* Desktop: Horizontal columns */}
+      <div className="kanban-columns">
+        {COLUMNS.map(({ status, label }, i) => (
+          <div key={status} className="flex">
+            <KanbanColumn
+              status={status}
+              runs={runsByStatus[status]}
+              label={label}
+              onRunClick={onRunClick}
+              onCancelRun={onCancelRun}
+            />
+            {i < COLUMNS.length - 1 && <div className="kanban-divider" />}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

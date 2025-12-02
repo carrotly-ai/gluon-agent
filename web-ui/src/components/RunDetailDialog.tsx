@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { X, RotateCw } from 'lucide-react'
+import { X, RotateCw, ChevronLeft } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -105,15 +105,24 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dialog-content max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
         {/* Header */}
-        <DialogHeader className="p-6 pb-4 border-b border-[rgba(163,163,163,0.1)]">
-          <div className="flex items-start gap-4">
+        <DialogHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b border-[rgba(163,163,163,0.1)]">
+          {/* Mobile back button */}
+          <button
+            className="md:hidden flex items-center gap-1 text-caption mb-3 -ml-1"
+            onClick={() => onOpenChange(false)}
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Back
+          </button>
+
+          <div className="flex items-start gap-3 sm:gap-4">
             <div className={cn('mark mt-1', `mark-${run?.status}`)} />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
                 <span className="text-mono text-[#a3a3a3]/50">{run?.id.slice(0, 8)}</span>
                 <span className="text-caption uppercase tracking-widest">{run?.status}</span>
               </div>
-              <DialogTitle className="text-title text-[#fafaf9] font-normal">
+              <DialogTitle className="text-title text-[#fafaf9] font-normal break-words">
                 {run?.prompt}
               </DialogTitle>
               <p className="text-caption mt-1">{run?.project_name}</p>
@@ -121,9 +130,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3 mt-4">
+          <div className="flex items-center gap-3 mt-3 sm:mt-4">
             <button
-              className="text-caption hover:text-[#fafaf9] transition-colors flex items-center gap-1.5"
+              className="text-caption hover:text-[#fafaf9] transition-colors flex items-center gap-1.5 p-1 -ml-1"
               onClick={handleRefresh}
               disabled={loading}
             >
@@ -132,7 +141,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             </button>
             {isActive && (
               <button
-                className="text-caption hover:text-[#c73e3a] transition-colors flex items-center gap-1.5"
+                className="text-caption hover:text-[#c73e3a] transition-colors flex items-center gap-1.5 p-1"
                 onClick={handleCancel}
                 disabled={cancelling}
               >
@@ -143,13 +152,13 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
           </div>
         </DialogHeader>
 
-        {/* Tabs - minimal horizontal line */}
-        <div className="flex border-b border-[rgba(163,163,163,0.1)]">
+        {/* Tabs */}
+        <div className="flex border-b border-[rgba(163,163,163,0.1)] overflow-x-auto">
           {(['info', 'output', 'errors'] as const).map((tab) => (
             <button
               key={tab}
               className={cn(
-                'px-6 py-3 text-caption uppercase tracking-widest transition-colors',
+                'px-4 sm:px-6 py-3 text-caption uppercase tracking-widest transition-colors whitespace-nowrap shrink-0',
                 activeTab === tab
                   ? 'text-[#fafaf9] border-b border-[#fafaf9]'
                   : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
@@ -165,12 +174,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden min-h-0">
           {activeTab === 'info' && (
             <ScrollArea className="h-full">
-              <div className="p-6 space-y-6">
-                {/* Metadata - clean grid */}
-                <div className="grid grid-cols-2 gap-y-4 gap-x-8">
+              <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+                {/* Metadata - responsive grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-y-4 sm:gap-x-8">
                   <div>
                     <p className="text-caption mb-1">Project</p>
                     <p className="text-body text-[#fafaf9]">{run?.project_name}</p>
@@ -181,7 +190,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   </div>
                   <div>
                     <p className="text-caption mb-1">Created</p>
-                    <p className="text-mono text-[#fafaf9]">{formatDateTime(run?.created_at ?? null)}</p>
+                    <p className="text-mono text-[#fafaf9] text-[0.625rem] sm:text-[0.6875rem]">
+                      {formatDateTime(run?.created_at ?? null)}
+                    </p>
                   </div>
                   <div>
                     <p className="text-caption mb-1">Duration</p>
@@ -192,7 +203,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 {/* Prompt */}
                 <div>
                   <p className="text-caption mb-2">Prompt</p>
-                  <pre className="text-body text-[#fafaf9] bg-[#0c0c0c] p-4 whitespace-pre-wrap border border-[rgba(163,163,163,0.08)]">
+                  <pre className="text-body text-[#fafaf9] bg-[#0c0c0c] p-3 sm:p-4 whitespace-pre-wrap break-words border border-[rgba(163,163,163,0.08)] text-[0.6875rem]">
                     {run?.prompt}
                   </pre>
                 </div>
@@ -201,7 +212,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 {run?.error_message && (
                   <div>
                     <p className="text-caption mb-2 accent-vermillion">Error</p>
-                    <pre className="text-body accent-vermillion bg-[rgba(199,62,58,0.05)] p-4 whitespace-pre-wrap border border-[rgba(199,62,58,0.15)]">
+                    <pre className="text-body accent-vermillion bg-[rgba(199,62,58,0.05)] p-3 sm:p-4 whitespace-pre-wrap break-words border border-[rgba(199,62,58,0.15)] text-[0.6875rem]">
                       {run.error_message}
                     </pre>
                   </div>
@@ -209,8 +220,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
 
                 {/* Session info */}
                 {detail && (detail.session_id || detail.exit_code !== null) && (
-                  <div className="pt-4 border-t border-[rgba(163,163,163,0.08)]">
-                    <div className="flex items-center gap-6 text-mono text-[#a3a3a3]/40">
+                  <div className="pt-3 sm:pt-4 border-t border-[rgba(163,163,163,0.08)]">
+                    <div className="flex items-center gap-4 sm:gap-6 text-mono text-[#a3a3a3]/40 flex-wrap">
                       {detail.session_id && <span>session {detail.session_id.slice(0, 8)}</span>}
                       {detail.exit_code !== null && <span>exit {detail.exit_code}</span>}
                     </div>
@@ -221,17 +232,17 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
           )}
 
           {activeTab === 'output' && (
-            <ScrollArea className="h-80">
-              <pre className="p-6 text-mono text-[#fafaf9]/80 whitespace-pre-wrap">
+            <ScrollArea className="h-64 sm:h-80">
+              <pre className="p-4 sm:p-6 text-mono text-[#fafaf9]/80 whitespace-pre-wrap break-words text-[0.625rem] sm:text-[0.6875rem]">
                 {logs.stdout || <span className="text-[#a3a3a3]/30">No output</span>}
               </pre>
             </ScrollArea>
           )}
 
           {activeTab === 'errors' && (
-            <ScrollArea className="h-80">
+            <ScrollArea className="h-64 sm:h-80">
               <pre className={cn(
-                'p-6 text-mono whitespace-pre-wrap',
+                'p-4 sm:p-6 text-mono whitespace-pre-wrap break-words text-[0.625rem] sm:text-[0.6875rem]',
                 logs.stderr ? 'accent-vermillion' : 'text-[#a3a3a3]/30'
               )}>
                 {logs.stderr || 'No errors'}

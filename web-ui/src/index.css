@@ -64,6 +64,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 1px;
+  flex-shrink: 0;
 }
 
 .mark-pending {
@@ -94,16 +95,6 @@ body {
   50% { opacity: 0.4; }
 }
 
-/* Hairline borders */
-.border-hairline {
-  border-color: rgba(163, 163, 163, 0.15);
-}
-
-/* Ma - intentional spacing rhythm */
-.ma-sm { margin: 0.5rem; padding: 0.5rem; }
-.ma-md { margin: 1rem; padding: 1rem; }
-.ma-lg { margin: 2rem; padding: 2rem; }
-
 /* Subtle hover - just a whisper */
 .hover-whisper {
   transition: background-color 0.3s ease;
@@ -118,12 +109,14 @@ body {
   font-size: 0.8125rem;
   font-weight: 400;
   letter-spacing: 0.02em;
+  line-height: 1.5;
 }
 
 .text-body {
   font-size: 0.75rem;
   font-weight: 300;
   color: var(--color-stone);
+  line-height: 1.5;
 }
 
 .text-caption {
@@ -143,16 +136,35 @@ body {
 .column {
   display: flex;
   flex-direction: column;
-  min-width: 260px;
-  max-width: 280px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Desktop: fixed width columns */
+@media (min-width: 768px) {
+  .column {
+    min-width: 260px;
+    max-width: 280px;
+    width: 280px;
+  }
 }
 
 .column-header {
-  padding: 1rem 0.75rem;
+  padding: 0.75rem;
   border-bottom: 1px solid rgba(163, 163, 163, 0.1);
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  position: sticky;
+  top: 0;
+  background: var(--color-void);
+  z-index: 1;
+}
+
+@media (min-width: 768px) {
+  .column-header {
+    padding: 1rem 0.75rem;
+  }
 }
 
 .column-title {
@@ -174,25 +186,21 @@ body {
 .card {
   background: var(--color-ink);
   border: 1px solid rgba(163, 163, 163, 0.08);
-  padding: 0.875rem;
+  padding: 0.75rem;
   transition: all 0.25s ease;
   cursor: pointer;
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .card {
+    padding: 0.875rem;
+  }
 }
 
 .card:hover {
   background: rgba(23, 23, 23, 0.8);
   border-color: rgba(163, 163, 163, 0.15);
-}
-
-/* Dialog - centered tranquility */
-.dialog-overlay {
-  background: rgba(12, 12, 12, 0.9);
-  backdrop-filter: blur(4px);
-}
-
-.dialog-content {
-  background: var(--color-ink);
-  border: 1px solid rgba(163, 163, 163, 0.1);
 }
 
 /* Vermillion accent for errors/danger */
@@ -203,4 +211,107 @@ body {
 /* Indigo accent for active states */
 .accent-indigo {
   color: var(--color-indigo);
+}
+
+/* Mobile-first kanban layout */
+.kanban-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Mobile: tabs at top, single column view */
+@media (max-width: 767px) {
+  .kanban-tabs {
+    display: flex;
+    overflow-x: auto;
+    border-bottom: 1px solid rgba(163, 163, 163, 0.1);
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .kanban-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .kanban-tab {
+    flex-shrink: 0;
+    padding: 0.75rem 1rem;
+    font-size: 0.6875rem;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(163, 163, 163, 0.5);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+  }
+
+  .kanban-tab.active {
+    color: var(--color-paper);
+    border-bottom-color: var(--color-paper);
+  }
+
+  .kanban-columns {
+    display: none;
+  }
+
+  .kanban-column-mobile {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Desktop: horizontal columns */
+@media (min-width: 768px) {
+  .kanban-tabs {
+    display: none;
+  }
+
+  .kanban-columns {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    height: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kanban-column-mobile {
+    display: none;
+  }
+
+  .kanban-divider {
+    width: 1px;
+    background: rgba(163, 163, 163, 0.08);
+    flex-shrink: 0;
+  }
+}
+
+/* Dialog responsive */
+.dialog-content {
+  background: var(--color-ink);
+  border: 1px solid rgba(163, 163, 163, 0.1);
+}
+
+@media (max-width: 767px) {
+  .dialog-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    border: none !important;
+  }
+}
+
+/* Header responsive */
+.header-stats {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .header-stats {
+    display: flex;
+  }
 }

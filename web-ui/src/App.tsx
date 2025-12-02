@@ -35,16 +35,16 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header - minimal horizontal bar */}
-      <header className="border-b border-[rgba(163,163,163,0.1)]">
-        <div className="flex items-center justify-between px-6 h-14">
+      {/* Header */}
+      <header className="border-b border-[rgba(163,163,163,0.1)] shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
           {/* Left - wordmark */}
-          <div className="flex items-baseline gap-6">
-            <span className="text-[0.8125rem] font-normal tracking-[0.1em] text-[#fafaf9]">
+          <div className="flex items-baseline gap-4 sm:gap-6">
+            <span className="text-[0.75rem] sm:text-[0.8125rem] font-normal tracking-[0.1em] text-[#fafaf9]">
               GLUON
             </span>
             {activeRuns > 0 && (
-              <span className="text-caption">
+              <span className="text-caption header-stats">
                 {activeRuns} active
               </span>
             )}
@@ -53,7 +53,7 @@ function App() {
           {/* Right - connection */}
           <div className="flex items-center gap-2">
             <div className={`mark ${connected ? 'mark-running' : 'mark-cancelled'}`} />
-            <span className="text-caption">
+            <span className="text-caption hidden sm:inline">
               {connected ? 'connected' : 'offline'}
             </span>
           </div>
@@ -61,14 +61,14 @@ function App() {
       </header>
 
       {/* Main */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden min-h-0">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="mark mark-running w-2 h-2" />
           </div>
         ) : error ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-caption accent-vermillion">{error}</p>
+          <div className="flex items-center justify-center h-full p-4">
+            <p className="text-caption accent-vermillion text-center">{error}</p>
           </div>
         ) : (
           <KanbanBoard
