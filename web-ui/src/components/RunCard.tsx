@@ -58,6 +58,11 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
               {formatDuration(run.duration_seconds)}
             </span>
           )}
+          {run.cost_usd != null && run.cost_usd > 0 && (
+            <span className="text-mono text-[var(--color-harvest)]/70">
+              ${run.cost_usd.toFixed(2)}
+            </span>
+          )}
         </div>
 
         {isActive && onCancel && (

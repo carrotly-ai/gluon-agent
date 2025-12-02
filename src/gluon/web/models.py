@@ -19,6 +19,8 @@ class RunResponse(BaseModel):
     completed_at: datetime | None = None
     duration_seconds: float | None = None
     error_message: str | None = None
+    # Cost tracking (available in list responses for RunCard display)
+    cost_usd: float | None = Field(default=None, description="Total cost in USD for this run")
 
     class Config:
         from_attributes = True

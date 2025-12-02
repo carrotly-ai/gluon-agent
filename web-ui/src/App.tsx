@@ -75,6 +75,15 @@ function App() {
 
   const activeRuns = filteredRuns.filter(r => r.status === 'running').length
 
+  // Calculate today's total cost from all runs (not filtered)
+  const todayCost = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return runs
+      .filter(run => new Date(run.created_at) >= today)
+      .reduce((sum, run) => sum + (run.cost_usd ?? 0), 0)
+  }, [runs])
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
@@ -89,6 +98,11 @@ function App() {
             {activeRuns > 0 && (
               <span className="text-caption header-stats">
                 {activeRuns} active
+              </span>
+            )}
+            {todayCost > 0 && (
+              <span className="text-caption text-[var(--color-harvest)] hidden sm:inline">
+                ${todayCost.toFixed(2)} today
               </span>
             )}
           </div>

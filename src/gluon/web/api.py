@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
             completed_at=run.completed_at,
             duration_seconds=run.duration_seconds,
             error_message=run.error_message,
+            cost_usd=run.cost_usd,
         )
 
     # ========== REST API Routes ==========

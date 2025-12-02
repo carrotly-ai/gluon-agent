@@ -14,6 +14,8 @@ export interface Run {
   completed_at: string | null
   duration_seconds: number | null
   error_message: string | null
+  // Cost tracking (available in list responses for RunCard display)
+  cost_usd: number | null
 }
 
 /** Detailed run response (includes additional fields) */
