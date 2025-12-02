@@ -1,6 +1,5 @@
 import { X, GitBranch } from 'lucide-react'
 import type { Run } from '@/lib/types'
-import { cn } from '@/lib/utils'
 
 interface RunCardProps {
   run: Run
@@ -20,21 +19,21 @@ function formatTime(dateStr: string | null): string {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// Map status to border color
-function getStatusBorderClass(status: string): string {
+// Map status to CSS variable for border color
+function getStatusBorderColor(status: string): string {
   switch (status) {
     case 'running':
-      return 'border-l-[var(--color-sky)]'
+      return 'var(--color-sky)'
     case 'pending':
-      return 'border-l-[var(--color-harvest)]'
+      return 'var(--color-harvest)'
     case 'completed':
-      return 'border-l-[var(--color-jade)]'
+      return 'var(--color-jade)'
     case 'failed':
-      return 'border-l-[var(--color-vermillion)]'
+      return 'var(--color-vermillion)'
     case 'cancelled':
-      return 'border-l-[var(--color-stone)]/50'
+      return 'var(--color-stone)'
     default:
-      return 'border-l-[var(--color-stone)]/30'
+      return 'var(--color-stone)'
   }
 }
 
@@ -43,10 +42,8 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
 
   return (
     <div
-      className={cn(
-        'card hover-whisper border-l-[3px] cursor-grab active:cursor-grabbing',
-        getStatusBorderClass(run.status)
-      )}
+      className="card hover-whisper cursor-grab active:cursor-grabbing"
+      style={{ borderLeft: `3px solid ${getStatusBorderColor(run.status)}` }}
       onClick={onClick}
     >
       {/* Prompt - no mark indicator */}
