@@ -93,6 +93,9 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN pr_number INTEGER;",
     "ALTER TABLE execution_runs ADD COLUMN pr_url TEXT;",
     "ALTER TABLE execution_runs ADD COLUMN pr_status TEXT;",
+    # Archive tracking
+    "ALTER TABLE execution_runs ADD COLUMN archived INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN archived_at TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -700,12 +703,17 @@ class GluonStore:
         project_id: str | None = None,
         statuses: list[RunStatus] | None = None,
         initiator: str | None = None,
+        include_archived: bool = False,
         limit: int = 50,
     ) -> list[ExecutionRun]:
         """List execution runs with optional filters."""
         with self._get_conn() as conn:
             query = "SELECT * FROM execution_runs WHERE 1=1"
             params: list[str | int] = []
+
+            # Exclude archived by default
+            if not include_archived:
+                query += " AND (archived IS NULL OR archived = 0)"
 
             if project_id:
                 query += " AND project_id = ?"
@@ -796,6 +804,23 @@ class GluonStore:
             cursor = conn.execute("DELETE FROM execution_runs WHERE id = ?", (run_id,))
             return cursor.rowcount > 0
 
+    def archive_run(self, run_id: str, archived: bool = True) -> ExecutionRun | None:
+        """Archive or unarchive an execution run."""
+        run = self.get_run(run_id)
+        if not run:
+            return None
+
+        archived_at = datetime.now().isoformat() if archived else None
+
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE execution_runs SET archived = ?, archived_at = ? WHERE id = ?",
+                (1 if archived else 0, archived_at, run_id),
+            )
+
+        # Return updated run
+        return self.get_run(run_id)
+
     def _row_to_run(self, row: sqlite3.Row) -> ExecutionRun:
         """Convert database row to ExecutionRun model."""
         keys = row.keys()
@@ -829,6 +854,9 @@ class GluonStore:
             pr_number=row["pr_number"] if "pr_number" in keys else None,
             pr_url=row["pr_url"] if "pr_url" in keys else None,
             pr_status=row["pr_status"] if "pr_status" in keys else None,
+            # Archive tracking
+            archived=bool(row["archived"]) if "archived" in keys and row["archived"] is not None else False,
+            archived_at=datetime.fromisoformat(row["archived_at"]) if "archived_at" in keys and row["archived_at"] else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:

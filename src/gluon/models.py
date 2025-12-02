@@ -187,6 +187,10 @@ class ExecutionRun(BaseModel):
     pr_url: str | None = None  # GitHub PR URL
     pr_status: str | None = None  # 'open', 'merged', 'closed', 'draft'
 
+    # Archive tracking
+    archived: bool = False  # Whether the run is archived (hidden from board)
+    archived_at: datetime | None = None  # When it was archived
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING

@@ -74,6 +74,13 @@ export async function cancelRun(runId: string): Promise<Run> {
   })
 }
 
+/** Archive a run (hide from board) */
+export async function archiveRun(runId: string): Promise<Run> {
+  return fetchJson<Run>(`/runs/${runId}/archive`, {
+    method: 'POST',
+  })
+}
+
 /** Resume a completed/failed run with a follow-up prompt */
 export async function resumeRun(runId: string, prompt: string): Promise<ResumeRunResponse> {
   return fetchJson<ResumeRunResponse>(`/runs/${runId}/resume`, {

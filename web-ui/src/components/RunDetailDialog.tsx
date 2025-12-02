@@ -3,9 +3,9 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface RunDetailDialogProps {
@@ -57,6 +57,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [sessionHistory, setSessionHistory] = useState<Run[]>([])
   const [expandedHistoryRun, setExpandedHistoryRun] = useState<string | null>(null)
   const [historyLogs, setHistoryLogs] = useState<Record<string, { stdout: string; stderr: string }>>({})
+  const [archiving, setArchiving] = useState(false)
 
   useEffect(() => {
     if (!open || !run) {
@@ -188,6 +189,20 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     }
   }
 
+  const handleArchive = async () => {
+    if (!run) return
+    setArchiving(true)
+    try {
+      const updated = await archiveRun(run.id)
+      onRunUpdated(updated)
+      onOpenChange(false) // Close dialog after archiving
+    } catch (err) {
+      console.error('Failed to archive run:', err)
+    } finally {
+      setArchiving(false)
+    }
+  }
+
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
   const isResumable = (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
@@ -230,6 +245,17 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 disabled={cancelling}
               >
                 {cancelling ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
+            {!isActive && (
+              <button
+                className="flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 hover:text-[var(--color-stone)] border border-[var(--color-stone)]/20 hover:border-[var(--color-stone)]/40 rounded-sm transition-colors"
+                onClick={handleArchive}
+                disabled={archiving}
+                title="Archive this run"
+              >
+                <Archive className="w-3 h-3" />
+                {archiving ? 'Archiving...' : 'Archive'}
               </button>
             )}
           </div>

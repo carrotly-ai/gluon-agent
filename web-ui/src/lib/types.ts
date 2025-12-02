@@ -22,6 +22,8 @@ export interface Run {
   // PR info (for Review column routing)
   pr_number?: number | null
   pr_status?: 'open' | 'merged' | 'closed' | 'draft' | null
+  // Archive tracking
+  archived?: boolean
 }
 
 /** Detailed run response (includes additional fields) */

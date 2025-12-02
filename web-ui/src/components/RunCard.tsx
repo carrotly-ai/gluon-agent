@@ -1,10 +1,11 @@
-import { X, GitBranch } from 'lucide-react'
+import { X, GitBranch, Archive } from 'lucide-react'
 import type { Run } from '@/lib/types'
 
 interface RunCardProps {
   run: Run
   onClick: () => void
   onCancel?: () => void
+  onArchive?: () => void
 }
 
 function formatDuration(seconds: number | null): string {
@@ -37,15 +38,29 @@ function getStatusBorderColor(status: string): string {
   }
 }
 
-export function RunCard({ run, onClick, onCancel }: RunCardProps) {
+export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
 
   return (
     <div
-      className="card hover-whisper cursor-grab active:cursor-grabbing"
+      className="card hover-whisper cursor-grab active:cursor-grabbing group relative"
       style={{ borderLeft: `3px solid ${getStatusBorderColor(run.status)}` }}
       onClick={onClick}
     >
+      {/* Archive button - hover reveal in top right */}
+      {onArchive && !isActive && (
+        <button
+          className="absolute top-2 right-2 p-1.5 text-[var(--color-stone)]/40 hover:text-[var(--color-stone)] opacity-0 group-hover:opacity-100 transition-all duration-150 hover:bg-[var(--color-paper)]/10 rounded-sm"
+          onClick={(e) => {
+            e.stopPropagation()
+            onArchive()
+          }}
+          title="Archive"
+        >
+          <Archive className="w-3.5 h-3.5" />
+        </button>
+      )}
+
       {/* Prompt - no mark indicator */}
       <p
         className="text-title text-[var(--color-paper)] leading-relaxed break-words"

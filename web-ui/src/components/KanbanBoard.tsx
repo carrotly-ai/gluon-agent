@@ -25,6 +25,7 @@ interface KanbanBoardProps {
   runs: Run[]
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
+  onArchiveRun: (run: Run) => void
   onRunUpdate?: (run: Run) => void
 }
 
@@ -43,10 +44,11 @@ interface DraggableRunCardProps {
   run: Run
   onClick: () => void
   onCancel?: () => void
+  onArchive?: () => void
   isDragging?: boolean
 }
 
-function DraggableRunCard({ run, onClick, onCancel, isDragging }: DraggableRunCardProps) {
+function DraggableRunCard({ run, onClick, onCancel, onArchive, isDragging }: DraggableRunCardProps) {
   const {
     attributes,
     listeners,
@@ -68,7 +70,7 @@ function DraggableRunCard({ run, onClick, onCancel, isDragging }: DraggableRunCa
       {...attributes}
       {...listeners}
     >
-      <RunCard run={run} onClick={onClick} onCancel={onCancel} />
+      <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} />
     </div>
   )
 }
@@ -80,6 +82,7 @@ interface DroppableColumnProps {
   label: string
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
+  onArchiveRun: (run: Run) => void
   isOver?: boolean
   canDrop?: boolean
   activeRun?: Run | null
@@ -91,6 +94,7 @@ function DroppableColumn({
   label,
   onRunClick,
   onCancelRun,
+  onArchiveRun,
   isOver,
   canDrop,
   activeRun,
@@ -135,6 +139,11 @@ function DroppableColumn({
                     ? () => onCancelRun(run)
                     : undefined
                 }
+                onArchive={
+                  status !== 'running' && status !== 'pending'
+                    ? () => onArchiveRun(run)
+                    : undefined
+                }
               />
             ))
           )}
@@ -144,7 +153,7 @@ function DroppableColumn({
   )
 }
 
-export function KanbanBoard({ runs, onRunClick, onCancelRun, onRunUpdate }: KanbanBoardProps) {
+export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRunUpdate }: KanbanBoardProps) {
   const [activeTab, setActiveTab] = useState<KanbanColumn>('running')
   const [activeRun, setActiveRun] = useState<Run | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -262,6 +271,7 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onRunUpdate }: Kanb
             label={COLUMNS.find(c => c.status === activeTab)?.label || ''}
             onRunClick={onRunClick}
             onCancelRun={onCancelRun}
+            onArchiveRun={onArchiveRun}
           />
         </div>
 
@@ -275,6 +285,7 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onRunUpdate }: Kanb
                 label={label}
                 onRunClick={onRunClick}
                 onCancelRun={onCancelRun}
+                onArchiveRun={onArchiveRun}
                 isOver={overId === status}
                 canDrop={canDropOnColumn(status)}
                 activeRun={activeRun}

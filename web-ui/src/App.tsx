@@ -8,7 +8,7 @@ import { UsagePage } from './components/UsagePage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, fetchProjects } from './lib/api'
+import { cancelRun, archiveRun, fetchProjects } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
@@ -68,6 +68,16 @@ function App() {
       setRuns(prev => prev.map(r => r.id === updated.id ? updated : r))
     } catch (err) {
       console.error('Failed to cancel run:', err)
+    }
+  }, [setRuns])
+
+  const handleArchiveRun = useCallback(async (run: Run) => {
+    try {
+      // Remove from UI immediately (archived runs filtered on backend via WebSocket)
+      setRuns(prev => prev.filter(r => r.id !== run.id))
+      await archiveRun(run.id)
+    } catch (err) {
+      console.error('Failed to archive run:', err)
     }
   }, [setRuns])
 
@@ -186,6 +196,7 @@ function App() {
             runs={filteredRuns}
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
+            onArchiveRun={handleArchiveRun}
             onRunUpdate={handleRunUpdated}
           />
         )}

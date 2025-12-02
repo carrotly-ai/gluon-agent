@@ -27,6 +27,8 @@ class RunResponse(BaseModel):
     # PR info (for Review column routing)
     pr_number: int | None = Field(default=None, description="GitHub PR number")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
+    # Archive tracking
+    archived: bool = Field(default=False, description="Whether run is archived")
 
     class Config:
         from_attributes = True

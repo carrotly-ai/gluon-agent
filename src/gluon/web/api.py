@@ -82,6 +82,8 @@ def create_app() -> FastAPI:
             branch_name=run.branch_name,
             pr_number=run.pr_number,
             pr_status=run.pr_status,
+            # Archive tracking
+            archived=run.archived,
         )
 
     # ========== REST API Routes ==========
@@ -409,6 +411,28 @@ def create_app() -> FastAPI:
             previous_status=previous_status,
             new_status=new_status,
         )
+
+    # ========== Archive Run ==========
+
+    @app.post("/api/runs/{run_id}/archive", response_model=RunResponse)
+    async def archive_run(run_id: str) -> RunResponse:
+        """Archive a run to hide it from the board."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        updated_run = store.archive_run(run.id, archived=True)
+        if not updated_run:
+            raise HTTPException(status_code=500, detail="Failed to archive run")
+
+        project_lookup = get_project_lookup()
+        response = run_to_response(updated_run, project_lookup)
+
+        # Broadcast update so UI reflects the change
+        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
+        await ws_manager.broadcast_run_update(updated_run, project_name)
+
+        return response
 
     # ========== Phase 7.3: Project Management ==========
 
