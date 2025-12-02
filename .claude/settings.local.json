@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "mcp__perplexity__perplexity_ask"
+      "mcp__perplexity__perplexity_ask",
+      "mcp__perplexity__perplexity_reason",
+      "mcp__context7__resolve-library-id"
     ],
     "deny": [],
     "ask": []

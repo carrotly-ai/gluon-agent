@@ -6,11 +6,13 @@ import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
 from gluon.models_config import DEFAULT_MODEL, ModelTier, get_model_id
 from gluon.store import GluonStore
+from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 
 if TYPE_CHECKING:
     from gluon.git_manager import GitManager
@@ -310,6 +312,7 @@ class Orchestrator:
         model: ModelTier | str | None = None,
         run_id: str | None = None,
         session_id: str | None = None,
+        use_worktree: bool = False,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -324,6 +327,7 @@ class Orchestrator:
             model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
             run_id: Optional run ID for git commit metadata
             session_id: Specific session ID to resume (overrides auto-detection)
+            use_worktree: Execute in isolated Git worktree (default: False)
 
         Yields:
             AgentMessage during execution
@@ -331,102 +335,142 @@ class Orchestrator:
         """
         project = self.get_project(project_name)
 
-        # Pre-task git sync
-        if self.git_manager:
-            sync_result = await self.git_manager.pre_task_sync(project)
-            if not sync_result.success:
-                raise GitSyncError(sync_result.error or sync_result.message)
-            if sync_result.action != "none":
-                yield AgentMessage(
-                    type="system",
-                    content=f"Git: {sync_result.message}",
-                    metadata={"git_action": sync_result.action},
-                )
+        # Determine working directory (main project or worktree)
+        working_dir = project.path
+        worktree_manager: WorktreeManager | None = None
 
-        # Find or create session
-        session: Session | None = None
-        resume_session_id: str | None = None
-
-        # If specific session_id provided, use that
-        if session_id:
-            session = self.store.get_session(session_id)
-            if session and session.claude_session_id:
-                resume_session_id = session.claude_session_id
-        elif not force_new_session:
-            session = self.get_resumable_session(project)
-            if session and session.claude_session_id:
-                resume_session_id = session.claude_session_id
-
-        if not session:
-            session = self.store.create_session(project.id, prompt)
-
-        # Update session with new prompt
-        session.last_prompt = prompt
-        session.status = SessionStatus.ACTIVE
-        self.store.update_session(session)
-
-        # Determine model to use
-        model_tier = model or DEFAULT_MODEL
-        model_id = get_model_id(model_tier)
-
-        # Create agent with specified model
-        agent = GluonAgent(model=model_id)
-
-        # Execute via agent
-        result: AgentResult | None = None
-
-        async for item in agent.execute(
-            working_dir=project.path,
-            prompt=prompt,
-            resume_session_id=resume_session_id,
-        ):
-            if isinstance(item, AgentMessage):
-                # Capture session ID from system messages
-                if item.type == "system" and item.metadata:
-                    new_session_id = item.metadata.get("session_id")
-                    if new_session_id and new_session_id != session.claude_session_id:
-                        session.claude_session_id = new_session_id
-                        self.store.update_session(session)
-
-                yield item
-
-            elif isinstance(item, AgentResult):
-                result = item
-
-        # Update session with result
-        if result:
-            session.claude_session_id = result.claude_session_id or session.claude_session_id
-            session.total_cost_usd += result.total_cost_usd
-            session.total_turns += result.total_turns
-
-            if result.success:
-                session.mark_paused()  # Ready for resume
-
-                # Post-task git sync (only on success)
-                if self.git_manager:
-                    commit_msg = prompt[:50] + ("..." if len(prompt) > 50 else "")
-                    sync_result = await self.git_manager.post_task_sync(
-                        project,
-                        commit_msg,
-                        session_id=session.id,
-                        run_id=run_id,
+        # Create worktree if requested and project is a git repo
+        if use_worktree:
+            if await is_git_repository(project.path):
+                worktree_run_id = run_id or str(uuid4())[:8]
+                worktree_manager = WorktreeManager(project.path)
+                try:
+                    working_dir = await worktree_manager.create(worktree_run_id)
+                    yield AgentMessage(
+                        type="system",
+                        content=f"Created worktree at {working_dir}",
+                        metadata={"worktree_path": str(working_dir)},
                     )
-                    if sync_result.action != "none":
-                        yield AgentMessage(
-                            type="system",
-                            content=f"Git: {sync_result.message}",
-                            metadata={"git_action": sync_result.action},
-                        )
-                    if not sync_result.success:
-                        logger.warning(f"Post-task git sync failed: {sync_result.error}")
+                except WorktreeError as e:
+                    logger.warning(f"Failed to create worktree, using main directory: {e}")
+                    worktree_manager = None
             else:
-                session.mark_failed()
+                logger.info(f"Worktree requested but {project.path} is not a git repo, using main directory")
 
+        try:
+            # Pre-task git sync (only for main directory, not worktree)
+            if self.git_manager and not worktree_manager:
+                sync_result = await self.git_manager.pre_task_sync(project)
+                if not sync_result.success:
+                    raise GitSyncError(sync_result.error or sync_result.message)
+                if sync_result.action != "none":
+                    yield AgentMessage(
+                        type="system",
+                        content=f"Git: {sync_result.message}",
+                        metadata={"git_action": sync_result.action},
+                    )
+
+            # Find or create session
+            session: Session | None = None
+            resume_session_id: str | None = None
+
+            # If specific session_id provided, use that
+            if session_id:
+                session = self.store.get_session(session_id)
+                if session and session.claude_session_id:
+                    resume_session_id = session.claude_session_id
+            elif not force_new_session:
+                session = self.get_resumable_session(project)
+                if session and session.claude_session_id:
+                    resume_session_id = session.claude_session_id
+
+            if not session:
+                session = self.store.create_session(project.id, prompt)
+
+            # Update session with new prompt
+            session.last_prompt = prompt
+            session.status = SessionStatus.ACTIVE
             self.store.update_session(session)
 
-            # Add Gluon session ID to result for run linking
-            result.session_id = session.id
-            yield result
+            # Determine model to use
+            model_tier = model or DEFAULT_MODEL
+            model_id = get_model_id(model_tier)
+
+            # Create agent with specified model
+            agent = GluonAgent(model=model_id)
+
+            # Execute via agent
+            result: AgentResult | None = None
+
+            async for item in agent.execute(
+                working_dir=working_dir,
+                prompt=prompt,
+                resume_session_id=resume_session_id,
+            ):
+                if isinstance(item, AgentMessage):
+                    # Capture session ID from system messages
+                    if item.type == "system" and item.metadata:
+                        new_session_id = item.metadata.get("session_id")
+                        if new_session_id and new_session_id != session.claude_session_id:
+                            session.claude_session_id = new_session_id
+                            self.store.update_session(session)
+
+                    yield item
+
+                elif isinstance(item, AgentResult):
+                    result = item
+
+            # Update session with result
+            if result:
+                session.claude_session_id = result.claude_session_id or session.claude_session_id
+                session.total_cost_usd += result.total_cost_usd
+                session.total_turns += result.total_turns
+
+                if result.success:
+                    session.mark_paused()  # Ready for resume
+
+                    # Post-task git sync (only for main directory, not worktree)
+                    if self.git_manager and not worktree_manager:
+                        commit_msg = prompt[:50] + ("..." if len(prompt) > 50 else "")
+                        sync_result = await self.git_manager.post_task_sync(
+                            project,
+                            commit_msg,
+                            session_id=session.id,
+                            run_id=run_id,
+                        )
+                        if sync_result.action != "none":
+                            yield AgentMessage(
+                                type="system",
+                                content=f"Git: {sync_result.message}",
+                                metadata={"git_action": sync_result.action},
+                            )
+                        if not sync_result.success:
+                            logger.warning(f"Post-task git sync failed: {sync_result.error}")
+                else:
+                    session.mark_failed()
+
+                self.store.update_session(session)
+
+                # Add Gluon session ID to result for run linking
+                result.session_id = session.id
+                yield result
+
+        finally:
+            # Cleanup worktree if one was created
+            if worktree_manager:
+                try:
+                    cleanup_result = await worktree_manager.cleanup(commit_changes=True)
+                    if cleanup_result.success:
+                        msg = "Cleaned up worktree"
+                        if cleanup_result.message:
+                            msg += f": {cleanup_result.message}"
+                        yield AgentMessage(
+                            type="system",
+                            content=msg,
+                            metadata={"worktree_branch": cleanup_result.branch},
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to cleanup worktree: {e}")
 
     async def resume(
         self,

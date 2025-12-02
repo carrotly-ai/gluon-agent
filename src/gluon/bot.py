@@ -592,6 +592,7 @@ class GluonBot:
         prompt: str,
         force_new: bool,
         model: ModelTier | str | None = None,
+        use_worktree: bool = False,
     ) -> None:
         """Execute a Gluon task and stream updates to Telegram (legacy, no run tracking)."""
         if not update.message:
@@ -602,7 +603,9 @@ class GluonBot:
         last_update_time = 0.0
 
         try:
-            async for item in self.orchestrator.execute(project_name, prompt, force_new, model=model):
+            async for item in self.orchestrator.execute(
+                project_name, prompt, force_new, model=model, use_worktree=use_worktree
+            ):
                 if isinstance(item, AgentMessage):
                     if item.type == "text" and item.content:
                         # Buffer text messages
@@ -865,6 +868,7 @@ class GluonBot:
                             pending_task["prompt"],
                             force_new=False,
                             model=pending_task.get("model"),
+                            use_worktree=pending_task.get("use_worktree", False),
                         )
                     )
                     self._active_tasks[user_id] = task

@@ -505,6 +505,7 @@ def run(
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
     model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
     background: Annotated[bool, typer.Option("--background", "-b", help="Run in background")] = False,
+    worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Execute in isolated Git worktree")] = False,
 ):
     """Execute a task on a project."""
     orchestrator = get_orchestrator()
@@ -549,9 +550,17 @@ def run(
         console.print(f"[bold]Prompt:[/bold] {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
         if model_tier:
             console.print(f"[bold]Model:[/bold] {model_tier.value}")
+        if worktree:
+            console.print("[bold]Worktree:[/bold] enabled (isolated execution)")
         console.print()
 
-        async for item in orchestrator.execute(project, prompt, force_new_session=new_session, model=model_tier):
+        async for item in orchestrator.execute(
+            project,
+            prompt,
+            force_new_session=new_session,
+            model=model_tier,
+            use_worktree=worktree,
+        ):
             if isinstance(item, AgentMessage):
                 if not quiet:
                     _print_message(item)

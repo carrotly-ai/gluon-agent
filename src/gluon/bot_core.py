@@ -239,6 +239,7 @@ class GluonBotCore:
         initial_msg_id: str | None = None,
         create_thread_callback: Callable[[TransportContext, str, str | None], Coroutine[Any, Any, str | None]]
         | None = None,
+        use_worktree: bool = False,
     ) -> None:
         """Execute a Gluon task with streaming updates.
 
@@ -255,6 +256,7 @@ class GluonBotCore:
             session_id: Specific session ID to resume (from previous run)
             initial_msg_id: ID of initial message (for threading)
             create_thread_callback: Optional callback to create threads
+            use_worktree: Execute in isolated Git worktree (default: False)
         """
         import os
         from pathlib import Path
@@ -295,6 +297,7 @@ class GluonBotCore:
                     force_new_session=force_new_session,
                     model=model,
                     session_id=session_id,
+                    use_worktree=use_worktree,
                 )
 
                 async for item in execution:

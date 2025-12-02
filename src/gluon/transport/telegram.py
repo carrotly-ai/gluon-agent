@@ -694,6 +694,7 @@ class TelegramTransport(Transport):
                 project_name = pending_task["project_name"]
                 prompt = pending_task["prompt"]
                 model = pending_task.get("model")
+                use_worktree = pending_task.get("use_worktree", False)
 
                 from gluon.core import ProjectNotFoundError
 
@@ -712,6 +713,7 @@ class TelegramTransport(Transport):
                         send_callback=send_callback,
                         model=model,
                         force_new_session=(pending_task["action"] == "run_task"),
+                        use_worktree=use_worktree,
                     )
                 )
                 self.bot_core.register_task(run.id, task)

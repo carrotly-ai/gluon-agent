@@ -44,6 +44,10 @@ When running tasks, choose the appropriate model based on task complexity:
 - **sonnet**: Default for most tasks - balanced performance and cost
 - **haiku**: Simple tasks like bug fixes, documentation, or straightforward implementations
 
+**Worktree Isolation:**
+Use `use_worktree=true` in run_task when you need isolated execution (e.g., experimental changes,
+parallel tasks on the same project). This creates a temporary Git worktree for the task.
+
 When users ask you to do something, use the available tools to help them. Be concise in your responses.
 
 **Gluon Tools:**
@@ -163,12 +167,14 @@ class GluonChatAgent:
                 "project_name": str,  # Name of the project
                 "prompt": str,  # The task to perform
                 "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
+                "use_worktree": bool,  # Optional: Execute in isolated Git worktree. Default: false
             },
         )
         async def run_task(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "")
             model = args.get("model", "sonnet")
+            use_worktree = args.get("use_worktree", False)
 
             if not project_name or not prompt:
                 return {"content": [{"type": "text", "text": "Error: project_name and prompt are required"}]}
@@ -198,6 +204,7 @@ class GluonChatAgent:
                 "project_name": project_name,
                 "prompt": prompt,
                 "model": model,
+                "use_worktree": use_worktree,
             }
 
             return {
