@@ -44,10 +44,87 @@ function formatTokens(tokens: number | null): string {
   return `${(tokens / 1000000).toFixed(2)}M`
 }
 
+interface AgentMessage {
+  timestamp: string
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result'
+  content: string
+  metadata?: {
+    tool?: string
+    tool_id?: string
+    input?: unknown
+    session_id?: string
+    cost?: number
+    tokens_in?: number
+    tokens_out?: number
+  }
+}
+
+function parseMessages(messagesContent: string): AgentMessage[] {
+  if (!messagesContent) return []
+  const lines = messagesContent.trim().split('\n')
+  const messages: AgentMessage[] = []
+  for (const line of lines) {
+    if (!line.trim()) continue
+    try {
+      messages.push(JSON.parse(line))
+    } catch {
+      // Skip invalid JSON lines
+    }
+  }
+  return messages
+}
+
+function formatToolInput(input: unknown): string {
+  const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2)
+  return inputStr.length > 200 ? inputStr.slice(0, 200) + '...' : inputStr
+}
+
+function MessageItem({ msg }: { msg: AgentMessage }) {
+  const typeColors: Record<string, string> = {
+    text: 'text-[var(--color-paper)]/70',
+    tool_use: 'text-[var(--color-sky)]',
+    system: 'text-[var(--color-stone)]/60',
+    error: 'text-[var(--color-vermillion)]',
+    result: 'text-[var(--color-jade)]',
+  }
+
+  const typeLabels: Record<string, string> = {
+    text: 'TEXT',
+    tool_use: 'TOOL',
+    system: 'SYS',
+    error: 'ERR',
+    result: 'DONE',
+  }
+
+  return (
+    <div className="flex gap-2 py-1 border-b border-[rgba(163,163,163,0.05)] last:border-0">
+      <span className={cn('text-[0.5rem] uppercase tracking-widest w-10 shrink-0 pt-0.5', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
+        {typeLabels[msg.type] || msg.type}
+      </span>
+      <div className="flex-1 min-w-0">
+        {msg.type === 'tool_use' && msg.metadata?.tool ? (
+          <div>
+            <span className="text-[var(--color-sky)] text-[0.6875rem] font-medium">{msg.metadata.tool}</span>
+            {msg.metadata.input !== undefined && msg.metadata.input !== null ? (
+              <pre className="text-[0.625rem] text-[var(--color-stone)]/50 mt-1 whitespace-pre-wrap break-all">
+                {formatToolInput(msg.metadata.input)}
+              </pre>
+            ) : null}
+          </div>
+        ) : (
+          <span className={cn('text-[0.6875rem] break-words', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
+            {msg.content}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
-  const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'history' | 'continue'>('output')
+  const [logs, setLogs] = useState<{ stdout: string; stderr: string; messages: string }>({ stdout: '', stderr: '', messages: '' })
+  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'messages' | 'history' | 'continue'>('output')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
@@ -62,7 +139,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   useEffect(() => {
     if (!open || !run) {
       setDetail(null)
-      setLogs({ stdout: '', stderr: '' })
+      setLogs({ stdout: '', stderr: '', messages: '' })
       setActiveTab('output')
       setResumePrompt('')
       setResumeError(null)
@@ -77,13 +154,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     async function load() {
       setLoading(true)
       try {
-        const [runDetail, stdoutLogs, stderrLogs] = await Promise.all([
+        const [runDetail, stdoutLogs, stderrLogs, messagesLogs] = await Promise.all([
           fetchRun(runId),
           fetchLogs(runId, 'stdout').catch(() => ({ content: '' })),
           fetchLogs(runId, 'stderr').catch(() => ({ content: '' })),
+          fetchLogs(runId, 'messages').catch(() => ({ content: '' })),
         ])
         setDetail(runDetail)
-        setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '' })
+        setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
 
         // Fetch session history if there's a session
         if (runDetail.session_id) {
@@ -124,13 +202,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     if (!run) return
     setLoading(true)
     try {
-      const [runDetail, stdoutLogs, stderrLogs] = await Promise.all([
+      const [runDetail, stdoutLogs, stderrLogs, messagesLogs] = await Promise.all([
         fetchRun(run.id),
         fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
         fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
+        fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
       ])
       setDetail(runDetail)
-      setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '' })
+      setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
       onRunUpdated(runDetail)
     } catch (err) {
       console.error('Failed to refresh:', err)
@@ -377,6 +456,19 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-vermillion)]" />
                     )}
                   </button>
+                  {logs.messages && (
+                    <button
+                      className={cn(
+                        'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                        activeTab === 'messages'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                      )}
+                      onClick={() => setActiveTab('messages')}
+                    >
+                      Messages
+                    </button>
+                  )}
                   {hasHistory && (
                     <button
                       className={cn(
@@ -436,6 +528,19 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   )}>
                     {logs.stderr || 'No errors'}
                   </pre>
+                )}
+                {activeTab === 'messages' && (
+                  <div className="p-3 overflow-y-auto h-full">
+                    {logs.messages ? (
+                      <div className="space-y-0.5">
+                        {parseMessages(logs.messages).map((msg, idx) => (
+                          <MessageItem key={idx} msg={msg} />
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-[var(--color-stone)]/50 italic text-[0.6875rem]">No messages</span>
+                    )}
+                  </div>
                 )}
                 {activeTab === 'history' && (
                   <div className="p-3 overflow-y-auto h-full">

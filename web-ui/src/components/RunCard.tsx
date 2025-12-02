@@ -1,5 +1,6 @@
 import { X, GitBranch, Archive } from 'lucide-react'
 import type { Run } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 interface RunCardProps {
   run: Run
@@ -43,7 +44,10 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
 
   return (
     <div
-      className="card hover-whisper cursor-grab active:cursor-grabbing group relative"
+      className={cn(
+        "card hover-whisper cursor-grab active:cursor-grabbing group relative",
+        run.status === 'running' && "card-running"
+      )}
       style={{ borderLeft: `3px solid ${getStatusBorderColor(run.status)}` }}
       onClick={onClick}
     >
