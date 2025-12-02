@@ -22,7 +22,13 @@ class WorktreeConfig:
     cleanup_on_error: bool = True
     copy_env_files: bool = True  # Copy .env* files to worktree
     copy_patterns: list[str] = field(
-        default_factory=lambda: [".env*", ".npmrc", "local.settings.json"]
+        default_factory=lambda: [
+            ".env*",           # Root level env files
+            "**/.env*",        # Env files in subdirectories
+            ".npmrc",          # npm config
+            "**/.npmrc",       # npm config in subdirectories
+            "local.settings.json",  # Azure Functions config
+        ]
     )
 
 
@@ -257,9 +263,12 @@ class WorktreeManager:
             if "*" in pattern:
                 for src_file in self.repo_path.glob(pattern):
                     if src_file.is_file():
-                        dest = self.worktree_path / src_file.name
+                        # Preserve relative path for subdirectory files
+                        rel_path = src_file.relative_to(self.repo_path)
+                        dest = self.worktree_path / rel_path
+                        dest.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src_file, dest)
-                        copied_files.append(src_file.name)
+                        copied_files.append(str(rel_path))
             else:
                 # Direct file path
                 src_file = self.repo_path / pattern
