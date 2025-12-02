@@ -2,16 +2,12 @@ import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Badge } from '@/components/ui/badge'
-import { X, RefreshCw, Clock, Timer, User, Folder, AlertCircle } from 'lucide-react'
-import type { Run, RunDetail, RunStatus } from '@/lib/types'
+import { X, RotateCw } from 'lucide-react'
+import type { Run, RunDetail } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -20,14 +16,6 @@ interface RunDetailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onRunUpdated: (run: Run) => void
-}
-
-const STATUS_BADGE: Record<RunStatus, string> = {
-  pending: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
-  running: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
-  completed: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-  failed: 'bg-red-500/10 text-red-500 border-red-500/20',
-  cancelled: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
 }
 
 function formatDuration(seconds: number | null): string {
@@ -45,7 +33,7 @@ function formatDateTime(dateStr: string | null): string {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState('details')
+  const [activeTab, setActiveTab] = useState<'info' | 'output' | 'errors'>('info')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
@@ -53,6 +41,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     if (!open || !run) {
       setDetail(null)
       setLogs({ stdout: '', stderr: '' })
+      setActiveTab('info')
       return
     }
 
@@ -114,122 +103,142 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
+      <DialogContent className="dialog-content max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
+        {/* Header */}
+        <DialogHeader className="p-6 pb-4 border-b border-[rgba(163,163,163,0.1)]">
+          <div className="flex items-start gap-4">
+            <div className={cn('mark mt-1', `mark-${run?.status}`)} />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <code className="text-xs text-zinc-500">{run?.id.slice(0, 8)}</code>
-                {run && (
-                  <Badge variant="outline" className={cn('text-xs', STATUS_BADGE[run.status])}>
-                    {run.status}
-                  </Badge>
-                )}
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-mono text-[#a3a3a3]/50">{run?.id.slice(0, 8)}</span>
+                <span className="text-caption uppercase tracking-widest">{run?.status}</span>
               </div>
-              <DialogTitle className="text-sm font-medium truncate">
-                {run?.prompt || 'Run Details'}
+              <DialogTitle className="text-title text-[#fafaf9] font-normal">
+                {run?.prompt}
               </DialogTitle>
-              <DialogDescription className="text-xs">
-                {run?.project_name}
-              </DialogDescription>
+              <p className="text-caption mt-1">{run?.project_name}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading}>
-                <RefreshCw className={cn('w-3 h-3 mr-1', loading && 'animate-spin')} />
-                Refresh
-              </Button>
-              {isActive && (
-                <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>
-                  <X className="w-3 h-3 mr-1" />
-                  Cancel
-                </Button>
-              )}
-            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              className="text-caption hover:text-[#fafaf9] transition-colors flex items-center gap-1.5"
+              onClick={handleRefresh}
+              disabled={loading}
+            >
+              <RotateCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+              Refresh
+            </button>
+            {isActive && (
+              <button
+                className="text-caption hover:text-[#c73e3a] transition-colors flex items-center gap-1.5"
+                onClick={handleCancel}
+                disabled={cancelling}
+              >
+                <X className="w-3 h-3" />
+                Cancel
+              </button>
+            )}
           </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="shrink-0">
-            <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
-            <TabsTrigger value="stdout" className="text-xs">Output</TabsTrigger>
-            <TabsTrigger value="stderr" className="text-xs">
-              Errors
-              {logs.stderr && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-red-500" />}
-            </TabsTrigger>
-          </TabsList>
+        {/* Tabs - minimal horizontal line */}
+        <div className="flex border-b border-[rgba(163,163,163,0.1)]">
+          {(['info', 'output', 'errors'] as const).map((tab) => (
+            <button
+              key={tab}
+              className={cn(
+                'px-6 py-3 text-caption uppercase tracking-widest transition-colors',
+                activeTab === tab
+                  ? 'text-[#fafaf9] border-b border-[#fafaf9]'
+                  : 'text-[#a3a3a3]/50 hover:text-[#a3a3a3]'
+              )}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
+              {tab === 'errors' && logs.stderr && (
+                <span className="ml-2 w-1 h-1 rounded-full bg-[#c73e3a] inline-block" />
+              )}
+            </button>
+          ))}
+        </div>
 
-          <TabsContent value="details" className="flex-1 overflow-auto mt-4">
-            <div className="space-y-4 text-sm">
-              {/* Metadata */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <Folder className="w-4 h-4" />
-                  <span className="text-zinc-500">Project:</span>
-                  <span className="text-zinc-200">{run?.project_name}</span>
+        {/* Content */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'info' && (
+            <ScrollArea className="h-full">
+              <div className="p-6 space-y-6">
+                {/* Metadata - clean grid */}
+                <div className="grid grid-cols-2 gap-y-4 gap-x-8">
+                  <div>
+                    <p className="text-caption mb-1">Project</p>
+                    <p className="text-body text-[#fafaf9]">{run?.project_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-caption mb-1">Initiator</p>
+                    <p className="text-body text-[#fafaf9]">{run?.initiator || 'CLI'}</p>
+                  </div>
+                  <div>
+                    <p className="text-caption mb-1">Created</p>
+                    <p className="text-mono text-[#fafaf9]">{formatDateTime(run?.created_at ?? null)}</p>
+                  </div>
+                  <div>
+                    <p className="text-caption mb-1">Duration</p>
+                    <p className="text-mono text-[#fafaf9]">{formatDuration(run?.duration_seconds ?? null)}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <User className="w-4 h-4" />
-                  <span className="text-zinc-500">Initiator:</span>
-                  <span className="text-zinc-200">{run?.initiator || 'CLI'}</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <Clock className="w-4 h-4" />
-                  <span className="text-zinc-500">Created:</span>
-                  <span className="text-zinc-200">{formatDateTime(run?.created_at ?? null)}</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <Timer className="w-4 h-4" />
-                  <span className="text-zinc-500">Duration:</span>
-                  <span className="text-zinc-200">{formatDuration(run?.duration_seconds ?? null)}</span>
-                </div>
-              </div>
 
-              {/* Prompt */}
-              <div>
-                <h4 className="text-xs font-medium text-zinc-500 mb-2">Prompt</h4>
-                <pre className="text-xs bg-zinc-900 border border-zinc-800 rounded-md p-3 whitespace-pre-wrap">
-                  {run?.prompt}
-                </pre>
-              </div>
-
-              {/* Error */}
-              {run?.error_message && (
+                {/* Prompt */}
                 <div>
-                  <h4 className="text-xs font-medium text-red-400 mb-2 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> Error
-                  </h4>
-                  <pre className="text-xs bg-red-500/5 border border-red-500/20 text-red-400 rounded-md p-3 whitespace-pre-wrap">
-                    {run.error_message}
+                  <p className="text-caption mb-2">Prompt</p>
+                  <pre className="text-body text-[#fafaf9] bg-[#0c0c0c] p-4 whitespace-pre-wrap border border-[rgba(163,163,163,0.08)]">
+                    {run?.prompt}
                   </pre>
                 </div>
-              )}
 
-              {/* System info */}
-              {detail && (detail.session_id || detail.exit_code !== null) && (
-                <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
-                  {detail.session_id && <span>Session: {detail.session_id.slice(0, 12)}...</span>}
-                  {detail.exit_code !== null && <span className="ml-4">Exit: {detail.exit_code}</span>}
-                </div>
-              )}
-            </div>
-          </TabsContent>
+                {/* Error */}
+                {run?.error_message && (
+                  <div>
+                    <p className="text-caption mb-2 accent-vermillion">Error</p>
+                    <pre className="text-body accent-vermillion bg-[rgba(199,62,58,0.05)] p-4 whitespace-pre-wrap border border-[rgba(199,62,58,0.15)]">
+                      {run.error_message}
+                    </pre>
+                  </div>
+                )}
 
-          <TabsContent value="stdout" className="flex-1 min-h-0 mt-4">
-            <ScrollArea className="h-80 rounded-md border border-zinc-800">
-              <pre className="p-3 text-xs font-mono whitespace-pre-wrap text-zinc-300">
-                {logs.stdout || <span className="text-zinc-600">No output</span>}
+                {/* Session info */}
+                {detail && (detail.session_id || detail.exit_code !== null) && (
+                  <div className="pt-4 border-t border-[rgba(163,163,163,0.08)]">
+                    <div className="flex items-center gap-6 text-mono text-[#a3a3a3]/40">
+                      {detail.session_id && <span>session {detail.session_id.slice(0, 8)}</span>}
+                      {detail.exit_code !== null && <span>exit {detail.exit_code}</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          )}
+
+          {activeTab === 'output' && (
+            <ScrollArea className="h-80">
+              <pre className="p-6 text-mono text-[#fafaf9]/80 whitespace-pre-wrap">
+                {logs.stdout || <span className="text-[#a3a3a3]/30">No output</span>}
               </pre>
             </ScrollArea>
-          </TabsContent>
+          )}
 
-          <TabsContent value="stderr" className="flex-1 min-h-0 mt-4">
-            <ScrollArea className="h-80 rounded-md border border-zinc-800">
-              <pre className="p-3 text-xs font-mono whitespace-pre-wrap text-red-400">
-                {logs.stderr || <span className="text-zinc-600">No errors</span>}
+          {activeTab === 'errors' && (
+            <ScrollArea className="h-80">
+              <pre className={cn(
+                'p-6 text-mono whitespace-pre-wrap',
+                logs.stderr ? 'accent-vermillion' : 'text-[#a3a3a3]/30'
+              )}>
+                {logs.stderr || 'No errors'}
               </pre>
             </ScrollArea>
-          </TabsContent>
-        </Tabs>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )

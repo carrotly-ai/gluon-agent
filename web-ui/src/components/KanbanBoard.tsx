@@ -1,7 +1,6 @@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { RunCard } from './RunCard'
 import type { Run, RunStatus } from '@/lib/types'
-import { cn } from '@/lib/utils'
 
 interface KanbanBoardProps {
   runs: Run[]
@@ -17,31 +16,29 @@ interface KanbanColumnProps {
   onCancelRun: (run: Run) => void
 }
 
-const COLUMNS: Record<RunStatus, { label: string; dot: string }> = {
-  pending: { label: 'Queued', dot: 'bg-yellow-500' },
-  running: { label: 'Running', dot: 'bg-blue-500' },
-  completed: { label: 'Completed', dot: 'bg-emerald-500' },
-  failed: { label: 'Failed', dot: 'bg-red-500' },
-  cancelled: { label: 'Cancelled', dot: 'bg-zinc-500' },
+const COLUMNS: Record<RunStatus, string> = {
+  pending: 'Queue',
+  running: 'Active',
+  completed: 'Done',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
 }
 
 function KanbanColumn({ status, runs, label, onRunClick, onCancelRun }: KanbanColumnProps) {
-  const config = COLUMNS[status]
-
   return (
-    <div className="flex flex-col w-72 shrink-0 bg-zinc-900/50 rounded-lg border border-zinc-800">
+    <div className="column">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
-        <div className={cn('w-2 h-2 rounded-full', config.dot)} />
-        <span className="text-xs font-medium text-zinc-300">{label}</span>
-        <span className="ml-auto text-xs text-zinc-600">{runs.length}</span>
+      <div className="column-header">
+        <div className={`mark mark-${status}`} />
+        <span className="column-title">{label}</span>
+        <span className="column-count">{runs.length}</span>
       </div>
 
-      {/* Cards */}
-      <ScrollArea className="flex-1 max-h-[calc(100vh-8rem)]">
-        <div className="p-2 space-y-2">
+      {/* Cards with Ma spacing */}
+      <ScrollArea className="flex-1">
+        <div className="p-3 space-y-2">
           {runs.length === 0 ? (
-            <p className="text-xs text-zinc-600 text-center py-6">No runs</p>
+            <p className="text-caption text-center py-8 opacity-40">Empty</p>
           ) : (
             runs.map((run) => (
               <RunCard
@@ -78,16 +75,20 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun }: KanbanBoardProps)
   const columnOrder: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled']
 
   return (
-    <div className="flex gap-3 overflow-x-auto p-4 h-full">
-      {columnOrder.map((status) => (
-        <KanbanColumn
-          key={status}
-          status={status}
-          runs={runsByStatus[status]}
-          label={COLUMNS[status].label}
-          onRunClick={onRunClick}
-          onCancelRun={onCancelRun}
-        />
+    <div className="flex gap-0 overflow-x-auto h-full">
+      {columnOrder.map((status, i) => (
+        <div key={status} className="flex">
+          <KanbanColumn
+            status={status}
+            runs={runsByStatus[status]}
+            label={COLUMNS[status]}
+            onRunClick={onRunClick}
+            onCancelRun={onCancelRun}
+          />
+          {i < columnOrder.length - 1 && (
+            <div className="w-px bg-[rgba(163,163,163,0.08)]" />
+          )}
+        </div>
       ))}
     </div>
   )
