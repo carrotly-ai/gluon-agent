@@ -26,6 +26,7 @@ class RunResponse(BaseModel):
     branch_name: str | None = Field(default=None, description="Git branch name")
     # PR info (for Review column routing)
     pr_number: int | None = Field(default=None, description="GitHub PR number")
+    pr_url: str | None = Field(default=None, description="GitHub PR URL")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
     # Archive tracking
     archived: bool = Field(default=False, description="Whether run is archived")

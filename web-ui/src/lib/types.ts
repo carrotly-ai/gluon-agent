@@ -21,6 +21,7 @@ export interface Run {
   branch_name?: string | null
   // PR info (for Review column routing)
   pr_number?: number | null
+  pr_url?: string | null
   pr_status?: 'open' | 'merged' | 'closed' | 'draft' | null
   // Archive tracking
   archived?: boolean

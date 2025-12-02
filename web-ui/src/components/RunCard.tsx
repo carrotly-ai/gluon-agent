@@ -1,4 +1,4 @@
-import { X, GitBranch, Archive } from 'lucide-react'
+import { X, GitBranch, Archive, ExternalLink } from 'lucide-react'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -95,6 +95,26 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
                 <span className="text-[0.625rem] truncate max-w-[80px]">{run.branch_name}</span>
               )}
             </span>
+          )}
+          {run.pr_number && run.pr_url && (
+            <a
+              href={run.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase transition-colors',
+                run.pr_status === 'open' && 'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+                run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
+                run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
+                run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]',
+                !run.pr_status && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
+              )}
+              onClick={(e) => e.stopPropagation()}
+              title={`Open PR #${run.pr_number}`}
+            >
+              <span>PR #{run.pr_number}</span>
+              <ExternalLink className="w-2.5 h-2.5" />
+            </a>
           )}
           <span className="text-mono text-[var(--color-stone)]/55 hidden sm:inline">
             {formatTime(run.created_at)}
