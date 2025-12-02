@@ -171,6 +171,12 @@ class ExecutionRun(BaseModel):
     log_path: Path | None = None  # Path to log directory
     error_message: str | None = None
 
+    # Cost tracking
+    cost_usd: float | None = None  # Total cost for this run
+    input_tokens: int | None = None  # Input tokens used
+    output_tokens: int | None = None  # Output tokens generated
+    model_used: str | None = None  # Model tier (e.g., "sonnet", "opus")
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING

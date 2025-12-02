@@ -82,6 +82,10 @@ class AgentResult:
     success: bool
     error: str | None = None
     session_id: str | None = None  # Gluon session ID (for linking runs)
+    # Token usage
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    model_used: str | None = None
 
 
 @dataclass
@@ -154,6 +158,8 @@ class GluonAgent:
         claude_session_id: str | None = None
         total_cost_usd: float = 0.0
         total_turns: int = 0
+        input_tokens: int | None = None
+        output_tokens: int | None = None
         success = True
         error_msg: str | None = None
 
@@ -213,6 +219,9 @@ class GluonAgent:
                     elif isinstance(msg, ResultMessage):
                         total_cost_usd = getattr(msg, "total_cost_usd", 0.0) or 0.0
                         total_turns = getattr(msg, "num_turns", 0) or total_turns
+                        # Extract token usage from ResultMessage
+                        input_tokens = getattr(msg, "input_tokens", None)
+                        output_tokens = getattr(msg, "output_tokens", None)
                         # Extract session_id from ResultMessage
                         if hasattr(msg, "session_id") and msg.session_id:
                             claude_session_id = msg.session_id
@@ -221,6 +230,8 @@ class GluonAgent:
                             content="Execution complete",
                             metadata={
                                 "cost": total_cost_usd,
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
                                 "session_id": claude_session_id,
                                 "stop_reason": getattr(msg, "stop_reason", None),
                             },
@@ -242,6 +253,9 @@ class GluonAgent:
             total_turns=total_turns,
             success=success,
             error=error_msg,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model_used=self.model,
         )
 
     async def execute_simple(

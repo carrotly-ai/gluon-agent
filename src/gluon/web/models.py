@@ -30,6 +30,11 @@ class RunDetailResponse(RunResponse):
     session_id: str | None = Field(default=None, description="Claude SDK session ID for resume")
     exit_code: int | None = None
     log_path: str | None = None
+    # Cost tracking fields
+    cost_usd: float | None = Field(default=None, description="Total cost in USD for this run")
+    input_tokens: int | None = Field(default=None, description="Input tokens used")
+    output_tokens: int | None = Field(default=None, description="Output tokens generated")
+    model_used: str | None = Field(default=None, description="Model tier used (e.g., sonnet, opus)")
 
 
 class CreateRunRequest(BaseModel):

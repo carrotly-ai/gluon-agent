@@ -120,6 +120,11 @@ def create_app() -> FastAPI:
             session_id=run.claude_session_id,
             exit_code=run.exit_code,
             log_path=str(run.log_path) if run.log_path else None,
+            # Cost tracking
+            cost_usd=run.cost_usd,
+            input_tokens=run.input_tokens,
+            output_tokens=run.output_tokens,
+            model_used=run.model_used,
         )
 
     @app.post("/api/runs", response_model=RunResponse)

@@ -79,6 +79,11 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN thread_id TEXT;",
     # Claude SDK session ID for resume (separate from internal session FK)
     "ALTER TABLE execution_runs ADD COLUMN claude_session_id TEXT;",
+    # Cost tracking for execution runs
+    "ALTER TABLE execution_runs ADD COLUMN cost_usd REAL;",
+    "ALTER TABLE execution_runs ADD COLUMN input_tokens INTEGER;",
+    "ALTER TABLE execution_runs ADD COLUMN output_tokens INTEGER;",
+    "ALTER TABLE execution_runs ADD COLUMN model_used TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -732,7 +737,8 @@ class GluonStore:
                 """
                 UPDATE execution_runs
                 SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, started_at = ?,
-                    completed_at = ?, exit_code = ?, log_path = ?, error_message = ?, thread_id = ?
+                    completed_at = ?, exit_code = ?, log_path = ?, error_message = ?, thread_id = ?,
+                    cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?
                 WHERE id = ?
                 """,
                 (
@@ -746,6 +752,10 @@ class GluonStore:
                     str(run.log_path) if run.log_path else None,
                     run.error_message,
                     run.thread_id,
+                    run.cost_usd,
+                    run.input_tokens,
+                    run.output_tokens,
+                    run.model_used,
                     run.id,
                 ),
             )
@@ -758,22 +768,28 @@ class GluonStore:
 
     def _row_to_run(self, row: sqlite3.Row) -> ExecutionRun:
         """Convert database row to ExecutionRun model."""
+        keys = row.keys()
         return ExecutionRun(
             id=row["id"],
             session_id=row["session_id"],
-            claude_session_id=row["claude_session_id"] if "claude_session_id" in row.keys() else None,
+            claude_session_id=row["claude_session_id"] if "claude_session_id" in keys else None,
             project_id=row["project_id"],
             pid=row["pid"],
             status=RunStatus(row["status"]),
             prompt=row["prompt"],
-            initiator=row["initiator"] if "initiator" in row.keys() else None,
-            thread_id=row["thread_id"] if "thread_id" in row.keys() else None,
+            initiator=row["initiator"] if "initiator" in keys else None,
+            thread_id=row["thread_id"] if "thread_id" in keys else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
             completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
             exit_code=row["exit_code"],
             log_path=Path(row["log_path"]) if row["log_path"] else None,
             error_message=row["error_message"],
+            # Cost tracking
+            cost_usd=row["cost_usd"] if "cost_usd" in keys else None,
+            input_tokens=row["input_tokens"] if "input_tokens" in keys else None,
+            output_tokens=row["output_tokens"] if "output_tokens" in keys else None,
+            model_used=row["model_used"] if "model_used" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:

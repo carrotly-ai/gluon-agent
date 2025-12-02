@@ -249,6 +249,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               {detail?.exit_code !== null && detail?.exit_code !== undefined && (
                 <span className="text-mono">exit {detail?.exit_code}</span>
               )}
+              {detail?.cost_usd != null && detail.cost_usd > 0 && (
+                <span className="text-mono text-[var(--color-harvest)]">${detail.cost_usd.toFixed(4)}</span>
+              )}
+              {detail?.model_used && (
+                <span className="text-mono text-[var(--color-stone)]/50">{detail.model_used}</span>
+              )}
             </div>
 
             {/* Prompt - Constrained height with scroll */}

@@ -21,6 +21,11 @@ export interface RunDetail extends Run {
   session_id: string | null
   exit_code: number | null
   log_path: string | null
+  // Cost tracking
+  cost_usd: number | null
+  input_tokens: number | null
+  output_tokens: number | null
+  model_used: string | null
 }
 
 /** Request body for creating a new run */

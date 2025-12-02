@@ -82,7 +82,7 @@ function App() {
         <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
           {/* Left - wordmark + filter */}
           <div className="flex items-center gap-3 sm:gap-5">
-            <span className="text-[0.75rem] sm:text-[0.8125rem] font-normal tracking-[0.1em] text-[#fafaf9]">
+            <span className="text-[0.75rem] sm:text-[0.8125rem] font-normal tracking-[0.1em] text-[var(--color-paper)]">
               GLUON
             </span>
             <ProjectFilter filter={filter} onFilterChange={setFilter} />

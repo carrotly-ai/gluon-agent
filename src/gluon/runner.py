@@ -181,6 +181,9 @@ class TaskRunner:
                             "type": "result",
                             "session_id": item.claude_session_id,
                             "cost_usd": item.total_cost_usd,
+                            "input_tokens": item.input_tokens,
+                            "output_tokens": item.output_tokens,
+                            "model_used": item.model_used,
                             "turns": item.total_turns,
                             "success": item.success,
                             "error": item.error,
@@ -189,6 +192,11 @@ class TaskRunner:
 
                         # Update run with Claude session ID for future resume
                         run.claude_session_id = item.claude_session_id
+                        # Store cost tracking data
+                        run.cost_usd = item.total_cost_usd
+                        run.input_tokens = item.input_tokens
+                        run.output_tokens = item.output_tokens
+                        run.model_used = item.model_used
                         if item.success:
                             run.mark_completed(exit_code=0)
                         else:
