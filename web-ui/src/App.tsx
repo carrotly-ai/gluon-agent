@@ -132,9 +132,13 @@ function App() {
               </span>
             )}
             {todayCost > 0 && (
-              <span className="text-caption text-[var(--color-harvest)] hidden sm:inline">
+              <button
+                className="text-caption text-[var(--color-harvest)] hidden sm:inline hover:underline"
+                onClick={() => setViewMode('usage')}
+                title="View usage details"
+              >
                 ${todayCost.toFixed(2)} today
-              </span>
+              </button>
             )}
           </div>
 
