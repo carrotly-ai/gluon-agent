@@ -242,3 +242,47 @@ export interface ScanResultResponse {
   projects_found: number
   projects_added: string[]
 }
+
+// ========== Usage Dashboard Types (Phase 8) ==========
+
+/** Usage summary for header display */
+export interface UsageSummary {
+  today_cost_usd: number
+  today_runs: number
+  week_cost_usd: number
+  week_runs: number
+  total_cost_usd: number
+  total_runs: number
+}
+
+/** Project usage breakdown */
+export interface ProjectUsage {
+  project_id: string
+  project_name: string
+  cost_usd: number
+  run_count: number
+  input_tokens: number
+  output_tokens: number
+}
+
+/** Daily usage data */
+export interface DailyUsage {
+  date: string
+  cost_usd: number
+  run_count: number
+  input_tokens: number
+  output_tokens: number
+}
+
+/** Run item for usage table */
+export interface RunUsageItem {
+  id: string
+  project_name: string
+  prompt: string
+  cost_usd: number | null
+  input_tokens: number | null
+  output_tokens: number | null
+  model_used: string | null
+  created_at: string
+  status: string
+}

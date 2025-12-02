@@ -37,6 +37,13 @@ function formatDate(dateStr: string | null): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + formatTime(dateStr)
 }
 
+function formatTokens(tokens: number | null): string {
+  if (tokens === null || tokens === undefined) return '-'
+  if (tokens < 1000) return `${tokens}`
+  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}k`
+  return `${(tokens / 1000000).toFixed(2)}M`
+}
+
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
@@ -243,6 +250,11 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               )}
               {detail?.cost_usd != null && detail.cost_usd > 0 && (
                 <span className="text-mono text-[var(--color-harvest)]">${detail.cost_usd.toFixed(4)}</span>
+              )}
+              {(detail?.input_tokens || detail?.output_tokens) && (
+                <span className="text-mono text-[var(--color-stone)]/60">
+                  {formatTokens(detail.input_tokens)} → {formatTokens(detail.output_tokens)}
+                </span>
               )}
               {detail?.model_used && (
                 <span className="text-mono text-[var(--color-stone)]/50">{detail.model_used}</span>

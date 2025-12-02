@@ -1,15 +1,19 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { Plus, Sun, Moon } from 'lucide-react'
+import { Plus, Sun, Moon, LayoutGrid, BarChart3 } from 'lucide-react'
 import { KanbanBoard } from './components/KanbanBoard'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { ProjectFilter } from './components/ProjectFilter'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
+import { UsagePage } from './components/UsagePage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
 import { cancelRun, fetchProjects } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
+import { cn } from './lib/utils'
+
+type ViewMode = 'board' | 'usage'
 
 function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
@@ -17,6 +21,7 @@ function App() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
+  const [viewMode, setViewMode] = useState<ViewMode>('board')
   const { filter, setFilter } = useHashFilter()
   const { theme, toggleTheme } = useTheme()
 
@@ -107,8 +112,35 @@ function App() {
             )}
           </div>
 
-          {/* Right - theme + create + connection */}
+          {/* Right - view toggle + theme + create + connection */}
           <div className="flex items-center gap-3 sm:gap-4">
+            {/* View Toggle */}
+            <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+              <button
+                className={cn(
+                  'p-1.5 rounded-sm transition-colors',
+                  viewMode === 'board'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('board')}
+                title="Board view"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-sm transition-colors',
+                  viewMode === 'usage'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('usage')}
+                title="Usage view"
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <button
               className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
               onClick={toggleTheme}
@@ -139,7 +171,9 @@ function App() {
 
       {/* Main */}
       <main className="flex-1 overflow-hidden min-h-0">
-        {loading ? (
+        {viewMode === 'usage' ? (
+          <UsagePage />
+        ) : loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="mark mark-running w-2 h-2" />
           </div>

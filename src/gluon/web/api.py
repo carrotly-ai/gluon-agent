@@ -18,18 +18,22 @@ from gluon.web.models import (
     CreateProjectRequest,
     CreateRunRequest,
     CreateWorkspaceRequest,
+    DailyUsageResponse,
     LogResponse,
     ProjectDetailResponse,
     ProjectResponse,
+    ProjectUsageResponse,
     ResumeRunRequest,
     ResumeRunResponse,
     RunDetailResponse,
     RunResponse,
+    RunUsageItemResponse,
     ScanResultResponse,
     SessionHistoryResponse,
     StatusResponse,
     UpdateStatusRequest,
     UpdateStatusResponse,
+    UsageSummaryResponse,
     WorkspaceResponse,
 )
 from gluon.web.websocket import ws_manager
@@ -587,6 +591,65 @@ def create_app() -> FastAPI:
             projects_found=len(project_paths),
             projects_added=projects_added,
         )
+
+    # ========== Phase 8: Usage Dashboard ==========
+
+    @app.get("/api/usage/summary", response_model=UsageSummaryResponse)
+    async def get_usage_summary() -> UsageSummaryResponse:
+        """Get aggregated usage statistics for header display."""
+        summary = store.get_usage_summary()
+        return UsageSummaryResponse(**summary)
+
+    @app.get("/api/usage/by-project", response_model=list[ProjectUsageResponse])
+    async def get_usage_by_project(
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[ProjectUsageResponse]:
+        """Get usage breakdown by project."""
+        from datetime import datetime
+
+        since_dt = datetime.fromisoformat(since) if since else None
+        until_dt = datetime.fromisoformat(until) if until else None
+
+        data = store.get_usage_by_project(since=since_dt, until=until_dt)
+        return [ProjectUsageResponse(**item) for item in data]
+
+    @app.get("/api/usage/by-day", response_model=list[DailyUsageResponse])
+    async def get_usage_by_day(
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[DailyUsageResponse]:
+        """Get daily usage for charts."""
+        from datetime import datetime
+
+        since_dt = datetime.fromisoformat(since) if since else None
+        until_dt = datetime.fromisoformat(until) if until else None
+
+        data = store.get_usage_by_day(since=since_dt, until=until_dt)
+        return [DailyUsageResponse(**item) for item in data]
+
+    @app.get("/api/usage/runs", response_model=list[RunUsageItemResponse])
+    async def get_usage_runs(
+        since: str | None = None,
+        until: str | None = None,
+        sort_by: str = "cost",
+        sort_order: str = "desc",
+        limit: int = 50,
+    ) -> list[RunUsageItemResponse]:
+        """Get runs with cost data for usage dashboard."""
+        from datetime import datetime
+
+        since_dt = datetime.fromisoformat(since) if since else None
+        until_dt = datetime.fromisoformat(until) if until else None
+
+        data = store.get_usage_runs(
+            since=since_dt,
+            until=until_dt,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            limit=limit,
+        )
+        return [RunUsageItemResponse(**item) for item in data]
 
     # ========== WebSocket ==========
 

@@ -14,6 +14,10 @@ import type {
   ResumeRunResponse,
   SessionHistoryResponse,
   UpdateStatusResponse,
+  UsageSummary,
+  ProjectUsage,
+  DailyUsage,
+  RunUsageItem,
 } from './types'
 
 const API_BASE = '/api'
@@ -167,4 +171,56 @@ export async function scanWorkspace(workspaceId: string): Promise<ScanResultResp
   return fetchJson<ScanResultResponse>(`/workspaces/${workspaceId}/scan`, {
     method: 'POST',
   })
+}
+
+// ========== Usage Dashboard API (Phase 8) ==========
+
+/** Fetch usage summary for header display */
+export async function fetchUsageSummary(): Promise<UsageSummary> {
+  return fetchJson<UsageSummary>('/usage/summary')
+}
+
+/** Fetch usage breakdown by project */
+export async function fetchUsageByProject(params?: {
+  since?: string
+  until?: string
+}): Promise<ProjectUsage[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.since) searchParams.set('since', params.since)
+  if (params?.until) searchParams.set('until', params.until)
+
+  const query = searchParams.toString()
+  return fetchJson<ProjectUsage[]>(`/usage/by-project${query ? `?${query}` : ''}`)
+}
+
+/** Fetch daily usage for charts */
+export async function fetchUsageByDay(params?: {
+  since?: string
+  until?: string
+}): Promise<DailyUsage[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.since) searchParams.set('since', params.since)
+  if (params?.until) searchParams.set('until', params.until)
+
+  const query = searchParams.toString()
+  return fetchJson<DailyUsage[]>(`/usage/by-day${query ? `?${query}` : ''}`)
+}
+
+/** Fetch runs with cost data for usage dashboard */
+export async function fetchUsageRuns(params?: {
+  since?: string
+  until?: string
+  sort_by?: 'cost' | 'date' | 'tokens'
+  sort_order?: 'asc' | 'desc'
+  limit?: number
+}): Promise<RunUsageItem[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.since) searchParams.set('since', params.since)
+  if (params?.until) searchParams.set('until', params.until)
+  if (params?.sort_by) searchParams.set('sort_by', params.sort_by)
+  if (params?.sort_order) searchParams.set('sort_order', params.sort_order)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+
+  const query = searchParams.toString()
+  return fetchJson<RunUsageItem[]>(`/usage/runs${query ? `?${query}` : ''}`)
 }

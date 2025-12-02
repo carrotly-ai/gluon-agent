@@ -226,3 +226,52 @@ class ScanResultResponse(BaseModel):
     workspace_id: str
     projects_found: int
     projects_added: list[str] = Field(description="Names of newly added projects")
+
+
+# Phase 8: Usage Dashboard Models
+
+
+class UsageSummaryResponse(BaseModel):
+    """Response model for usage summary (header display)."""
+
+    today_cost_usd: float = Field(description="Cost in USD for today")
+    today_runs: int = Field(description="Number of runs today")
+    week_cost_usd: float = Field(description="Cost in USD for past 7 days")
+    week_runs: int = Field(description="Number of runs past 7 days")
+    total_cost_usd: float = Field(description="All-time cost in USD")
+    total_runs: int = Field(description="All-time run count")
+
+
+class ProjectUsageResponse(BaseModel):
+    """Response model for usage by project."""
+
+    project_id: str
+    project_name: str
+    cost_usd: float
+    run_count: int
+    input_tokens: int
+    output_tokens: int
+
+
+class DailyUsageResponse(BaseModel):
+    """Response model for daily usage."""
+
+    date: str = Field(description="YYYY-MM-DD format")
+    cost_usd: float
+    run_count: int
+    input_tokens: int
+    output_tokens: int
+
+
+class RunUsageItemResponse(BaseModel):
+    """Response model for individual run in usage table."""
+
+    id: str
+    project_name: str
+    prompt: str = Field(description="Truncated prompt")
+    cost_usd: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+    model_used: str | None
+    created_at: str
+    status: str

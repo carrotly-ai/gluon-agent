@@ -930,3 +930,188 @@ class GluonStore:
             project_name=row["project_name"],
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+    # ========== Usage Statistics ==========
+
+    def get_usage_summary(self) -> dict:
+        """Get aggregated usage statistics for header display."""
+        from datetime import timedelta
+
+        now = datetime.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_ago = today - timedelta(days=7)
+
+        with self._get_conn() as conn:
+            # Today's stats
+            today_row = conn.execute(
+                """
+                SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as runs
+                FROM execution_runs
+                WHERE created_at >= ?
+                """,
+                (today.isoformat(),),
+            ).fetchone()
+
+            # Week stats
+            week_row = conn.execute(
+                """
+                SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as runs
+                FROM execution_runs
+                WHERE created_at >= ?
+                """,
+                (week_ago.isoformat(),),
+            ).fetchone()
+
+            # All time
+            total_row = conn.execute(
+                """
+                SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as runs
+                FROM execution_runs
+                """
+            ).fetchone()
+
+        return {
+            "today_cost_usd": today_row["cost"],
+            "today_runs": today_row["runs"],
+            "week_cost_usd": week_row["cost"],
+            "week_runs": week_row["runs"],
+            "total_cost_usd": total_row["cost"],
+            "total_runs": total_row["runs"],
+        }
+
+    def get_usage_by_project(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[dict]:
+        """Aggregate usage by project."""
+        query = """
+            SELECT
+                r.project_id,
+                p.name as project_name,
+                COALESCE(SUM(r.cost_usd), 0) as cost_usd,
+                COUNT(*) as run_count,
+                COALESCE(SUM(r.input_tokens), 0) as input_tokens,
+                COALESCE(SUM(r.output_tokens), 0) as output_tokens
+            FROM execution_runs r
+            JOIN projects p ON r.project_id = p.id
+            WHERE 1=1
+        """
+        params: list[str] = []
+        if since:
+            query += " AND r.created_at >= ?"
+            params.append(since.isoformat())
+        if until:
+            query += " AND r.created_at <= ?"
+            params.append(until.isoformat())
+        query += " GROUP BY r.project_id ORDER BY cost_usd DESC"
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [
+                {
+                    "project_id": row["project_id"],
+                    "project_name": row["project_name"],
+                    "cost_usd": row["cost_usd"],
+                    "run_count": row["run_count"],
+                    "input_tokens": row["input_tokens"],
+                    "output_tokens": row["output_tokens"],
+                }
+                for row in rows
+            ]
+
+    def get_usage_by_day(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[dict]:
+        """Aggregate usage by day."""
+        query = """
+            SELECT
+                DATE(created_at) as date,
+                COALESCE(SUM(cost_usd), 0) as cost_usd,
+                COUNT(*) as run_count,
+                COALESCE(SUM(input_tokens), 0) as input_tokens,
+                COALESCE(SUM(output_tokens), 0) as output_tokens
+            FROM execution_runs
+            WHERE 1=1
+        """
+        params: list[str] = []
+        if since:
+            query += " AND created_at >= ?"
+            params.append(since.isoformat())
+        if until:
+            query += " AND created_at <= ?"
+            params.append(until.isoformat())
+        query += " GROUP BY DATE(created_at) ORDER BY date DESC"
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [
+                {
+                    "date": row["date"],
+                    "cost_usd": row["cost_usd"],
+                    "run_count": row["run_count"],
+                    "input_tokens": row["input_tokens"],
+                    "output_tokens": row["output_tokens"],
+                }
+                for row in rows
+            ]
+
+    def get_usage_runs(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        sort_by: str = "cost",
+        sort_order: str = "desc",
+        limit: int = 50,
+    ) -> list[dict]:
+        """Get runs with cost data for usage dashboard."""
+        order_column = {
+            "cost": "r.cost_usd",
+            "date": "r.created_at",
+            "tokens": "(COALESCE(r.input_tokens, 0) + COALESCE(r.output_tokens, 0))",
+        }.get(sort_by, "r.cost_usd")
+        order_dir = "DESC" if sort_order == "desc" else "ASC"
+
+        query = f"""
+            SELECT
+                r.id,
+                p.name as project_name,
+                r.prompt,
+                r.cost_usd,
+                r.input_tokens,
+                r.output_tokens,
+                r.model_used,
+                r.created_at,
+                r.status
+            FROM execution_runs r
+            JOIN projects p ON r.project_id = p.id
+            WHERE 1=1
+        """
+        params: list[str | int] = []
+        if since:
+            query += " AND r.created_at >= ?"
+            params.append(since.isoformat())
+        if until:
+            query += " AND r.created_at <= ?"
+            params.append(until.isoformat())
+        query += f" ORDER BY {order_column} {order_dir} NULLS LAST LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [
+                {
+                    "id": row["id"],
+                    "project_name": row["project_name"],
+                    "prompt": row["prompt"][:100] if row["prompt"] else "",  # Truncate
+                    "cost_usd": row["cost_usd"],
+                    "input_tokens": row["input_tokens"],
+                    "output_tokens": row["output_tokens"],
+                    "model_used": row["model_used"],
+                    "created_at": row["created_at"],
+                    "status": row["status"],
+                }
+                for row in rows
+            ]
