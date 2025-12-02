@@ -1,7 +1,4 @@
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { XCircle, Clock, Timer, AlertCircle } from 'lucide-react'
+import { XCircle, Clock, Timer, AlertTriangle, CheckCircle2, Ban, Loader2 } from 'lucide-react'
 import type { Run, RunStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -11,12 +8,42 @@ interface RunCardProps {
   onCancel?: () => void
 }
 
-const STATUS_STYLES: Record<RunStatus, { badge: string; icon: string }> = {
-  pending: { badge: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20', icon: 'text-yellow-500' },
-  running: { badge: 'bg-blue-500/10 text-blue-600 border-blue-500/20', icon: 'text-blue-500' },
-  completed: { badge: 'bg-green-500/10 text-green-600 border-green-500/20', icon: 'text-green-500' },
-  failed: { badge: 'bg-red-500/10 text-red-600 border-red-500/20', icon: 'text-red-500' },
-  cancelled: { badge: 'bg-gray-500/10 text-gray-600 border-gray-500/20', icon: 'text-gray-500' },
+const STATUS_CONFIG: Record<RunStatus, {
+  color: string
+  textColor: string
+  icon: React.ElementType
+  label: string
+}> = {
+  pending: {
+    color: '#ffbe0b',
+    textColor: 'text-[#ffbe0b]',
+    icon: Clock,
+    label: 'QUEUED'
+  },
+  running: {
+    color: '#00f5ff',
+    textColor: 'text-[#00f5ff]',
+    icon: Loader2,
+    label: 'ACTIVE'
+  },
+  completed: {
+    color: '#39ff14',
+    textColor: 'text-[#39ff14]',
+    icon: CheckCircle2,
+    label: 'COMPLETE'
+  },
+  failed: {
+    color: '#ff3366',
+    textColor: 'text-[#ff3366]',
+    icon: AlertTriangle,
+    label: 'FAILED'
+  },
+  cancelled: {
+    color: '#6b7280',
+    textColor: 'text-[#6b7280]',
+    icon: Ban,
+    label: 'ABORTED'
+  },
 }
 
 function formatDuration(seconds: number | null): string {
@@ -33,35 +60,51 @@ function formatTime(dateStr: string | null): string {
 }
 
 export function RunCard({ run, onClick, onCancel }: RunCardProps) {
-  const styles = STATUS_STYLES[run.status]
+  const config = STATUS_CONFIG[run.status]
+  const StatusIcon = config.icon
   const isActive = run.status === 'running' || run.status === 'pending'
 
   return (
-    <Card
+    <div
       className={cn(
-        'cursor-pointer transition-all hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700',
-        isActive && 'border-l-4 border-l-blue-500'
+        'mission-card cursor-pointer',
+        `status-${run.status}`
       )}
       onClick={onClick}
     >
-      <CardHeader className="pb-2 pt-3 px-3">
+      {/* Card header */}
+      <div className="p-3 pb-2">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate" title={run.prompt}>
-              {run.prompt.length > 60 ? `${run.prompt.slice(0, 60)}...` : run.prompt}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {run.project_name}
-            </p>
+          {/* Status indicator + prompt */}
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            <div className={cn('status-indicator shrink-0 mt-1', `status-${run.status}`)} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-[#e4e4e7] truncate" title={run.prompt}>
+                {run.prompt.length > 50 ? `${run.prompt.slice(0, 50)}...` : run.prompt}
+              </p>
+              <p className="font-mono text-xs text-[#666] mt-0.5">
+                {run.project_name}
+              </p>
+            </div>
           </div>
-          <Badge variant="outline" className={cn('text-xs shrink-0', styles.badge)}>
-            {run.status}
-          </Badge>
+
+          {/* Status badge */}
+          <div className={cn(
+            'flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono shrink-0',
+            'bg-[#1a1a24] border border-[#2a2a3a]',
+            config.textColor
+          )}>
+            <StatusIcon className={cn('w-3 h-3', run.status === 'running' && 'animate-spin')} />
+            <span>{config.label}</span>
+          </div>
         </div>
-      </CardHeader>
-      <CardContent className="pt-0 pb-3 px-3">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-3">
+      </div>
+
+      {/* Card footer */}
+      <div className="px-3 pb-3 pt-1 border-t border-[#1f1f2a]">
+        <div className="flex items-center justify-between">
+          {/* Metadata */}
+          <div className="flex items-center gap-3 text-xs font-mono text-[#666]">
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               {formatTime(run.created_at)}
@@ -73,28 +116,30 @@ export function RunCard({ run, onClick, onCancel }: RunCardProps) {
               </span>
             )}
           </div>
+
+          {/* Cancel button */}
           {isActive && onCancel && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0 hover:bg-red-100 hover:text-red-600"
+            <button
+              className="mission-button danger !px-2 !py-1 text-xs"
               onClick={(e) => {
                 e.stopPropagation()
                 onCancel()
               }}
-              title="Cancel"
+              title="Abort mission"
             >
-              <XCircle className="h-4 w-4" />
-            </Button>
+              <XCircle className="h-3 w-3" />
+            </button>
           )}
         </div>
+
+        {/* Error message */}
         {run.error_message && (
-          <div className="mt-2 flex items-start gap-1 text-xs text-red-600">
-            <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+          <div className="mt-2 flex items-start gap-1.5 text-xs text-[#ff3366] bg-[#ff3366]/10 px-2 py-1.5 rounded">
+            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
             <span className="truncate">{run.error_message}</span>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

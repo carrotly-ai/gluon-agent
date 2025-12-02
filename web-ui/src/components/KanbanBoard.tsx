@@ -1,7 +1,6 @@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { RunCard } from './RunCard'
 import type { Run, RunStatus } from '@/lib/types'
-import { KANBAN_COLUMNS } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 interface KanbanBoardProps {
@@ -14,28 +13,49 @@ interface KanbanColumnProps {
   status: RunStatus
   runs: Run[]
   label: string
-  color: string
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
 }
 
-function KanbanColumn({ status, runs, label, color, onRunClick, onCancelRun }: KanbanColumnProps) {
+const COLUMN_CONFIG: Record<RunStatus, { label: string; color: string; glow?: string }> = {
+  pending: { label: 'QUEUED', color: 'bg-[#ffbe0b]', glow: 'shadow-[0_0_10px_rgba(255,190,11,0.3)]' },
+  running: { label: 'ACTIVE', color: 'bg-[#00f5ff]', glow: 'shadow-[0_0_10px_rgba(0,245,255,0.3)]' },
+  completed: { label: 'COMPLETED', color: 'bg-[#39ff14]' },
+  failed: { label: 'FAILED', color: 'bg-[#ff3366]' },
+  cancelled: { label: 'ABORTED', color: 'bg-[#6b7280]' },
+}
+
+function KanbanColumn({ status, runs, label, onRunClick, onCancelRun }: KanbanColumnProps) {
+  const config = COLUMN_CONFIG[status]
+  const isActiveColumn = status === 'running' || status === 'pending'
+
   return (
-    <div className="flex flex-col min-w-[280px] max-w-[320px] bg-zinc-100 dark:bg-zinc-900 rounded-lg">
+    <div className={cn(
+      'kanban-column flex flex-col',
+      isActiveColumn && config.glow
+    )}>
       {/* Column header */}
-      <div className="flex items-center gap-2 p-3 border-b border-zinc-200 dark:border-zinc-800">
-        <div className={cn('w-2 h-2 rounded-full', color)} />
-        <h3 className="font-medium text-sm">{label}</h3>
-        <span className="ml-auto text-xs text-muted-foreground bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
+      <div className="kanban-column-header">
+        <div className={cn(
+          'w-3 h-3 rounded-full',
+          config.color,
+          status === 'running' && 'animate-pulse'
+        )} />
+        <h3 className="kanban-column-title" style={{ color: status === 'running' ? '#00f5ff' : status === 'pending' ? '#ffbe0b' : '#888' }}>
+          {label}
+        </h3>
+        <span className="kanban-column-count ml-auto">
           {runs.length}
         </span>
       </div>
 
       {/* Cards */}
-      <ScrollArea className="flex-1 p-2">
-        <div className="space-y-2">
+      <ScrollArea className="flex-1">
+        <div className="p-3 space-y-3">
           {runs.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-4">No runs</p>
+            <div className="text-center py-8">
+              <p className="font-mono text-xs text-[#444]">NO MISSIONS</p>
+            </div>
           ) : (
             runs.map((run) => (
               <RunCard
@@ -81,14 +101,13 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun }: KanbanBoardProps)
   const columnOrder: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled']
 
   return (
-    <div className="flex gap-4 overflow-x-auto p-4 min-h-[calc(100vh-8rem)]">
+    <div className="flex gap-4 overflow-x-auto p-6 min-h-[calc(100vh-5rem)]">
       {columnOrder.map((status) => (
         <KanbanColumn
           key={status}
           status={status}
           runs={runsByStatus[status]}
-          label={KANBAN_COLUMNS[status].label}
-          color={KANBAN_COLUMNS[status].color}
+          label={COLUMN_CONFIG[status].label}
           onRunClick={onRunClick}
           onCancelRun={onCancelRun}
         />

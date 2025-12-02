@@ -6,11 +6,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { XCircle, RefreshCw, Clock, Timer, User, Folder } from 'lucide-react'
+import {
+  XCircle, RefreshCw, Clock, Timer, User, Folder,
+  Terminal, AlertTriangle, CheckCircle2, Loader2, Ban,
+  Hash, ExternalLink
+} from 'lucide-react'
 import type { Run, RunDetail, RunStatus } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -22,12 +23,48 @@ interface RunDetailDialogProps {
   onRunUpdated: (run: Run) => void
 }
 
-const STATUS_STYLES: Record<RunStatus, string> = {
-  pending: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
-  running: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-  completed: 'bg-green-500/10 text-green-600 border-green-500/20',
-  failed: 'bg-red-500/10 text-red-600 border-red-500/20',
-  cancelled: 'bg-gray-500/10 text-gray-600 border-gray-500/20',
+const STATUS_CONFIG: Record<RunStatus, {
+  color: string
+  bgColor: string
+  borderColor: string
+  icon: React.ElementType
+  label: string
+}> = {
+  pending: {
+    color: 'text-[#ffbe0b]',
+    bgColor: 'bg-[#ffbe0b]/10',
+    borderColor: 'border-[#ffbe0b]/30',
+    icon: Clock,
+    label: 'QUEUED'
+  },
+  running: {
+    color: 'text-[#00f5ff]',
+    bgColor: 'bg-[#00f5ff]/10',
+    borderColor: 'border-[#00f5ff]/30',
+    icon: Loader2,
+    label: 'ACTIVE'
+  },
+  completed: {
+    color: 'text-[#39ff14]',
+    bgColor: 'bg-[#39ff14]/10',
+    borderColor: 'border-[#39ff14]/30',
+    icon: CheckCircle2,
+    label: 'COMPLETE'
+  },
+  failed: {
+    color: 'text-[#ff3366]',
+    bgColor: 'bg-[#ff3366]/10',
+    borderColor: 'border-[#ff3366]/30',
+    icon: AlertTriangle,
+    label: 'FAILED'
+  },
+  cancelled: {
+    color: 'text-[#6b7280]',
+    bgColor: 'bg-[#6b7280]/10',
+    borderColor: 'border-[#6b7280]/30',
+    icon: Ban,
+    label: 'ABORTED'
+  },
 }
 
 function formatDuration(seconds: number | null): string {
@@ -45,7 +82,7 @@ function formatDateTime(dateStr: string | null): string {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string }>({ stdout: '', stderr: '' })
-  const [activeTab, setActiveTab] = useState('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'stdout' | 'stderr'>('details')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
@@ -118,127 +155,200 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   }
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
+  const config = run ? STATUS_CONFIG[run.status] : null
+  const StatusIcon = config?.icon || Terminal
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="mission-dialog max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+        {/* Header */}
+        <DialogHeader className="p-4 border-b border-[#2a2a3a] bg-[#0a0a0f]">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <DialogTitle className="text-base font-medium truncate">
-                {run?.prompt || 'Run Details'}
-              </DialogTitle>
-              <DialogDescription className="flex items-center gap-2 mt-1">
-                <span className="font-mono text-xs">{run?.id.slice(0, 8)}</span>
-                {run && (
-                  <Badge variant="outline" className={cn('text-xs', STATUS_STYLES[run.status])}>
-                    {run.status}
-                  </Badge>
+              <div className="flex items-center gap-3 mb-2">
+                {config && (
+                  <div className={cn(
+                    'flex items-center gap-2 px-3 py-1.5 rounded-md border',
+                    config.bgColor,
+                    config.borderColor,
+                    config.color
+                  )}>
+                    <StatusIcon className={cn('w-4 h-4', run?.status === 'running' && 'animate-spin')} />
+                    <span className="font-mono text-xs font-semibold">{config.label}</span>
+                  </div>
                 )}
+                <span className="font-mono text-xs text-[#666]">
+                  <Hash className="w-3 h-3 inline mr-1" />
+                  {run?.id.slice(0, 8)}
+                </span>
+              </div>
+              <DialogTitle className="text-base font-medium text-[#e4e4e7]">
+                {run?.prompt || 'Mission Details'}
+              </DialogTitle>
+              <DialogDescription className="text-[#666] text-sm mt-1">
+                {run?.project_name}
               </DialogDescription>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                className="mission-button"
                 onClick={handleRefresh}
                 disabled={loading}
               >
-                <RefreshCw className={cn('h-4 w-4 mr-1', loading && 'animate-spin')} />
-                Refresh
-              </Button>
+                <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
+                REFRESH
+              </button>
               {isActive && (
-                <Button
-                  variant="destructive"
-                  size="sm"
+                <button
+                  className="mission-button danger"
                   onClick={handleCancel}
                   disabled={cancelling}
                 >
-                  <XCircle className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  ABORT
+                </button>
               )}
             </div>
           </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="shrink-0">
-            <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="stdout">Stdout</TabsTrigger>
-            <TabsTrigger value="stderr">Stderr</TabsTrigger>
-          </TabsList>
+        {/* Tabs */}
+        <div className="flex border-b border-[#2a2a3a] bg-[#12121a]">
+          {(['details', 'stdout', 'stderr'] as const).map((tab) => (
+            <button
+              key={tab}
+              className={cn(
+                'mission-tab',
+                activeTab === tab && 'active'
+              )}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab === 'details' && <Terminal className="w-3 h-3 mr-2 inline" />}
+              {tab.toUpperCase()}
+              {tab === 'stderr' && logs.stderr && (
+                <span className="ml-2 w-2 h-2 rounded-full bg-[#ff3366] inline-block" />
+              )}
+            </button>
+          ))}
+        </div>
 
-          <TabsContent value="details" className="flex-1 overflow-auto">
-            <div className="space-y-4 py-4">
-              {/* Metadata grid */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Folder className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Project:</span>
-                  <span className="font-medium">{run?.project_name}</span>
+        {/* Content */}
+        <div className="flex-1 overflow-hidden bg-[#0a0a0f]">
+          {activeTab === 'details' && (
+            <ScrollArea className="h-full">
+              <div className="p-6 space-y-6">
+                {/* Metadata grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
+                      <Folder className="h-4 w-4" />
+                      PROJECT
+                    </div>
+                    <p className="text-[#e4e4e7] font-medium">{run?.project_name}</p>
+                  </div>
+                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
+                      <User className="h-4 w-4" />
+                      INITIATOR
+                    </div>
+                    <p className="text-[#e4e4e7] font-medium">{run?.initiator || 'CLI'}</p>
+                  </div>
+                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
+                      <Clock className="h-4 w-4" />
+                      CREATED
+                    </div>
+                    <p className="text-[#e4e4e7] font-medium font-mono text-sm">
+                      {formatDateTime(run?.created_at ?? null)}
+                    </p>
+                  </div>
+                  <div className="bg-[#12121a] border border-[#2a2a3a] rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-[#666] text-xs font-mono mb-2">
+                      <Timer className="h-4 w-4" />
+                      DURATION
+                    </div>
+                    <p className="text-[#e4e4e7] font-medium font-mono text-sm">
+                      {formatDuration(run?.duration_seconds ?? null)}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Initiator:</span>
-                  <span className="font-medium">{run?.initiator || 'CLI'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Created:</span>
-                  <span className="font-medium">{formatDateTime(run?.created_at ?? null)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Timer className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Duration:</span>
-                  <span className="font-medium">{formatDuration(run?.duration_seconds ?? null)}</span>
-                </div>
-              </div>
 
-              {/* Full prompt */}
-              <div>
-                <h4 className="text-sm font-medium mb-2">Prompt</h4>
-                <pre className="text-sm bg-zinc-100 dark:bg-zinc-900 p-3 rounded-md whitespace-pre-wrap">
-                  {run?.prompt}
-                </pre>
-              </div>
-
-              {/* Error message */}
-              {run?.error_message && (
+                {/* Full prompt */}
                 <div>
-                  <h4 className="text-sm font-medium mb-2 text-red-600">Error</h4>
-                  <pre className="text-sm bg-red-50 dark:bg-red-950/20 text-red-600 p-3 rounded-md whitespace-pre-wrap">
-                    {run.error_message}
+                  <h4 className="text-xs font-mono text-[#666] mb-3 flex items-center gap-2">
+                    <Terminal className="w-4 h-4" />
+                    MISSION PROMPT
+                  </h4>
+                  <div className="log-viewer">
+                    <pre>{run?.prompt}</pre>
+                  </div>
+                </div>
+
+                {/* Error message */}
+                {run?.error_message && (
+                  <div>
+                    <h4 className="text-xs font-mono text-[#ff3366] mb-3 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      ERROR
+                    </h4>
+                    <div className="log-viewer border-[#ff3366]/30 bg-[#ff3366]/5">
+                      <pre className="text-[#ff3366]">{run.error_message}</pre>
+                    </div>
+                  </div>
+                )}
+
+                {/* Additional details */}
+                {detail && (detail.session_id || detail.exit_code !== null) && (
+                  <div className="border-t border-[#2a2a3a] pt-4">
+                    <h4 className="text-xs font-mono text-[#666] mb-3">SYSTEM INFO</h4>
+                    <div className="flex items-center gap-4 text-xs font-mono text-[#888]">
+                      {detail.session_id && (
+                        <span className="flex items-center gap-1">
+                          <ExternalLink className="w-3 h-3" />
+                          Session: {detail.session_id.slice(0, 12)}...
+                        </span>
+                      )}
+                      {detail.exit_code !== null && (
+                        <span className={cn(
+                          'px-2 py-0.5 rounded',
+                          detail.exit_code === 0
+                            ? 'bg-[#39ff14]/10 text-[#39ff14]'
+                            : 'bg-[#ff3366]/10 text-[#ff3366]'
+                        )}>
+                          Exit: {detail.exit_code}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          )}
+
+          {activeTab === 'stdout' && (
+            <ScrollArea className="h-[500px]">
+              <div className="p-4">
+                <div className="log-viewer min-h-[400px]">
+                  <pre>
+                    {logs.stdout || <span className="text-[#444]">// No output captured</span>}
                   </pre>
                 </div>
-              )}
+              </div>
+            </ScrollArea>
+          )}
 
-              {/* Additional details */}
-              {detail && (
-                <div className="text-xs text-muted-foreground space-y-1">
-                  {detail.session_id && <p>Session: {detail.session_id}</p>}
-                  {detail.exit_code !== null && <p>Exit code: {detail.exit_code}</p>}
+          {activeTab === 'stderr' && (
+            <ScrollArea className="h-[500px]">
+              <div className="p-4">
+                <div className="log-viewer min-h-[400px] border-[#ff3366]/20">
+                  <pre className={logs.stderr ? 'text-[#ff3366]' : ''}>
+                    {logs.stderr || <span className="text-[#444]">// No errors captured</span>}
+                  </pre>
                 </div>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="stdout" className="flex-1 min-h-0">
-            <ScrollArea className="h-[400px] rounded-md border">
-              <pre className="p-4 text-xs font-mono whitespace-pre-wrap">
-                {logs.stdout || <span className="text-muted-foreground">No output</span>}
-              </pre>
+              </div>
             </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="stderr" className="flex-1 min-h-0">
-            <ScrollArea className="h-[400px] rounded-md border">
-              <pre className="p-4 text-xs font-mono whitespace-pre-wrap text-red-600">
-                {logs.stderr || <span className="text-muted-foreground">No errors</span>}
-              </pre>
-            </ScrollArea>
-          </TabsContent>
-        </Tabs>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )
