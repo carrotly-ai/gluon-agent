@@ -310,7 +310,7 @@ def create_app() -> FastAPI:
                     <h2>Development Mode</h2>
                     <pre>
 # Terminal 1: FastAPI (already running)
-uvicorn gluon.web.api:create_app --factory --reload --port 8000
+uvicorn gluon.web.api:create_app --factory --reload --port 45866
 
 # Terminal 2: Vite dev server
 cd web-ui && npm run dev

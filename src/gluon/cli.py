@@ -835,7 +835,7 @@ def serve(
     telegram: Annotated[bool, typer.Option("--telegram", help="Enable Telegram transport")] = False,
     discord: Annotated[bool, typer.Option("--discord", help="Enable Discord transport")] = False,
     web: Annotated[bool, typer.Option("--web", help="Enable web dashboard")] = False,
-    web_port: Annotated[int, typer.Option("--web-port", help="Web dashboard port")] = 8000,
+    web_port: Annotated[int, typer.Option("--web-port", help="Web dashboard port")] = 45866,
 ):
     """
     Run multiple bot transports concurrently.
@@ -845,7 +845,7 @@ def serve(
     Configure each transport with environment variables:
     - Telegram: GLUON_TELEGRAM_TOKEN, GLUON_TELEGRAM_USERS
     - Discord: GLUON_DISCORD_TOKEN, GLUON_DISCORD_GUILD, GLUON_DISCORD_USERS
-    - Web: No configuration needed (runs on --web-port, default 8000)
+    - Web: No configuration needed (runs on --web-port, default 45866)
     """
     import os
 
@@ -1126,14 +1126,14 @@ def cancel(
 @app.command("web")
 def web(
     host: Annotated[str, typer.Option("--host", "-h", help="Host to bind to")] = "127.0.0.1",
-    port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 8000,
+    port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 45866,
     reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload for development")] = False,
     no_browser: Annotated[bool, typer.Option("--no-browser", help="Don't open browser automatically")] = False,
 ):
     """
     Start the Gluon web dashboard.
 
-    Opens a browser to the dashboard at http://localhost:8000
+    Opens a browser to the dashboard at http://localhost:45866
 
     Install dependencies: pip install 'gluon-agent[web]'
     """
