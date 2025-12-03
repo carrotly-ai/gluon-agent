@@ -366,8 +366,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               )}
             </div>
 
-            {/* Git Info Row - if using worktree */}
-            {detail?.use_worktree && (
+            {/* Git Info Row - show if branch or PR exists */}
+            {(detail?.branch_name || detail?.pr_number) && (
               <div className="flex items-center gap-3 text-[0.6875rem] mb-4 shrink-0 flex-wrap">
                 {detail.branch_name && (
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] rounded-sm">
