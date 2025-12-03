@@ -245,11 +245,11 @@ export function SettingsPage() {
                             <span className="text-[var(--color-stone)]/80 truncate pl-4">
                               {project.name}
                             </span>
-                            <span className="flex items-center gap-1.5 text-[var(--color-stone)]/50 text-[0.625rem] min-w-[140px] justify-end">
+                            <span className="flex items-center gap-1.5 text-[var(--color-stone)]/50 text-[0.625rem] min-w-[180px] justify-end">
                               <GitBranch className="w-3 h-3 text-[var(--color-stone)]/40 shrink-0" />
-                              <span className="truncate max-w-[100px]">{project.git_branch || 'no git'}</span>
+                              <span className="truncate max-w-[140px]">{project.git_branch || 'no git'}</span>
                             </span>
-                            <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono w-[45px] text-right tabular-nums">
+                            <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono w-[32px] text-right tabular-nums">
                               {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
                             </span>
                           </div>
