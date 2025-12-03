@@ -50,7 +50,10 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
         "card hover-whisper cursor-grab active:cursor-grabbing group relative",
         run.status === 'running' && "card-running overflow-visible"
       )}
-      style={{ borderLeft: `3px solid ${getStatusBorderColor(run.status)}` }}
+      style={{ borderLeft: `3px solid ${getStatusBorderColor(
+        // Use 'review' for completed runs with open PRs (virtual REVIEW column)
+        run.status === 'completed' && run.pr_status === 'open' ? 'review' : run.status
+      )}` }}
       onClick={onClick}
     >
       {/* Pulsing stripe overlay for running cards */}
