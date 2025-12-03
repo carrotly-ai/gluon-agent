@@ -71,6 +71,8 @@ export interface Project {
   session_count: number
   workspace_id?: string | null
   git_branch?: string | null
+  git_ahead?: number | null
+  git_behind?: number | null
 }
 
 /** Project with derived workspace info */

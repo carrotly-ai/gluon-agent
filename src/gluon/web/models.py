@@ -83,6 +83,8 @@ class ProjectResponse(BaseModel):
     session_count: int = 0
     workspace_id: str | None = None
     git_branch: str | None = Field(default=None, description="Current git branch")
+    git_ahead: int | None = Field(default=None, description="Commits ahead of upstream")
+    git_behind: int | None = Field(default=None, description="Commits behind upstream")
 
     class Config:
         from_attributes = True

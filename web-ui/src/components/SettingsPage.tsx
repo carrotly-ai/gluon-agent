@@ -239,9 +239,9 @@ export function SettingsPage() {
 
                     {/* Projects in this workspace */}
                     {projectsByWorkspace[ws.id] && projectsByWorkspace[ws.id].length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-[rgba(163,163,163,0.08)] space-y-1.5">
+                      <div className="mt-3 pt-3 border-t border-[rgba(163,163,163,0.08)] space-y-0.5">
                         {projectsByWorkspace[ws.id].map(project => (
-                          <div key={project.id} className="flex items-center gap-2 text-[0.6875rem]">
+                          <div key={project.id} className="flex items-center gap-2 text-[0.6875rem] px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors">
                             <span className="w-4" />
                             <span className="text-[var(--color-stone)]/80 truncate flex-1">
                               {project.name}
@@ -250,6 +250,11 @@ export function SettingsPage() {
                             <span className="text-[var(--color-stone)]/50 text-[0.625rem]">
                               {project.git_branch || 'no git'}
                             </span>
+                            {(project.git_ahead !== null && project.git_ahead !== undefined) || (project.git_behind !== null && project.git_behind !== undefined) ? (
+                              <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono">
+                                {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
+                              </span>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -349,7 +354,7 @@ export function SettingsPage() {
                   return (
                     <div
                       key={project.id}
-                      className="flex items-center gap-4 p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm"
+                      className="flex items-center gap-4 p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors"
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -371,6 +376,11 @@ export function SettingsPage() {
                           <div className="flex items-center gap-1.5 text-[0.625rem] text-[var(--color-stone)]/60">
                             <GitBranch className="w-3 h-3" />
                             <span>{project.git_branch}</span>
+                            {(project.git_ahead || project.git_behind) && (
+                              <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono ml-1">
+                                {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
+                              </span>
+                            )}
                           </div>
                         )}
                         <button

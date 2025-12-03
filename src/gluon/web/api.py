@@ -60,6 +60,25 @@ def _get_git_branch(project_path: str | Path) -> str | None:
     return None
 
 
+def _get_git_ahead_behind(project_path: str | Path) -> tuple[int | None, int | None]:
+    """Get commits ahead/behind upstream for a project path."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+            cwd=str(project_path),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            parts = result.stdout.strip().split()
+            if len(parts) == 2:
+                return int(parts[0]), int(parts[1])
+    except Exception:
+        pass
+    return None, None
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
@@ -357,6 +376,8 @@ def create_app() -> FastAPI:
             sessions = orchestrator.list_sessions(project.name)
             # Get git branch from project path
             git_branch = _get_git_branch(project.path)
+            # Get ahead/behind counts
+            git_ahead, git_behind = _get_git_ahead_behind(project.path)
             result.append(
                 ProjectResponse(
                     id=project.id,
@@ -365,6 +386,8 @@ def create_app() -> FastAPI:
                     session_count=len(sessions),
                     workspace_id=project.workspace_id,
                     git_branch=git_branch,
+                    git_ahead=git_ahead,
+                    git_behind=git_behind,
                 )
             )
 
