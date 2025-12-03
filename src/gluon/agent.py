@@ -219,9 +219,10 @@ class GluonAgent:
                     elif isinstance(msg, ResultMessage):
                         total_cost_usd = getattr(msg, "total_cost_usd", 0.0) or 0.0
                         total_turns = getattr(msg, "num_turns", 0) or total_turns
-                        # Extract token usage from ResultMessage
-                        input_tokens = getattr(msg, "input_tokens", None)
-                        output_tokens = getattr(msg, "output_tokens", None)
+                        # Extract token usage from ResultMessage.usage dict
+                        usage = getattr(msg, "usage", None) or {}
+                        input_tokens = usage.get("input_tokens")
+                        output_tokens = usage.get("output_tokens")
                         # Extract session_id from ResultMessage
                         if hasattr(msg, "session_id") and msg.session_id:
                             claude_session_id = msg.session_id

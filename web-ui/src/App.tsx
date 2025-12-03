@@ -145,15 +145,13 @@ function App() {
                 {activeRuns} active
               </span>
             )}
-            {todayCost > 0 && (
-              <button
-                className="text-caption text-[var(--color-harvest)] hidden sm:inline hover:underline"
-                onClick={() => setViewMode('usage')}
-                title="View usage details"
-              >
-                ${todayCost.toFixed(2)} today
-              </button>
-            )}
+            <button
+              className="text-caption text-[var(--color-harvest)] hover:underline"
+              onClick={() => setViewMode('usage')}
+              title="View usage details"
+            >
+              ${todayCost.toFixed(2)} today
+            </button>
           </div>
 
           {/* Right - view toggle + theme + connection pulse */}
