@@ -14,16 +14,13 @@ import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
 
-type ViewMode = 'board' | 'usage' | 'settings'
-
 function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
-  const [viewMode, setViewMode] = useState<ViewMode>('board')
-  const { filter, setFilter } = useHashFilter()
+  const { filter, setFilter, viewMode, setViewMode } = useHashFilter()
   const { theme, toggleTheme } = useTheme()
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)

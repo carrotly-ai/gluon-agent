@@ -132,7 +132,7 @@ export function SettingsPage() {
                 'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
                 tab === 'workspaces'
                   ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                  : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                  : 'text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
               )}
               onClick={() => setTab('workspaces')}
             >
@@ -143,7 +143,7 @@ export function SettingsPage() {
                 'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
                 tab === 'projects'
                   ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                  : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                  : 'text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
               )}
               onClick={() => setTab('projects')}
             >
@@ -188,7 +188,7 @@ export function SettingsPage() {
           <div className="space-y-4">
             {/* Workspace list */}
             {workspaces.length === 0 ? (
-              <div className="text-center py-8 text-[var(--color-stone)]/60 text-[0.75rem]">
+              <div className="text-center py-8 text-[var(--color-stone)]/80 text-[0.75rem]">
                 No workspaces configured. Add one to start managing projects.
               </div>
             ) : (
@@ -200,15 +200,15 @@ export function SettingsPage() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3 min-w-0">
-                        <FolderOpen className="w-4 h-4 text-[var(--color-stone)]/60 mt-0.5 shrink-0" />
+                        <FolderOpen className="w-4 h-4 text-[var(--color-stone)]/80 mt-0.5 shrink-0" />
                         <div className="min-w-0">
                           <h3 className="text-[0.8125rem] font-medium text-[var(--color-paper)] truncate">
                             {ws.name}
                           </h3>
-                          <p className="text-[0.6875rem] text-[var(--color-stone)]/60 truncate mt-0.5">
+                          <p className="text-[0.6875rem] text-[var(--color-stone)]/80 truncate mt-0.5">
                             {ws.path}
                           </p>
-                          <p className="text-[0.625rem] text-[var(--color-stone)]/40 mt-1">
+                          <p className="text-[0.625rem] text-[var(--color-stone)]/60 mt-1">
                             {ws.project_count} project{ws.project_count !== 1 ? 's' : ''}
                           </p>
                         </div>
@@ -219,7 +219,7 @@ export function SettingsPage() {
                             'p-1.5 rounded-sm transition-colors',
                             scanningId === ws.id
                               ? 'bg-[var(--color-sky)]/10 text-[var(--color-sky)]'
-                              : 'hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                              : 'hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
                           )}
                           onClick={() => handleScanWorkspace(ws.id)}
                           disabled={scanningId === ws.id}
@@ -228,7 +228,7 @@ export function SettingsPage() {
                           <RefreshCw className={cn('w-3.5 h-3.5', scanningId === ws.id && 'animate-spin')} />
                         </button>
                         <button
-                          className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)] transition-colors"
+                          className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
                           onClick={() => setDeleteConfirm({ type: 'workspace', id: ws.id, name: ws.name })}
                           title="Delete workspace"
                         >
@@ -245,11 +245,11 @@ export function SettingsPage() {
                             <span className="text-[var(--color-stone)]/80 truncate pl-4">
                               {project.name}
                             </span>
-                            <span className="flex items-center gap-1.5 text-[var(--color-stone)]/50 text-[0.625rem] min-w-[180px] justify-end">
-                              <GitBranch className="w-3 h-3 text-[var(--color-stone)]/40 shrink-0" />
+                            <span className="flex items-center gap-1.5 text-[var(--color-stone)]/70 text-[0.625rem] min-w-[180px] justify-end">
+                              <GitBranch className="w-3 h-3 text-[var(--color-stone)]/60 shrink-0" />
                               <span className="truncate max-w-[140px]">{project.git_branch || 'no git'}</span>
                             </span>
-                            <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono w-[32px] text-right tabular-nums">
+                            <span className="text-[0.5625rem] text-[var(--color-stone)]/60 font-mono w-[32px] text-right tabular-nums">
                               {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
                             </span>
                           </div>
@@ -269,7 +269,7 @@ export function SettingsPage() {
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 mb-1">
+                    <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
                       Name
                     </label>
                     <input
@@ -281,7 +281,7 @@ export function SettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 mb-1">
+                    <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
                       Path
                     </label>
                     <input
@@ -319,7 +319,7 @@ export function SettingsPage() {
                       setNewWorkspaceName('')
                       setNewWorkspacePath('')
                     }}
-                    className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] transition-colors"
+                    className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
                   >
                     Cancel
                   </button>
@@ -328,7 +328,7 @@ export function SettingsPage() {
             ) : (
               <button
                 onClick={() => setShowAddForm(true)}
-                className="flex items-center gap-2 px-4 py-2.5 text-[0.6875rem] text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:bg-[rgba(163,163,163,0.05)] border border-dashed border-[rgba(163,163,163,0.2)] hover:border-[rgba(163,163,163,0.3)] rounded-sm transition-colors w-full justify-center"
+                className="flex items-center gap-2 px-4 py-2.5 text-[0.6875rem] text-[var(--color-stone)]/80 hover:text-[var(--color-paper)] hover:bg-[rgba(163,163,163,0.05)] border border-dashed border-[rgba(163,163,163,0.2)] hover:border-[rgba(163,163,163,0.3)] rounded-sm transition-colors w-full justify-center"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Workspace
@@ -341,7 +341,7 @@ export function SettingsPage() {
         {tab === 'projects' && (
           <div className="space-y-4">
             {projects.length === 0 ? (
-              <div className="text-center py-8 text-[var(--color-stone)]/60 text-[0.75rem]">
+              <div className="text-center py-8 text-[var(--color-stone)]/80 text-[0.75rem]">
                 No projects registered. Add a workspace to auto-discover projects.
               </div>
             ) : (
@@ -359,29 +359,29 @@ export function SettingsPage() {
                             {project.name}
                           </h3>
                           {workspace && (
-                            <span className="text-[0.5625rem] uppercase tracking-widest px-1.5 py-0.5 bg-[rgba(163,163,163,0.1)] rounded text-[var(--color-stone)]/50">
+                            <span className="text-[0.5625rem] uppercase tracking-widest px-1.5 py-0.5 bg-[rgba(163,163,163,0.1)] rounded text-[var(--color-stone)]/70">
                               {workspace.name}
                             </span>
                           )}
                         </div>
-                        <p className="text-[0.6875rem] text-[var(--color-stone)]/50 truncate mt-0.5">
+                        <p className="text-[0.6875rem] text-[var(--color-stone)]/70 truncate mt-0.5">
                           {project.path}
                         </p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         {project.git_branch && (
-                          <div className="flex items-center gap-1.5 text-[0.625rem] text-[var(--color-stone)]/60">
+                          <div className="flex items-center gap-1.5 text-[0.625rem] text-[var(--color-stone)]/80">
                             <GitBranch className="w-3 h-3" />
                             <span>{project.git_branch}</span>
                             {(project.git_ahead || project.git_behind) && (
-                              <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono ml-1">
+                              <span className="text-[0.5625rem] text-[var(--color-stone)]/60 font-mono ml-1">
                                 {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
                               </span>
                             )}
                           </div>
                         )}
                         <button
-                          className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)] transition-colors"
+                          className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
                           onClick={() => setDeleteConfirm({ type: 'project', id: project.id, name: project.name })}
                           title="Delete project"
                         >
@@ -423,7 +423,7 @@ export function SettingsPage() {
                 </button>
                 <button
                   onClick={() => setDeleteConfirm(null)}
-                  className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] transition-colors"
+                  className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
                 >
                   Cancel
                 </button>
