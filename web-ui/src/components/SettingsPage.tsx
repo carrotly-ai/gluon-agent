@@ -241,20 +241,17 @@ export function SettingsPage() {
                     {projectsByWorkspace[ws.id] && projectsByWorkspace[ws.id].length > 0 && (
                       <div className="mt-3 pt-3 border-t border-[rgba(163,163,163,0.08)] space-y-0.5">
                         {projectsByWorkspace[ws.id].map(project => (
-                          <div key={project.id} className="flex items-center gap-2 text-[0.6875rem] px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors">
-                            <span className="w-4" />
-                            <span className="text-[var(--color-stone)]/80 truncate flex-1">
+                          <div key={project.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 text-[0.6875rem] px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors">
+                            <span className="text-[var(--color-stone)]/80 truncate pl-4">
                               {project.name}
                             </span>
-                            <GitBranch className="w-3 h-3 text-[var(--color-stone)]/40" />
-                            <span className="text-[var(--color-stone)]/50 text-[0.625rem]">
-                              {project.git_branch || 'no git'}
+                            <span className="flex items-center gap-1.5 text-[var(--color-stone)]/50 text-[0.625rem] min-w-[140px] justify-end">
+                              <GitBranch className="w-3 h-3 text-[var(--color-stone)]/40 shrink-0" />
+                              <span className="truncate max-w-[100px]">{project.git_branch || 'no git'}</span>
                             </span>
-                            {(project.git_ahead !== null && project.git_ahead !== undefined) || (project.git_behind !== null && project.git_behind !== undefined) ? (
-                              <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono">
-                                {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
-                              </span>
-                            ) : null}
+                            <span className="text-[0.5625rem] text-[var(--color-stone)]/40 font-mono w-[45px] text-right tabular-nums">
+                              {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
+                            </span>
                           </div>
                         ))}
                       </div>
