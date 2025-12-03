@@ -47,7 +47,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       setSelectedProject(initialProject || '')
       setError(null)
       setModel(MODEL_OPTIONS[0].value)
-      setUseWorktree(false)
+      setUseWorktree(true)
     }
   }, [open, initialProject])
 
