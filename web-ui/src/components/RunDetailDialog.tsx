@@ -484,19 +484,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       <span className="text-[0.5rem] text-[var(--color-stone)]/50">({sessionHistory.length})</span>
                     </button>
                   )}
-                  {isResumable && (
-                    <button
-                      className={cn(
-                        'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
-                        activeTab === 'continue'
-                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                      )}
-                      onClick={() => setActiveTab('continue')}
-                    >
-                      Continue
-                    </button>
-                  )}
                 </div>
                 <button
                   className={cn(
@@ -517,9 +504,49 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               {/* Log Content */}
               <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
-                  <pre className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed">
-                    {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
-                  </pre>
+                  <div className="flex flex-col h-full">
+                    <pre className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed flex-1 overflow-auto">
+                      {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
+                    </pre>
+                    {isResumable && (
+                      <div className="p-3 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-ink)]/50">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            className="flex-1 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)]"
+                            placeholder="Continue with follow-up prompt... (Enter to submit)"
+                            value={resumePrompt}
+                            onChange={(e) => setResumePrompt(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                if (resumePrompt.trim() && !resuming) {
+                                  handleResume()
+                                }
+                              }
+                            }}
+                            disabled={resuming}
+                          />
+                          <button
+                            className={cn(
+                              'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors shrink-0',
+                              resumePrompt.trim() && !resuming
+                                ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                                : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                            )}
+                            onClick={handleResume}
+                            disabled={!resumePrompt.trim() || resuming}
+                          >
+                            <Play className="w-3 h-3" />
+                            {resuming ? 'Resuming...' : 'Resume'}
+                          </button>
+                        </div>
+                        {resumeError && (
+                          <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2">{resumeError}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {activeTab === 'errors' && (
                   <pre className={cn(
@@ -583,51 +610,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                           )}
                         </div>
                       ))}
-                    </div>
-                  </div>
-                )}
-                {activeTab === 'continue' && (
-                  <div className="p-4 flex flex-col h-full">
-                    <p className="text-[0.6875rem] text-[var(--color-stone)]/70 mb-3">
-                      Continue this session with a follow-up prompt. The agent will resume from where it left off.
-                    </p>
-                    <textarea
-                      className="flex-1 min-h-[120px] bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm p-3 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none"
-                      placeholder="Enter follow-up prompt... (⌘+Enter to submit)"
-                      value={resumePrompt}
-                      onChange={(e) => setResumePrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                          e.preventDefault()
-                          if (resumePrompt.trim() && !resuming) {
-                            handleResume()
-                          }
-                        }
-                      }}
-                      disabled={resuming}
-                    />
-                    {resumeError && (
-                      <div className="mt-3 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
-                        <p className="text-[0.6875rem] text-[var(--color-vermillion)]">{resumeError}</p>
-                      </div>
-                    )}
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">
-                        Session: {detail?.session_id?.slice(0, 12)}...
-                      </span>
-                      <button
-                        className={cn(
-                          'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors',
-                          resumePrompt.trim() && !resuming
-                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
-                        )}
-                        onClick={handleResume}
-                        disabled={!resumePrompt.trim() || resuming}
-                      >
-                        <Play className="w-3 h-3" />
-                        {resuming ? 'Resuming...' : 'Resume'}
-                      </button>
                     </div>
                   </div>
                 )}
