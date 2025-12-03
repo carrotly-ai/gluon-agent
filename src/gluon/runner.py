@@ -200,9 +200,14 @@ class TaskRunner:
                         run.output_tokens = item.output_tokens
                         run.model_used = item.model_used
 
+                        # Determine working path (worktree or project)
+                        working_path = (
+                            Path(run.worktree_path) if run.worktree_path else project.path
+                        )
+
                         # Capture git info (branch, commit, PR) after task completion
                         try:
-                            git_info = await self.git_manager.capture_run_git_info(project.path)
+                            git_info = await self.git_manager.capture_run_git_info(working_path)
                             run.branch_name = git_info.get("branch_name")
                             run.git_commit_sha = git_info.get("git_commit_sha")
                             run.pr_number = git_info.get("pr_number")
@@ -211,6 +216,29 @@ class TaskRunner:
                         except Exception as git_err:
                             # Don't fail the run if git capture fails
                             stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
+
+                        # For worktree runs: push branch and create PR
+                        if run.use_worktree and run.branch_name and item.success:
+                            try:
+                                pr_result = await self.git_manager.push_branch_and_create_pr(
+                                    project_path=working_path,
+                                    branch_name=run.branch_name,
+                                    prompt=run.prompt,
+                                    run_id=run.id,
+                                )
+                                if pr_result.get("pushed"):
+                                    stdout_file.write(f"\n✓ Pushed branch {run.branch_name} to remote\n")
+                                if pr_result.get("pr_url"):
+                                    run.pr_number = pr_result.get("pr_number")
+                                    run.pr_url = pr_result.get("pr_url")
+                                    run.pr_status = pr_result.get("pr_status")
+                                    stdout_file.write(f"✓ Created PR: {run.pr_url}\n")
+                                elif pr_result.get("error"):
+                                    stderr_file.write(f"Warning: PR creation: {pr_result['error']}\n")
+                                stdout_file.flush()
+                            except Exception as pr_err:
+                                stderr_file.write(f"Warning: Failed to push/create PR: {pr_err}\n")
+                                stderr_file.flush()
 
                         if item.success:
                             run.mark_completed(exit_code=0)

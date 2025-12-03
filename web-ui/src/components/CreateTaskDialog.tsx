@@ -24,7 +24,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState(MODEL_OPTIONS[0].value)
-  const [useWorktree, setUseWorktree] = useState(false)
+  const [useWorktree, setUseWorktree] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
