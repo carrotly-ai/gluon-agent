@@ -151,6 +151,14 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  if (selectedProject && prompt.trim() && !submitting) {
+                    handleSubmit(e as unknown as React.FormEvent)
+                  }
+                }
+              }}
               placeholder="What would you like the agent to do?"
               className="w-full px-3 py-2.5 text-[0.8125rem] text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
@@ -253,6 +261,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
                   ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                   : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
               )}
+              title="⌘+Enter to submit"
             >
               <Play className="w-3 h-3" />
               {submitting ? 'Starting...' : 'Start'}

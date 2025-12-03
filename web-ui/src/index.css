@@ -133,6 +133,7 @@ body {
 
 .card-running {
   border-left-color: transparent !important;
+  overflow: visible !important;
 }
 
 .card-running .stripe-pulse {
