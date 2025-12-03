@@ -122,18 +122,21 @@ body {
   50% { opacity: 0.4; }
 }
 
-@keyframes pulse-border {
+@keyframes pulse-stripe {
   0%, 100% {
-    box-shadow: inset 3px 0 0 0 var(--color-sky), 0 0 8px rgba(56, 189, 248, 0.3);
+    opacity: 1;
   }
   50% {
-    box-shadow: inset 3px 0 0 0 var(--color-sky), 0 0 16px rgba(56, 189, 248, 0.5);
+    opacity: 0.4;
   }
 }
 
 .card-running {
-  animation: pulse-border 2s ease-in-out infinite;
   border-left-color: transparent !important;
+}
+
+.card-running .stripe-pulse {
+  animation: pulse-stripe 2s ease-in-out infinite;
 }
 
 /* Subtle hover - just a whisper */

@@ -51,6 +51,14 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
       style={{ borderLeft: `3px solid ${getStatusBorderColor(run.status)}` }}
       onClick={onClick}
     >
+      {/* Pulsing stripe overlay for running cards */}
+      {run.status === 'running' && (
+        <div
+          className="stripe-pulse absolute top-0 bottom-0 w-[3px] rounded-l-sm"
+          style={{ backgroundColor: getStatusBorderColor(run.status), left: '-3px' }}
+        />
+      )}
+
       {/* Archive button - hover reveal in top right */}
       {onArchive && !isActive && (
         <button
