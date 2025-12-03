@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -39,6 +41,23 @@ from gluon.web.models import (
 from gluon.web.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
+
+
+def _get_git_branch(project_path: str | Path) -> str | None:
+    """Get the current git branch for a project path."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(project_path),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 
 def create_app() -> FastAPI:
@@ -336,10 +355,8 @@ def create_app() -> FastAPI:
 
         for project in projects:
             sessions = orchestrator.list_sessions(project.name)
-            # Get git branch from cached status or live
-            git_branch = None
-            if hasattr(project, 'cached_git_branch') and project.cached_git_branch:
-                git_branch = project.cached_git_branch
+            # Get git branch from project path
+            git_branch = _get_git_branch(project.path)
             result.append(
                 ProjectResponse(
                     id=project.id,
@@ -711,6 +728,74 @@ def create_app() -> FastAPI:
             logger.error(f"WebSocket error: {e}")
         finally:
             await ws_manager.disconnect(websocket)
+
+    # ========== Background Polling for Run Status Updates ==========
+
+    # Track last known run states to detect changes
+    _last_run_states: dict[str, str] = {}
+    _polling_task: asyncio.Task | None = None
+
+    async def _poll_run_status_changes() -> None:
+        """Background task to poll for run status changes and broadcast updates."""
+        project_lookup = get_project_lookup()
+
+        while True:
+            try:
+                # Refresh all running runs
+                runner.refresh_all_runs()
+
+                # Check all non-archived runs for status changes
+                runs = store.list_runs(limit=100, include_archived=False)
+                runs = [r for r in runs if not r.archived]
+
+                for run in runs:
+                    run_key = run.id
+                    current_state = run.status.value
+
+                    # Check if state changed
+                    if run_key in _last_run_states:
+                        if _last_run_states[run_key] != current_state:
+                            # State changed - broadcast update
+                            project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                            await ws_manager.broadcast_run_update(run, project_name)
+                            logger.debug(f"Broadcast run update: {run.id[:8]} {_last_run_states[run_key]} -> {current_state}")
+
+                    _last_run_states[run_key] = current_state
+
+                # Clean up old run states (keep last 200)
+                if len(_last_run_states) > 200:
+                    # Keep only runs we just saw
+                    current_ids = {r.id for r in runs}
+                    _last_run_states.clear()
+                    for run in runs:
+                        _last_run_states[run.id] = run.status.value
+
+                # Refresh project lookup occasionally (new projects)
+                project_lookup = get_project_lookup()
+
+            except Exception as e:
+                logger.error(f"Error in run status polling: {e}")
+
+            # Poll every 2 seconds
+            await asyncio.sleep(2)
+
+    @app.on_event("startup")
+    async def start_background_tasks() -> None:
+        """Start background polling task on app startup."""
+        nonlocal _polling_task
+        _polling_task = asyncio.create_task(_poll_run_status_changes())
+        logger.info("Started run status polling background task")
+
+    @app.on_event("shutdown")
+    async def stop_background_tasks() -> None:
+        """Stop background tasks on app shutdown."""
+        if _polling_task:
+            _polling_task.cancel()
+            try:
+                await _polling_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Stopped run status polling background task")
 
     # ========== Static Files (SPA) ==========
 
