@@ -510,15 +510,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     </pre>
                     {isResumable && (
                       <div className="p-3 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-ink)]/50">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            className="flex-1 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)]"
-                            placeholder="Continue with follow-up prompt... (Enter to submit)"
+                        <div className="flex gap-2">
+                          <textarea
+                            className="flex-1 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
+                            placeholder="Continue with follow-up prompt... (⌘+Enter to submit)"
                             value={resumePrompt}
                             onChange={(e) => setResumePrompt(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !e.shiftKey) {
+                              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                                 e.preventDefault()
                                 if (resumePrompt.trim() && !resuming) {
                                   handleResume()
@@ -526,10 +525,17 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                               }
                             }}
                             disabled={resuming}
+                            rows={1}
+                            onInput={(e) => {
+                              // Auto-resize textarea
+                              const target = e.target as HTMLTextAreaElement
+                              target.style.height = 'auto'
+                              target.style.height = Math.min(target.scrollHeight, 128) + 'px'
+                            }}
                           />
                           <button
                             className={cn(
-                              'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors shrink-0',
+                              'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors shrink-0 self-start',
                               resumePrompt.trim() && !resuming
                                 ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                                 : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
