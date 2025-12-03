@@ -493,6 +493,34 @@ def create_app() -> FastAPI:
 
         return response
 
+    @app.post("/api/runs/{run_id}/pr-status", response_model=RunResponse)
+    async def update_pr_status(run_id: str, pr_status: str = Query(..., description="New PR status")) -> RunResponse:
+        """Update the PR status for a run (e.g., mark as merged to move from REVIEW to DONE)."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Validate pr_status
+        valid_statuses = {"open", "merged", "closed", "draft"}
+        if pr_status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid PR status: {pr_status}. Must be one of: {valid_statuses}",
+            )
+
+        updated_run = store.update_pr_status(run.id, pr_status)
+        if not updated_run:
+            raise HTTPException(status_code=500, detail="Failed to update PR status")
+
+        project_lookup = get_project_lookup()
+        response = run_to_response(updated_run, project_lookup)
+
+        # Broadcast update so UI reflects the change
+        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
+        await ws_manager.broadcast_run_update(updated_run, project_name)
+
+        return response
+
     # ========== Phase 7.3: Project Management ==========
 
     @app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse)

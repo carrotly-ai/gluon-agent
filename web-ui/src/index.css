@@ -122,6 +122,40 @@ body {
   50% { opacity: 0.4; }
 }
 
+/* Connection indicator - sonar ping style */
+.connection-indicator {
+  position: relative;
+}
+
+.connection-indicator::before,
+.connection-indicator::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  opacity: 0;
+}
+
+.connection-indicator.connected::before {
+  animation: sonar-ping 2.5s ease-out infinite;
+}
+
+.connection-indicator.connected::after {
+  animation: sonar-ping 2.5s ease-out infinite 1.25s;
+}
+
+@keyframes sonar-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
 @keyframes pulse-stripe {
   0%, 100% {
     opacity: 1;
@@ -183,6 +217,7 @@ body {
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  align-self: stretch;
 }
 
 /* Desktop: fixed width columns */
@@ -262,7 +297,8 @@ body {
 .kanban-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -318,7 +354,8 @@ body {
     display: flex;
     gap: 0;
     overflow-x: auto;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     -webkit-overflow-scrolling: touch;
   }
 

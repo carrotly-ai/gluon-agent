@@ -1,4 +1,4 @@
-import { X, GitBranch, Archive, ExternalLink } from 'lucide-react'
+import { X, GitBranch, Archive, ExternalLink, CheckCircle2 } from 'lucide-react'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -7,6 +7,7 @@ interface RunCardProps {
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
+  onMarkMerged?: () => void
 }
 
 function formatDuration(seconds: number | null): string {
@@ -41,8 +42,9 @@ function getStatusBorderColor(status: string): string {
   }
 }
 
-export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
+export function RunCard({ run, onClick, onCancel, onArchive, onMarkMerged }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
+  const isInReview = run.status === 'completed' && run.pr_status === 'open'
 
   return (
     <div
@@ -64,19 +66,36 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
         />
       )}
 
-      {/* Archive button - hover reveal in top right */}
-      {onArchive && !isActive && (
-        <button
-          className="absolute top-2 right-2 p-1.5 text-[var(--color-stone)]/40 hover:text-[var(--color-stone)] opacity-0 group-hover:opacity-100 transition-all duration-150 hover:bg-[var(--color-paper)]/10 rounded-sm"
-          onClick={(e) => {
-            e.stopPropagation()
-            onArchive()
-          }}
-          title="Archive"
-        >
-          <Archive className="w-3.5 h-3.5" />
-        </button>
-      )}
+      {/* Action buttons - hover reveal in top right */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-150">
+        {/* Mark Merged button - shown for cards in Review column */}
+        {onMarkMerged && isInReview && (
+          <button
+            className="flex items-center gap-1 px-2 py-1 text-[0.5rem] uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)] rounded-sm transition-colors"
+            onClick={(e) => {
+              e.stopPropagation()
+              onMarkMerged()
+            }}
+            title="Mark as merged"
+          >
+            <CheckCircle2 className="w-3 h-3" />
+            Merged
+          </button>
+        )}
+        {/* Archive button */}
+        {onArchive && !isActive && (
+          <button
+            className="p-1.5 text-[var(--color-stone)]/40 hover:text-[var(--color-stone)] hover:bg-[var(--color-paper)]/10 rounded-sm transition-colors"
+            onClick={(e) => {
+              e.stopPropagation()
+              onArchive()
+            }}
+            title="Archive"
+          >
+            <Archive className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
 
       {/* Prompt - no mark indicator */}
       <p

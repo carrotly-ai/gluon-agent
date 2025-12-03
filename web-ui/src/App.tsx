@@ -9,7 +9,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, archiveRun, fetchProjects, fetchRuns } from './lib/api'
+import { cancelRun, archiveRun, updatePrStatus, fetchProjects, fetchRuns } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
@@ -95,6 +95,15 @@ function App() {
     }
   }, [setRuns])
 
+  const handleMarkMerged = useCallback(async (run: Run) => {
+    try {
+      const updated = await updatePrStatus(run.id, 'merged')
+      setRuns(prev => prev.map(r => r.id === updated.id ? updated : r))
+    } catch (err) {
+      console.error('Failed to mark PR as merged:', err)
+    }
+  }, [setRuns])
+
   const handleRunUpdated = useCallback((updatedRun: Run) => {
     setRuns(prev => prev.map(r => r.id === updatedRun.id ? updatedRun : r))
     if (selectedRun?.id === updatedRun.id) {
@@ -118,12 +127,19 @@ function App() {
       {/* Header */}
       <header className="border-b border-[rgba(163,163,163,0.1)] shrink-0">
         <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
-          {/* Left - wordmark + filter */}
+          {/* Left - wordmark + filter + new + stats */}
           <div className="flex items-center gap-3 sm:gap-5">
             <span className="text-[0.75rem] sm:text-[0.8125rem] font-normal tracking-[0.1em] text-[var(--color-paper)]">
               GLUON
             </span>
             <ProjectFilter filter={filter} onFilterChange={setFilter} />
+            <button
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 transition-colors rounded-sm"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="w-3 h-3" />
+              <span className="hidden sm:inline">New</span>
+            </button>
             {activeRuns > 0 && (
               <span className="text-caption header-stats">
                 {activeRuns} active
@@ -140,7 +156,7 @@ function App() {
             )}
           </div>
 
-          {/* Right - view toggle + theme + create + connection */}
+          {/* Right - view toggle + theme + connection pulse */}
           <div className="flex items-center gap-3 sm:gap-4">
             {/* View Toggle */}
             <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
@@ -192,25 +208,20 @@ function App() {
                 <Moon className="w-4 h-4 text-[var(--color-stone)]" />
               )}
             </button>
-            <button
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 transition-colors rounded-sm"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              <Plus className="w-3 h-3" />
-              <span className="hidden sm:inline">New</span>
-            </button>
-            <div className="flex items-center gap-2">
-              <div className={`mark ${connected ? 'mark-running' : 'mark-cancelled'}`} />
-              <span className="text-caption hidden sm:inline">
-                {connected ? 'connected' : 'offline'}
-              </span>
-            </div>
+            {/* Sonar-style connection indicator */}
+            <div
+              className={cn(
+                'connection-indicator w-2 h-2 rounded-full transition-colors',
+                connected ? 'connected bg-[var(--color-jade)] text-[var(--color-jade)]' : 'bg-[var(--color-vermillion)] text-[var(--color-vermillion)]'
+              )}
+              title={connected ? 'WebSocket connected' : 'Connection lost'}
+            />
           </div>
         </div>
       </header>
 
       {/* Main */}
-      <main className="flex-1 overflow-hidden min-h-0">
+      <main className="flex-1 flex flex-col overflow-hidden min-h-0">
         {viewMode === 'settings' ? (
           <SettingsPage />
         ) : viewMode === 'usage' ? (
@@ -229,6 +240,7 @@ function App() {
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
             onArchiveRun={handleArchiveRun}
+            onMarkMerged={handleMarkMerged}
             onRunUpdate={handleRunUpdated}
           />
         )}

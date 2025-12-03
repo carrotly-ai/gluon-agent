@@ -821,6 +821,21 @@ class GluonStore:
         # Return updated run
         return self.get_run(run_id)
 
+    def update_pr_status(self, run_id: str, pr_status: str) -> ExecutionRun | None:
+        """Update the PR status for an execution run."""
+        run = self.get_run(run_id)
+        if not run:
+            return None
+
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE execution_runs SET pr_status = ? WHERE id = ?",
+                (pr_status, run_id),
+            )
+
+        # Return updated run
+        return self.get_run(run_id)
+
     def _row_to_run(self, row: sqlite3.Row) -> ExecutionRun:
         """Convert database row to ExecutionRun model."""
         keys = row.keys()

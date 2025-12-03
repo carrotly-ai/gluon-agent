@@ -83,6 +83,14 @@ export async function archiveRun(runId: string): Promise<Run> {
   })
 }
 
+/** Update PR status (e.g., mark as merged to move from REVIEW to DONE) */
+export async function updatePrStatus(runId: string, prStatus: 'open' | 'merged' | 'closed' | 'draft'): Promise<Run> {
+  const params = new URLSearchParams({ pr_status: prStatus })
+  return fetchJson<Run>(`/runs/${runId}/pr-status?${params}`, {
+    method: 'POST',
+  })
+}
+
 /** Resume a completed/failed run with a follow-up prompt */
 export async function resumeRun(runId: string, prompt: string): Promise<ResumeRunResponse> {
   return fetchJson<ResumeRunResponse>(`/runs/${runId}/resume`, {
