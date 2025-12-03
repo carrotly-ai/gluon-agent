@@ -46,7 +46,7 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
     <div
       className={cn(
         "card hover-whisper cursor-grab active:cursor-grabbing group relative",
-        run.status === 'running' && "card-running"
+        run.status === 'running' && "card-running overflow-visible"
       )}
       style={{ borderLeft: `3px solid ${getStatusBorderColor(run.status)}` }}
       onClick={onClick}
@@ -54,7 +54,7 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
       {/* Pulsing stripe overlay for running cards */}
       {run.status === 'running' && (
         <div
-          className="stripe-pulse absolute top-0 bottom-0 w-[3px] rounded-l-sm"
+          className="stripe-pulse absolute top-0 bottom-0 w-[3px]"
           style={{ backgroundColor: getStatusBorderColor(run.status), left: '-3px' }}
         />
       )}
