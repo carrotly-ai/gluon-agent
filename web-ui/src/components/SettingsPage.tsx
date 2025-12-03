@@ -241,7 +241,11 @@ export function SettingsPage() {
                     {projectsByWorkspace[ws.id] && projectsByWorkspace[ws.id].length > 0 && (
                       <div className="mt-3 pt-3 border-t border-[rgba(163,163,163,0.08)] space-y-0.5">
                         {projectsByWorkspace[ws.id].map(project => (
-                          <div key={project.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 text-[0.6875rem] px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors">
+                          <div
+                            key={project.id}
+                            className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 text-[0.6875rem] px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors cursor-pointer"
+                            onClick={() => { window.location.hash = `project:${project.name}` }}
+                          >
                             <span className="text-[var(--color-stone)]/80 truncate pl-4">
                               {project.name}
                             </span>
@@ -351,7 +355,8 @@ export function SettingsPage() {
                   return (
                     <div
                       key={project.id}
-                      className="flex items-center gap-4 p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors"
+                      className="flex items-center gap-4 p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors cursor-pointer"
+                      onClick={() => { window.location.hash = `project:${project.name}` }}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -382,7 +387,7 @@ export function SettingsPage() {
                         )}
                         <button
                           className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
-                          onClick={() => setDeleteConfirm({ type: 'project', id: project.id, name: project.name })}
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ type: 'project', id: project.id, name: project.name }) }}
                           title="Delete project"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
