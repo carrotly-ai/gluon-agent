@@ -30,6 +30,8 @@ function getStatusBorderColor(status: string): string {
       return 'var(--color-harvest)'
     case 'completed':
       return 'var(--color-jade)'
+    case 'review':
+      return '#a855f7'  // Purple for review
     case 'failed':
       return 'var(--color-vermillion)'
     case 'cancelled':
