@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest } from 'lucide-react'
-import type { Run, RunDetail } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun } from '@/lib/api'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus } from 'lucide-react'
+import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse } from '@/lib/types'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import ReactMarkdown from 'react-markdown'
 
 interface RunDetailDialogProps {
   run: Run | null
@@ -74,9 +75,41 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
-function formatToolInput(input: unknown): string {
-  const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2)
-  return inputStr.length > 200 ? inputStr.slice(0, 200) + '...' : inputStr
+function formatToolInputCompact(input: unknown): string {
+  if (input === null || input === undefined) return ''
+  if (typeof input === 'string') {
+    // For strings, show truncated path or value
+    const truncated = input.length > 80 ? input.slice(0, 77) + '...' : input
+    return `"${truncated}"`
+  }
+  if (typeof input === 'object') {
+    // For objects, format as key=value pairs on one line
+    const entries = Object.entries(input as Record<string, unknown>)
+    const parts: string[] = []
+    let totalLen = 0
+    for (const [key, val] of entries) {
+      let valStr: string
+      if (typeof val === 'string') {
+        // Truncate long strings (like file paths or content)
+        valStr = val.length > 50 ? `"${val.slice(0, 47)}..."` : `"${val}"`
+      } else if (typeof val === 'number' || typeof val === 'boolean') {
+        valStr = String(val)
+      } else if (val === null) {
+        valStr = 'null'
+      } else {
+        valStr = '{...}'
+      }
+      const part = `${key}=${valStr}`
+      if (totalLen + part.length > 120 && parts.length > 0) {
+        parts.push('...')
+        break
+      }
+      parts.push(part)
+      totalLen += part.length + 1
+    }
+    return parts.join(' ')
+  }
+  return String(input)
 }
 
 interface LiveStats {
@@ -120,22 +153,24 @@ function MessageItem({ msg }: { msg: AgentMessage }) {
   }
 
   return (
-    <div className="flex gap-2 py-1 border-b border-[rgba(163,163,163,0.05)] last:border-0">
-      <span className={cn('text-[0.5rem] uppercase tracking-widest w-10 shrink-0 pt-0.5', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
+    <div className="flex gap-2 py-1 border-b border-[rgba(163,163,163,0.05)] last:border-0 items-start">
+      <span className={cn('text-[0.5rem] uppercase tracking-widest w-8 shrink-0 pt-0.5', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
         {typeLabels[msg.type] || msg.type}
       </span>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         {msg.type === 'tool_use' && msg.metadata?.tool ? (
-          <div>
-            <span className="text-[var(--color-sky)] text-[0.6875rem] font-medium">{msg.metadata.tool}</span>
-            {msg.metadata.input !== undefined && msg.metadata.input !== null ? (
-              <pre className="text-[0.625rem] text-[var(--color-stone)]/50 mt-1 whitespace-pre-wrap break-all">
-                {formatToolInput(msg.metadata.input)}
-              </pre>
-            ) : null}
+          <span className="text-[0.6875rem] font-mono">
+            <span className="text-[var(--color-sky)] font-medium">{msg.metadata.tool}</span>
+            {msg.metadata.input !== undefined && msg.metadata.input !== null && (
+              <span className="text-[var(--color-stone)]/50 ml-1.5">{formatToolInputCompact(msg.metadata.input)}</span>
+            )}
+          </span>
+        ) : msg.type === 'text' ? (
+          <div className="text-[0.6875rem] prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-[var(--color-sky)] prose-code:bg-[var(--color-void)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-[var(--color-void)] prose-pre:p-2 prose-pre:rounded">
+            <ReactMarkdown>{msg.content}</ReactMarkdown>
           </div>
         ) : (
-          <span className={cn('text-[0.6875rem] break-words', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
+          <span className={cn('text-[0.6875rem]', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
             {msg.content}
           </span>
         )}
@@ -147,8 +182,12 @@ function MessageItem({ msg }: { msg: AgentMessage }) {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string; messages: string }>({ stdout: '', stderr: '', messages: '' })
-  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'messages' | 'history' | 'continue'>('output')
+  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files'>('messages')
   const [loading, setLoading] = useState(false)
+  const [commitsData, setCommitsData] = useState<RunCommitsResponse | null>(null)
+  const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
+  const [loadingCommits, setLoadingCommits] = useState(false)
+  const [loadingFiles, setLoadingFiles] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
@@ -161,17 +200,25 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [creatingPr, setCreatingPr] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
 
+  // Refs for auto-scroll
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const outputContainerRef = useRef<HTMLPreElement>(null)
+  const prevMessagesRef = useRef<string>('')
+  const prevOutputRef = useRef<string>('')
+
   useEffect(() => {
     if (!open || !run) {
       setDetail(null)
       setLogs({ stdout: '', stderr: '', messages: '' })
-      setActiveTab('output')
+      setActiveTab('messages')
       setResumePrompt('')
       setResumeError(null)
       setSessionHistory([])
       setExpandedHistoryRun(null)
       setHistoryLogs({})
       setPrError(null)
+      setCommitsData(null)
+      setFilesData(null)
       return
     }
 
@@ -235,6 +282,23 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
 
     return () => clearInterval(intervalId)
   }, [open, run?.id, run?.status, onRunUpdated])
+
+  // Auto-scroll to bottom when content changes
+  useEffect(() => {
+    // Only scroll if content actually changed
+    if (activeTab === 'messages' && logs.messages !== prevMessagesRef.current) {
+      prevMessagesRef.current = logs.messages
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+      }
+    }
+    if (activeTab === 'output' && logs.stdout !== prevOutputRef.current) {
+      prevOutputRef.current = logs.stdout
+      if (outputContainerRef.current) {
+        outputContainerRef.current.scrollTop = outputContainerRef.current.scrollHeight
+      }
+    }
+  }, [logs.messages, logs.stdout, activeTab])
 
   const handleCancel = async () => {
     if (!run) return
@@ -353,6 +417,43 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       setCreatingPr(false)
     }
   }
+
+  // Lazy load commits when switching to commits tab
+  const loadCommits = async () => {
+    if (!run || commitsData || loadingCommits) return
+    setLoadingCommits(true)
+    try {
+      const data = await fetchRunCommits(run.id)
+      setCommitsData(data)
+    } catch (err) {
+      console.error('Failed to load commits:', err)
+    } finally {
+      setLoadingCommits(false)
+    }
+  }
+
+  // Lazy load files when switching to files tab
+  const loadFiles = async () => {
+    if (!run || filesData || loadingFiles) return
+    setLoadingFiles(true)
+    try {
+      const data = await fetchRunFiles(run.id)
+      setFilesData(data)
+    } catch (err) {
+      console.error('Failed to load files:', err)
+    } finally {
+      setLoadingFiles(false)
+    }
+  }
+
+  // Load data when tab changes
+  useEffect(() => {
+    if (activeTab === 'commits' && !commitsData && !loadingCommits) {
+      loadCommits()
+    } else if (activeTab === 'files' && !filesData && !loadingFiles) {
+      loadFiles()
+    }
+  }, [activeTab, run?.id])
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
@@ -572,6 +673,17 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   <button
                     className={cn(
                       'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                      activeTab === 'messages'
+                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                    )}
+                    onClick={() => setActiveTab('messages')}
+                  >
+                    Messages
+                  </button>
+                  <button
+                    className={cn(
+                      'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
                       activeTab === 'output'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -594,19 +706,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-vermillion)]" />
                     )}
                   </button>
-                  {logs.messages && (
-                    <button
-                      className={cn(
-                        'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
-                        activeTab === 'messages'
-                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                      )}
-                      onClick={() => setActiveTab('messages')}
-                    >
-                      Messages
-                    </button>
-                  )}
                   {hasHistory && (
                     <button
                       className={cn(
@@ -621,6 +720,40 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       History
                       <span className="text-[0.5rem] text-[var(--color-stone)]/50">({sessionHistory.length})</span>
                     </button>
+                  )}
+                  {detail?.branch_name && (
+                    <>
+                      <button
+                        className={cn(
+                          'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                          activeTab === 'commits'
+                            ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                            : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                        )}
+                        onClick={() => setActiveTab('commits')}
+                      >
+                        <GitCommit className="w-3 h-3" />
+                        Commits
+                        {commitsData && commitsData.commit_count > 0 && (
+                          <span className="text-[0.5rem] text-[var(--color-stone)]/50">({commitsData.commit_count})</span>
+                        )}
+                      </button>
+                      <button
+                        className={cn(
+                          'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                          activeTab === 'files'
+                            ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                            : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                        )}
+                        onClick={() => setActiveTab('files')}
+                      >
+                        <FileCode className="w-3 h-3" />
+                        Files
+                        {filesData && filesData.file_count > 0 && (
+                          <span className="text-[0.5rem] text-[var(--color-stone)]/50">({filesData.file_count})</span>
+                        )}
+                      </button>
+                    </>
                   )}
                 </div>
                 <button
@@ -643,7 +776,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
                   <div className="flex flex-col h-full">
-                    <pre className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed flex-1 overflow-auto">
+                    <pre ref={outputContainerRef} className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed flex-1 overflow-auto">
                       {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
                     </pre>
                     {isResumable && (
@@ -701,7 +834,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   </pre>
                 )}
                 {activeTab === 'messages' && (
-                  <div className="p-3 overflow-y-auto h-full">
+                  <div ref={messagesContainerRef} className="p-3 overflow-y-auto h-full">
                     {logs.messages ? (
                       <div className="space-y-0.5">
                         {parseMessages(logs.messages).map((msg, idx) => (
@@ -755,6 +888,153 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+                {activeTab === 'commits' && (
+                  <div className="p-3 overflow-y-auto h-full">
+                    {loadingCommits ? (
+                      <div className="flex items-center justify-center h-32">
+                        <RotateCw className="w-4 h-4 animate-spin text-[var(--color-stone)]/50" />
+                      </div>
+                    ) : commitsData && commitsData.commits.length > 0 ? (
+                      <div className="space-y-0">
+                        {/* Branch info header */}
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
+                          <GitBranch className="w-3.5 h-3.5 text-purple-400" />
+                          <span className="text-[0.6875rem] text-purple-300">{commitsData.branch_name}</span>
+                          <span className="text-[0.6875rem] text-[var(--color-stone)]/50">
+                            {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''} ahead of {commitsData.base_branch}
+                          </span>
+                        </div>
+                        {/* Commits list */}
+                        {commitsData.commits.map((commit, idx) => (
+                          <div
+                            key={commit.sha}
+                            className={cn(
+                              'flex items-start gap-3 py-2.5',
+                              idx !== commitsData.commits.length - 1 && 'border-b border-[rgba(163,163,163,0.05)]'
+                            )}
+                          >
+                            {/* Timeline dot */}
+                            <div className="flex flex-col items-center pt-1.5">
+                              <div className="w-2 h-2 rounded-full bg-[var(--color-jade)]" />
+                              {idx !== commitsData.commits.length - 1 && (
+                                <div className="w-px flex-1 bg-[rgba(163,163,163,0.15)] mt-1" />
+                              )}
+                            </div>
+                            {/* Commit info */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed">
+                                {commit.message}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1 text-[0.625rem] text-[var(--color-stone)]/50">
+                                <span className="text-mono">{commit.sha.slice(0, 7)}</span>
+                                <span>·</span>
+                                <span>{commit.author}</span>
+                                <span>·</span>
+                                <span>{new Date(commit.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
+                        <GitCommit className="w-6 h-6 mb-2 opacity-50" />
+                        <span className="text-[0.6875rem]">No commits on this branch</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeTab === 'files' && (
+                  <div className="p-3 overflow-y-auto h-full">
+                    {loadingFiles ? (
+                      <div className="flex items-center justify-center h-32">
+                        <RotateCw className="w-4 h-4 animate-spin text-[var(--color-stone)]/50" />
+                      </div>
+                    ) : filesData && filesData.files.length > 0 ? (
+                      <div className="space-y-0">
+                        {/* Summary header */}
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
+                          <div className="flex items-center gap-2">
+                            <FileCode className="w-3.5 h-3.5 text-[var(--color-sky)]" />
+                            <span className="text-[0.6875rem] text-[var(--color-paper)]/80">
+                              {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''} changed
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[0.625rem]">
+                            <span className="flex items-center gap-1 text-[var(--color-jade)]">
+                              <Plus className="w-3 h-3" />
+                              {filesData.total_additions}
+                            </span>
+                            <span className="flex items-center gap-1 text-[var(--color-vermillion)]">
+                              <Minus className="w-3 h-3" />
+                              {filesData.total_deletions}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Files list */}
+                        {filesData.files.map((file, idx) => {
+                          const totalChanges = file.additions + file.deletions
+                          const maxBarWidth = 100
+                          const additionWidth = totalChanges > 0 ? Math.max((file.additions / totalChanges) * maxBarWidth, file.additions > 0 ? 4 : 0) : 0
+                          const deletionWidth = totalChanges > 0 ? Math.max((file.deletions / totalChanges) * maxBarWidth, file.deletions > 0 ? 4 : 0) : 0
+
+                          return (
+                            <div
+                              key={file.file_path}
+                              className={cn(
+                                'flex items-center justify-between py-2 gap-3',
+                                idx !== filesData.files.length - 1 && 'border-b border-[rgba(163,163,163,0.05)]'
+                              )}
+                            >
+                              {/* File path with change type indicator */}
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className={cn(
+                                  'text-[0.5rem] uppercase px-1 py-0.5 rounded font-medium shrink-0',
+                                  file.change_type === 'added' && 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
+                                  file.change_type === 'modified' && 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
+                                  file.change_type === 'deleted' && 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                  file.change_type === 'renamed' && 'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                )}>
+                                  {file.change_type === 'added' ? 'A' : file.change_type === 'modified' ? 'M' : file.change_type === 'deleted' ? 'D' : 'R'}
+                                </span>
+                                <span className="text-[0.6875rem] text-[var(--color-paper)]/80 truncate font-mono">
+                                  {file.file_path}
+                                </span>
+                              </div>
+                              {/* Changes stats and bar */}
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="flex items-center gap-1.5 text-[0.625rem] min-w-[60px] justify-end">
+                                  {file.additions > 0 && (
+                                    <span className="text-[var(--color-jade)]">+{file.additions}</span>
+                                  )}
+                                  {file.deletions > 0 && (
+                                    <span className="text-[var(--color-vermillion)]">-{file.deletions}</span>
+                                  )}
+                                </div>
+                                {/* Visual diff bar */}
+                                <div className="flex h-2 w-[80px] rounded-sm overflow-hidden bg-[var(--color-void)]">
+                                  <div
+                                    className="bg-[var(--color-jade)]"
+                                    style={{ width: `${additionWidth}%` }}
+                                  />
+                                  <div
+                                    className="bg-[var(--color-vermillion)]"
+                                    style={{ width: `${deletionWidth}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
+                        <FileCode className="w-6 h-6 mb-2 opacity-50" />
+                        <span className="text-[0.6875rem]">No files changed on this branch</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

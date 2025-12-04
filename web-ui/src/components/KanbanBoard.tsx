@@ -26,7 +26,7 @@ interface KanbanBoardProps {
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
   onArchiveRun: (run: Run) => void
-  onMarkMerged: (run: Run) => void
+  onMergeRun?: (run: Run) => void
   onRunUpdate?: (run: Run) => void
 }
 
@@ -46,11 +46,11 @@ interface DraggableRunCardProps {
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
-  onMarkMerged?: () => void
+  onMerge?: () => void
   isDragging?: boolean
 }
 
-function DraggableRunCard({ run, onClick, onCancel, onArchive, onMarkMerged, isDragging }: DraggableRunCardProps) {
+function DraggableRunCard({ run, onClick, onCancel, onArchive, onMerge, isDragging }: DraggableRunCardProps) {
   const {
     attributes,
     listeners,
@@ -72,7 +72,7 @@ function DraggableRunCard({ run, onClick, onCancel, onArchive, onMarkMerged, isD
       {...attributes}
       {...listeners}
     >
-      <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} onMarkMerged={onMarkMerged} />
+      <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} onMerge={onMerge} />
     </div>
   )
 }
@@ -85,7 +85,7 @@ interface DroppableColumnProps {
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
   onArchiveRun: (run: Run) => void
-  onMarkMerged: (run: Run) => void
+  onMergeRun?: (run: Run) => void
   isOver?: boolean
   canDrop?: boolean
   activeRun?: Run | null
@@ -98,7 +98,7 @@ function DroppableColumn({
   onRunClick,
   onCancelRun,
   onArchiveRun,
-  onMarkMerged,
+  onMergeRun,
   isOver,
   canDrop,
   activeRun,
@@ -148,9 +148,9 @@ function DroppableColumn({
                     ? () => onArchiveRun(run)
                     : undefined
                 }
-                onMarkMerged={
-                  status === 'review'
-                    ? () => onMarkMerged(run)
+                onMerge={
+                  onMergeRun && status === 'review' && run.pr_status === 'open'
+                    ? () => onMergeRun(run)
                     : undefined
                 }
               />
@@ -162,7 +162,7 @@ function DroppableColumn({
   )
 }
 
-export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onMarkMerged, onRunUpdate }: KanbanBoardProps) {
+export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onMergeRun, onRunUpdate }: KanbanBoardProps) {
   const [activeTab, setActiveTab] = useState<KanbanColumn>('running')
   const [activeRun, setActiveRun] = useState<Run | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -281,7 +281,7 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onMar
             onRunClick={onRunClick}
             onCancelRun={onCancelRun}
             onArchiveRun={onArchiveRun}
-            onMarkMerged={onMarkMerged}
+            onMergeRun={onMergeRun}
           />
         </div>
 
@@ -296,7 +296,7 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onMar
                 onRunClick={onRunClick}
                 onCancelRun={onCancelRun}
                 onArchiveRun={onArchiveRun}
-                onMarkMerged={onMarkMerged}
+                onMergeRun={onMergeRun}
                 isOver={overId === status}
                 canDrop={canDropOnColumn(status)}
                 activeRun={activeRun}

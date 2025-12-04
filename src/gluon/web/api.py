@@ -17,17 +17,21 @@ from gluon.models import RunStatus
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
+    CommitResponse,
     CreateProjectRequest,
     CreateRunRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
+    FileChangeResponse,
     LogResponse,
     ProjectDetailResponse,
     ProjectResponse,
     ProjectUsageResponse,
     ResumeRunRequest,
     ResumeRunResponse,
+    RunCommitsResponse,
     RunDetailResponse,
+    RunFilesResponse,
     RunResponse,
     RunUsageItemResponse,
     ScanResultResponse,
@@ -214,11 +218,11 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {body.project_name}")
 
         # Create the run
-        # TODO: Add model and use_worktree support to TaskRunner.submit()
         run = await runner.submit(
             project_id=project.id,
             prompt=body.prompt,
             wait=False,
+            use_worktree=body.use_worktree,
         )
 
         project_lookup = get_project_lookup()
@@ -339,6 +343,112 @@ def create_app() -> FastAPI:
         return SessionHistoryResponse(
             session_id=run.claude_session_id,
             runs=[run_to_response(r, project_lookup) for r in session_runs],
+        )
+
+    # ========== Git Commits and Files ==========
+
+    @app.get("/api/runs/{run_id}/commits", response_model=RunCommitsResponse)
+    async def get_run_commits(run_id: str) -> RunCommitsResponse:
+        """
+        Get commits on the run's branch since it diverged from the base branch.
+        Only available for worktree runs with a branch.
+        """
+        from gluon.git_manager import GitManager
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.branch_name:
+            return RunCommitsResponse(
+                run_id=run.id,
+                branch_name=None,
+                base_branch="main",
+                commit_count=0,
+                commits=[],
+            )
+
+        # Get project to find repo path
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
+
+        # Determine working path (worktree or project root)
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+
+        # Get base branch (source_branch or default to main)
+        base_branch = run.source_branch or "main"
+
+        # Fetch commits
+        git_manager = GitManager(store)
+        commits_data = await git_manager.get_branch_commits(
+            path=working_path,
+            branch_name=run.branch_name,
+            base_branch=base_branch,
+        )
+
+        return RunCommitsResponse(
+            run_id=run.id,
+            branch_name=run.branch_name,
+            base_branch=base_branch,
+            commit_count=len(commits_data),
+            commits=[CommitResponse(**c) for c in commits_data],
+        )
+
+    @app.get("/api/runs/{run_id}/files", response_model=RunFilesResponse)
+    async def get_run_files(run_id: str) -> RunFilesResponse:
+        """
+        Get files changed on the run's branch since it diverged from the base branch.
+        Only available for worktree runs with a branch.
+        """
+        from gluon.git_manager import GitManager
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.branch_name:
+            return RunFilesResponse(
+                run_id=run.id,
+                branch_name=None,
+                base_branch="main",
+                file_count=0,
+                total_additions=0,
+                total_deletions=0,
+                files=[],
+            )
+
+        # Get project to find repo path
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
+
+        # Determine working path (worktree or project root)
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+
+        # Get base branch (source_branch or default to main)
+        base_branch = run.source_branch or "main"
+
+        # Fetch file changes
+        git_manager = GitManager(store)
+        files_data = await git_manager.get_changed_files(
+            path=working_path,
+            branch_name=run.branch_name,
+            base_branch=base_branch,
+        )
+
+        # Calculate totals
+        total_additions = sum(f["additions"] for f in files_data)
+        total_deletions = sum(f["deletions"] for f in files_data)
+
+        return RunFilesResponse(
+            run_id=run.id,
+            branch_name=run.branch_name,
+            base_branch=base_branch,
+            file_count=len(files_data),
+            total_additions=total_additions,
+            total_deletions=total_deletions,
+            files=[FileChangeResponse(**f) for f in files_data],
         )
 
     @app.get("/api/runs/{run_id}/logs", response_model=LogResponse)
@@ -840,6 +950,74 @@ def create_app() -> FastAPI:
                 }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to create PR: {e}")
+
+    @app.post("/api/runs/{run_id}/merge")
+    async def merge_run_branch(run_id: str) -> dict:
+        """
+        Merge a run's feature branch into the base branch locally and push.
+        GitHub will automatically close the PR when the merge is pushed.
+
+        This is useful for PRs in review that are ready to be merged.
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.use_worktree or not run.branch_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Run is not a worktree run or has no branch"
+            )
+
+        if run.pr_status != "open":
+            raise HTTPException(
+                status_code=400,
+                detail=f"PR is not open (status: {run.pr_status or 'no PR'})"
+            )
+
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
+
+        # Use git manager to merge branch locally and push
+        from gluon.git_manager import GitManager
+        git_manager = GitManager(store)
+
+        # Use main project path (not worktree) for merging
+        project_path = project.path
+
+        # Determine base branch (source_branch or default to main)
+        base_branch = run.source_branch or "main"
+
+        try:
+            merge_result = await git_manager.merge_branch_locally(
+                project_path=project_path,
+                branch_name=run.branch_name,
+                base_branch=base_branch,
+            )
+
+            if merge_result.get("success"):
+                # Update run's PR status to merged
+                run.pr_status = "merged"
+                store.update_run(run)
+
+                # Broadcast update
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                await ws_manager.broadcast_run_update(run, project_name)
+
+                return {
+                    "success": True,
+                    "message": merge_result.get("message"),
+                    "merged_commit_sha": merge_result.get("merged_commit_sha"),
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": merge_result.get("error", "Merge failed"),
+                }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to merge: {e}")
 
     # ========== WebSocket ==========
 

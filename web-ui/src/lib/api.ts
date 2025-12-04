@@ -18,6 +18,8 @@ import type {
   ProjectUsage,
   DailyUsage,
   RunUsageItem,
+  RunCommitsResponse,
+  RunFilesResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -272,6 +274,34 @@ export interface CreatePrResponse {
 /** Manually create a PR for a completed worktree run */
 export async function createPrForRun(runId: string): Promise<CreatePrResponse> {
   return fetchJson<CreatePrResponse>(`/runs/${runId}/create-pr`, {
+    method: 'POST',
+  })
+}
+
+// ========== Git Commits and Files API ==========
+
+/** Fetch commits on a run's branch */
+export async function fetchRunCommits(runId: string): Promise<RunCommitsResponse> {
+  return fetchJson<RunCommitsResponse>(`/runs/${runId}/commits`)
+}
+
+/** Fetch files changed on a run's branch */
+export async function fetchRunFiles(runId: string): Promise<RunFilesResponse> {
+  return fetchJson<RunFilesResponse>(`/runs/${runId}/files`)
+}
+
+// ========== Merge Branch API ==========
+
+export interface MergeResponse {
+  success: boolean
+  message?: string
+  merged_commit_sha?: string
+  error?: string
+}
+
+/** Merge a run's branch locally and push (GitHub will auto-close the PR) */
+export async function mergeRunBranch(runId: string): Promise<MergeResponse> {
+  return fetchJson<MergeResponse>(`/runs/${runId}/merge`, {
     method: 'POST',
   })
 }

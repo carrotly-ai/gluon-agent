@@ -563,6 +563,228 @@ Run ID: `{run_id}`
 
         return result
 
+    # ========== Commits and File Changes ==========
+
+    async def get_branch_commits(
+        self,
+        path: Path,
+        branch_name: str | None = None,
+        base_branch: str = "main",
+    ) -> list[dict]:
+        """
+        Get commits on the branch since it diverged from base.
+
+        Args:
+            path: Path to the repository
+            branch_name: Branch to get commits from (default: current branch)
+            base_branch: Base branch to compare against (default: main)
+
+        Returns:
+            List of commit dicts with sha, message, author, author_email, date
+        """
+        if not await self._is_git_repo(path):
+            return []
+
+        if not branch_name:
+            branch_name = await self._get_branch(path)
+            if not branch_name:
+                return []
+
+        # Get merge base to find where branches diverged
+        rc, merge_base, _ = await self._run_git(
+            path, "merge-base", base_branch, branch_name
+        )
+        if rc != 0:
+            # No common ancestor - get all commits on branch
+            merge_base = ""
+
+        # Get commits from merge base to HEAD
+        if merge_base:
+            commit_range = f"{merge_base}..HEAD"
+        else:
+            commit_range = "HEAD"
+
+        # Format: sha|subject|author name|author email|date ISO
+        rc, stdout, _ = await self._run_git(
+            path,
+            "log",
+            commit_range,
+            "--format=%H|%s|%an|%ae|%cI",
+            "--reverse",
+        )
+        if rc != 0 or not stdout:
+            return []
+
+        commits = []
+        for line in stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("|", 4)
+            if len(parts) >= 5:
+                commits.append({
+                    "sha": parts[0],
+                    "message": parts[1],
+                    "author": parts[2],
+                    "author_email": parts[3],
+                    "date": parts[4],
+                })
+        return commits
+
+    async def get_changed_files(
+        self,
+        path: Path,
+        branch_name: str | None = None,
+        base_branch: str = "main",
+    ) -> list[dict]:
+        """
+        Get files changed on the branch since it diverged from base.
+
+        Args:
+            path: Path to the repository
+            branch_name: Branch to get changes from (default: current branch)
+            base_branch: Base branch to compare against (default: main)
+
+        Returns:
+            List of file change dicts with file_path, additions, deletions, change_type
+        """
+        if not await self._is_git_repo(path):
+            return []
+
+        if not branch_name:
+            branch_name = await self._get_branch(path)
+            if not branch_name:
+                return []
+
+        # Get merge base to find where branches diverged
+        rc, merge_base, _ = await self._run_git(
+            path, "merge-base", base_branch, branch_name
+        )
+        if rc != 0:
+            # No common ancestor - compare to empty tree
+            merge_base = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # empty tree sha
+
+        # Get diff stats with --numstat for accurate line counts
+        rc, stdout, _ = await self._run_git(
+            path,
+            "diff",
+            "--numstat",
+            merge_base,
+            "HEAD",
+        )
+        if rc != 0:
+            return []
+
+        files = []
+        for line in stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t", 2)
+            if len(parts) >= 3:
+                additions = int(parts[0]) if parts[0] != "-" else 0
+                deletions = int(parts[1]) if parts[1] != "-" else 0
+                file_path = parts[2]
+
+                # Determine change type
+                if additions > 0 and deletions == 0:
+                    change_type = "added"
+                elif deletions > 0 and additions == 0:
+                    change_type = "deleted"
+                elif additions == deletions == 0:
+                    change_type = "renamed"
+                else:
+                    change_type = "modified"
+
+                files.append({
+                    "file_path": file_path,
+                    "additions": additions,
+                    "deletions": deletions,
+                    "change_type": change_type,
+                })
+        return files
+
+    # ========== Local Merge Operation ==========
+
+    async def merge_branch_locally(
+        self,
+        project_path: Path,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> dict:
+        """
+        Merge a feature branch into the base branch locally and push.
+        GitHub will automatically close the PR when the merge is pushed.
+
+        Args:
+            project_path: Path to the repository (main repo, not worktree)
+            branch_name: The feature branch to merge
+            base_branch: The base branch to merge into (default: main)
+
+        Returns:
+            dict with: success, message, merged_commit_sha, error
+        """
+        result = {
+            "success": False,
+            "message": "",
+            "merged_commit_sha": None,
+            "error": None,
+        }
+
+        # Check if git repo
+        if not await self._is_git_repo(project_path):
+            result["error"] = "Not a git repository"
+            return result
+
+        # Ensure we're on the base branch
+        current_branch = await self._get_branch(project_path)
+        if current_branch != base_branch:
+            # Checkout base branch
+            rc, _, stderr = await self._run_git(project_path, "checkout", base_branch)
+            if rc != 0:
+                result["error"] = f"Failed to checkout {base_branch}: {stderr}"
+                return result
+
+        # Pull latest changes on base branch
+        rc, _, stderr = await self._run_git(project_path, "pull", "--ff-only")
+        if rc != 0:
+            # If fast-forward fails, try a regular pull
+            rc, _, stderr = await self._run_git(project_path, "pull")
+            if rc != 0:
+                result["error"] = f"Failed to pull latest {base_branch}: {stderr}"
+                return result
+
+        # Merge the feature branch
+        rc, stdout, stderr = await self._run_git(
+            project_path, "merge", branch_name, "--no-edit"
+        )
+        if rc != 0:
+            # Merge conflict or other failure - abort the merge
+            await self._run_git(project_path, "merge", "--abort")
+            result["error"] = f"Merge conflict or failure: {stderr}"
+            return result
+
+        # Get the merge commit SHA
+        merge_sha = await self._get_commit_sha(project_path)
+
+        # Push the merge to remote
+        rc, _, stderr = await self._run_git(project_path, "push")
+        if rc != 0:
+            result["error"] = f"Failed to push merge: {stderr}"
+            return result
+
+        # Optionally delete the feature branch locally and remotely
+        # Delete local branch
+        await self._run_git(project_path, "branch", "-d", branch_name)
+        # Delete remote branch
+        remote, _ = await self._get_remote(project_path)
+        if remote:
+            await self._run_git(project_path, "push", remote, "--delete", branch_name)
+
+        result["success"] = True
+        result["message"] = f"Successfully merged {branch_name} into {base_branch}"
+        result["merged_commit_sha"] = merge_sha
+        logger.info(f"Merged branch {branch_name} into {base_branch}")
+        return result
+
     # ========== Background Sync ==========
 
     async def start_background_sync(self, interval_seconds: int | None = None) -> None:

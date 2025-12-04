@@ -282,3 +282,47 @@ class RunUsageItemResponse(BaseModel):
     model_used: str | None
     created_at: str
     status: str
+
+
+# Commits and Files Response Models
+
+
+class CommitResponse(BaseModel):
+    """Response model for a single commit."""
+
+    sha: str = Field(description="Full commit SHA")
+    message: str = Field(description="Commit message (first line)")
+    author: str = Field(description="Author name")
+    author_email: str = Field(description="Author email")
+    date: str = Field(description="Commit date in ISO format")
+
+
+class RunCommitsResponse(BaseModel):
+    """Response model for commits on a run's branch."""
+
+    run_id: str
+    branch_name: str | None
+    base_branch: str
+    commit_count: int
+    commits: list[CommitResponse]
+
+
+class FileChangeResponse(BaseModel):
+    """Response model for a single file change."""
+
+    file_path: str = Field(description="Path to the file")
+    additions: int = Field(description="Lines added")
+    deletions: int = Field(description="Lines deleted")
+    change_type: str = Field(description="Type: added, modified, deleted, renamed")
+
+
+class RunFilesResponse(BaseModel):
+    """Response model for files changed on a run's branch."""
+
+    run_id: str
+    branch_name: str | None
+    base_branch: str
+    file_count: int
+    total_additions: int
+    total_deletions: int
+    files: list[FileChangeResponse]

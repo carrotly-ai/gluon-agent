@@ -1,4 +1,4 @@
-import { X, GitBranch, Archive, ExternalLink, CheckCircle2 } from 'lucide-react'
+import { X, GitBranch, Archive, ExternalLink, GitMerge } from 'lucide-react'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -7,19 +7,36 @@ interface RunCardProps {
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
-  onMarkMerged?: () => void
+  onMerge?: () => void
 }
 
-function formatDuration(seconds: number | null): string {
-  if (seconds === null) return ''
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
-  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
-}
-
-function formatTime(dateStr: string | null): string {
+function formatRelativeTime(dateStr: string | null): string {
   if (!dateStr) return ''
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  const diffHour = Math.floor(diffMin / 60)
+  const diffDay = Math.floor(diffHour / 24)
+
+  if (diffMin < 1) return 'just now'
+  if (diffMin < 60) return `${diffMin}m ago`
+  if (diffHour < 24) return `${diffHour}h ago`
+  if (diffDay < 7) return `${diffDay}d ago`
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function formatFullDateTime(dateStr: string | null): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  return date.toLocaleString([], {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 // Map status to CSS variable for border color
@@ -42,9 +59,8 @@ function getStatusBorderColor(status: string): string {
   }
 }
 
-export function RunCard({ run, onClick, onCancel, onArchive, onMarkMerged }: RunCardProps) {
+export function RunCard({ run, onClick, onCancel, onArchive, onMerge }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
-  const isInReview = run.status === 'completed' && run.pr_status === 'open'
 
   return (
     <div
@@ -69,7 +85,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onMarkMerged }: Run
       {/* Action buttons - hover reveal in top right */}
       <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-150">
         {/* Mark Merged button - shown for cards in Review column */}
-        {onMarkMerged && isInReview && (
+        {/* {onMarkMerged && isInReview && (
           <button
             className="flex items-center gap-1 px-2 py-1 text-[0.5rem] uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)] rounded-sm transition-colors"
             onClick={(e) => {
@@ -81,7 +97,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onMarkMerged }: Run
             <CheckCircle2 className="w-3 h-3" />
             Merged
           </button>
-        )}
+        )} */}
         {/* Archive button */}
         {onArchive && !isActive && (
           <button
@@ -148,14 +164,31 @@ export function RunCard({ run, onClick, onCancel, onArchive, onMarkMerged }: Run
               <ExternalLink className="w-2.5 h-2.5" />
             </a>
           )}
-          <span className="text-mono text-[var(--color-stone)]/55 hidden sm:inline">
-            {formatTime(run.created_at)}
+          {/* Merge button for open PRs */}
+          {onMerge && run.pr_status === 'open' && (
+            <button
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(168,85,247,0.15)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)] transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                onMerge()
+              }}
+              title="Merge branch locally and push"
+            >
+              <GitMerge className="w-2.5 h-2.5" />
+              <span>Merge</span>
+            </button>
+          )}
+          <span
+            className="text-mono text-[var(--color-stone)]/55 hidden sm:inline cursor-help"
+            title={formatFullDateTime(run.created_at)}
+          >
+            {formatRelativeTime(run.created_at)}
           </span>
-          {run.duration_seconds !== null && (
+          {/* {run.duration_seconds !== null && (
             <span className="text-mono text-[var(--color-stone)]/55">
               {formatDuration(run.duration_seconds)}
             </span>
-          )}
+          )} */}
         </div>
 
         {isActive && onCancel && (

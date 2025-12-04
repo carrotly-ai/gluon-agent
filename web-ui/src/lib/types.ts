@@ -293,3 +293,42 @@ export interface RunUsageItem {
   created_at: string
   status: string
 }
+
+// ========== Git Commits and Files Types ==========
+
+/** Commit response */
+export interface Commit {
+  sha: string
+  message: string
+  author: string
+  author_email: string
+  date: string
+}
+
+/** Response for run commits */
+export interface RunCommitsResponse {
+  run_id: string
+  branch_name: string | null
+  base_branch: string
+  commit_count: number
+  commits: Commit[]
+}
+
+/** File change response */
+export interface FileChange {
+  file_path: string
+  additions: number
+  deletions: number
+  change_type: 'added' | 'modified' | 'deleted' | 'renamed'
+}
+
+/** Response for run files */
+export interface RunFilesResponse {
+  run_id: string
+  branch_name: string | null
+  base_branch: string
+  file_count: number
+  total_additions: number
+  total_deletions: number
+  files: FileChange[]
+}

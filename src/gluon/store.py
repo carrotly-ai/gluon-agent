@@ -664,9 +664,16 @@ class GluonStore:
         prompt: str,
         initiator: str | None = None,
         session_id: str | None = None,
+        use_worktree: bool = False,
     ) -> ExecutionRun:
         """Create a new execution run."""
-        run = ExecutionRun(project_id=project_id, prompt=prompt, initiator=initiator, session_id=session_id)
+        run = ExecutionRun(
+            project_id=project_id,
+            prompt=prompt,
+            initiator=initiator,
+            session_id=session_id,
+            use_worktree=use_worktree,
+        )
         with self._get_conn() as conn:
             conn.execute(
                 """

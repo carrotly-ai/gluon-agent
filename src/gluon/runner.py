@@ -17,6 +17,7 @@ from pathlib import Path
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
+from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 from gluon.models import ExecutionRun, RunStatus
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
 
@@ -66,6 +67,7 @@ class TaskRunner:
         wait: bool = False,
         initiator: str | None = None,
         claude_session_id: str | None = None,
+        use_worktree: bool = False,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -76,12 +78,13 @@ class TaskRunner:
             wait: If True, wait for completion. If False, return immediately.
             initiator: Who started the run (e.g., "cli", "telegram:12345")
             claude_session_id: Optional Claude SDK session ID to resume from
+            use_worktree: Execute in isolated Git worktree (default: False)
 
         Returns:
             ExecutionRun with current status
         """
         # Create run record
-        run = self.store.create_run(project_id, prompt, initiator=initiator)
+        run = self.store.create_run(project_id, prompt, initiator=initiator, use_worktree=use_worktree)
         run.claude_session_id = claude_session_id  # Set for resume
 
         if wait:
@@ -134,6 +137,26 @@ class TaskRunner:
             self.store.update_run(run)
             return
 
+        # Determine working directory (main project or worktree)
+        working_dir = project.path
+        worktree_manager: WorktreeManager | None = None
+
+        # Create worktree if requested and project is a git repo
+        if run.use_worktree:
+            if await is_git_repository(project.path):
+                worktree_run_id = run.id[:8]
+                worktree_manager = WorktreeManager(project.path)
+                try:
+                    working_dir = await worktree_manager.create(worktree_run_id)
+                    run.worktree_path = str(working_dir)
+                    # Get the branch name from the worktree (format: gluon-{run_id})
+                    run.branch_name = f"gluon-{worktree_run_id}"
+                    self.store.update_run(run)
+                except WorktreeError as e:
+                    # Log warning but continue with main directory
+                    run.use_worktree = False
+                    worktree_manager = None
+
         # Setup logging
         log_dir = self._get_log_dir(run.id)
         stdout_path = log_dir / "stdout.log"
@@ -153,7 +176,7 @@ class TaskRunner:
             ):
                 # Execute via agent (pass claude_session_id for resume if set)
                 async for item in self.agent.execute(
-                    working_dir=project.path,
+                    working_dir=working_dir,
                     prompt=run.prompt,
                     resume_session_id=run.claude_session_id,
                 ):

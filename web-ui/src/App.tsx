@@ -9,7 +9,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, archiveRun, updatePrStatus, fetchProjects, fetchRuns } from './lib/api'
+import { cancelRun, archiveRun, fetchProjects, fetchRuns, mergeRunBranch } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
@@ -95,12 +95,19 @@ function App() {
     }
   }, [setRuns])
 
-  const handleMarkMerged = useCallback(async (run: Run) => {
+  const handleMergeRun = useCallback(async (run: Run) => {
     try {
-      const updated = await updatePrStatus(run.id, 'merged')
-      setRuns(prev => prev.map(r => r.id === updated.id ? updated : r))
+      const result = await mergeRunBranch(run.id)
+      if (result.success) {
+        // Update run's PR status to merged in UI
+        setRuns(prev => prev.map(r =>
+          r.id === run.id ? { ...r, pr_status: 'merged' } : r
+        ))
+      } else {
+        console.error('Failed to merge branch:', result.error)
+      }
     } catch (err) {
-      console.error('Failed to mark PR as merged:', err)
+      console.error('Failed to merge run:', err)
     }
   }, [setRuns])
 
@@ -238,7 +245,7 @@ function App() {
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
             onArchiveRun={handleArchiveRun}
-            onMarkMerged={handleMarkMerged}
+            onMergeRun={handleMergeRun}
             onRunUpdate={handleRunUpdated}
           />
         )}
