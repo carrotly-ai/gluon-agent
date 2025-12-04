@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Play, X, ChevronDown, GitBranch } from 'lucide-react'
-import { fetchProjects, createRun } from '@/lib/api'
+import { Play, X, ChevronDown, GitBranch, Image as ImageIcon, Trash2 } from 'lucide-react'
+import { fetchProjects, createRun, uploadAndAttachImage } from '@/lib/api'
 import { groupProjectsByWorkspace } from '@/lib/types'
 import type { Project, ProjectWithWorkspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -19,6 +19,12 @@ const MODEL_OPTIONS = [
   { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5', description: 'Fastest' },
 ]
 
+// Pending image (uploaded before run creation)
+interface PendingImage {
+  file: File
+  preview: string
+}
+
 export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialProject }: CreateTaskDialogProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
@@ -29,6 +35,11 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+
+  // Image upload state
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -48,8 +59,62 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       setError(null)
       setModel(MODEL_OPTIONS[0].value)
       setUseWorktree(true)
+      // Revoke preview URLs to prevent memory leaks
+      pendingImages.forEach(img => URL.revokeObjectURL(img.preview))
+      setPendingImages([])
     }
   }, [open, initialProject])
+
+  // Image handling functions
+  const handleFileSelect = useCallback((files: FileList | null) => {
+    if (!files) return
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+    const maxSize = 50 * 1024 * 1024 // 50MB
+
+    const newImages: PendingImage[] = []
+    for (const file of Array.from(files)) {
+      if (!validTypes.includes(file.type)) {
+        setError(`Invalid file type: ${file.name}. Use PNG, JPEG, GIF, or WebP.`)
+        continue
+      }
+      if (file.size > maxSize) {
+        setError(`File too large: ${file.name}. Max size is 50MB.`)
+        continue
+      }
+      newImages.push({
+        file,
+        preview: URL.createObjectURL(file),
+      })
+    }
+
+    setPendingImages(prev => [...prev, ...newImages])
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    handleFileSelect(e.dataTransfer.files)
+  }, [handleFileSelect])
+
+  const removeImage = useCallback((index: number) => {
+    setPendingImages(prev => {
+      const updated = [...prev]
+      URL.revokeObjectURL(updated[index].preview)
+      updated.splice(index, 1)
+      return updated
+    })
+  }, [])
 
   const grouped = groupProjectsByWorkspace(projects)
 
@@ -61,12 +126,25 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
     setError(null)
 
     try {
-      await createRun({
+      // Create the run first
+      const run = await createRun({
         project_name: selectedProject,
         prompt: prompt.trim(),
         model,
         use_worktree: useWorktree,
       })
+
+      // Upload and attach images
+      if (pendingImages.length > 0) {
+        const uploadPromises = pendingImages.map(img =>
+          uploadAndAttachImage(run.id, img.file).catch(err => {
+            console.error(`Failed to upload image ${img.file.name}:`, err)
+            return null
+          })
+        )
+        await Promise.all(uploadPromises)
+      }
+
       onTaskCreated()
       onOpenChange(false)
       setPrompt('')
@@ -163,6 +241,82 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               className="w-full px-3 py-2.5 text-[0.8125rem] text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
             />
+          </div>
+
+          {/* Image Attachments */}
+          <div>
+            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+              Attachments (optional)
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              className="hidden"
+              onChange={(e) => handleFileSelect(e.target.files)}
+            />
+            <div
+              className={cn(
+                'border-2 border-dashed rounded-sm p-3 transition-colors cursor-pointer',
+                isDragging
+                  ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
+                  : 'border-[rgba(163,163,163,0.15)] hover:border-[rgba(163,163,163,0.3)]'
+              )}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {pendingImages.length === 0 ? (
+                <div className="flex flex-col items-center py-2 text-center">
+                  <ImageIcon className="w-6 h-6 text-[var(--color-stone)]/40 mb-1" />
+                  <span className="text-[0.75rem] text-[var(--color-stone)]/60">
+                    Drop images here or click to upload
+                  </span>
+                  <span className="text-[0.625rem] text-[var(--color-stone)]/40 mt-0.5">
+                    PNG, JPEG, GIF, WebP • Max 50MB
+                  </span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-2" onClick={(e) => e.stopPropagation()}>
+                  {pendingImages.map((img, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={img.preview}
+                        alt={img.file.name}
+                        className="w-full h-16 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
+                      />
+                      <button
+                        type="button"
+                        className="absolute top-0.5 right-0.5 p-0.5 bg-[var(--color-void)]/80 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeImage(index)
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3 text-[var(--color-vermillion)]" />
+                      </button>
+                      <span className="absolute bottom-0.5 left-0.5 right-0.5 text-[0.5rem] text-[var(--color-paper)] bg-[var(--color-void)]/80 px-1 truncate rounded-sm">
+                        {img.file.name}
+                      </span>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="h-16 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
+                  </button>
+                </div>
+              )}
+            </div>
+            {pendingImages.length > 0 && (
+              <p className="text-[0.625rem] text-[var(--color-stone)]/60 mt-1">
+                {pendingImages.length} image{pendingImages.length !== 1 ? 's' : ''} selected
+              </p>
+            )}
           </div>
 
           {/* Model Select */}

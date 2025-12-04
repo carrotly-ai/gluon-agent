@@ -17,6 +17,7 @@ from pathlib import Path
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
+from gluon.image_storage import ImageStorageService
 from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 from gluon.models import ExecutionRun, RunStatus
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
@@ -48,6 +49,7 @@ class TaskRunner:
         self.agent = agent or GluonAgent()
         self.config = config or RunnerConfig()
         self.git_manager = GitManager(self.store)
+        self.image_service = ImageStorageService(self.store)
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
         self._active_tasks: dict[str, asyncio.Task] = {}
 
@@ -167,6 +169,18 @@ class TaskRunner:
         run.mark_running(pid=os.getpid(), log_path=log_dir)
         self.store.update_run(run)
 
+        # Copy images to worktree/working directory for AI visibility
+        image_paths: list[str] = []
+        prompt_with_images = run.prompt
+        try:
+            image_paths = self.image_service.copy_to_worktree(run.id, working_dir)
+            if image_paths:
+                # Append image references to prompt
+                image_markdown = self.image_service.get_markdown_references(run.id)
+                prompt_with_images = f"{run.prompt}{image_markdown}"
+        except Exception:
+            pass  # Continue without images if copy fails
+
         try:
             # Open log files
             with (
@@ -174,10 +188,19 @@ class TaskRunner:
                 open(stderr_path, "w") as stderr_file,
                 open(messages_path, "w") as messages_file,
             ):
+                # Log any copied images
+                if image_paths:
+                    stdout_file.write(f"Copied {len(image_paths)} image(s) to working directory:\n")
+                    for img_path in image_paths:
+                        stdout_file.write(f"  - {img_path}\n")
+                    stdout_file.write("\n")
+                    stdout_file.flush()
+
                 # Execute via agent (pass claude_session_id for resume if set)
+                # Use prompt_with_images if images were attached
                 async for item in self.agent.execute(
                     working_dir=working_dir,
-                    prompt=run.prompt,
+                    prompt=prompt_with_images,
                     resume_session_id=run.claude_session_id,
                 ):
                     if isinstance(item, AgentMessage):

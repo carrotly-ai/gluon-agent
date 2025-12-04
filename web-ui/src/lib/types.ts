@@ -332,3 +332,35 @@ export interface RunFilesResponse {
   total_deletions: number
   files: FileChange[]
 }
+
+// ========== Image Attachment Types (Phase 10.1) ==========
+
+/** Image attachment metadata */
+export interface ImageAttachment {
+  id: string
+  file_path: string
+  original_name: string
+  mime_type: string | null
+  size_bytes: number
+  hash: string
+  created_at: string
+}
+
+/** Response for images attached to a run */
+export interface RunImagesResponse {
+  run_id: string
+  image_count: number
+  images: ImageAttachment[]
+}
+
+/** Helper to format file size */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Get image URL for serving */
+export function getImageUrl(imageId: string): string {
+  return `/api/images/${imageId}/file`
+}

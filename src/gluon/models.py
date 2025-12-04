@@ -313,3 +313,28 @@ class ChannelMapping(BaseModel):
     project_id: str  # Project ID (FK)
     project_name: str  # Cached project name for convenience
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ========== Image Attachment Models (Phase 10.1) ==========
+
+
+class ImageAttachment(BaseModel):
+    """Metadata for an uploaded image attachment."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    file_path: str  # Relative path within storage (e.g., "ab/abcd1234.png")
+    original_name: str  # User's original filename
+    mime_type: str | None = None  # e.g., "image/png"
+    size_bytes: int
+    hash: str  # SHA256 hash for deduplication
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    @property
+    def full_path(self) -> Path:
+        """Get full path to image file in storage."""
+        return Path.home() / ".gluon" / "images" / self.file_path
+
+    def to_markdown(self) -> str:
+        """Return markdown image reference."""
+        return f"![{self.original_name}]({self.file_path})"

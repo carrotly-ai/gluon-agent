@@ -9,7 +9,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
 import { useHashFilter } from './hooks/useHashFilter'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, archiveRun, fetchProjects, fetchRuns, mergeRunBranch } from './lib/api'
+import { cancelRun, archiveRun, fetchProjects, fetchRuns } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
@@ -92,22 +92,6 @@ function App() {
       await archiveRun(run.id)
     } catch (err) {
       console.error('Failed to archive run:', err)
-    }
-  }, [setRuns])
-
-  const handleMergeRun = useCallback(async (run: Run) => {
-    try {
-      const result = await mergeRunBranch(run.id)
-      if (result.success) {
-        // Update run's PR status to merged in UI
-        setRuns(prev => prev.map(r =>
-          r.id === run.id ? { ...r, pr_status: 'merged' } : r
-        ))
-      } else {
-        console.error('Failed to merge branch:', result.error)
-      }
-    } catch (err) {
-      console.error('Failed to merge run:', err)
     }
   }, [setRuns])
 
@@ -245,7 +229,6 @@ function App() {
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
             onArchiveRun={handleArchiveRun}
-            onMergeRun={handleMergeRun}
             onRunUpdate={handleRunUpdated}
           />
         )}

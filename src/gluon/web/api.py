@@ -8,8 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from gluon.core import Orchestrator, ProjectNotFoundError
@@ -17,12 +17,14 @@ from gluon.models import RunStatus
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
+    AttachImageRequest,
     CommitResponse,
     CreateProjectRequest,
     CreateRunRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
     FileChangeResponse,
+    ImageResponse,
     LogResponse,
     ProjectDetailResponse,
     ProjectResponse,
@@ -32,6 +34,7 @@ from gluon.web.models import (
     RunCommitsResponse,
     RunDetailResponse,
     RunFilesResponse,
+    RunImagesResponse,
     RunResponse,
     RunUsageItemResponse,
     ScanResultResponse,
@@ -1018,6 +1021,166 @@ def create_app() -> FastAPI:
                 }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to merge: {e}")
+
+    # ========== Image Attachments API (Phase 10.1) ==========
+
+    from gluon.image_storage import (
+        ImageStorageService,
+        ImageNotFoundError,
+        ImageTooLargeError,
+        InvalidImageFormatError,
+    )
+
+    image_service = ImageStorageService(store)
+
+    def image_to_response(image) -> ImageResponse:
+        """Convert ImageAttachment to ImageResponse."""
+        return ImageResponse(
+            id=image.id,
+            file_path=image.file_path,
+            original_name=image.original_name,
+            mime_type=image.mime_type,
+            size_bytes=image.size_bytes,
+            hash=image.hash,
+            created_at=image.created_at.isoformat(),
+        )
+
+    @app.post("/api/images/upload", response_model=ImageResponse)
+    async def upload_image(file: UploadFile) -> ImageResponse:
+        """
+        Upload an image file.
+
+        Returns the image metadata. The image can then be attached to runs.
+        Duplicate images (same content hash) return the existing image.
+        """
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+
+        try:
+            data = await file.read()
+            image = image_service.save_image(
+                data=data,
+                original_name=file.filename,
+                mime_type=file.content_type,
+            )
+            return image_to_response(image)
+        except ImageTooLargeError as e:
+            raise HTTPException(status_code=413, detail=str(e))
+        except InvalidImageFormatError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"Image upload failed: {e}")
+            raise HTTPException(status_code=500, detail="Image upload failed")
+
+    @app.get("/api/images/{image_id}", response_model=ImageResponse)
+    async def get_image(image_id: str) -> ImageResponse:
+        """Get image metadata by ID."""
+        try:
+            image = image_service.get_image(image_id)
+            return image_to_response(image)
+        except ImageNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Image not found: {image_id}")
+
+    @app.get("/api/images/{image_id}/file")
+    async def serve_image(image_id: str) -> Response:
+        """Serve the actual image file."""
+        try:
+            data, image = image_service.get_image_data(image_id)
+            return Response(
+                content=data,
+                media_type=image.mime_type or "application/octet-stream",
+                headers={
+                    "Content-Disposition": f'inline; filename="{image.original_name}"',
+                    "Cache-Control": "public, max-age=31536000",  # Cache for 1 year (content-addressed)
+                },
+            )
+        except ImageNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Image not found: {image_id}")
+
+    @app.delete("/api/images/{image_id}")
+    async def delete_image(image_id: str) -> dict:
+        """Delete an image (only if not attached to any runs)."""
+        # Check if image exists
+        try:
+            image_service.get_image(image_id)
+        except ImageNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Image not found: {image_id}")
+
+        # Check if attached to any runs
+        ref_count = store.count_image_references(image_id)
+        if ref_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image is attached to {ref_count} run(s). Detach first.",
+            )
+
+        success = image_service.delete_image(image_id)
+        return {"deleted": success, "image_id": image_id}
+
+    @app.get("/api/runs/{run_id}/attachments", response_model=RunImagesResponse)
+    async def get_run_attachments(run_id: str) -> RunImagesResponse:
+        """Get all images attached to a run."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        images = image_service.list_images_for_run(run.id)
+        return RunImagesResponse(
+            run_id=run.id,
+            image_count=len(images),
+            images=[image_to_response(img) for img in images],
+        )
+
+    @app.post("/api/runs/{run_id}/attachments", response_model=ImageResponse)
+    async def attach_image_to_run(run_id: str, file: UploadFile | None = None, body: AttachImageRequest | None = None) -> ImageResponse:
+        """
+        Attach an image to a run.
+
+        Either upload a new image (multipart form with 'file') or
+        attach an existing image (JSON body with 'image_id').
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if file and file.filename:
+            # Upload new image and attach
+            try:
+                data = await file.read()
+                image = image_service.save_image(
+                    data=data,
+                    original_name=file.filename,
+                    mime_type=file.content_type,
+                )
+                image_service.attach_to_run(run.id, image.id)
+                return image_to_response(image)
+            except ImageTooLargeError as e:
+                raise HTTPException(status_code=413, detail=str(e))
+            except InvalidImageFormatError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        elif body and body.image_id:
+            # Attach existing image
+            try:
+                image_service.attach_to_run(run.id, body.image_id)
+                image = image_service.get_image(body.image_id)
+                return image_to_response(image)
+            except ImageNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Image not found: {body.image_id}")
+        else:
+            raise HTTPException(status_code=400, detail="Provide either a file upload or image_id")
+
+    @app.delete("/api/runs/{run_id}/attachments/{image_id}")
+    async def detach_image_from_run(run_id: str, image_id: str) -> dict:
+        """Detach an image from a run."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        success = image_service.detach_from_run(run.id, image_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Image not attached to this run")
+
+        return {"detached": True, "run_id": run.id, "image_id": image_id}
 
     # ========== WebSocket ==========
 

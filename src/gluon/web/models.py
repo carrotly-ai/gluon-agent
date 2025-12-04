@@ -326,3 +326,35 @@ class RunFilesResponse(BaseModel):
     total_additions: int
     total_deletions: int
     files: list[FileChangeResponse]
+
+
+# ========== Image Attachment Models (Phase 10.1) ==========
+
+
+class ImageResponse(BaseModel):
+    """Response model for an image attachment."""
+
+    id: str
+    file_path: str = Field(description="Relative path within storage")
+    original_name: str = Field(description="Original filename")
+    mime_type: str | None = Field(default=None, description="MIME type")
+    size_bytes: int = Field(description="File size in bytes")
+    hash: str = Field(description="SHA256 content hash")
+    created_at: str = Field(description="Creation timestamp")
+
+    class Config:
+        from_attributes = True
+
+
+class RunImagesResponse(BaseModel):
+    """Response model for images attached to a run."""
+
+    run_id: str
+    image_count: int
+    images: list[ImageResponse]
+
+
+class AttachImageRequest(BaseModel):
+    """Request model for attaching an existing image to a run."""
+
+    image_id: str = Field(description="ID of the image to attach")

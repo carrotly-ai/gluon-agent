@@ -5,7 +5,17 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from gluon.models import ChannelMapping, ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
+from gluon.models import (
+    ChannelMapping,
+    ExecutionRun,
+    GitStatus,
+    ImageAttachment,
+    Project,
+    RunStatus,
+    Session,
+    SessionStatus,
+    Workspace,
+)
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
 
@@ -96,6 +106,30 @@ MIGRATIONS = [
     # Archive tracking
     "ALTER TABLE execution_runs ADD COLUMN archived INTEGER DEFAULT 0;",
     "ALTER TABLE execution_runs ADD COLUMN archived_at TEXT;",
+    # Image attachments (Phase 10.1)
+    """
+    CREATE TABLE IF NOT EXISTS images (
+        id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes INTEGER NOT NULL,
+        hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS run_images (
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        image_id TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (run_id, image_id)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_run_images_run ON run_images(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_run_images_image ON run_images(image_id);",
+    "CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1206,3 +1240,119 @@ class GluonStore:
         with self._get_conn() as conn:
             rows = conn.execute("SELECT key, value FROM settings").fetchall()
             return {row["key"]: row["value"] for row in rows}
+
+    # ========== Image Attachment CRUD (Phase 10.1) ==========
+
+    def create_image(self, image: ImageAttachment) -> ImageAttachment:
+        """Create a new image record."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO images (id, file_path, original_name, mime_type,
+                                   size_bytes, hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    image.id,
+                    image.file_path,
+                    image.original_name,
+                    image.mime_type,
+                    image.size_bytes,
+                    image.hash,
+                    image.created_at.isoformat(),
+                    image.updated_at.isoformat(),
+                ),
+            )
+        return image
+
+    def get_image(self, image_id: str) -> ImageAttachment | None:
+        """Get image by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
+            if row:
+                return self._row_to_image(row)
+        return None
+
+    def get_image_by_hash(self, hash_value: str) -> ImageAttachment | None:
+        """Get image by content hash (for deduplication)."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM images WHERE hash = ?", (hash_value,)).fetchone()
+            if row:
+                return self._row_to_image(row)
+        return None
+
+    def delete_image(self, image_id: str) -> bool:
+        """Delete an image record."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_image(self, row: sqlite3.Row) -> ImageAttachment:
+        """Convert database row to ImageAttachment model."""
+        return ImageAttachment(
+            id=row["id"],
+            file_path=row["file_path"],
+            original_name=row["original_name"],
+            mime_type=row["mime_type"],
+            size_bytes=row["size_bytes"],
+            hash=row["hash"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    # ========== Run-Image Association ==========
+
+    def attach_image_to_run(self, run_id: str, image_id: str) -> None:
+        """Attach an image to a run."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO run_images (run_id, image_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (run_id, image_id, datetime.now().isoformat()),
+            )
+
+    def detach_image_from_run(self, run_id: str, image_id: str) -> bool:
+        """Detach an image from a run."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM run_images WHERE run_id = ? AND image_id = ?",
+                (run_id, image_id),
+            )
+            return cursor.rowcount > 0
+
+    def list_images_for_run(self, run_id: str) -> list[ImageAttachment]:
+        """List all images attached to a run."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.* FROM images i
+                JOIN run_images ri ON i.id = ri.image_id
+                WHERE ri.run_id = ?
+                ORDER BY ri.created_at ASC
+                """,
+                (run_id,),
+            ).fetchall()
+            return [self._row_to_image(row) for row in rows]
+
+    def count_image_references(self, image_id: str) -> int:
+        """Count how many runs reference an image."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as count FROM run_images WHERE image_id = ?",
+                (image_id,),
+            ).fetchone()
+            return row["count"] if row else 0
+
+    def list_orphan_images(self) -> list[ImageAttachment]:
+        """List images that are not attached to any run."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.* FROM images i
+                LEFT JOIN run_images ri ON i.id = ri.image_id
+                WHERE ri.run_id IS NULL
+                """,
+            ).fetchall()
+            return [self._row_to_image(row) for row in rows]

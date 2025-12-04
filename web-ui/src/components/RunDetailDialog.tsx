@@ -3,9 +3,10 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus } from 'lucide-react'
-import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles } from '@/lib/api'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download } from 'lucide-react'
+import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment } from '@/lib/types'
+import { formatFileSize } from '@/lib/types'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
 
@@ -182,12 +183,14 @@ function MessageItem({ msg }: { msg: AgentMessage }) {
 export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string; messages: string }>({ stdout: '', stderr: '', messages: '' })
-  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files'>('messages')
+  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments'>('messages')
   const [loading, setLoading] = useState(false)
   const [commitsData, setCommitsData] = useState<RunCommitsResponse | null>(null)
   const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
   const [loadingCommits, setLoadingCommits] = useState(false)
   const [loadingFiles, setLoadingFiles] = useState(false)
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
+  const [loadingAttachments, setLoadingAttachments] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
@@ -199,6 +202,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [archiving, setArchiving] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
+  const [merging, setMerging] = useState(false)
+  const [mergeError, setMergeError] = useState<string | null>(null)
 
   // Refs for auto-scroll
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -217,8 +222,10 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       setExpandedHistoryRun(null)
       setHistoryLogs({})
       setPrError(null)
+      setMergeError(null)
       setCommitsData(null)
       setFilesData(null)
+      setAttachments([])
       return
     }
 
@@ -418,6 +425,27 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     }
   }
 
+  const handleMerge = async () => {
+    if (!run) return
+    setMerging(true)
+    setMergeError(null)
+    try {
+      const result = await mergeRunBranch(run.id)
+      if (result.success) {
+        // Refresh the run details to get updated PR status (will show as merged)
+        const updatedDetail = await fetchRun(run.id)
+        setDetail(updatedDetail)
+        onRunUpdated(updatedDetail)
+      } else {
+        setMergeError(result.error || 'Failed to merge branch')
+      }
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : 'Failed to merge branch')
+    } finally {
+      setMerging(false)
+    }
+  }
+
   // Lazy load commits when switching to commits tab
   const loadCommits = async () => {
     if (!run || commitsData || loadingCommits) return
@@ -446,12 +474,28 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     }
   }
 
+  // Lazy load attachments when switching to attachments tab
+  const loadAttachments = async () => {
+    if (!run || attachments.length > 0 || loadingAttachments) return
+    setLoadingAttachments(true)
+    try {
+      const data = await fetchRunAttachments(run.id)
+      setAttachments(data.images)
+    } catch (err) {
+      console.error('Failed to load attachments:', err)
+    } finally {
+      setLoadingAttachments(false)
+    }
+  }
+
   // Load data when tab changes
   useEffect(() => {
     if (activeTab === 'commits' && !commitsData && !loadingCommits) {
       loadCommits()
     } else if (activeTab === 'files' && !filesData && !loadingFiles) {
       loadFiles()
+    } else if (activeTab === 'attachments' && attachments.length === 0 && !loadingAttachments) {
+      loadAttachments()
     }
   }, [activeTab, run?.id])
 
@@ -575,6 +619,23 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     <ExternalLink className="w-2.5 h-2.5" />
                   </a>
                 )}
+                {/* Merge button for open PRs */}
+                {detail.pr_status === 'open' && detail.branch_name && !isActive && (
+                  <button
+                    onClick={handleMerge}
+                    disabled={merging}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
+                      merging
+                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                        : 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400 hover:bg-[rgba(168,85,247,0.15)]'
+                    )}
+                    title="Merge branch locally and push to remote"
+                  >
+                    <GitMerge className="w-3 h-3" />
+                    <span>{merging ? 'Merging...' : 'Merge'}</span>
+                  </button>
+                )}
                 {/* Create PR button - show for worktree runs with branch but no PR */}
                 {detail.use_worktree && detail.branch_name && !detail.pr_url && !isActive && (
                   <button
@@ -597,6 +658,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             {prError && (
               <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
                 <p className="text-[0.625rem] text-[var(--color-vermillion)]">{prError}</p>
+              </div>
+            )}
+            {/* Merge error */}
+            {mergeError && (
+              <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
+                <p className="text-[0.625rem] text-[var(--color-vermillion)]">{mergeError}</p>
               </div>
             )}
 
@@ -755,6 +822,21 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       </button>
                     </>
                   )}
+                  <button
+                    className={cn(
+                      'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                      activeTab === 'attachments'
+                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                    )}
+                    onClick={() => setActiveTab('attachments')}
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    Images
+                    {attachments.length > 0 && (
+                      <span className="text-[0.5rem] text-[var(--color-stone)]/50">({attachments.length})</span>
+                    )}
+                  </button>
                 </div>
                 <button
                   className={cn(
@@ -1033,6 +1115,68 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                       <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
                         <FileCode className="w-6 h-6 mb-2 opacity-50" />
                         <span className="text-[0.6875rem]">No files changed on this branch</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeTab === 'attachments' && (
+                  <div className="p-3 overflow-y-auto h-full">
+                    {loadingAttachments ? (
+                      <div className="flex items-center justify-center h-32">
+                        <RotateCw className="w-4 h-4 animate-spin text-[var(--color-stone)]/50" />
+                      </div>
+                    ) : attachments.length > 0 ? (
+                      <div className="space-y-0">
+                        {/* Summary header */}
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
+                          <div className="flex items-center gap-2">
+                            <ImageIcon className="w-3.5 h-3.5 text-[var(--color-harvest)]" />
+                            <span className="text-[0.6875rem] text-[var(--color-paper)]/80">
+                              {attachments.length} image{attachments.length !== 1 ? 's' : ''} attached
+                            </span>
+                          </div>
+                        </div>
+                        {/* Image grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                          {attachments.map((image) => (
+                            <div
+                              key={image.id}
+                              className="group relative rounded-sm overflow-hidden border border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]"
+                            >
+                              <img
+                                src={getImageFileUrl(image.id)}
+                                alt={image.original_name}
+                                className="w-full h-24 object-cover"
+                              />
+                              {/* Hover overlay with actions */}
+                              <div className="absolute inset-0 bg-[var(--color-void)]/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                <a
+                                  href={getImageFileUrl(image.id)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1.5 px-2 py-1 text-[0.5rem] uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm hover:bg-[var(--color-paper)]/20 transition-colors"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  View
+                                </a>
+                              </div>
+                              {/* File info footer */}
+                              <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-[var(--color-void)]/90">
+                                <p className="text-[0.5rem] text-[var(--color-paper)]/80 truncate">
+                                  {image.original_name}
+                                </p>
+                                <p className="text-[0.5rem] text-[var(--color-stone)]/60">
+                                  {formatFileSize(image.size_bytes)}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
+                        <ImageIcon className="w-6 h-6 mb-2 opacity-50" />
+                        <span className="text-[0.6875rem]">No images attached</span>
                       </div>
                     )}
                   </div>

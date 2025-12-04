@@ -1,4 +1,4 @@
-import { X, GitBranch, Archive, ExternalLink, GitMerge } from 'lucide-react'
+import { X, GitBranch, Archive, ExternalLink } from 'lucide-react'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -7,7 +7,6 @@ interface RunCardProps {
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
-  onMerge?: () => void
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -59,7 +58,7 @@ function getStatusBorderColor(status: string): string {
   }
 }
 
-export function RunCard({ run, onClick, onCancel, onArchive, onMerge }: RunCardProps) {
+export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
 
   return (
@@ -163,20 +162,6 @@ export function RunCard({ run, onClick, onCancel, onArchive, onMerge }: RunCardP
               <span>PR #{run.pr_number}</span>
               <ExternalLink className="w-2.5 h-2.5" />
             </a>
-          )}
-          {/* Merge button for open PRs */}
-          {onMerge && run.pr_status === 'open' && (
-            <button
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(168,85,247,0.15)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)] transition-colors"
-              onClick={(e) => {
-                e.stopPropagation()
-                onMerge()
-              }}
-              title="Merge branch locally and push"
-            >
-              <GitMerge className="w-2.5 h-2.5" />
-              <span>Merge</span>
-            </button>
           )}
           <span
             className="text-mono text-[var(--color-stone)]/55 hidden sm:inline cursor-help"

@@ -20,6 +20,8 @@ import type {
   RunUsageItem,
   RunCommitsResponse,
   RunFilesResponse,
+  ImageAttachment,
+  RunImagesResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -303,5 +305,80 @@ export interface MergeResponse {
 export async function mergeRunBranch(runId: string): Promise<MergeResponse> {
   return fetchJson<MergeResponse>(`/runs/${runId}/merge`, {
     method: 'POST',
+  })
+}
+
+// ========== Image Attachments API (Phase 10.1) ==========
+
+/** Upload an image file */
+export async function uploadImage(file: File): Promise<ImageAttachment> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_BASE}/images/upload`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error(error.detail || 'Image upload failed')
+  }
+
+  return response.json()
+}
+
+/** Get image metadata by ID */
+export async function fetchImage(imageId: string): Promise<ImageAttachment> {
+  return fetchJson<ImageAttachment>(`/images/${imageId}`)
+}
+
+/** Get image file URL (for <img> src) */
+export function getImageFileUrl(imageId: string): string {
+  return `${API_BASE}/images/${imageId}/file`
+}
+
+/** Delete an image (only if not attached to any runs) */
+export async function deleteImage(imageId: string): Promise<{ deleted: boolean; image_id: string }> {
+  return fetchJson<{ deleted: boolean; image_id: string }>(`/images/${imageId}`, {
+    method: 'DELETE',
+  })
+}
+
+/** Get images attached to a run */
+export async function fetchRunAttachments(runId: string): Promise<RunImagesResponse> {
+  return fetchJson<RunImagesResponse>(`/runs/${runId}/attachments`)
+}
+
+/** Upload and attach an image to a run */
+export async function uploadAndAttachImage(runId: string, file: File): Promise<ImageAttachment> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_BASE}/runs/${runId}/attachments`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error(error.detail || 'Failed to attach image')
+  }
+
+  return response.json()
+}
+
+/** Attach an existing image to a run */
+export async function attachImageToRun(runId: string, imageId: string): Promise<ImageAttachment> {
+  return fetchJson<ImageAttachment>(`/runs/${runId}/attachments`, {
+    method: 'POST',
+    body: JSON.stringify({ image_id: imageId }),
+  })
+}
+
+/** Detach an image from a run */
+export async function detachImageFromRun(runId: string, imageId: string): Promise<{ detached: boolean }> {
+  return fetchJson<{ detached: boolean }>(`/runs/${runId}/attachments/${imageId}`, {
+    method: 'DELETE',
   })
 }
