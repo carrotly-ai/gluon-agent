@@ -241,3 +241,37 @@ export async function fetchUsageRuns(params?: {
   const query = searchParams.toString()
   return fetchJson<RunUsageItem[]>(`/usage/runs${query ? `?${query}` : ''}`)
 }
+
+// ========== Settings API (Phase 9) ==========
+
+export type Settings = Record<string, string>
+
+/** Fetch all settings */
+export async function fetchSettings(): Promise<Settings> {
+  return fetchJson<Settings>('/settings')
+}
+
+/** Update a single setting */
+export async function updateSetting(key: string, value: string): Promise<{ key: string; value: string }> {
+  return fetchJson<{ key: string; value: string }>(`/settings/${key}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  })
+}
+
+// ========== Manual PR Creation API ==========
+
+export interface CreatePrResponse {
+  success: boolean
+  pr_url?: string
+  pr_number?: number
+  pr_status?: string
+  error?: string
+}
+
+/** Manually create a PR for a completed worktree run */
+export async function createPrForRun(runId: string): Promise<CreatePrResponse> {
+  return fetchJson<CreatePrResponse>(`/runs/${runId}/create-pr`, {
+    method: 'POST',
+  })
+}

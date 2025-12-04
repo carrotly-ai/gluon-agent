@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, FolderOpen, RefreshCw, Trash2, GitBranch, AlertCircle, Check, X } from 'lucide-react'
-import { fetchWorkspaces, fetchProjects, createWorkspace, deleteWorkspace, scanWorkspace, deleteProject } from '@/lib/api'
+import { Plus, FolderOpen, RefreshCw, Trash2, GitBranch, AlertCircle, Check, X, Settings } from 'lucide-react'
+import { fetchWorkspaces, fetchProjects, createWorkspace, deleteWorkspace, scanWorkspace, deleteProject, fetchSettings, updateSetting } from '@/lib/api'
 import type { Workspace, Project, ScanResultResponse } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-type Tab = 'workspaces' | 'projects'
+type Tab = 'workspaces' | 'projects' | 'preferences'
 
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('workspaces')
@@ -27,13 +27,18 @@ export function SettingsPage() {
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'workspace' | 'project'; id: string; name: string } | null>(null)
 
+  // Settings state
+  const [autoCreatePr, setAutoCreatePr] = useState(true)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [ws, prj] = await Promise.all([fetchWorkspaces(), fetchProjects()])
+      const [ws, prj, settings] = await Promise.all([fetchWorkspaces(), fetchProjects(), fetchSettings()])
       setWorkspaces(ws)
       setProjects(prj)
+      setAutoCreatePr(settings.auto_create_pr !== 'false')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -104,6 +109,19 @@ export function SettingsPage() {
     }
   }
 
+  const handleToggleAutoCreatePr = async () => {
+    const newValue = !autoCreatePr
+    setSettingsLoading(true)
+    try {
+      await updateSetting('auto_create_pr', newValue ? 'true' : 'false')
+      setAutoCreatePr(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
   // Group projects by workspace
   const projectsByWorkspace = projects.reduce((acc, project) => {
     const wsId = project.workspace_id || 'standalone'
@@ -148,6 +166,18 @@ export function SettingsPage() {
               onClick={() => setTab('projects')}
             >
               Projects
+            </button>
+            <button
+              className={cn(
+                'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors flex items-center gap-1.5',
+                tab === 'preferences'
+                  ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                  : 'text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
+              )}
+              onClick={() => setTab('preferences')}
+            >
+              <Settings className="w-3 h-3" />
+              Preferences
             </button>
           </div>
         </div>
@@ -398,6 +428,45 @@ export function SettingsPage() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Preferences Tab */}
+        {tab === 'preferences' && (
+          <div className="space-y-6">
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-[0.75rem] uppercase tracking-widest text-[var(--color-stone)]/70">
+                Git Worktree Settings
+              </h3>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[0.8125rem] text-[var(--color-paper)]">
+                    Auto-create Pull Requests
+                  </p>
+                  <p className="text-[0.6875rem] text-[var(--color-stone)]/70 mt-1">
+                    Automatically create a PR when a worktree run completes successfully. When disabled, runs will wait in Review until you manually create a PR.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleAutoCreatePr}
+                  disabled={settingsLoading}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    autoCreatePr
+                      ? 'bg-[var(--color-jade)]'
+                      : 'bg-[var(--color-stone)]/30',
+                    settingsLoading && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      autoCreatePr && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

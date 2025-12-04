@@ -217,8 +217,9 @@ class TaskRunner:
                             # Don't fail the run if git capture fails
                             stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
 
-                        # For worktree runs: push branch and create PR
-                        if run.use_worktree and run.branch_name and item.success:
+                        # For worktree runs: push branch and create PR (if auto_create_pr enabled)
+                        auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
+                        if run.use_worktree and run.branch_name and item.success and auto_create_pr:
                             try:
                                 pr_result = await self.git_manager.push_branch_and_create_pr(
                                     project_path=working_path,

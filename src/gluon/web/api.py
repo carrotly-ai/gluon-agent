@@ -762,6 +762,85 @@ def create_app() -> FastAPI:
         )
         return [RunUsageItemResponse(**item) for item in data]
 
+    # ========== Phase 9: Settings API ==========
+
+    @app.get("/api/settings")
+    async def get_all_settings() -> dict[str, str]:
+        """Get all settings as key-value pairs."""
+        return store.get_all_settings()
+
+    @app.put("/api/settings/{key}")
+    async def update_setting(key: str, body: dict) -> dict[str, str]:
+        """Update a single setting value."""
+        value = body.get("value")
+        if value is None:
+            raise HTTPException(status_code=400, detail="Missing 'value' in request body")
+        store.set_setting(key, str(value))
+        return {"key": key, "value": str(value)}
+
+    @app.post("/api/runs/{run_id}/create-pr")
+    async def create_pr_for_run(run_id: str) -> dict:
+        """Manually create a PR for a completed worktree run."""
+        run = store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.use_worktree or not run.branch_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Run is not a worktree run or has no branch"
+            )
+
+        if run.pr_url:
+            raise HTTPException(
+                status_code=400,
+                detail=f"PR already exists: {run.pr_url}"
+            )
+
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
+
+        # Use git manager to push branch and create PR
+        from gluon.git_manager import GitManager
+        git_manager = GitManager()
+
+        # Determine working path (worktree if still exists, else project root)
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+
+        try:
+            pr_result = await git_manager.push_branch_and_create_pr(
+                project_path=working_path,
+                branch_name=run.branch_name,
+                prompt=run.prompt,
+                run_id=run.id,
+            )
+
+            if pr_result.get("pr_url"):
+                run.pr_number = pr_result.get("pr_number")
+                run.pr_url = pr_result.get("pr_url")
+                run.pr_status = pr_result.get("pr_status")
+                store.update_run(run)
+
+                # Broadcast update
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                await ws_manager.broadcast_run_update(run, project_name)
+
+                return {
+                    "success": True,
+                    "pr_url": run.pr_url,
+                    "pr_number": run.pr_number,
+                    "pr_status": run.pr_status,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": pr_result.get("error", "Failed to create PR"),
+                }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to create PR: {e}")
+
     # ========== WebSocket ==========
 
     @app.websocket("/api/ws")

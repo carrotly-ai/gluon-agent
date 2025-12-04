@@ -211,6 +211,22 @@ class GluonStore:
                     "CREATE INDEX IF NOT EXISTS idx_mappings_channel ON channel_mappings(transport, channel_id)"
                 )
 
+            # Settings table for key-value configuration
+            if "settings" not in existing_tables:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                # Set default settings
+                now = datetime.now().isoformat()
+                conn.execute(
+                    "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                    ("auto_create_pr", "true", now),
+                )
+
             # Run migrations for existing tables
             for migration in MIGRATIONS:
                 try:
@@ -1158,3 +1174,28 @@ class GluonStore:
                 }
                 for row in rows
             ]
+
+    # ========== Settings CRUD ==========
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        """Get a setting value by key."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Set a setting value."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (key, value, datetime.now().isoformat()),
+            )
+
+    def get_all_settings(self) -> dict[str, str]:
+        """Get all settings as a dictionary."""
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+            return {row["key"]: row["value"] for row in rows}

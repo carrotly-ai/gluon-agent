@@ -3,9 +3,9 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest } from 'lucide-react'
 import type { Run, RunDetail } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface RunDetailDialogProps {
@@ -135,6 +135,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [expandedHistoryRun, setExpandedHistoryRun] = useState<string | null>(null)
   const [historyLogs, setHistoryLogs] = useState<Record<string, { stdout: string; stderr: string }>>({})
   const [archiving, setArchiving] = useState(false)
+  const [creatingPr, setCreatingPr] = useState(false)
+  const [prError, setPrError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open || !run) {
@@ -146,6 +148,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       setSessionHistory([])
       setExpandedHistoryRun(null)
       setHistoryLogs({})
+      setPrError(null)
       return
     }
 
@@ -282,6 +285,27 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     }
   }
 
+  const handleCreatePr = async () => {
+    if (!run) return
+    setCreatingPr(true)
+    setPrError(null)
+    try {
+      const result = await createPrForRun(run.id)
+      if (result.success && result.pr_url) {
+        // Refresh the run details to get updated PR info
+        const updatedDetail = await fetchRun(run.id)
+        setDetail(updatedDetail)
+        onRunUpdated(updatedDetail)
+      } else {
+        setPrError(result.error || 'Failed to create PR')
+      }
+    } catch (err) {
+      setPrError(err instanceof Error ? err.message : 'Failed to create PR')
+    } finally {
+      setCreatingPr(false)
+    }
+  }
+
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
   const isResumable = (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
@@ -402,6 +426,28 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     <ExternalLink className="w-2.5 h-2.5" />
                   </a>
                 )}
+                {/* Create PR button - show for worktree runs with branch but no PR */}
+                {detail.use_worktree && detail.branch_name && !detail.pr_url && !isActive && (
+                  <button
+                    onClick={handleCreatePr}
+                    disabled={creatingPr}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
+                      creatingPr
+                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                        : 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]'
+                    )}
+                  >
+                    <GitPullRequest className="w-3 h-3" />
+                    <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
+                  </button>
+                )}
+              </div>
+            )}
+            {/* PR creation error */}
+            {prError && (
+              <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
+                <p className="text-[0.625rem] text-[var(--color-vermillion)]">{prError}</p>
               </div>
             )}
 
