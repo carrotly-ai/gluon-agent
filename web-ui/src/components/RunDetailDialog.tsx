@@ -605,23 +605,94 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       <DialogContent className="dialog-content sm:max-w-6xl w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Compact Header Bar */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
-          {/* Left: Back (mobile) + Status */}
-          <div className="flex items-center gap-3">
+          {/* Left: Back (mobile) + Status + Git Info */}
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
-              className="md:hidden p-1 -ml-1 text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
+              className="md:hidden p-1 -ml-1 text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors shrink-0"
               onClick={() => onOpenChange(false)}
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <div className={cn('mark', `mark-${run?.status}`)} />
               <span className="text-mono text-[var(--color-stone)]/60 text-[0.625rem]">{run?.id.slice(0, 8)}</span>
               <span className="text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/55">{run?.status}</span>
             </div>
+            {/* Git info in header */}
+            {detail?.branch_name && (
+              <div className="hidden sm:flex items-center gap-2 ml-2 text-[0.625rem]">
+                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] rounded-sm">
+                  <GitBranch className="w-2.5 h-2.5 text-purple-400" />
+                  <span className="text-purple-300 truncate max-w-[120px]">{detail.branch_name}</span>
+                </div>
+                {detail.git_commit_sha && (
+                  <div className="flex items-center gap-1 text-[var(--color-stone)]/50">
+                    <GitCommit className="w-2.5 h-2.5" />
+                    <span className="text-mono">{detail.git_commit_sha.slice(0, 7)}</span>
+                  </div>
+                )}
+                {detail.pr_number && detail.pr_url && (
+                  <a
+                    href={detail.pr_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      'flex items-center gap-1 px-1.5 py-0.5 rounded-sm transition-colors',
+                      detail.pr_mergeable === 'CONFLICTING' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
+                      detail.pr_mergeable !== 'CONFLICTING' && detail.pr_status === 'open' && 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                      detail.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                      detail.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                      detail.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
+                    )}
+                  >
+                    <span>PR #{detail.pr_number}</span>
+                    {detail.pr_mergeable === 'CONFLICTING' ? (
+                      <span className="text-[0.5rem] uppercase text-red-400">CONFLICTS</span>
+                    ) : (
+                      <span className="text-[0.5rem] uppercase">{detail.pr_status}</span>
+                    )}
+                    <ExternalLink className="w-2 h-2" />
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right: Actions */}
-          <div className="flex items-center gap-1 pr-5">
+          <div className="flex items-center gap-1.5 pr-5 shrink-0">
+            {/* Merge button for open PRs */}
+            {detail?.pr_status === 'open' && detail?.branch_name && !isActive && (
+              <button
+                onClick={handleMerge}
+                disabled={merging}
+                className={cn(
+                  'flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                  merging
+                    ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                    : 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400 hover:bg-[rgba(168,85,247,0.15)]'
+                )}
+                title="Merge branch locally and push to remote"
+              >
+                <GitMerge className="w-3 h-3" />
+                <span className="hidden sm:inline">{merging ? 'Merging...' : 'Merge'}</span>
+              </button>
+            )}
+            {/* Create PR button - show for worktree runs with branch but no PR */}
+            {detail?.use_worktree && detail?.branch_name && !detail?.pr_url && !isActive && (
+              <button
+                onClick={handleCreatePr}
+                disabled={creatingPr}
+                className={cn(
+                  'flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                  creatingPr
+                    ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                    : 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]'
+                )}
+              >
+                <GitPullRequest className="w-3 h-3" />
+                <span className="hidden sm:inline">{creatingPr ? 'Creating...' : 'Create PR'}</span>
+              </button>
+            )}
             <button
               className="p-2 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
               onClick={handleRefresh}
@@ -647,7 +718,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 title="Archive this run"
               >
                 <Archive className="w-3 h-3" />
-                {archiving ? 'Archiving...' : 'Archive'}
+                <span className="hidden sm:inline">{archiving ? 'Archiving...' : 'Archive'}</span>
               </button>
             )}
           </div>
@@ -679,16 +750,13 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               )}
             </div>
 
-            {/* Git Info Row - show if branch or PR exists */}
+            {/* Git Info Row - show on mobile only (desktop shows in header) */}
             {(detail?.branch_name || detail?.pr_number) && (
-              <div className="flex items-center gap-3 text-[0.6875rem] mb-4 shrink-0 flex-wrap">
+              <div className="flex sm:hidden items-center gap-3 text-[0.6875rem] mb-4 shrink-0 flex-wrap">
                 {detail.branch_name && (
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] rounded-sm">
                     <GitBranch className="w-3 h-3 text-purple-400" />
                     <span className="text-purple-300">{detail.branch_name}</span>
-                    {detail.source_branch && (
-                      <span className="text-[var(--color-stone)]/50">from {detail.source_branch}</span>
-                    )}
                   </div>
                 )}
                 {detail.git_commit_sha && (
@@ -719,39 +787,6 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     )}
                     <ExternalLink className="w-2.5 h-2.5" />
                   </a>
-                )}
-                {/* Merge button for open PRs */}
-                {detail.pr_status === 'open' && detail.branch_name && !isActive && (
-                  <button
-                    onClick={handleMerge}
-                    disabled={merging}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
-                      merging
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400 hover:bg-[rgba(168,85,247,0.15)]'
-                    )}
-                    title="Merge branch locally and push to remote"
-                  >
-                    <GitMerge className="w-3 h-3" />
-                    <span>{merging ? 'Merging...' : 'Merge'}</span>
-                  </button>
-                )}
-                {/* Create PR button - show for worktree runs with branch but no PR */}
-                {detail.use_worktree && detail.branch_name && !detail.pr_url && !isActive && (
-                  <button
-                    onClick={handleCreatePr}
-                    disabled={creatingPr}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
-                      creatingPr
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]'
-                    )}
-                  >
-                    <GitPullRequest className="w-3 h-3" />
-                    <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
-                  </button>
                 )}
               </div>
             )}
