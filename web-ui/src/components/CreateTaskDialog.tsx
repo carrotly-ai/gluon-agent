@@ -107,6 +107,33 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
     handleFileSelect(e.dataTransfer.files)
   }, [handleFileSelect])
 
+  // Handle paste events (Ctrl/Cmd+V with images)
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    const imageFiles: File[] = []
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          // Generate a name for pasted images
+          const ext = file.type.split('/')[1] || 'png'
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          const namedFile = new File([file], `pasted-image-${timestamp}.${ext}`, { type: file.type })
+          imageFiles.push(namedFile)
+        }
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      // Create a FileList-like object
+      const dataTransfer = new DataTransfer()
+      imageFiles.forEach(f => dataTransfer.items.add(f))
+      handleFileSelect(dataTransfer.files)
+    }
+  }, [handleFileSelect])
+
   const removeImage = useCallback((index: number) => {
     setPendingImages(prev => {
       const updated = [...prev]
@@ -237,7 +264,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
                   }
                 }
               }}
-              placeholder="What would you like the agent to do?"
+              onPaste={handlePaste}
+              placeholder="What would you like the agent to do? (Paste images with ⌘V)"
               className="w-full px-3 py-2.5 text-[0.8125rem] text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
             />
@@ -266,7 +294,9 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
+              onPaste={handlePaste}
               onClick={() => fileInputRef.current?.click()}
+              tabIndex={0}
             >
               {pendingImages.length === 0 ? (
                 <div className="flex flex-col items-center py-2 text-center">

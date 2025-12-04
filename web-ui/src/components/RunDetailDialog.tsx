@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -6,7 +6,7 @@ import {
 import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download } from 'lucide-react'
 import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
 
@@ -15,6 +15,12 @@ interface RunDetailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onRunUpdated: (run: Run) => void
+}
+
+// Pending image for resume feature
+interface ResumePendingImage {
+  file: File
+  preview: string
 }
 
 function formatDuration(seconds: number | null): string {
@@ -205,6 +211,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [merging, setMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
 
+  // Resume image paste support
+  const [resumePendingImages, setResumePendingImages] = useState<ResumePendingImage[]>([])
+
   // Refs for auto-scroll
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const outputContainerRef = useRef<HTMLPreElement>(null)
@@ -218,6 +227,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       setActiveTab('messages')
       setResumePrompt('')
       setResumeError(null)
+      // Cleanup resume image previews
+      resumePendingImages.forEach(img => URL.revokeObjectURL(img.preview))
+      setResumePendingImages([])
       setSessionHistory([])
       setExpandedHistoryRun(null)
       setHistoryLogs({})
@@ -348,13 +360,72 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     setTimeout(() => setLogsCopied(false), 2000)
   }
 
+  // Handle paste for resume textarea
+  const handleResumePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    const imageFiles: File[] = []
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          const ext = file.type.split('/')[1] || 'png'
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          const namedFile = new File([file], `pasted-image-${timestamp}.${ext}`, { type: file.type })
+          imageFiles.push(namedFile)
+        }
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      const validTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+      const maxSize = 50 * 1024 * 1024
+
+      const newImages: ResumePendingImage[] = []
+      for (const file of imageFiles) {
+        if (!validTypes.includes(file.type)) continue
+        if (file.size > maxSize) continue
+        newImages.push({
+          file,
+          preview: URL.createObjectURL(file),
+        })
+      }
+      setResumePendingImages(prev => [...prev, ...newImages])
+    }
+  }, [])
+
+  const removeResumeImage = useCallback((index: number) => {
+    setResumePendingImages(prev => {
+      const updated = [...prev]
+      URL.revokeObjectURL(updated[index].preview)
+      updated.splice(index, 1)
+      return updated
+    })
+  }, [])
+
   const handleResume = async () => {
     if (!run || !resumePrompt.trim()) return
     setResuming(true)
     setResumeError(null)
     try {
-      await resumeRun(run.id, resumePrompt.trim())
-      // Success - close dialog and let WebSocket update show new run
+      // Resume creates a new run
+      const result = await resumeRun(run.id, resumePrompt.trim())
+
+      // Upload images to the new run if any
+      if (resumePendingImages.length > 0 && result.new_run_id) {
+        const uploadPromises = resumePendingImages.map(img =>
+          uploadAndAttachImage(result.new_run_id, img.file).catch(err => {
+            console.error(`Failed to upload image ${img.file.name}:`, err)
+            return null
+          })
+        )
+        await Promise.all(uploadPromises)
+      }
+
+      // Cleanup and close
+      resumePendingImages.forEach(img => URL.revokeObjectURL(img.preview))
+      setResumePendingImages([])
       setResumePrompt('')
       onOpenChange(false)
     } catch (err) {
@@ -863,10 +934,31 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     </pre>
                     {isResumable && (
                       <div className="p-3 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-ink)]/50">
+                        {/* Pasted image previews */}
+                        {resumePendingImages.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {resumePendingImages.map((img, idx) => (
+                              <div key={idx} className="relative group">
+                                <img
+                                  src={img.preview}
+                                  alt={img.file.name}
+                                  className="h-12 w-auto rounded-sm border border-[rgba(163,163,163,0.15)]"
+                                />
+                                <button
+                                  type="button"
+                                  className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--color-vermillion)] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => removeResumeImage(idx)}
+                                >
+                                  <span className="text-[0.5rem] text-white font-bold">×</span>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex gap-2">
                           <textarea
                             className="flex-1 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
-                            placeholder="Continue with follow-up prompt... (⌘+Enter to submit)"
+                            placeholder="Continue with follow-up... (⌘V to paste images)"
                             value={resumePrompt}
                             onChange={(e) => setResumePrompt(e.target.value)}
                             onKeyDown={(e) => {
@@ -877,6 +969,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                                 }
                               }
                             }}
+                            onPaste={handleResumePaste}
                             disabled={resuming}
                             rows={1}
                             onInput={(e) => {
