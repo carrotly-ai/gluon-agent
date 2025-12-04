@@ -734,12 +734,28 @@ Run ID: `{run_id}`
             result["error"] = "Not a git repository"
             return result
 
+        # Check for uncommitted changes and stash if needed
+        uncommitted = await self._get_uncommitted_count(project_path)
+        stashed = False
+        if uncommitted > 0:
+            logger.info(f"Stashing {uncommitted} uncommitted changes before merge")
+            rc, _, stderr = await self._run_git(
+                project_path, "stash", "push", "-m", f"gluon-merge-{branch_name}"
+            )
+            if rc != 0:
+                result["error"] = f"Failed to stash uncommitted changes: {stderr}"
+                return result
+            stashed = True
+
         # Ensure we're on the base branch
         current_branch = await self._get_branch(project_path)
         if current_branch != base_branch:
             # Checkout base branch
             rc, _, stderr = await self._run_git(project_path, "checkout", base_branch)
             if rc != 0:
+                # Restore stash if we created one
+                if stashed:
+                    await self._run_git(project_path, "stash", "pop")
                 result["error"] = f"Failed to checkout {base_branch}: {stderr}"
                 return result
 
@@ -749,6 +765,9 @@ Run ID: `{run_id}`
             # If fast-forward fails, try a regular pull
             rc, _, stderr = await self._run_git(project_path, "pull")
             if rc != 0:
+                # Restore stash if we created one
+                if stashed:
+                    await self._run_git(project_path, "stash", "pop")
                 result["error"] = f"Failed to pull latest {base_branch}: {stderr}"
                 return result
 
@@ -759,6 +778,9 @@ Run ID: `{run_id}`
         if rc != 0:
             # Merge conflict or other failure - abort the merge
             await self._run_git(project_path, "merge", "--abort")
+            # Restore stash if we created one
+            if stashed:
+                await self._run_git(project_path, "stash", "pop")
             result["error"] = f"Merge conflict or failure: {stderr}"
             return result
 
@@ -768,6 +790,9 @@ Run ID: `{run_id}`
         # Push the merge to remote
         rc, _, stderr = await self._run_git(project_path, "push")
         if rc != 0:
+            # Restore stash if we created one
+            if stashed:
+                await self._run_git(project_path, "stash", "pop")
             result["error"] = f"Failed to push merge: {stderr}"
             return result
 
@@ -778,6 +803,11 @@ Run ID: `{run_id}`
         remote, _ = await self._get_remote(project_path)
         if remote:
             await self._run_git(project_path, "push", remote, "--delete", branch_name)
+
+        # Restore stash after successful merge
+        if stashed:
+            logger.info("Restoring stashed changes after merge")
+            await self._run_git(project_path, "stash", "pop")
 
         result["success"] = True
         result["message"] = f"Successfully merged {branch_name} into {base_branch}"

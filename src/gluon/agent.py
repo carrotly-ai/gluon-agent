@@ -1,8 +1,10 @@
 """Claude Agent SDK wrapper for Gluon."""
 
+import base64
+import mimetypes
 import os
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +99,67 @@ class AgentMessage:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass
+class ImageContent:
+    """Image content for multimodal prompts."""
+
+    path: Path
+    media_type: str | None = None
+
+    def to_content_block(self) -> dict[str, Any]:
+        """Convert to API content block format."""
+        if not self.path.exists():
+            raise FileNotFoundError(f"Image not found: {self.path}")
+
+        # Read and base64 encode the image
+        data = base64.b64encode(self.path.read_bytes()).decode("utf-8")
+
+        # Determine media type
+        media_type = self.media_type
+        if not media_type:
+            media_type, _ = mimetypes.guess_type(str(self.path))
+            if not media_type or not media_type.startswith("image/"):
+                # Default based on extension
+                suffix = self.path.suffix.lower()
+                media_type = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".gif": "image/gif",
+                    ".webp": "image/webp",
+                }.get(suffix, "image/png")
+
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data,
+            },
+        }
+
+
+@dataclass
+class MultimodalPrompt:
+    """A prompt with optional images."""
+
+    text: str
+    images: list[ImageContent] = field(default_factory=list)
+
+    def to_content_blocks(self) -> list[dict[str, Any]]:
+        """Convert to API content block format."""
+        blocks: list[dict[str, Any]] = []
+
+        # Add images first (better for model understanding)
+        for image in self.images:
+            blocks.append(image.to_content_block())
+
+        # Add text
+        blocks.append({"type": "text", "text": self.text})
+
+        return blocks
+
+
 class GluonAgent:
     """Wrapper around Claude Agent SDK for managing code agent sessions."""
 
@@ -135,8 +198,9 @@ class GluonAgent:
     async def execute(
         self,
         working_dir: Path,
-        prompt: str,
+        prompt: str | MultimodalPrompt,
         resume_session_id: str | None = None,
+        images: list[Path] | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -146,14 +210,24 @@ class GluonAgent:
 
         Args:
             working_dir: Path to project directory
-            prompt: User prompt to execute
+            prompt: User prompt (string or MultimodalPrompt with images)
             resume_session_id: Optional Claude session ID to resume
+            images: Optional list of image paths to include
 
         Yields:
             AgentMessage during execution
             AgentResult as final yield
         """
         options = self._build_options(working_dir, resume_session_id)
+
+        # Build multimodal prompt if images provided
+        if images:
+            text = prompt.text if isinstance(prompt, MultimodalPrompt) else prompt
+            existing_images = prompt.images if isinstance(prompt, MultimodalPrompt) else []
+            prompt = MultimodalPrompt(
+                text=text,
+                images=existing_images + [ImageContent(path=p) for p in images],
+            )
 
         claude_session_id: str | None = None
         total_cost_usd: float = 0.0
@@ -178,7 +252,21 @@ class GluonAgent:
                 os.environ["PATH"] = f"{cli_dir}:{current_path}"
 
             async with ClaudeSDKClient(options=options) as client:
-                await client.query(prompt)
+                # Build query based on prompt type
+                if isinstance(prompt, MultimodalPrompt) and prompt.images:
+                    # Use async generator for multimodal content
+                    async def multimodal_query():
+                        content_blocks = prompt.to_content_blocks()
+                        yield {
+                            "type": "user",
+                            "message": {"role": "user", "content": content_blocks},
+                        }
+
+                    await client.query(multimodal_query())
+                else:
+                    # Simple string prompt
+                    text = prompt.text if isinstance(prompt, MultimodalPrompt) else prompt
+                    await client.query(text)
 
                 async for msg in client.receive_response():
                     # Extract session ID from system init message
@@ -262,8 +350,9 @@ class GluonAgent:
     async def execute_simple(
         self,
         working_dir: Path,
-        prompt: str,
+        prompt: str | MultimodalPrompt,
         resume_session_id: str | None = None,
+        images: list[Path] | None = None,
     ) -> AgentResult:
         """
         Execute a prompt and return only the final result.
@@ -272,7 +361,7 @@ class GluonAgent:
         """
         result: AgentResult | None = None
 
-        async for item in self.execute(working_dir, prompt, resume_session_id):
+        async for item in self.execute(working_dir, prompt, resume_session_id, images):
             if isinstance(item, AgentResult):
                 result = item
 

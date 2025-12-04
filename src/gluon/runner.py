@@ -169,17 +169,13 @@ class TaskRunner:
         run.mark_running(pid=os.getpid(), log_path=log_dir)
         self.store.update_run(run)
 
-        # Copy images to worktree/working directory for AI visibility
-        image_paths: list[str] = []
-        prompt_with_images = run.prompt
+        # Get image paths for multimodal prompt (base64 encoded, not file copies)
+        image_paths: list[Path] = []
         try:
-            image_paths = self.image_service.copy_to_worktree(run.id, working_dir)
-            if image_paths:
-                # Append image references to prompt
-                image_markdown = self.image_service.get_markdown_references(run.id)
-                prompt_with_images = f"{run.prompt}{image_markdown}"
+            images = self.image_service.list_images_for_run(run.id)
+            image_paths = [img.full_path for img in images if img.full_path.exists()]
         except Exception:
-            pass  # Continue without images if copy fails
+            pass  # Continue without images if retrieval fails
 
         try:
             # Open log files
@@ -188,20 +184,20 @@ class TaskRunner:
                 open(stderr_path, "w") as stderr_file,
                 open(messages_path, "w") as messages_file,
             ):
-                # Log any copied images
+                # Log any attached images
                 if image_paths:
-                    stdout_file.write(f"Copied {len(image_paths)} image(s) to working directory:\n")
+                    stdout_file.write(f"Attached {len(image_paths)} image(s) to prompt:\n")
                     for img_path in image_paths:
-                        stdout_file.write(f"  - {img_path}\n")
+                        stdout_file.write(f"  - {img_path.name}\n")
                     stdout_file.write("\n")
                     stdout_file.flush()
 
-                # Execute via agent (pass claude_session_id for resume if set)
-                # Use prompt_with_images if images were attached
+                # Execute via agent with images as base64 content blocks
                 async for item in self.agent.execute(
                     working_dir=working_dir,
-                    prompt=prompt_with_images,
+                    prompt=run.prompt,
                     resume_session_id=run.claude_session_id,
+                    images=image_paths if image_paths else None,
                 ):
                     if isinstance(item, AgentMessage):
                         # Log message

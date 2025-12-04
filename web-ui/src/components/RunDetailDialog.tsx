@@ -928,77 +928,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
               {/* Log Content */}
               <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
-                  <div className="flex flex-col h-full">
-                    <pre ref={outputContainerRef} className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed flex-1 overflow-auto">
-                      {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
-                    </pre>
-                    {isResumable && (
-                      <div className="p-3 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-ink)]/50">
-                        {/* Pasted image previews */}
-                        {resumePendingImages.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {resumePendingImages.map((img, idx) => (
-                              <div key={idx} className="relative group">
-                                <img
-                                  src={img.preview}
-                                  alt={img.file.name}
-                                  className="h-12 w-auto rounded-sm border border-[rgba(163,163,163,0.15)]"
-                                />
-                                <button
-                                  type="button"
-                                  className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--color-vermillion)] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => removeResumeImage(idx)}
-                                >
-                                  <span className="text-[0.5rem] text-white font-bold">×</span>
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex gap-2">
-                          <textarea
-                            className="flex-1 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
-                            placeholder="Continue with follow-up... (⌘V to paste images)"
-                            value={resumePrompt}
-                            onChange={(e) => setResumePrompt(e.target.value)}
-                            onKeyDown={(e) => {
-                              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                                e.preventDefault()
-                                if (resumePrompt.trim() && !resuming) {
-                                  handleResume()
-                                }
-                              }
-                            }}
-                            onPaste={handleResumePaste}
-                            disabled={resuming}
-                            rows={1}
-                            onInput={(e) => {
-                              // Auto-resize textarea
-                              const target = e.target as HTMLTextAreaElement
-                              target.style.height = 'auto'
-                              target.style.height = Math.min(target.scrollHeight, 128) + 'px'
-                            }}
-                          />
-                          <button
-                            className={cn(
-                              'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors shrink-0 self-start',
-                              resumePrompt.trim() && !resuming
-                                ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                                : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
-                            )}
-                            onClick={handleResume}
-                            disabled={!resumePrompt.trim() || resuming}
-                          >
-                            <Play className="w-3 h-3" />
-                            {resuming ? 'Resuming...' : 'Resume'}
-                          </button>
-                        </div>
-                        {resumeError && (
-                          <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2">{resumeError}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <pre ref={outputContainerRef} className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed h-full overflow-auto">
+                    {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
+                  </pre>
                 )}
                 {activeTab === 'errors' && (
                   <pre className={cn(
@@ -1276,6 +1208,74 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 )}
               </div>
             </div>
+
+            {/* Resume/Continue Section - Always visible when resumable */}
+            {isResumable && (
+              <div className="mt-4 p-3 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm shrink-0">
+                {/* Pasted image previews */}
+                {resumePendingImages.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {resumePendingImages.map((img, idx) => (
+                      <div key={idx} className="relative group">
+                        <img
+                          src={img.preview}
+                          alt={img.file.name}
+                          className="h-12 w-auto rounded-sm border border-[rgba(163,163,163,0.15)]"
+                        />
+                        <button
+                          type="button"
+                          className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--color-vermillion)] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => removeResumeImage(idx)}
+                        >
+                          <span className="text-[0.5rem] text-white font-bold">×</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <textarea
+                    className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
+                    placeholder="Continue with follow-up... (⌘V to paste images)"
+                    value={resumePrompt}
+                    onChange={(e) => setResumePrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        e.preventDefault()
+                        if (resumePrompt.trim() && !resuming) {
+                          handleResume()
+                        }
+                      }
+                    }}
+                    onPaste={handleResumePaste}
+                    disabled={resuming}
+                    rows={1}
+                    onInput={(e) => {
+                      // Auto-resize textarea
+                      const target = e.target as HTMLTextAreaElement
+                      target.style.height = 'auto'
+                      target.style.height = Math.min(target.scrollHeight, 128) + 'px'
+                    }}
+                  />
+                  <button
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors shrink-0 self-start',
+                      resumePrompt.trim() && !resuming
+                        ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                        : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                    )}
+                    onClick={handleResume}
+                    disabled={!resumePrompt.trim() || resuming}
+                  >
+                    <Play className="w-3 h-3" />
+                    {resuming ? 'Resuming...' : 'Resume'}
+                  </button>
+                </div>
+                {resumeError && (
+                  <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2">{resumeError}</p>
+                )}
+              </div>
+            )}
 
             {/* Footer Meta */}
             {detail?.session_id && (
