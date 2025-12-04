@@ -302,6 +302,31 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     return () => clearInterval(intervalId)
   }, [open, run?.id, run?.status, onRunUpdated])
 
+  // Poll PR status when dialog is open with an open PR
+  // This catches when user merges PR on GitHub
+  useEffect(() => {
+    if (!open || !detail) return
+    // Only poll if we have an open PR and run is not active
+    const hasOpenPr = detail.pr_status === 'open' && detail.pr_url
+    const isRunActive = detail.status === 'running' || detail.status === 'pending'
+    if (!hasOpenPr || isRunActive) return
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const updatedDetail = await fetchRun(detail.id)
+        // Check if PR status changed (e.g., merged on GitHub)
+        if (updatedDetail.pr_status !== detail.pr_status) {
+          setDetail(updatedDetail)
+          onRunUpdated(updatedDetail)
+        }
+      } catch (err) {
+        console.error('PR status poll failed:', err)
+      }
+    }, 7000) // Poll every 7 seconds for PR status changes
+
+    return () => clearInterval(pollInterval)
+  }, [open, detail?.id, detail?.pr_status, detail?.status, onRunUpdated])
+
   // Auto-scroll to bottom when content changes
   useEffect(() => {
     // Only scroll if content actually changed

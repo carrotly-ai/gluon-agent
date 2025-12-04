@@ -185,7 +185,7 @@ def create_app() -> FastAPI:
         return [run_to_response(run, project_lookup) for run in runs]
 
     @app.get("/api/runs/{run_id}", response_model=RunDetailResponse)
-    async def get_run(run_id: str) -> RunDetailResponse:
+    async def get_run(run_id: str, refresh_pr: bool = True) -> RunDetailResponse:
         """Get details for a specific run."""
         run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
         if not run:
@@ -194,6 +194,23 @@ def create_app() -> FastAPI:
         # Refresh status if active
         if run.is_active:
             runner.refresh_run_status(run)
+
+        # Refresh PR status from GitHub if run has an open PR
+        # This catches when user merges PR on GitHub website
+        if refresh_pr and run.pr_status == "open" and run.branch_name:
+            try:
+                project = store.get_project(run.project_id)
+                if project:
+                    pr_info = await runner.git_manager._get_pr_info(project.path, run.branch_name)
+                    if pr_info and pr_info.get("status") != run.pr_status:
+                        run.pr_status = pr_info.get("status")
+                        store.update_run(run)
+                        # Broadcast update to WebSocket clients
+                        project_lookup_temp = get_project_lookup()
+                        project_name = project_lookup_temp.get(run.project_id, run.project_id[:8])
+                        await ws_manager.broadcast_run_update(run, project_name)
+            except Exception as e:
+                logger.debug(f"Failed to refresh PR status: {e}")
 
         project_lookup = get_project_lookup()
 
