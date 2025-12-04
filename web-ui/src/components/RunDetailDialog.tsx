@@ -3,7 +3,7 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter } from 'lucide-react'
 import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage } from '@/lib/api'
@@ -82,47 +82,60 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
-interface ToolInputPart {
-  type: 'key' | 'value' | 'punctuation' | 'ellipsis'
-  text: string
+// Format timestamp to HH:MM:SS
+function formatMessageTime(timestamp: string): string {
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  } catch {
+    return ''
+  }
 }
 
-function formatToolInputStructured(input: unknown): ToolInputPart[] {
-  if (input === null || input === undefined) return []
-  if (typeof input === 'string') {
-    const truncated = input.length > 100 ? input.slice(0, 97) + '...' : input
-    return [{ type: 'value', text: `"${truncated}"` }]
-  }
-  if (typeof input === 'object') {
-    const entries = Object.entries(input as Record<string, unknown>)
-    const parts: ToolInputPart[] = []
-    let totalLen = 0
-    for (let i = 0; i < entries.length; i++) {
-      const [key, val] = entries[i]
-      let valStr: string
-      if (typeof val === 'string') {
-        valStr = val.length > 60 ? `"${val.slice(0, 57)}..."` : `"${val}"`
-      } else if (typeof val === 'number' || typeof val === 'boolean') {
-        valStr = String(val)
-      } else if (val === null) {
-        valStr = 'null'
-      } else {
-        valStr = '{...}'
-      }
-      const partLen = key.length + valStr.length + 1
-      if (totalLen + partLen > 150 && parts.length > 0) {
-        parts.push({ type: 'ellipsis', text: '...' })
-        break
-      }
-      if (i > 0) parts.push({ type: 'punctuation', text: ' ' })
-      parts.push({ type: 'key', text: key })
-      parts.push({ type: 'punctuation', text: '=' })
-      parts.push({ type: 'value', text: valStr })
-      totalLen += partLen + 1
+// Get primary value from tool input (for compact display)
+function getToolPrimaryParam(input: unknown): { key: string; value: string } | null {
+  if (!input || typeof input !== 'object') return null
+  const obj = input as Record<string, unknown>
+
+  // Priority order for common tool params
+  const priorityKeys = ['file_path', 'command', 'pattern', 'query', 'url', 'path', 'content', 'prompt']
+  for (const key of priorityKeys) {
+    if (obj[key] && typeof obj[key] === 'string') {
+      const val = obj[key] as string
+      return { key, value: val.length > 80 ? val.slice(0, 77) + '...' : val }
     }
-    return parts
   }
-  return [{ type: 'value', text: String(input) }]
+
+  // Fall back to first string param
+  const entries = Object.entries(obj)
+  for (const [key, val] of entries) {
+    if (typeof val === 'string' && val.length > 0) {
+      return { key, value: val.length > 80 ? val.slice(0, 77) + '...' : val }
+    }
+  }
+  return null
+}
+
+// Format full tool input for expanded view
+function formatToolInputFull(input: unknown): { key: string; value: string }[] {
+  if (!input || typeof input !== 'object') {
+    if (typeof input === 'string') return [{ key: '', value: input }]
+    return []
+  }
+  const obj = input as Record<string, unknown>
+  return Object.entries(obj).map(([key, val]) => {
+    let valStr: string
+    if (typeof val === 'string') {
+      valStr = val
+    } else if (typeof val === 'number' || typeof val === 'boolean') {
+      valStr = String(val)
+    } else if (val === null) {
+      valStr = 'null'
+    } else {
+      valStr = JSON.stringify(val, null, 2)
+    }
+    return { key, value: valStr }
+  })
 }
 
 interface LiveStats {
@@ -148,76 +161,244 @@ function aggregateLiveStats(messages: AgentMessage[]): LiveStats {
   return { totalCost, totalTokensIn, totalTokensOut, toolCalls }
 }
 
-function ToolInputDisplay({ input }: { input: unknown }) {
-  const parts = formatToolInputStructured(input)
-  if (parts.length === 0) return null
+// Message type configuration
+const MESSAGE_CONFIG: Record<string, {
+  icon: typeof Wrench
+  color: string
+  bg: string
+  label: string
+}> = {
+  tool_use: { icon: Wrench, color: 'text-[var(--color-sky)]', bg: 'bg-[rgba(102,178,255,0.08)]', label: 'Tool' },
+  text: { icon: MessageSquare, color: 'text-[var(--color-paper)]/70', bg: '', label: 'Text' },
+  system: { icon: Settings2, color: 'text-[var(--color-stone)]/60', bg: '', label: 'System' },
+  error: { icon: AlertCircle, color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.08)]', label: 'Error' },
+  result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.08)]', label: 'Done' },
+}
+
+function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
+  const toolName = msg.metadata?.tool || 'Unknown'
+  const primaryParam = getToolPrimaryParam(msg.metadata?.input)
+  const fullParams = formatToolInputFull(msg.metadata?.input)
+  const hasMultipleParams = fullParams.length > 1
+  const time = formatMessageTime(msg.timestamp)
 
   return (
-    <span className="ml-2">
-      {parts.map((part, i) => {
-        switch (part.type) {
-          case 'key':
-            return <span key={i} className="text-[var(--color-harvest)]">{part.text}</span>
-          case 'value':
-            return <span key={i} className="text-[var(--color-paper)]/70">{part.text}</span>
-          case 'punctuation':
-            return <span key={i} className="text-[var(--color-stone)]/50">{part.text}</span>
-          case 'ellipsis':
-            return <span key={i} className="text-[var(--color-stone)]/60">{part.text}</span>
-          default:
-            return <span key={i}>{part.text}</span>
-        }
-      })}
-    </span>
+    <div className="group">
+      {/* Compact header - always visible */}
+      <div
+        className={cn(
+          'flex items-center gap-2 py-2 px-3 rounded-md cursor-pointer transition-colors',
+          'bg-[rgba(102,178,255,0.06)] hover:bg-[rgba(102,178,255,0.1)]',
+          isExpanded && 'rounded-b-none'
+        )}
+        onClick={onToggle}
+      >
+        {/* Expand/collapse indicator */}
+        {hasMultipleParams ? (
+          <ChevronRight className={cn('w-3.5 h-3.5 text-[var(--color-stone)]/40 transition-transform', isExpanded && 'rotate-90')} />
+        ) : (
+          <div className="w-3.5" />
+        )}
+
+        {/* Icon */}
+        <Wrench className="w-3.5 h-3.5 text-[var(--color-sky)] shrink-0" />
+
+        {/* Tool name */}
+        <span className="text-[0.8125rem] font-semibold text-[var(--color-sky)] font-mono">{toolName}</span>
+
+        {/* Primary param preview */}
+        {primaryParam && (
+          <span className="text-[0.75rem] text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
+            <span className="text-[var(--color-harvest)]/80">{primaryParam.key}</span>
+            <span className="text-[var(--color-stone)]/40">=</span>
+            <span className="text-[var(--color-paper)]/50">"{primaryParam.value}"</span>
+          </span>
+        )}
+
+        {/* Timestamp */}
+        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      </div>
+
+      {/* Expanded params */}
+      {isExpanded && fullParams.length > 0 && (
+        <div className="bg-[rgba(102,178,255,0.03)] border-t border-[rgba(102,178,255,0.1)] rounded-b-md px-3 py-2 ml-5">
+          <div className="space-y-1.5">
+            {fullParams.map((param, idx) => (
+              <div key={idx} className="flex gap-2 text-[0.75rem] font-mono">
+                <span className="text-[var(--color-harvest)] shrink-0 min-w-[80px]">{param.key}</span>
+                <span className="text-[var(--color-paper)]/60 whitespace-pre-wrap break-all">{param.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
-function MessageItem({ msg }: { msg: AgentMessage }) {
-  const typeStyles: Record<string, { color: string; bg: string }> = {
-    text: { color: 'text-[var(--color-paper)]/80', bg: '' },
-    tool_use: { color: 'text-[var(--color-sky)]', bg: 'bg-[rgba(102,178,255,0.06)]' },
-    system: { color: 'text-[var(--color-stone)]/70', bg: '' },
-    error: { color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.06)]' },
-    result: { color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.06)]' },
-  }
-
-  const typeLabels: Record<string, string> = {
-    text: 'TEXT',
-    tool_use: 'TOOL',
-    system: 'SYS',
-    error: 'ERR',
-    result: 'DONE',
-  }
-
-  const style = typeStyles[msg.type] || { color: 'text-[var(--color-stone)]', bg: '' }
+function TextMessage({ msg }: { msg: AgentMessage }) {
+  const time = formatMessageTime(msg.timestamp)
+  const isLong = msg.content.length > 200
+  const [isExpanded, setIsExpanded] = useState(!isLong)
 
   return (
-    <div className={cn(
-      'flex gap-3 py-1.5 border-b border-[rgba(163,163,163,0.06)] last:border-0 items-start rounded-sm',
-      style.bg && `${style.bg} px-2 -mx-2`
-    )}>
-      <span className={cn(
-        'text-[0.5625rem] uppercase tracking-wider w-9 shrink-0 pt-0.5 font-medium',
-        style.color
-      )}>
-        {typeLabels[msg.type] || msg.type}
-      </span>
-      <div className="flex-1 min-w-0 overflow-hidden">
-        {msg.type === 'tool_use' && msg.metadata?.tool ? (
-          <div className="text-[0.75rem] font-mono leading-relaxed">
-            <span className="text-[var(--color-sky)] font-semibold">{msg.metadata.tool}</span>
-            {msg.metadata.input !== undefined && msg.metadata.input !== null && (
-              <ToolInputDisplay input={msg.metadata.input} />
+    <div className="flex items-start gap-2 py-2 px-3">
+      <MessageSquare className="w-3.5 h-3.5 text-[var(--color-paper)]/40 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className={cn(
+          'text-[0.8125rem] text-[var(--color-paper)]/80 leading-relaxed',
+          !isExpanded && 'line-clamp-2'
+        )}>
+          <ReactMarkdown
+            components={{
+              p: ({ children }) => <span>{children} </span>,
+              code: ({ children }) => <code className="text-[var(--color-sky)] bg-[var(--color-void)] px-1 py-0.5 rounded text-[0.75rem]">{children}</code>,
+            }}
+          >
+            {msg.content}
+          </ReactMarkdown>
+        </div>
+        {isLong && (
+          <button
+            className="text-[0.625rem] text-[var(--color-sky)] hover:underline mt-1"
+            onClick={() => setIsExpanded(!isExpanded)}
+          >
+            {isExpanded ? 'Show less' : 'Show more'}
+          </button>
+        )}
+      </div>
+      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+    </div>
+  )
+}
+
+function SystemMessage({ msg }: { msg: AgentMessage }) {
+  const time = formatMessageTime(msg.timestamp)
+  const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
+  const Icon = config.icon
+
+  return (
+    <div className={cn('flex items-center gap-2 py-1.5 px-3 rounded-md', config.bg)}>
+      <Icon className={cn('w-3.5 h-3.5 shrink-0', config.color)} />
+      <span className={cn('text-[0.8125rem] flex-1', config.color)}>{msg.content}</span>
+      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+    </div>
+  )
+}
+
+// Message filter types
+type MessageFilter = 'all' | 'tool_use' | 'text' | 'error'
+
+function MessagesPanel({ messages }: { messages: AgentMessage[] }) {
+  const [filter, setFilter] = useState<MessageFilter>('all')
+  const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set())
+
+  const toggleToolExpanded = (idx: number) => {
+    setExpandedTools(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) {
+        next.delete(idx)
+      } else {
+        next.add(idx)
+      }
+      return next
+    })
+  }
+
+  // Count message types for filter badges
+  const counts = {
+    tool_use: messages.filter(m => m.type === 'tool_use').length,
+    text: messages.filter(m => m.type === 'text').length,
+    error: messages.filter(m => m.type === 'error').length,
+  }
+
+  const filteredMessages = filter === 'all'
+    ? messages
+    : messages.filter(m => m.type === filter)
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Filter bar */}
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-[rgba(163,163,163,0.08)] shrink-0">
+        <Filter className="w-3 h-3 text-[var(--color-stone)]/40 mr-1" />
+        <button
+          className={cn(
+            'px-2 py-1 text-[0.625rem] rounded-sm transition-colors',
+            filter === 'all'
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
+          )}
+          onClick={() => setFilter('all')}
+        >
+          All
+        </button>
+        <button
+          className={cn(
+            'px-2 py-1 text-[0.625rem] rounded-sm transition-colors flex items-center gap-1',
+            filter === 'tool_use'
+              ? 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-sky)]'
+          )}
+          onClick={() => setFilter('tool_use')}
+        >
+          <Wrench className="w-3 h-3" />
+          Tools
+          <span className="text-[0.5rem] opacity-60">{counts.tool_use}</span>
+        </button>
+        <button
+          className={cn(
+            'px-2 py-1 text-[0.625rem] rounded-sm transition-colors flex items-center gap-1',
+            filter === 'text'
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
+          )}
+          onClick={() => setFilter('text')}
+        >
+          <MessageSquare className="w-3 h-3" />
+          Text
+          <span className="text-[0.5rem] opacity-60">{counts.text}</span>
+        </button>
+        {counts.error > 0 && (
+          <button
+            className={cn(
+              'px-2 py-1 text-[0.625rem] rounded-sm transition-colors flex items-center gap-1',
+              filter === 'error'
+                ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
+                : 'text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)]'
             )}
-          </div>
-        ) : msg.type === 'text' ? (
-          <div className="text-[0.75rem] prose prose-sm prose-invert max-w-none leading-relaxed prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-[var(--color-sky)] prose-code:bg-[var(--color-void)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-[var(--color-void)] prose-pre:p-2 prose-pre:rounded">
-            <ReactMarkdown>{msg.content}</ReactMarkdown>
+            onClick={() => setFilter('error')}
+          >
+            <AlertCircle className="w-3 h-3" />
+            Errors
+            <span className="text-[0.5rem] opacity-60">{counts.error}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Messages list */}
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
+        {filteredMessages.length === 0 ? (
+          <div className="flex items-center justify-center h-32 text-[var(--color-stone)]/50 text-[0.75rem]">
+            No messages
           </div>
         ) : (
-          <span className={cn('text-[0.75rem] leading-relaxed', style.color)}>
-            {msg.content}
-          </span>
+          filteredMessages.map((msg) => {
+            const originalIdx = messages.indexOf(msg)
+            if (msg.type === 'tool_use') {
+              return (
+                <ToolCallMessage
+                  key={originalIdx}
+                  msg={msg}
+                  isExpanded={expandedTools.has(originalIdx)}
+                  onToggle={() => toggleToolExpanded(originalIdx)}
+                />
+              )
+            }
+            if (msg.type === 'text') {
+              return <TextMessage key={originalIdx} msg={msg} />
+            }
+            return <SystemMessage key={originalIdx} msg={msg} />
+          })
         )}
       </div>
     </div>
@@ -708,7 +889,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
             )}
 
             {/* Action buttons */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 pr-8">
               {/* Merge - only show when PR is open AND mergeable (no conflicts) */}
               {detail?.pr_status === 'open' && detail?.pr_mergeable !== 'CONFLICTING' && detail?.branch_name && !isActive && (
                 <button
@@ -1059,16 +1240,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                   </pre>
                 )}
                 {activeTab === 'messages' && (
-                  <div ref={messagesContainerRef} className="p-3 overflow-y-auto h-full">
-                    {logs.messages ? (
-                      <div className="space-y-0.5">
-                        {parseMessages(logs.messages).map((msg, idx) => (
-                          <MessageItem key={idx} msg={msg} />
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-[var(--color-stone)]/50 italic text-[0.6875rem]">No messages</span>
-                    )}
+                  <div ref={messagesContainerRef} className="h-full overflow-hidden">
+                    <MessagesPanel messages={parseMessages(logs.messages)} />
                   </div>
                 )}
                 {activeTab === 'history' && (
