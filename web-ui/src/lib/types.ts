@@ -23,6 +23,7 @@ export interface Run {
   pr_number?: number | null
   pr_url?: string | null
   pr_status?: 'open' | 'merged' | 'closed' | 'draft' | null
+  pr_mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
   // Archive tracking
   archived?: boolean
 }
@@ -45,6 +46,7 @@ export interface RunDetail extends Run {
   pr_number: number | null
   pr_url: string | null
   pr_status: 'open' | 'merged' | 'closed' | 'draft' | null
+  pr_mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
 }
 
 /** Request body for creating a new run */

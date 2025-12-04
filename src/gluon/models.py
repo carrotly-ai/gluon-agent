@@ -186,6 +186,7 @@ class ExecutionRun(BaseModel):
     pr_number: int | None = None  # GitHub PR number
     pr_url: str | None = None  # GitHub PR URL
     pr_status: str | None = None  # 'open', 'merged', 'closed', 'draft'
+    pr_mergeable: str | None = None  # 'MERGEABLE', 'CONFLICTING', 'UNKNOWN'
 
     # Archive tracking
     archived: bool = False  # Whether the run is archived (hidden from board)

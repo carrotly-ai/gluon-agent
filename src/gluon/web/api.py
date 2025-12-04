@@ -142,6 +142,7 @@ def create_app() -> FastAPI:
             branch_name=run.branch_name,
             pr_number=run.pr_number,
             pr_status=run.pr_status,
+            pr_mergeable=run.pr_mergeable,
             # Archive tracking
             archived=run.archived,
         )
@@ -202,13 +203,18 @@ def create_app() -> FastAPI:
                 project = store.get_project(run.project_id)
                 if project:
                     pr_info = await runner.git_manager._get_pr_info(project.path, run.branch_name)
-                    if pr_info and pr_info.get("status") != run.pr_status:
-                        run.pr_status = pr_info.get("status")
-                        store.update_run(run)
-                        # Broadcast update to WebSocket clients
-                        project_lookup_temp = get_project_lookup()
-                        project_name = project_lookup_temp.get(run.project_id, run.project_id[:8])
-                        await ws_manager.broadcast_run_update(run, project_name)
+                    if pr_info:
+                        # Check for any changes to pr_status or pr_mergeable
+                        status_changed = pr_info.get("status") != run.pr_status
+                        mergeable_changed = pr_info.get("mergeable") != run.pr_mergeable
+                        if status_changed or mergeable_changed:
+                            run.pr_status = pr_info.get("status")
+                            run.pr_mergeable = pr_info.get("mergeable")
+                            store.update_run(run)
+                            # Broadcast update to WebSocket clients
+                            project_lookup_temp = get_project_lookup()
+                            project_name = project_lookup_temp.get(run.project_id, run.project_id[:8])
+                            await ws_manager.broadcast_run_update(run, project_name)
             except Exception as e:
                 logger.debug(f"Failed to refresh PR status: {e}")
 
@@ -242,6 +248,7 @@ def create_app() -> FastAPI:
             pr_number=run.pr_number,
             pr_url=run.pr_url,
             pr_status=run.pr_status,
+            pr_mergeable=run.pr_mergeable,
         )
 
     @app.post("/api/runs", response_model=RunResponse)

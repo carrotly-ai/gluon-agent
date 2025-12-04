@@ -130,7 +130,7 @@ class GitManager:
     async def _get_pr_info(self, path: Path, branch: str | None = None) -> dict | None:
         """
         Get PR info for the current branch using GitHub CLI.
-        Returns dict with: number, url, state (open/merged/closed/draft)
+        Returns dict with: number, url, state (open/merged/closed/draft), mergeable
         """
         if not branch:
             branch = await self._get_branch(path)
@@ -139,8 +139,9 @@ class GitManager:
 
         try:
             # Use gh pr view to get PR info for this branch
+            # Include mergeable and mergeStateStatus for conflict detection
             proc = await asyncio.create_subprocess_exec(
-                "gh", "pr", "view", branch, "--json", "number,url,state,isDraft",
+                "gh", "pr", "view", branch, "--json", "number,url,state,isDraft,mergeable,mergeStateStatus",
                 cwd=path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -163,10 +164,14 @@ class GitManager:
             else:
                 state = "open"
 
+            # Get mergeable status (MERGEABLE, CONFLICTING, UNKNOWN)
+            mergeable = data.get("mergeable", "UNKNOWN")
+
             return {
                 "number": data.get("number"),
                 "url": data.get("url"),
                 "status": state,
+                "mergeable": mergeable,
             }
         except (FileNotFoundError, Exception):
             return None

@@ -103,6 +103,7 @@ class WebSocketManager:
                 "pr_number": run.pr_number,
                 "pr_url": run.pr_url,
                 "pr_status": run.pr_status,
+                "pr_mergeable": run.pr_mergeable,
                 # Archive status
                 "archived": run.archived,
             },
@@ -133,6 +134,7 @@ class WebSocketManager:
                 "pr_number": None,
                 "pr_url": None,
                 "pr_status": None,
+                "pr_mergeable": None,
                 # Archive status
                 "archived": False,
             },

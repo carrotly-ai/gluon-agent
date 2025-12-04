@@ -704,14 +704,19 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                     rel="noopener noreferrer"
                     className={cn(
                       'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
-                      detail.pr_status === 'open' && 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                      detail.pr_mergeable === 'CONFLICTING' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
+                      detail.pr_mergeable !== 'CONFLICTING' && detail.pr_status === 'open' && 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
                       detail.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
                       detail.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
                       detail.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                     )}
                   >
                     <span>PR #{detail.pr_number}</span>
-                    <span className="text-[0.5rem] uppercase">{detail.pr_status}</span>
+                    {detail.pr_mergeable === 'CONFLICTING' ? (
+                      <span className="text-[0.5rem] uppercase text-red-400">CONFLICTS</span>
+                    ) : (
+                      <span className="text-[0.5rem] uppercase">{detail.pr_status}</span>
+                    )}
                     <ExternalLink className="w-2.5 h-2.5" />
                   </a>
                 )}

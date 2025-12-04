@@ -130,6 +130,8 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_run_images_run ON run_images(run_id);",
     "CREATE INDEX IF NOT EXISTS idx_run_images_image ON run_images(image_id);",
     "CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);",
+    # PR mergeable status for conflict detection
+    "ALTER TABLE execution_runs ADD COLUMN pr_mergeable TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -926,6 +928,7 @@ class GluonStore:
             pr_number=row["pr_number"] if "pr_number" in keys else None,
             pr_url=row["pr_url"] if "pr_url" in keys else None,
             pr_status=row["pr_status"] if "pr_status" in keys else None,
+            pr_mergeable=row["pr_mergeable"] if "pr_mergeable" in keys else None,
             # Archive tracking
             archived=bool(row["archived"]) if "archived" in keys and row["archived"] is not None else False,
             archived_at=datetime.fromisoformat(row["archived_at"]) if "archived_at" in keys and row["archived_at"] else None,

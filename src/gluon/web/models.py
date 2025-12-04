@@ -28,6 +28,7 @@ class RunResponse(BaseModel):
     pr_number: int | None = Field(default=None, description="GitHub PR number")
     pr_url: str | None = Field(default=None, description="GitHub PR URL")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
+    pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
     # Archive tracking
     archived: bool = Field(default=False, description="Whether run is archived")
 
@@ -54,6 +55,7 @@ class RunDetailResponse(RunResponse):
     pr_number: int | None = Field(default=None, description="GitHub PR number")
     pr_url: str | None = Field(default=None, description="GitHub PR URL")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
+    pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
 
 
 class CreateRunRequest(BaseModel):
