@@ -884,3 +884,493 @@ Run ID: `{run_id}`
             except Exception as e:
                 logger.error(f"Error in background git sync: {e}")
                 # Continue running despite errors
+
+    # ========== Advanced Git Operations ==========
+
+    async def _detect_conflict_state(self, path: Path) -> dict:
+        """
+        Detect if there's a rebase or merge in progress with conflicts.
+
+        Returns dict with:
+            is_rebase_in_progress, is_merge_in_progress, conflict_operation,
+            conflicted_files, rebase_current_step, rebase_total_steps
+        """
+        result = {
+            "is_rebase_in_progress": False,
+            "is_merge_in_progress": False,
+            "conflict_operation": None,
+            "conflicted_files": [],
+            "rebase_current_step": None,
+            "rebase_total_steps": None,
+        }
+
+        git_dir = path / ".git"
+        if not git_dir.exists():
+            # Could be a worktree - find actual git dir
+            rc, stdout, _ = await self._run_git(path, "rev-parse", "--git-dir")
+            if rc == 0 and stdout:
+                git_dir = Path(stdout) if Path(stdout).is_absolute() else path / stdout
+
+        # Check for rebase in progress
+        rebase_merge = git_dir / "rebase-merge"
+        rebase_apply = git_dir / "rebase-apply"
+
+        if rebase_merge.exists() or rebase_apply.exists():
+            result["is_rebase_in_progress"] = True
+            result["conflict_operation"] = "rebase"
+
+            # Get rebase progress
+            rebase_dir = rebase_merge if rebase_merge.exists() else rebase_apply
+            msgnum_file = rebase_dir / "msgnum"
+            end_file = rebase_dir / "end"
+
+            if msgnum_file.exists() and end_file.exists():
+                try:
+                    result["rebase_current_step"] = int(msgnum_file.read_text().strip())
+                    result["rebase_total_steps"] = int(end_file.read_text().strip())
+                except (ValueError, OSError):
+                    pass
+
+        # Check for merge in progress
+        merge_head = git_dir / "MERGE_HEAD"
+        if merge_head.exists():
+            result["is_merge_in_progress"] = True
+            result["conflict_operation"] = "merge"
+
+        # Check for cherry-pick in progress
+        cherry_pick_head = git_dir / "CHERRY_PICK_HEAD"
+        if cherry_pick_head.exists():
+            result["conflict_operation"] = "cherry_pick"
+
+        # Get conflicted files
+        rc, stdout, _ = await self._run_git(path, "diff", "--name-only", "--diff-filter=U")
+        if rc == 0 and stdout:
+            result["conflicted_files"] = [f.strip() for f in stdout.split("\n") if f.strip()]
+
+        return result
+
+    async def detect_conflicts(self, path: Path) -> list[dict]:
+        """
+        Get detailed information about conflicted files.
+
+        Returns list of dicts with: file_path, conflict_markers_count
+        """
+        conflicts = []
+
+        # Get list of conflicted files
+        rc, stdout, _ = await self._run_git(path, "diff", "--name-only", "--diff-filter=U")
+        if rc != 0 or not stdout:
+            return conflicts
+
+        for file_path in stdout.strip().split("\n"):
+            if not file_path:
+                continue
+
+            full_path = path / file_path
+            marker_count = 0
+
+            if full_path.exists():
+                try:
+                    content = full_path.read_text()
+                    marker_count = content.count("<<<<<<<")
+                except (OSError, UnicodeDecodeError):
+                    pass
+
+            conflicts.append({
+                "file_path": file_path,
+                "conflict_markers_count": marker_count,
+            })
+
+        return conflicts
+
+    async def get_conflict_diff(self, path: Path, file_path: str) -> dict:
+        """
+        Get 3-way diff for a conflicted file.
+
+        Returns dict with: base, ours, theirs content (or None if not available)
+        """
+        result = {
+            "file_path": file_path,
+            "base": None,
+            "ours": None,
+            "theirs": None,
+            "merged": None,
+        }
+
+        # Get current (merged with conflicts) content
+        full_path = path / file_path
+        if full_path.exists():
+            try:
+                result["merged"] = full_path.read_text()
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        # Get base version (common ancestor)
+        rc, stdout, _ = await self._run_git(path, "show", f":1:{file_path}")
+        if rc == 0:
+            result["base"] = stdout
+
+        # Get ours version (HEAD)
+        rc, stdout, _ = await self._run_git(path, "show", f":2:{file_path}")
+        if rc == 0:
+            result["ours"] = stdout
+
+        # Get theirs version (incoming)
+        rc, stdout, _ = await self._run_git(path, "show", f":3:{file_path}")
+        if rc == 0:
+            result["theirs"] = stdout
+
+        return result
+
+    async def resolve_conflict(
+        self, path: Path, file_path: str, resolution: str
+    ) -> dict:
+        """
+        Resolve a conflict by choosing ours, theirs, or marking as resolved.
+
+        Args:
+            path: Repository path
+            file_path: Path to conflicted file
+            resolution: "ours", "theirs", or "resolved" (manual resolution done)
+
+        Returns dict with: success, message
+        """
+        result = {"success": False, "message": ""}
+
+        if resolution == "ours":
+            rc, _, stderr = await self._run_git(
+                path, "checkout", "--ours", file_path
+            )
+            if rc != 0:
+                result["message"] = f"Failed to checkout ours: {stderr}"
+                return result
+        elif resolution == "theirs":
+            rc, _, stderr = await self._run_git(
+                path, "checkout", "--theirs", file_path
+            )
+            if rc != 0:
+                result["message"] = f"Failed to checkout theirs: {stderr}"
+                return result
+
+        # Stage the resolved file
+        rc, _, stderr = await self._run_git(path, "add", file_path)
+        if rc != 0:
+            result["message"] = f"Failed to stage resolved file: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = f"Resolved {file_path} using {resolution}"
+        return result
+
+    # ========== Rebase Operations ==========
+
+    async def rebase_branch(self, path: Path, onto_branch: str) -> dict:
+        """
+        Start a rebase onto another branch.
+
+        Returns dict with: success, message, conflicts (list of files if conflict)
+        """
+        result = {"success": False, "message": "", "conflicts": []}
+
+        # Check for existing operation
+        conflict_state = await self._detect_conflict_state(path)
+        if conflict_state["is_rebase_in_progress"] or conflict_state["is_merge_in_progress"]:
+            result["message"] = f"Operation already in progress: {conflict_state['conflict_operation']}"
+            return result
+
+        rc, stdout, stderr = await self._run_git(path, "rebase", onto_branch)
+        if rc != 0:
+            # Check if it's a conflict
+            if "conflict" in stderr.lower() or "could not apply" in stderr.lower():
+                conflict_state = await self._detect_conflict_state(path)
+                result["conflicts"] = conflict_state["conflicted_files"]
+                result["message"] = f"Rebase conflict: {len(result['conflicts'])} file(s)"
+            else:
+                result["message"] = f"Rebase failed: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = "Rebase completed successfully"
+        return result
+
+    async def rebase_continue(self, path: Path) -> dict:
+        """
+        Continue a rebase after resolving conflicts.
+
+        Returns dict with: success, message, conflicts (list if more conflicts)
+        """
+        result = {"success": False, "message": "", "conflicts": []}
+
+        rc, stdout, stderr = await self._run_git(path, "rebase", "--continue")
+        if rc != 0:
+            if "conflict" in stderr.lower() or "could not apply" in stderr.lower():
+                conflict_state = await self._detect_conflict_state(path)
+                result["conflicts"] = conflict_state["conflicted_files"]
+                result["message"] = f"More conflicts: {len(result['conflicts'])} file(s)"
+            else:
+                result["message"] = f"Rebase continue failed: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = "Rebase continued successfully"
+        return result
+
+    async def rebase_abort(self, path: Path) -> dict:
+        """Abort an in-progress rebase."""
+        result = {"success": False, "message": ""}
+
+        rc, _, stderr = await self._run_git(path, "rebase", "--abort")
+        if rc != 0:
+            result["message"] = f"Rebase abort failed: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = "Rebase aborted"
+        return result
+
+    async def rebase_skip(self, path: Path) -> dict:
+        """Skip the current commit during rebase."""
+        result = {"success": False, "message": "", "conflicts": []}
+
+        rc, _, stderr = await self._run_git(path, "rebase", "--skip")
+        if rc != 0:
+            if "conflict" in stderr.lower():
+                conflict_state = await self._detect_conflict_state(path)
+                result["conflicts"] = conflict_state["conflicted_files"]
+                result["message"] = f"More conflicts after skip: {len(result['conflicts'])} file(s)"
+            else:
+                result["message"] = f"Rebase skip failed: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = "Skipped commit"
+        return result
+
+    # ========== Force Push Operations ==========
+
+    async def check_force_push_needed(self, path: Path, branch: str | None = None) -> dict:
+        """
+        Check if a force push would be needed to push the current branch.
+
+        Returns dict with: needed, commits_to_delete, reason
+        """
+        result = {"needed": False, "commits_to_delete": 0, "reason": ""}
+
+        if not branch:
+            branch = await self._get_branch(path)
+            if not branch:
+                result["reason"] = "Not on a branch"
+                return result
+
+        remote, _ = await self._get_remote(path)
+        if not remote:
+            result["reason"] = "No remote configured"
+            return result
+
+        # Fetch latest
+        await self._run_git(path, "fetch", remote, "--quiet")
+
+        # Check if remote branch exists
+        rc, _, _ = await self._run_git(
+            path, "rev-parse", "--verify", f"{remote}/{branch}"
+        )
+        if rc != 0:
+            result["reason"] = "Remote branch doesn't exist (new branch)"
+            return result
+
+        # Get commits that would be deleted on remote
+        # These are commits in remote that are not ancestors of local
+        rc, stdout, _ = await self._run_git(
+            path, "rev-list", f"HEAD..{remote}/{branch}", "--count"
+        )
+        if rc == 0 and stdout:
+            try:
+                commits_to_delete = int(stdout.strip())
+                if commits_to_delete > 0:
+                    result["needed"] = True
+                    result["commits_to_delete"] = commits_to_delete
+                    result["reason"] = f"Would delete {commits_to_delete} commit(s) from remote"
+            except ValueError:
+                pass
+
+        return result
+
+    async def force_push(
+        self, path: Path, branch: str | None = None, force_with_lease: bool = True
+    ) -> dict:
+        """
+        Force push to remote.
+
+        Args:
+            path: Repository path
+            branch: Branch to push (default: current)
+            force_with_lease: Use --force-with-lease for safety (default: True)
+
+        Returns dict with: success, message
+        """
+        result = {"success": False, "message": ""}
+
+        if not branch:
+            branch = await self._get_branch(path)
+            if not branch:
+                result["message"] = "Not on a branch"
+                return result
+
+        remote, _ = await self._get_remote(path)
+        if not remote:
+            result["message"] = "No remote configured"
+            return result
+
+        force_flag = "--force-with-lease" if force_with_lease else "--force"
+        rc, _, stderr = await self._run_git(path, "push", force_flag, remote, branch)
+        if rc != 0:
+            result["message"] = f"Force push failed: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = f"Force pushed {branch} to {remote}"
+        return result
+
+    # ========== Branch Management ==========
+
+    async def list_branches(self, path: Path, remote: bool = False) -> list[dict]:
+        """
+        List branches in the repository.
+
+        Returns list of dicts with: name, is_current, upstream, ahead, behind
+        """
+        if not await self._is_git_repo(path):
+            return []
+
+        branches = []
+
+        # Get format for branch listing
+        format_str = "%(refname:short)|%(HEAD)|%(upstream:short)|%(upstream:track)"
+        args = ["branch", f"--format={format_str}"]
+        if remote:
+            args.append("-r")
+        else:
+            args.append("-a")
+
+        rc, stdout, _ = await self._run_git(path, *args)
+        if rc != 0 or not stdout:
+            return branches
+
+        for line in stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) >= 2:
+                name = parts[0].strip()
+                is_current = parts[1].strip() == "*"
+                upstream = parts[2].strip() if len(parts) > 2 else None
+                track_info = parts[3].strip() if len(parts) > 3 else ""
+
+                # Parse ahead/behind from track info like "[ahead 2, behind 1]"
+                ahead = 0
+                behind = 0
+                if track_info:
+                    import re
+                    ahead_match = re.search(r"ahead (\d+)", track_info)
+                    behind_match = re.search(r"behind (\d+)", track_info)
+                    if ahead_match:
+                        ahead = int(ahead_match.group(1))
+                    if behind_match:
+                        behind = int(behind_match.group(1))
+
+                branches.append({
+                    "name": name,
+                    "is_current": is_current,
+                    "upstream": upstream if upstream else None,
+                    "ahead": ahead,
+                    "behind": behind,
+                })
+
+        return branches
+
+    async def rename_branch(self, path: Path, old_name: str, new_name: str) -> dict:
+        """Rename a branch."""
+        result = {"success": False, "message": ""}
+
+        rc, _, stderr = await self._run_git(path, "branch", "-m", old_name, new_name)
+        if rc != 0:
+            result["message"] = f"Failed to rename branch: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = f"Renamed {old_name} to {new_name}"
+        return result
+
+    async def delete_branch(
+        self, path: Path, branch: str, force: bool = False, remote: bool = False
+    ) -> dict:
+        """Delete a branch (local or remote)."""
+        result = {"success": False, "message": ""}
+
+        if remote:
+            remote_name, _ = await self._get_remote(path)
+            if not remote_name:
+                result["message"] = "No remote configured"
+                return result
+            rc, _, stderr = await self._run_git(
+                path, "push", remote_name, "--delete", branch
+            )
+        else:
+            flag = "-D" if force else "-d"
+            rc, _, stderr = await self._run_git(path, "branch", flag, branch)
+
+        if rc != 0:
+            result["message"] = f"Failed to delete branch: {stderr}"
+            return result
+
+        result["success"] = True
+        location = "remote" if remote else "local"
+        result["message"] = f"Deleted {location} branch {branch}"
+        return result
+
+    async def change_base_branch(
+        self, path: Path, feature_branch: str, new_base: str
+    ) -> dict:
+        """
+        Change the base of a feature branch by rebasing onto a new base.
+
+        This is equivalent to: git rebase --onto new_base old_base feature_branch
+        """
+        result = {"success": False, "message": "", "conflicts": []}
+
+        # Get current branch to restore later
+        current = await self._get_branch(path)
+
+        # Checkout feature branch
+        rc, _, stderr = await self._run_git(path, "checkout", feature_branch)
+        if rc != 0:
+            result["message"] = f"Failed to checkout {feature_branch}: {stderr}"
+            return result
+
+        # Find merge base (old base)
+        rc, old_base, _ = await self._run_git(
+            path, "merge-base", feature_branch, new_base
+        )
+        if rc != 0:
+            result["message"] = "Could not find common ancestor"
+            # Restore original branch
+            if current:
+                await self._run_git(path, "checkout", current)
+            return result
+
+        # Rebase onto new base
+        rc, _, stderr = await self._run_git(
+            path, "rebase", "--onto", new_base, old_base.strip(), feature_branch
+        )
+        if rc != 0:
+            if "conflict" in stderr.lower():
+                conflict_state = await self._detect_conflict_state(path)
+                result["conflicts"] = conflict_state["conflicted_files"]
+                result["message"] = f"Rebase conflict: {len(result['conflicts'])} file(s)"
+            else:
+                result["message"] = f"Rebase failed: {stderr}"
+            return result
+
+        result["success"] = True
+        result["message"] = f"Rebased {feature_branch} onto {new_base}"
+        return result

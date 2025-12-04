@@ -358,3 +358,124 @@ class AttachImageRequest(BaseModel):
     """Request model for attaching an existing image to a run."""
 
     image_id: str = Field(description="ID of the image to attach")
+
+
+# ========== Advanced Git Operations Models (Phase 5) ==========
+
+
+class ConflictFileResponse(BaseModel):
+    """Response model for a conflicted file."""
+
+    file_path: str = Field(description="Path to the conflicted file")
+    conflict_markers_count: int = Field(description="Number of conflict markers found")
+
+
+class ConflictDetectionResponse(BaseModel):
+    """Response model for conflict detection."""
+
+    has_conflicts: bool
+    is_rebase_in_progress: bool
+    is_merge_in_progress: bool
+    conflict_operation: str | None = Field(default=None, description="Type of operation: rebase, merge, cherry_pick")
+    rebase_current_step: int | None = None
+    rebase_total_steps: int | None = None
+    conflicted_files: list[ConflictFileResponse]
+
+
+class ConflictDiffResponse(BaseModel):
+    """Response model for 3-way diff of a conflicted file."""
+
+    file_path: str
+    base: str | None = Field(default=None, description="Common ancestor version")
+    ours: str | None = Field(default=None, description="HEAD version (current branch)")
+    theirs: str | None = Field(default=None, description="Incoming version")
+    merged: str | None = Field(default=None, description="Current file content with conflict markers")
+
+
+class ResolveConflictRequest(BaseModel):
+    """Request model for resolving a conflict."""
+
+    file_path: str = Field(description="Path to the conflicted file")
+    resolution: str = Field(description="Resolution strategy: ours, theirs, or resolved")
+
+
+class ResolveConflictResponse(BaseModel):
+    """Response model for conflict resolution."""
+
+    success: bool
+    message: str
+
+
+class RebaseRequest(BaseModel):
+    """Request model for starting a rebase."""
+
+    onto_branch: str = Field(description="Branch to rebase onto (e.g., main)")
+
+
+class RebaseResponse(BaseModel):
+    """Response model for rebase operations."""
+
+    success: bool
+    message: str
+    conflicts: list[str] = Field(default_factory=list, description="List of conflicted files if any")
+
+
+class ForcePushCheckResponse(BaseModel):
+    """Response model for force push check."""
+
+    needed: bool = Field(description="Whether force push is required")
+    commits_to_delete: int = Field(default=0, description="Number of commits that would be deleted on remote")
+    reason: str = Field(default="", description="Explanation")
+
+
+class ForcePushRequest(BaseModel):
+    """Request model for force push."""
+
+    branch: str | None = Field(default=None, description="Branch to force push (default: current)")
+    force_with_lease: bool = Field(default=True, description="Use --force-with-lease for safety")
+
+
+class ForcePushResponse(BaseModel):
+    """Response model for force push."""
+
+    success: bool
+    message: str
+
+
+class BranchResponse(BaseModel):
+    """Response model for a branch."""
+
+    name: str
+    is_current: bool
+    upstream: str | None = None
+    ahead: int = 0
+    behind: int = 0
+
+
+class BranchListResponse(BaseModel):
+    """Response model for branch list."""
+
+    branches: list[BranchResponse]
+    current_branch: str | None = None
+
+
+class RenameBranchRequest(BaseModel):
+    """Request model for renaming a branch."""
+
+    old_name: str
+    new_name: str
+
+
+class ChangeBaseBranchRequest(BaseModel):
+    """Request model for changing a branch's base."""
+
+    feature_branch: str = Field(description="Branch to rebase")
+    new_base: str = Field(description="New base branch")
+
+
+class BranchOperationResponse(BaseModel):
+    """Response model for branch operations."""
+
+    success: bool
+    message: str
+    conflicts: list[str] = Field(default_factory=list)

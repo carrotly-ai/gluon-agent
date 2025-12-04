@@ -364,3 +364,108 @@ export function formatFileSize(bytes: number): string {
 export function getImageUrl(imageId: string): string {
   return `/api/images/${imageId}/file`
 }
+
+// ========== Advanced Git Operations Types (Phase 5) ==========
+
+/** Conflicted file info */
+export interface ConflictFile {
+  file_path: string
+  conflict_markers_count: number
+}
+
+/** Conflict detection response */
+export interface ConflictDetectionResponse {
+  has_conflicts: boolean
+  is_rebase_in_progress: boolean
+  is_merge_in_progress: boolean
+  conflict_operation: 'rebase' | 'merge' | 'cherry_pick' | null
+  rebase_current_step: number | null
+  rebase_total_steps: number | null
+  conflicted_files: ConflictFile[]
+}
+
+/** 3-way diff for a conflicted file */
+export interface ConflictDiff {
+  file_path: string
+  base: string | null
+  ours: string | null
+  theirs: string | null
+  merged: string | null
+}
+
+/** Request to resolve a conflict */
+export interface ResolveConflictRequest {
+  file_path: string
+  resolution: 'ours' | 'theirs' | 'resolved'
+}
+
+/** Response from conflict resolution */
+export interface ResolveConflictResponse {
+  success: boolean
+  message: string
+}
+
+/** Request to start a rebase */
+export interface RebaseRequest {
+  onto_branch: string
+}
+
+/** Response from rebase operations */
+export interface RebaseResponse {
+  success: boolean
+  message: string
+  conflicts: string[]
+}
+
+/** Response from force push check */
+export interface ForcePushCheckResponse {
+  needed: boolean
+  commits_to_delete: number
+  reason: string
+}
+
+/** Request for force push */
+export interface ForcePushRequest {
+  branch?: string
+  force_with_lease?: boolean
+}
+
+/** Response from force push */
+export interface ForcePushResponse {
+  success: boolean
+  message: string
+}
+
+/** Branch info */
+export interface Branch {
+  name: string
+  is_current: boolean
+  upstream: string | null
+  ahead: number
+  behind: number
+}
+
+/** Response for branch list */
+export interface BranchListResponse {
+  branches: Branch[]
+  current_branch: string | null
+}
+
+/** Request to rename a branch */
+export interface RenameBranchRequest {
+  old_name: string
+  new_name: string
+}
+
+/** Request to change branch base */
+export interface ChangeBaseBranchRequest {
+  feature_branch: string
+  new_base: string
+}
+
+/** Generic branch operation response */
+export interface BranchOperationResponse {
+  success: boolean
+  message: string
+  conflicts: string[]
+}

@@ -22,6 +22,15 @@ import type {
   RunFilesResponse,
   ImageAttachment,
   RunImagesResponse,
+  // Advanced Git Operations types
+  ConflictDetectionResponse,
+  ConflictDiff,
+  ResolveConflictResponse,
+  RebaseResponse,
+  ForcePushCheckResponse,
+  ForcePushResponse,
+  BranchListResponse,
+  BranchOperationResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -381,4 +390,120 @@ export async function detachImageFromRun(runId: string, imageId: string): Promis
   return fetchJson<{ detached: boolean }>(`/runs/${runId}/attachments/${imageId}`, {
     method: 'DELETE',
   })
+}
+
+// ========== Advanced Git Operations API (Phase 5) ==========
+
+/** Detect conflicts in a project */
+export async function detectConflicts(projectId: string): Promise<ConflictDetectionResponse> {
+  return fetchJson<ConflictDetectionResponse>(`/projects/${projectId}/conflicts`)
+}
+
+/** Get 3-way diff for a conflicted file */
+export async function getConflictDiff(projectId: string, filePath: string): Promise<ConflictDiff> {
+  return fetchJson<ConflictDiff>(`/projects/${projectId}/conflicts/${encodeURIComponent(filePath)}`)
+}
+
+/** Resolve a conflict */
+export async function resolveConflict(
+  projectId: string,
+  filePath: string,
+  resolution: 'ours' | 'theirs' | 'resolved'
+): Promise<ResolveConflictResponse> {
+  return fetchJson<ResolveConflictResponse>(`/projects/${projectId}/conflicts/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ file_path: filePath, resolution }),
+  })
+}
+
+/** Start a rebase onto another branch */
+export async function startRebase(projectId: string, ontoBranch: string): Promise<RebaseResponse> {
+  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase`, {
+    method: 'POST',
+    body: JSON.stringify({ onto_branch: ontoBranch }),
+  })
+}
+
+/** Continue a rebase after resolving conflicts */
+export async function continueRebase(projectId: string): Promise<RebaseResponse> {
+  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase/continue`, {
+    method: 'POST',
+  })
+}
+
+/** Abort an in-progress rebase */
+export async function abortRebase(projectId: string): Promise<RebaseResponse> {
+  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase/abort`, {
+    method: 'POST',
+  })
+}
+
+/** Skip the current commit during rebase */
+export async function skipRebaseCommit(projectId: string): Promise<RebaseResponse> {
+  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase/skip`, {
+    method: 'POST',
+  })
+}
+
+/** Check if a force push would be required */
+export async function checkForcePushNeeded(projectId: string, branch?: string): Promise<ForcePushCheckResponse> {
+  const params = branch ? `?branch=${encodeURIComponent(branch)}` : ''
+  return fetchJson<ForcePushCheckResponse>(`/projects/${projectId}/force-push-check${params}`)
+}
+
+/** Force push to remote */
+export async function forcePush(
+  projectId: string,
+  branch?: string,
+  forceWithLease: boolean = true
+): Promise<ForcePushResponse> {
+  return fetchJson<ForcePushResponse>(`/projects/${projectId}/force-push`, {
+    method: 'POST',
+    body: JSON.stringify({ branch, force_with_lease: forceWithLease }),
+  })
+}
+
+/** List all branches in a repository */
+export async function listBranches(projectId: string): Promise<BranchListResponse> {
+  return fetchJson<BranchListResponse>(`/projects/${projectId}/branches`)
+}
+
+/** Rename a branch */
+export async function renameBranch(
+  projectId: string,
+  oldName: string,
+  newName: string
+): Promise<BranchOperationResponse> {
+  return fetchJson<BranchOperationResponse>(`/projects/${projectId}/branches/rename`, {
+    method: 'POST',
+    body: JSON.stringify({ old_name: oldName, new_name: newName }),
+  })
+}
+
+/** Change the base of a feature branch */
+export async function changeBaseBranch(
+  projectId: string,
+  featureBranch: string,
+  newBase: string
+): Promise<BranchOperationResponse> {
+  return fetchJson<BranchOperationResponse>(`/projects/${projectId}/branches/change-base`, {
+    method: 'POST',
+    body: JSON.stringify({ feature_branch: featureBranch, new_base: newBase }),
+  })
+}
+
+/** Delete a branch */
+export async function deleteBranch(
+  projectId: string,
+  branchName: string,
+  options?: { force?: boolean; remote?: boolean }
+): Promise<BranchOperationResponse> {
+  const params = new URLSearchParams()
+  if (options?.force) params.set('force', 'true')
+  if (options?.remote) params.set('remote', 'true')
+  const query = params.toString()
+  return fetchJson<BranchOperationResponse>(
+    `/projects/${projectId}/branches/${encodeURIComponent(branchName)}${query ? `?${query}` : ''}`,
+    { method: 'DELETE' }
+  )
 }

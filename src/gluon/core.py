@@ -50,6 +50,58 @@ class GitSyncError(Exception):
     pass
 
 
+# ========== Advanced Git Operation Exceptions ==========
+
+
+class GitOperationError(Exception):
+    """Base exception for git operations."""
+
+    pass
+
+
+class GitMergeConflict(GitOperationError):
+    """Raised when a merge or rebase results in conflicts."""
+
+    def __init__(self, files: list[str], operation: str = "merge"):
+        self.files = files
+        self.operation = operation
+        super().__init__(
+            f"{operation.capitalize()} conflict in {len(files)} file(s): {', '.join(files[:3])}"
+            + ("..." if len(files) > 3 else "")
+        )
+
+
+class GitRebaseInProgress(GitOperationError):
+    """Raised when a rebase is already in progress."""
+
+    def __init__(self, current_step: int | None = None, total_steps: int | None = None):
+        self.current_step = current_step
+        self.total_steps = total_steps
+        msg = "Rebase in progress"
+        if current_step and total_steps:
+            msg += f" (step {current_step}/{total_steps})"
+        super().__init__(msg)
+
+
+class GitForcePushRequired(GitOperationError):
+    """Raised when a force push would be required."""
+
+    def __init__(self, branch: str, commits_to_delete: int):
+        self.branch = branch
+        self.commits_to_delete = commits_to_delete
+        super().__init__(
+            f"Force push required on {branch}: would delete {commits_to_delete} remote commit(s)"
+        )
+
+
+class GitBranchNotFound(GitOperationError):
+    """Raised when a branch is not found."""
+
+    def __init__(self, branch: str):
+        self.branch = branch
+        super().__init__(f"Branch not found: {branch}")
+
+
 class Orchestrator:
     """
     Core orchestrator that coordinates project management,

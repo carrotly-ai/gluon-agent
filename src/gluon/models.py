@@ -254,6 +254,14 @@ class GitStatus(BaseModel):
     last_push_at: datetime | None = None
     last_commit_at: datetime | None = None
 
+    # Conflict and rebase state (Advanced Git Operations)
+    is_rebase_in_progress: bool = False
+    is_merge_in_progress: bool = False
+    conflict_operation: str | None = None  # "rebase", "merge", "cherry_pick"
+    conflicted_files: list[str] = Field(default_factory=list)
+    rebase_current_step: int | None = None
+    rebase_total_steps: int | None = None
+
     @property
     def is_diverged(self) -> bool:
         """True if local and remote have diverged (both ahead and behind)."""
@@ -262,7 +270,12 @@ class GitStatus(BaseModel):
     @property
     def is_clean(self) -> bool:
         """True if working tree is clean and in sync with remote."""
-        return not self.has_uncommitted and self.commits_ahead == 0 and self.commits_behind == 0
+        return (
+            not self.has_uncommitted
+            and self.commits_ahead == 0
+            and self.commits_behind == 0
+            and not self.has_conflicts
+        )
 
     @property
     def needs_pull(self) -> bool:
@@ -273,6 +286,16 @@ class GitStatus(BaseModel):
     def needs_push(self) -> bool:
         """True if ahead of remote."""
         return self.commits_ahead > 0 and self.commits_behind == 0
+
+    @property
+    def has_conflicts(self) -> bool:
+        """True if there are unresolved conflicts."""
+        return len(self.conflicted_files) > 0
+
+    @property
+    def has_operation_in_progress(self) -> bool:
+        """True if a rebase or merge is in progress."""
+        return self.is_rebase_in_progress or self.is_merge_in_progress
 
 
 class GitSyncResult(BaseModel):

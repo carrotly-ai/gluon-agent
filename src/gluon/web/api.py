@@ -18,17 +18,32 @@ from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
     AttachImageRequest,
+    BranchListResponse,
+    BranchOperationResponse,
+    BranchResponse,
+    ChangeBaseBranchRequest,
     CommitResponse,
+    ConflictDetectionResponse,
+    ConflictDiffResponse,
+    ConflictFileResponse,
     CreateProjectRequest,
     CreateRunRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
     FileChangeResponse,
+    ForcePushCheckResponse,
+    ForcePushRequest,
+    ForcePushResponse,
     ImageResponse,
     LogResponse,
     ProjectDetailResponse,
     ProjectResponse,
     ProjectUsageResponse,
+    RebaseRequest,
+    RebaseResponse,
+    RenameBranchRequest,
+    ResolveConflictRequest,
+    ResolveConflictResponse,
     ResumeRunRequest,
     ResumeRunResponse,
     RunCommitsResponse,
@@ -1181,6 +1196,276 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Image not attached to this run")
 
         return {"detached": True, "run_id": run.id, "image_id": image_id}
+
+    # ========== Advanced Git Operations (Phase 5) ==========
+
+    from gluon.git_manager import GitManager
+
+    git_manager = GitManager(store)
+
+    @app.get("/api/projects/{project_id}/conflicts", response_model=ConflictDetectionResponse)
+    async def detect_conflicts(project_id: str) -> ConflictDetectionResponse:
+        """
+        Detect if there are conflicts in the project (rebase/merge in progress).
+        Returns conflict state and list of conflicted files.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        # Detect conflict state
+        conflict_state = await git_manager._detect_conflict_state(project.path)
+
+        # Get detailed conflict info
+        conflicts = await git_manager.detect_conflicts(project.path)
+
+        return ConflictDetectionResponse(
+            has_conflicts=len(conflicts) > 0,
+            is_rebase_in_progress=conflict_state.get("is_rebase_in_progress", False),
+            is_merge_in_progress=conflict_state.get("is_merge_in_progress", False),
+            conflict_operation=conflict_state.get("conflict_operation"),
+            rebase_current_step=conflict_state.get("rebase_current_step"),
+            rebase_total_steps=conflict_state.get("rebase_total_steps"),
+            conflicted_files=[
+                ConflictFileResponse(
+                    file_path=c["file_path"],
+                    conflict_markers_count=c["conflict_markers_count"],
+                )
+                for c in conflicts
+            ],
+        )
+
+    @app.get("/api/projects/{project_id}/conflicts/{file_path:path}", response_model=ConflictDiffResponse)
+    async def get_conflict_diff(project_id: str, file_path: str) -> ConflictDiffResponse:
+        """
+        Get 3-way diff for a conflicted file.
+        Returns base (common ancestor), ours (HEAD), theirs (incoming), and merged (current with markers).
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        diff_data = await git_manager.get_conflict_diff(project.path, file_path)
+
+        return ConflictDiffResponse(
+            file_path=diff_data["file_path"],
+            base=diff_data.get("base"),
+            ours=diff_data.get("ours"),
+            theirs=diff_data.get("theirs"),
+            merged=diff_data.get("merged"),
+        )
+
+    @app.post("/api/projects/{project_id}/conflicts/resolve", response_model=ResolveConflictResponse)
+    async def resolve_conflict(project_id: str, body: ResolveConflictRequest) -> ResolveConflictResponse:
+        """
+        Resolve a conflict by choosing ours, theirs, or marking as resolved.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        if body.resolution not in ("ours", "theirs", "resolved"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid resolution: {body.resolution}. Must be ours, theirs, or resolved.",
+            )
+
+        result = await git_manager.resolve_conflict(project.path, body.file_path, body.resolution)
+
+        return ResolveConflictResponse(
+            success=result["success"],
+            message=result["message"],
+        )
+
+    @app.post("/api/projects/{project_id}/rebase", response_model=RebaseResponse)
+    async def start_rebase(project_id: str, body: RebaseRequest) -> RebaseResponse:
+        """
+        Start a rebase onto another branch.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.rebase_branch(project.path, body.onto_branch)
+
+        return RebaseResponse(
+            success=result["success"],
+            message=result["message"],
+            conflicts=result.get("conflicts", []),
+        )
+
+    @app.post("/api/projects/{project_id}/rebase/continue", response_model=RebaseResponse)
+    async def continue_rebase(project_id: str) -> RebaseResponse:
+        """
+        Continue a rebase after resolving conflicts.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.rebase_continue(project.path)
+
+        return RebaseResponse(
+            success=result["success"],
+            message=result["message"],
+            conflicts=result.get("conflicts", []),
+        )
+
+    @app.post("/api/projects/{project_id}/rebase/abort", response_model=RebaseResponse)
+    async def abort_rebase(project_id: str) -> RebaseResponse:
+        """
+        Abort an in-progress rebase.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.rebase_abort(project.path)
+
+        return RebaseResponse(
+            success=result["success"],
+            message=result["message"],
+        )
+
+    @app.post("/api/projects/{project_id}/rebase/skip", response_model=RebaseResponse)
+    async def skip_rebase_commit(project_id: str) -> RebaseResponse:
+        """
+        Skip the current commit during rebase.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.rebase_skip(project.path)
+
+        return RebaseResponse(
+            success=result["success"],
+            message=result["message"],
+            conflicts=result.get("conflicts", []),
+        )
+
+    @app.get("/api/projects/{project_id}/force-push-check", response_model=ForcePushCheckResponse)
+    async def check_force_push_needed(project_id: str, branch: str | None = None) -> ForcePushCheckResponse:
+        """
+        Check if a force push would be required for the current branch.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.check_force_push_needed(project.path, branch)
+
+        return ForcePushCheckResponse(
+            needed=result["needed"],
+            commits_to_delete=result["commits_to_delete"],
+            reason=result["reason"],
+        )
+
+    @app.post("/api/projects/{project_id}/force-push", response_model=ForcePushResponse)
+    async def force_push(project_id: str, body: ForcePushRequest) -> ForcePushResponse:
+        """
+        Force push to remote. Use with caution!
+        Defaults to --force-with-lease for safety.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.force_push(
+            project.path,
+            branch=body.branch,
+            force_with_lease=body.force_with_lease,
+        )
+
+        return ForcePushResponse(
+            success=result["success"],
+            message=result["message"],
+        )
+
+    @app.get("/api/projects/{project_id}/branches", response_model=BranchListResponse)
+    async def list_branches(project_id: str) -> BranchListResponse:
+        """
+        List all branches in the repository.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        branches = await git_manager.list_branches(project.path)
+
+        current_branch = None
+        for b in branches:
+            if b.get("is_current"):
+                current_branch = b["name"]
+                break
+
+        return BranchListResponse(
+            branches=[
+                BranchResponse(
+                    name=b["name"],
+                    is_current=b.get("is_current", False),
+                    upstream=b.get("upstream"),
+                    ahead=b.get("ahead", 0),
+                    behind=b.get("behind", 0),
+                )
+                for b in branches
+            ],
+            current_branch=current_branch,
+        )
+
+    @app.post("/api/projects/{project_id}/branches/rename", response_model=BranchOperationResponse)
+    async def rename_branch(project_id: str, body: RenameBranchRequest) -> BranchOperationResponse:
+        """
+        Rename a branch.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.rename_branch(project.path, body.old_name, body.new_name)
+
+        return BranchOperationResponse(
+            success=result["success"],
+            message=result["message"],
+        )
+
+    @app.post("/api/projects/{project_id}/branches/change-base", response_model=BranchOperationResponse)
+    async def change_branch_base(project_id: str, body: ChangeBaseBranchRequest) -> BranchOperationResponse:
+        """
+        Change the base of a feature branch by rebasing onto a new base.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.change_base_branch(project.path, body.feature_branch, body.new_base)
+
+        return BranchOperationResponse(
+            success=result["success"],
+            message=result["message"],
+            conflicts=result.get("conflicts", []),
+        )
+
+    @app.delete("/api/projects/{project_id}/branches/{branch_name}", response_model=BranchOperationResponse)
+    async def delete_branch(
+        project_id: str,
+        branch_name: str,
+        force: bool = False,
+        remote: bool = False,
+    ) -> BranchOperationResponse:
+        """
+        Delete a branch (local or remote).
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        result = await git_manager.delete_branch(project.path, branch_name, force=force, remote=remote)
+
+        return BranchOperationResponse(
+            success=result["success"],
+            message=result["message"],
+        )
 
     # ========== WebSocket ==========
 
