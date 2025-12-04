@@ -1125,7 +1125,7 @@ def cancel(
 
 @app.command("web")
 def web(
-    host: Annotated[str, typer.Option("--host", "-h", help="Host to bind to")] = "127.0.0.1",
+    host: Annotated[str, typer.Option("--host", "-h", help="Host to bind to")] = "0.0.0.0",
     port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 45866,
     reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload for development")] = False,
     no_browser: Annotated[bool, typer.Option("--no-browser", help="Don't open browser automatically")] = False,
