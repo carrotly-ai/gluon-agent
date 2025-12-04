@@ -79,6 +79,29 @@ function formatToolInput(input: unknown): string {
   return inputStr.length > 200 ? inputStr.slice(0, 200) + '...' : inputStr
 }
 
+interface LiveStats {
+  totalCost: number
+  totalTokensIn: number
+  totalTokensOut: number
+  toolCalls: number
+}
+
+function aggregateLiveStats(messages: AgentMessage[]): LiveStats {
+  let totalCost = 0
+  let totalTokensIn = 0
+  let totalTokensOut = 0
+  let toolCalls = 0
+
+  for (const msg of messages) {
+    if (msg.metadata?.cost) totalCost += msg.metadata.cost
+    if (msg.metadata?.tokens_in) totalTokensIn += msg.metadata.tokens_in
+    if (msg.metadata?.tokens_out) totalTokensOut += msg.metadata.tokens_out
+    if (msg.type === 'tool_use') toolCalls++
+  }
+
+  return { totalCost, totalTokensIn, totalTokensOut, toolCalls }
+}
+
 function MessageItem({ msg }: { msg: AgentMessage }) {
   const typeColors: Record<string, string> = {
     text: 'text-[var(--color-paper)]/70',
@@ -486,6 +509,50 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 </div>
               </div>
             </div>
+
+            {/* Live Stats Bar - Show for active runs */}
+            {isActive && (() => {
+              const liveStats = aggregateLiveStats(parseMessages(logs.messages))
+              return (
+                <div className="mb-4 p-3 bg-[rgba(102,178,255,0.08)] border border-[rgba(102,178,255,0.2)] rounded-sm shrink-0">
+                  <div className="flex items-center gap-4 flex-wrap text-[0.6875rem]">
+                    {/* Running indicator */}
+                    <div className="flex items-center gap-2">
+                      <div className="mark mark-running" />
+                      <span className="text-[var(--color-sky)] uppercase tracking-widest text-[0.5rem]">Live</span>
+                    </div>
+                    {/* Branch */}
+                    {detail?.branch_name && (
+                      <div className="flex items-center gap-1.5 text-purple-400">
+                        <GitBranch className="w-3 h-3" />
+                        <span>{detail.branch_name}</span>
+                      </div>
+                    )}
+                    {/* Tokens */}
+                    {(liveStats.totalTokensIn > 0 || liveStats.totalTokensOut > 0) && (
+                      <div className="flex items-center gap-1 text-[var(--color-stone)]/80">
+                        <span className="text-[0.5rem] uppercase tracking-widest text-[var(--color-stone)]/60">Tokens</span>
+                        <span className="text-mono">{formatTokens(liveStats.totalTokensIn)} → {formatTokens(liveStats.totalTokensOut)}</span>
+                      </div>
+                    )}
+                    {/* Cost */}
+                    {liveStats.totalCost > 0 && (
+                      <div className="flex items-center gap-1 text-[var(--color-harvest)]">
+                        <span className="text-[0.5rem] uppercase tracking-widest text-[var(--color-harvest)]/60">Cost</span>
+                        <span className="text-mono">${liveStats.totalCost.toFixed(4)}</span>
+                      </div>
+                    )}
+                    {/* Tool calls */}
+                    {liveStats.toolCalls > 0 && (
+                      <div className="flex items-center gap-1 text-[var(--color-sky)]">
+                        <span className="text-[0.5rem] uppercase tracking-widest text-[var(--color-sky)]/60">Tools</span>
+                        <span className="text-mono">{liveStats.toolCalls}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
