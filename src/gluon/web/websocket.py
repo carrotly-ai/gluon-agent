@@ -95,6 +95,16 @@ class WebSocketManager:
                 "completed_at": run.completed_at.isoformat() if run.completed_at else None,
                 "duration_seconds": run.duration_seconds,
                 "error_message": run.error_message,
+                # Cost tracking
+                "cost_usd": run.cost_usd,
+                # Git/PR fields for Kanban routing
+                "use_worktree": run.use_worktree,
+                "branch_name": run.branch_name,
+                "pr_number": run.pr_number,
+                "pr_url": run.pr_url,
+                "pr_status": run.pr_status,
+                # Archive status
+                "archived": run.archived,
             },
         }
         await self.broadcast(message)
@@ -115,6 +125,16 @@ class WebSocketManager:
                 "completed_at": None,
                 "duration_seconds": None,
                 "error_message": None,
+                # Cost tracking
+                "cost_usd": None,
+                # Git/PR fields for Kanban routing
+                "use_worktree": run.use_worktree,
+                "branch_name": run.branch_name,
+                "pr_number": None,
+                "pr_url": None,
+                "pr_status": None,
+                # Archive status
+                "archived": False,
             },
         }
         await self.broadcast(message)
