@@ -416,6 +416,71 @@ class GitManager:
 
     # ========== Worktree Finalization ==========
 
+    async def auto_commit_changes(
+        self,
+        path: Path,
+        message: str | None = None,
+        run_id: str | None = None,
+    ) -> dict:
+        """
+        Auto-commit any uncommitted changes in the working directory.
+
+        This is a safety net to ensure work is not lost if the agent
+        doesn't commit before exiting.
+
+        Args:
+            path: Repository path (worktree or main repo)
+            message: Optional commit message (auto-generated if not provided)
+            run_id: Optional run ID for commit message context
+
+        Returns:
+            dict with: committed (bool), files_count (int), message (str)
+        """
+        result = {
+            "committed": False,
+            "files_count": 0,
+            "message": "",
+        }
+
+        # Check if git repo
+        if not await self._is_git_repo(path):
+            result["message"] = "Not a git repository"
+            return result
+
+        # Check for uncommitted changes
+        uncommitted = await self._get_uncommitted_count(path)
+        if uncommitted == 0:
+            result["message"] = "No uncommitted changes"
+            return result
+
+        # Stage all changes
+        rc, _, stderr = await self._run_git(path, "add", "-A")
+        if rc != 0:
+            result["message"] = f"Failed to stage changes: {stderr}"
+            return result
+
+        # Generate commit message if not provided
+        if not message:
+            message = "chore: auto-commit changes from gluon agent"
+            if run_id:
+                message += f"\n\nRun ID: {run_id}"
+
+        # Commit
+        rc, _, stderr = await self._run_git(path, "commit", "-m", message)
+        if rc != 0:
+            if "nothing to commit" in stderr:
+                result["message"] = "No changes to commit after staging"
+                return result
+            result["message"] = f"Failed to commit: {stderr}"
+            return result
+
+        result["committed"] = True
+        result["files_count"] = uncommitted
+        result["message"] = f"Auto-committed {uncommitted} file(s)"
+        logger.info(f"Auto-committed {uncommitted} changes in {path}")
+
+        return result
+
     async def push_branch_and_create_pr(
         self,
         project_path: Path,

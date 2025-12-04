@@ -192,10 +192,28 @@ class TaskRunner:
                     stdout_file.write("\n")
                     stdout_file.flush()
 
+                # Build prompt with worktree context if applicable
+                effective_prompt = run.prompt
+                if run.use_worktree and run.branch_name:
+                    worktree_context = f"""[WORKTREE CONTEXT]
+You are working in an isolated git worktree on branch '{run.branch_name}'.
+This worktree is temporary and may be cleaned up after your session.
+
+IMPORTANT: Commit all your changes before completing your task.
+Use descriptive commit messages summarizing what was done.
+The system will auto-commit any uncommitted changes as a safety net,
+but explicit commits with good messages are preferred.
+[END WORKTREE CONTEXT]
+
+"""
+                    effective_prompt = worktree_context + run.prompt
+                    stdout_file.write(f"Working in worktree on branch: {run.branch_name}\n\n")
+                    stdout_file.flush()
+
                 # Execute via agent with images as base64 content blocks
                 async for item in self.agent.execute(
                     working_dir=working_dir,
-                    prompt=run.prompt,
+                    prompt=effective_prompt,
                     resume_session_id=run.claude_session_id,
                     images=image_paths if image_paths else None,
                 ):
@@ -259,29 +277,45 @@ class TaskRunner:
                             # Don't fail the run if git capture fails
                             stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
 
-                        # For worktree runs: push branch and create PR (if auto_create_pr enabled)
+                        # For worktree runs: auto-commit any uncommitted changes, then push and create PR
                         auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
-                        if run.use_worktree and run.branch_name and item.success and auto_create_pr:
+                        if run.use_worktree and run.branch_name and item.success:
+                            # Safety net: auto-commit any uncommitted changes
                             try:
-                                pr_result = await self.git_manager.push_branch_and_create_pr(
-                                    project_path=working_path,
-                                    branch_name=run.branch_name,
-                                    prompt=run.prompt,
+                                commit_result = await self.git_manager.auto_commit_changes(
+                                    path=working_path,
+                                    message=f"chore: {run.prompt[:60]}{'...' if len(run.prompt) > 60 else ''}\n\nAuto-committed by Gluon Agent\nRun ID: {run.id}",
                                     run_id=run.id,
                                 )
-                                if pr_result.get("pushed"):
-                                    stdout_file.write(f"\n✓ Pushed branch {run.branch_name} to remote\n")
-                                if pr_result.get("pr_url"):
-                                    run.pr_number = pr_result.get("pr_number")
-                                    run.pr_url = pr_result.get("pr_url")
-                                    run.pr_status = pr_result.get("pr_status")
-                                    stdout_file.write(f"✓ Created PR: {run.pr_url}\n")
-                                elif pr_result.get("error"):
-                                    stderr_file.write(f"Warning: PR creation: {pr_result['error']}\n")
-                                stdout_file.flush()
-                            except Exception as pr_err:
-                                stderr_file.write(f"Warning: Failed to push/create PR: {pr_err}\n")
+                                if commit_result.get("committed"):
+                                    stdout_file.write(f"\n✓ Auto-committed {commit_result['files_count']} file(s)\n")
+                                    stdout_file.flush()
+                            except Exception as commit_err:
+                                stderr_file.write(f"Warning: Auto-commit failed: {commit_err}\n")
                                 stderr_file.flush()
+
+                            # Push branch and create PR if enabled
+                            if auto_create_pr:
+                                try:
+                                    pr_result = await self.git_manager.push_branch_and_create_pr(
+                                        project_path=working_path,
+                                        branch_name=run.branch_name,
+                                        prompt=run.prompt,
+                                        run_id=run.id,
+                                    )
+                                    if pr_result.get("pushed"):
+                                        stdout_file.write(f"\n✓ Pushed branch {run.branch_name} to remote\n")
+                                    if pr_result.get("pr_url"):
+                                        run.pr_number = pr_result.get("pr_number")
+                                        run.pr_url = pr_result.get("pr_url")
+                                        run.pr_status = pr_result.get("pr_status")
+                                        stdout_file.write(f"✓ Created PR: {run.pr_url}\n")
+                                    elif pr_result.get("error"):
+                                        stderr_file.write(f"Warning: PR creation: {pr_result['error']}\n")
+                                    stdout_file.flush()
+                                except Exception as pr_err:
+                                    stderr_file.write(f"Warning: Failed to push/create PR: {pr_err}\n")
+                                    stderr_file.flush()
 
                         if item.success:
                             run.mark_completed(exit_code=0)
