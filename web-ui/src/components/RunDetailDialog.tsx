@@ -188,6 +188,31 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     load()
   }, [open, run])
 
+  // Auto-refresh for active runs
+  useEffect(() => {
+    if (!open || !run) return
+    const isRunActive = run.status === 'running' || run.status === 'pending'
+    if (!isRunActive) return
+
+    const intervalId = setInterval(async () => {
+      try {
+        const [runDetail, stdoutLogs, stderrLogs, messagesLogs] = await Promise.all([
+          fetchRun(run.id),
+          fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
+          fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
+          fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
+        ])
+        setDetail(runDetail)
+        setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
+        onRunUpdated(runDetail)
+      } catch (err) {
+        console.error('Auto-refresh failed:', err)
+      }
+    }, 3000) // Refresh every 3 seconds
+
+    return () => clearInterval(intervalId)
+  }, [open, run?.id, run?.status, onRunUpdated])
+
   const handleCancel = async () => {
     if (!run) return
     setCancelling(true)
