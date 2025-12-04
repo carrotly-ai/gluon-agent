@@ -3,7 +3,7 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Sparkles } from 'lucide-react'
 import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage } from '@/lib/api'
@@ -168,11 +168,11 @@ const MESSAGE_CONFIG: Record<string, {
   bg: string
   label: string
 }> = {
-  tool_use: { icon: Wrench, color: 'text-[var(--color-sky)]', bg: 'bg-[rgba(102,178,255,0.08)]', label: 'Tool' },
-  text: { icon: MessageSquare, color: 'text-[var(--color-paper)]/70', bg: '', label: 'Text' },
-  system: { icon: Settings2, color: 'text-[var(--color-stone)]/60', bg: '', label: 'System' },
-  error: { icon: AlertCircle, color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.08)]', label: 'Error' },
-  result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.08)]', label: 'Done' },
+  tool_use: { icon: Wrench, color: 'text-[var(--color-sky)]', bg: 'bg-[rgba(102,178,255,0.1)]', label: 'Tool' },
+  text: { icon: MessageSquare, color: 'text-[var(--color-paper)]', bg: '', label: 'Text' },
+  system: { icon: Settings2, color: 'text-[var(--color-stone)]', bg: '', label: 'System' },
+  error: { icon: AlertCircle, color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.12)]', label: 'Error' },
+  result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.12)]', label: 'Done' },
 }
 
 function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
@@ -208,25 +208,25 @@ function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isE
 
         {/* Primary param preview */}
         {primaryParam && (
-          <span className="text-[0.75rem] text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
-            <span className="text-[var(--color-harvest)]/80">{primaryParam.key}</span>
-            <span className="text-[var(--color-stone)]/40">=</span>
-            <span className="text-[var(--color-paper)]/50">"{primaryParam.value}"</span>
+          <span className="text-[0.8125rem] text-[var(--color-paper)] font-mono truncate flex-1 min-w-0">
+            <span className="text-[var(--color-harvest)]">{primaryParam.key}</span>
+            <span className="text-[var(--color-stone)]/60">=</span>
+            <span className="text-[var(--color-paper)]/90">"{primaryParam.value}"</span>
           </span>
         )}
 
         {/* Timestamp */}
-        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+        <span className="text-[0.6875rem] text-[var(--color-stone)]/70 font-mono shrink-0">{time}</span>
       </div>
 
       {/* Expanded params */}
       {isExpanded && fullParams.length > 0 && (
-        <div className="bg-[rgba(102,178,255,0.03)] border-t border-[rgba(102,178,255,0.1)] rounded-b-md px-3 py-2 ml-5">
+        <div className="bg-[rgba(102,178,255,0.05)] border-t border-[rgba(102,178,255,0.15)] rounded-b-md px-3 py-2 ml-5">
           <div className="space-y-1.5">
             {fullParams.map((param, idx) => (
-              <div key={idx} className="flex gap-2 text-[0.75rem] font-mono">
+              <div key={idx} className="flex gap-2 text-[0.8125rem] font-mono">
                 <span className="text-[var(--color-harvest)] shrink-0 min-w-[80px]">{param.key}</span>
-                <span className="text-[var(--color-paper)]/60 whitespace-pre-wrap break-all">{param.value}</span>
+                <span className="text-[var(--color-paper)]/90 whitespace-pre-wrap break-all">{param.value}</span>
               </div>
             ))}
           </div>
@@ -243,16 +243,16 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
 
   return (
     <div className="flex items-start gap-2 py-2 px-3">
-      <MessageSquare className="w-3.5 h-3.5 text-[var(--color-paper)]/40 shrink-0 mt-0.5" />
+      <MessageSquare className="w-3.5 h-3.5 text-[var(--color-paper)]/60 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <div className={cn(
-          'text-[0.8125rem] text-[var(--color-paper)]/80 leading-relaxed',
+          'text-[0.8125rem] text-[var(--color-paper)] leading-relaxed',
           !isExpanded && 'line-clamp-2'
         )}>
           <ReactMarkdown
             components={{
               p: ({ children }) => <span>{children} </span>,
-              code: ({ children }) => <code className="text-[var(--color-sky)] bg-[var(--color-void)] px-1 py-0.5 rounded text-[0.75rem]">{children}</code>,
+              code: ({ children }) => <code className="text-[var(--color-sky)] bg-[var(--color-ink)] px-1 py-0.5 rounded text-[0.8125rem]">{children}</code>,
             }}
           >
             {msg.content}
@@ -260,14 +260,14 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
         </div>
         {isLong && (
           <button
-            className="text-[0.625rem] text-[var(--color-sky)] hover:underline mt-1"
+            className="text-[0.6875rem] text-[var(--color-sky)] hover:underline mt-1"
             onClick={() => setIsExpanded(!isExpanded)}
           >
             {isExpanded ? 'Show less' : 'Show more'}
           </button>
         )}
       </div>
-      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      <span className="text-[0.6875rem] text-[var(--color-stone)]/70 font-mono shrink-0">{time}</span>
     </div>
   )
 }
@@ -281,7 +281,7 @@ function SystemMessage({ msg }: { msg: AgentMessage }) {
     <div className={cn('flex items-center gap-2 py-1.5 px-3 rounded-md', config.bg)}>
       <Icon className={cn('w-3.5 h-3.5 shrink-0', config.color)} />
       <span className={cn('text-[0.8125rem] flex-1', config.color)}>{msg.content}</span>
-      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      <span className="text-[0.6875rem] text-[var(--color-stone)]/70 font-mono shrink-0">{time}</span>
     </div>
   )
 }
@@ -905,6 +905,31 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
                 >
                   <GitMerge className="w-3 h-3" />
                   <span>{merging ? 'Merging...' : 'Merge'}</span>
+                </button>
+              )}
+              {/* Resolve Conflicts - show when PR has conflicts and run is resumable */}
+              {detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive && (
+                <button
+                  onClick={() => {
+                    const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
+
+1. Rebase this branch onto ${detail?.source_branch || 'main'}
+2. For each conflict, understand the intent of both changes and merge them intelligently
+3. After resolving all conflicts, force-push the rebased branch
+4. The PR should become mergeable after this
+
+Focus on preserving the functionality from both sides where possible.`
+                    setResumePrompt(conflictPrompt)
+                    // Scroll to resume section
+                    setTimeout(() => {
+                      document.querySelector('textarea[placeholder*="Continue with follow-up"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    }, 100)
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
+                  title="Use Claude to resolve merge conflicts"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Resolve</span>
                 </button>
               )}
               {/* Create PR - show for worktree runs with branch but no PR */}
