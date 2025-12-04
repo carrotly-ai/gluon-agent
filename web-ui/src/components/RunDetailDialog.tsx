@@ -82,23 +82,26 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
-function formatToolInputCompact(input: unknown): string {
-  if (input === null || input === undefined) return ''
+interface ToolInputPart {
+  type: 'key' | 'value' | 'punctuation' | 'ellipsis'
+  text: string
+}
+
+function formatToolInputStructured(input: unknown): ToolInputPart[] {
+  if (input === null || input === undefined) return []
   if (typeof input === 'string') {
-    // For strings, show truncated path or value
-    const truncated = input.length > 80 ? input.slice(0, 77) + '...' : input
-    return `"${truncated}"`
+    const truncated = input.length > 100 ? input.slice(0, 97) + '...' : input
+    return [{ type: 'value', text: `"${truncated}"` }]
   }
   if (typeof input === 'object') {
-    // For objects, format as key=value pairs on one line
     const entries = Object.entries(input as Record<string, unknown>)
-    const parts: string[] = []
+    const parts: ToolInputPart[] = []
     let totalLen = 0
-    for (const [key, val] of entries) {
+    for (let i = 0; i < entries.length; i++) {
+      const [key, val] = entries[i]
       let valStr: string
       if (typeof val === 'string') {
-        // Truncate long strings (like file paths or content)
-        valStr = val.length > 50 ? `"${val.slice(0, 47)}..."` : `"${val}"`
+        valStr = val.length > 60 ? `"${val.slice(0, 57)}..."` : `"${val}"`
       } else if (typeof val === 'number' || typeof val === 'boolean') {
         valStr = String(val)
       } else if (val === null) {
@@ -106,17 +109,20 @@ function formatToolInputCompact(input: unknown): string {
       } else {
         valStr = '{...}'
       }
-      const part = `${key}=${valStr}`
-      if (totalLen + part.length > 120 && parts.length > 0) {
-        parts.push('...')
+      const partLen = key.length + valStr.length + 1
+      if (totalLen + partLen > 150 && parts.length > 0) {
+        parts.push({ type: 'ellipsis', text: '...' })
         break
       }
-      parts.push(part)
-      totalLen += part.length + 1
+      if (i > 0) parts.push({ type: 'punctuation', text: ' ' })
+      parts.push({ type: 'key', text: key })
+      parts.push({ type: 'punctuation', text: '=' })
+      parts.push({ type: 'value', text: valStr })
+      totalLen += partLen + 1
     }
-    return parts.join(' ')
+    return parts
   }
-  return String(input)
+  return [{ type: 'value', text: String(input) }]
 }
 
 interface LiveStats {
@@ -142,13 +148,37 @@ function aggregateLiveStats(messages: AgentMessage[]): LiveStats {
   return { totalCost, totalTokensIn, totalTokensOut, toolCalls }
 }
 
+function ToolInputDisplay({ input }: { input: unknown }) {
+  const parts = formatToolInputStructured(input)
+  if (parts.length === 0) return null
+
+  return (
+    <span className="ml-2">
+      {parts.map((part, i) => {
+        switch (part.type) {
+          case 'key':
+            return <span key={i} className="text-[var(--color-harvest)]">{part.text}</span>
+          case 'value':
+            return <span key={i} className="text-[var(--color-paper)]/70">{part.text}</span>
+          case 'punctuation':
+            return <span key={i} className="text-[var(--color-stone)]/50">{part.text}</span>
+          case 'ellipsis':
+            return <span key={i} className="text-[var(--color-stone)]/60">{part.text}</span>
+          default:
+            return <span key={i}>{part.text}</span>
+        }
+      })}
+    </span>
+  )
+}
+
 function MessageItem({ msg }: { msg: AgentMessage }) {
-  const typeColors: Record<string, string> = {
-    text: 'text-[var(--color-paper)]/70',
-    tool_use: 'text-[var(--color-sky)]',
-    system: 'text-[var(--color-stone)]/60',
-    error: 'text-[var(--color-vermillion)]',
-    result: 'text-[var(--color-jade)]',
+  const typeStyles: Record<string, { color: string; bg: string }> = {
+    text: { color: 'text-[var(--color-paper)]/80', bg: '' },
+    tool_use: { color: 'text-[var(--color-sky)]', bg: 'bg-[rgba(102,178,255,0.06)]' },
+    system: { color: 'text-[var(--color-stone)]/70', bg: '' },
+    error: { color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.06)]' },
+    result: { color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.06)]' },
   }
 
   const typeLabels: Record<string, string> = {
@@ -159,25 +189,33 @@ function MessageItem({ msg }: { msg: AgentMessage }) {
     result: 'DONE',
   }
 
+  const style = typeStyles[msg.type] || { color: 'text-[var(--color-stone)]', bg: '' }
+
   return (
-    <div className="flex gap-2 py-1 border-b border-[rgba(163,163,163,0.05)] last:border-0 items-start">
-      <span className={cn('text-[0.5rem] uppercase tracking-widest w-8 shrink-0 pt-0.5', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
+    <div className={cn(
+      'flex gap-3 py-1.5 border-b border-[rgba(163,163,163,0.06)] last:border-0 items-start rounded-sm',
+      style.bg && `${style.bg} px-2 -mx-2`
+    )}>
+      <span className={cn(
+        'text-[0.5625rem] uppercase tracking-wider w-9 shrink-0 pt-0.5 font-medium',
+        style.color
+      )}>
         {typeLabels[msg.type] || msg.type}
       </span>
       <div className="flex-1 min-w-0 overflow-hidden">
         {msg.type === 'tool_use' && msg.metadata?.tool ? (
-          <span className="text-[0.6875rem] font-mono">
-            <span className="text-[var(--color-sky)] font-medium">{msg.metadata.tool}</span>
+          <div className="text-[0.75rem] font-mono leading-relaxed">
+            <span className="text-[var(--color-sky)] font-semibold">{msg.metadata.tool}</span>
             {msg.metadata.input !== undefined && msg.metadata.input !== null && (
-              <span className="text-[var(--color-stone)]/50 ml-1.5">{formatToolInputCompact(msg.metadata.input)}</span>
+              <ToolInputDisplay input={msg.metadata.input} />
             )}
-          </span>
+          </div>
         ) : msg.type === 'text' ? (
-          <div className="text-[0.6875rem] prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-[var(--color-sky)] prose-code:bg-[var(--color-void)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-[var(--color-void)] prose-pre:p-2 prose-pre:rounded">
+          <div className="text-[0.75rem] prose prose-sm prose-invert max-w-none leading-relaxed prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-[var(--color-sky)] prose-code:bg-[var(--color-void)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-[var(--color-void)] prose-pre:p-2 prose-pre:rounded">
             <ReactMarkdown>{msg.content}</ReactMarkdown>
           </div>
         ) : (
-          <span className={cn('text-[0.6875rem]', typeColors[msg.type] || 'text-[var(--color-stone)]')}>
+          <span className={cn('text-[0.75rem] leading-relaxed', style.color)}>
             {msg.content}
           </span>
         )}
