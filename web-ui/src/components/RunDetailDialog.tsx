@@ -591,14 +591,32 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     if (!run) return
     setLoading(true)
     try {
-      const [runDetail, stdoutLogs, stderrLogs, messagesLogs] = await Promise.all([
+      // Fetch run details (which refreshes PR status from GitHub if PR is open),
+      // logs, commits, and files all in parallel
+      const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] = await Promise.all([
         fetchRun(run.id),
         fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
         fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
         fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
+        // Also refresh commits and files data
+        fetchRunCommits(run.id).catch(() => null),
+        fetchRunFiles(run.id).catch(() => null),
       ])
       setDetail(runDetail)
       setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
+      // Update commits and files if fetched successfully
+      if (newCommitsData) {
+        setCommitsData(newCommitsData)
+        // Clear cached commit details since files may have changed
+        setCommitDetails({})
+        setExpandedCommit(null)
+      }
+      if (newFilesData) {
+        setFilesData(newFilesData)
+        // Clear cached file diffs since content may have changed
+        setFileDiffs({})
+        setExpandedFile(null)
+      }
       onRunUpdated(runDetail)
     } catch (err) {
       console.error('Failed to refresh:', err)
