@@ -22,6 +22,7 @@ from gluon.web.models import (
     BranchOperationResponse,
     BranchResponse,
     ChangeBaseBranchRequest,
+    CommitDetailResponse,
     CommitResponse,
     ConflictDetectionResponse,
     ConflictDiffResponse,
@@ -31,6 +32,7 @@ from gluon.web.models import (
     CreateWorkspaceRequest,
     DailyUsageResponse,
     FileChangeResponse,
+    FileDiffResponse,
     ForcePushCheckResponse,
     ForcePushRequest,
     ForcePushResponse,
@@ -491,6 +493,87 @@ def create_app() -> FastAPI:
             total_additions=total_additions,
             total_deletions=total_deletions,
             files=[FileChangeResponse(**f) for f in files_data],
+        )
+
+    @app.get("/api/runs/{run_id}/commits/{sha}", response_model=CommitDetailResponse)
+    async def get_commit_detail(run_id: str, sha: str) -> CommitDetailResponse:
+        """
+        Get detailed information for a specific commit including files changed.
+        This is lazy-loaded when a commit row is expanded.
+        """
+        from gluon.git_manager import GitManager
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.branch_name:
+            raise HTTPException(status_code=400, detail="Run has no branch")
+
+        # Get project to find repo path
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
+
+        # Determine working path (worktree or project root)
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+
+        # Fetch commit details
+        git_manager = GitManager(store)
+        commit_data = await git_manager.get_commit_detail(path=working_path, sha=sha)
+
+        if not commit_data:
+            raise HTTPException(status_code=404, detail=f"Commit not found: {sha}")
+
+        return CommitDetailResponse(
+            sha=commit_data["sha"],
+            message=commit_data["message"],
+            author=commit_data["author"],
+            author_email=commit_data["author_email"],
+            date=commit_data["date"],
+            files=[FileChangeResponse(**f) for f in commit_data.get("files", [])],
+        )
+
+    @app.get("/api/runs/{run_id}/files/{file_path:path}/diff", response_model=FileDiffResponse)
+    async def get_file_diff(run_id: str, file_path: str) -> FileDiffResponse:
+        """
+        Get unified diff for a specific file.
+        This is lazy-loaded when a file row is expanded.
+        """
+        from gluon.git_manager import GitManager
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.branch_name:
+            raise HTTPException(status_code=400, detail="Run has no branch")
+
+        # Get project to find repo path
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
+
+        # Determine working path (worktree or project root)
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+
+        # Get base branch (source_branch or default to main)
+        base_branch = run.source_branch or "main"
+
+        # Fetch file diff
+        git_manager = GitManager(store)
+        diff_data = await git_manager.get_file_diff(
+            path=working_path,
+            file_path=file_path,
+            branch_name=run.branch_name,
+            base_branch=base_branch,
+        )
+
+        return FileDiffResponse(
+            file_path=diff_data["file_path"],
+            diff=diff_data["diff"],
+            additions=diff_data["additions"],
+            deletions=diff_data["deletions"],
         )
 
     @app.get("/api/runs/{run_id}/logs", response_model=LogResponse)

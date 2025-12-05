@@ -330,6 +330,26 @@ class RunFilesResponse(BaseModel):
     files: list[FileChangeResponse]
 
 
+class CommitDetailResponse(BaseModel):
+    """Detailed response model for a single commit with files."""
+
+    sha: str = Field(description="Full commit SHA")
+    message: str = Field(description="Full commit message (subject + body)")
+    author: str = Field(description="Author name")
+    author_email: str = Field(description="Author email")
+    date: str = Field(description="Commit date in ISO format")
+    files: list[FileChangeResponse] = Field(description="Files changed in this commit")
+
+
+class FileDiffResponse(BaseModel):
+    """Response model for a file diff."""
+
+    file_path: str = Field(description="Path to the file")
+    diff: str = Field(description="Unified diff content")
+    additions: int = Field(description="Lines added")
+    deletions: int = Field(description="Lines deleted")
+
+
 # ========== Image Attachment Models (Phase 10.1) ==========
 
 

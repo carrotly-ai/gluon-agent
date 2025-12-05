@@ -316,6 +316,16 @@ export interface RunCommitsResponse {
   commits: Commit[]
 }
 
+/** Detailed commit with files - for expanded view */
+export interface CommitDetail {
+  sha: string
+  message: string  // Full message (subject + body)
+  author: string
+  author_email: string
+  date: string
+  files: FileChange[]
+}
+
 /** File change response */
 export interface FileChange {
   file_path: string
@@ -333,6 +343,14 @@ export interface RunFilesResponse {
   total_additions: number
   total_deletions: number
   files: FileChange[]
+}
+
+/** File diff response - for expanded view */
+export interface FileDiff {
+  file_path: string
+  diff: string
+  additions: number
+  deletions: number
 }
 
 // ========== Image Attachment Types (Phase 10.1) ==========

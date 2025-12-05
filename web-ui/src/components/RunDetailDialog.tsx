@@ -4,9 +4,9 @@ import {
   DialogContent,
 } from '@/components/ui/dialog'
 import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Sparkles } from 'lucide-react'
-import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment } from '@/lib/types'
+import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment, CommitDetail, FileDiff } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
 
@@ -414,6 +414,13 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
   const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
   const [loadingCommits, setLoadingCommits] = useState(false)
   const [loadingFiles, setLoadingFiles] = useState(false)
+  // Expanded commit/file state for lazy loading details
+  const [expandedCommit, setExpandedCommit] = useState<string | null>(null)
+  const [commitDetails, setCommitDetails] = useState<Record<string, CommitDetail>>({})
+  const [loadingCommitDetail, setLoadingCommitDetail] = useState<string | null>(null)
+  const [expandedFile, setExpandedFile] = useState<string | null>(null)
+  const [fileDiffs, setFileDiffs] = useState<Record<string, FileDiff>>({})
+  const [loadingFileDiff, setLoadingFileDiff] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [loadingAttachments, setLoadingAttachments] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -456,6 +463,10 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
       setMergeError(null)
       setCommitsData(null)
       setFilesData(null)
+      setExpandedCommit(null)
+      setCommitDetails({})
+      setExpandedFile(null)
+      setFileDiffs({})
       setAttachments([])
       return
     }
@@ -701,6 +712,48 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
           ...prev,
           [historyRunId]: { stdout: '', stderr: '' }
         }))
+      }
+    }
+  }
+
+  // Handler for expanding a commit to see full message + files
+  const handleExpandCommit = async (sha: string) => {
+    if (expandedCommit === sha) {
+      setExpandedCommit(null)
+      return
+    }
+    setExpandedCommit(sha)
+    // Load commit details if not already cached
+    if (!commitDetails[sha] && run) {
+      setLoadingCommitDetail(sha)
+      try {
+        const detail = await fetchCommitDetail(run.id, sha)
+        setCommitDetails(prev => ({ ...prev, [sha]: detail }))
+      } catch (err) {
+        console.error('Failed to load commit details:', err)
+      } finally {
+        setLoadingCommitDetail(null)
+      }
+    }
+  }
+
+  // Handler for expanding a file to see diff
+  const handleExpandFile = async (filePath: string) => {
+    if (expandedFile === filePath) {
+      setExpandedFile(null)
+      return
+    }
+    setExpandedFile(filePath)
+    // Load file diff if not already cached
+    if (!fileDiffs[filePath] && run) {
+      setLoadingFileDiff(filePath)
+      try {
+        const diff = await fetchFileDiff(run.id, filePath)
+        setFileDiffs(prev => ({ ...prev, [filePath]: diff }))
+      } catch (err) {
+        console.error('Failed to load file diff:', err)
+      } finally {
+        setLoadingFileDiff(null)
       }
     }
   }
@@ -1329,37 +1382,100 @@ Focus on preserving the functionality from both sides where possible.`
                             {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''} ahead of {commitsData.base_branch}
                           </span>
                         </div>
-                        {/* Commits list */}
-                        {commitsData.commits.map((commit, idx) => (
-                          <div
-                            key={commit.sha}
-                            className={cn(
-                              'flex items-start gap-3 py-2.5',
-                              idx !== commitsData.commits.length - 1 && 'border-b border-[rgba(163,163,163,0.05)]'
-                            )}
-                          >
-                            {/* Timeline dot */}
-                            <div className="flex flex-col items-center pt-1.5">
-                              <div className="w-2 h-2 rounded-full bg-[var(--color-jade)]" />
-                              {idx !== commitsData.commits.length - 1 && (
-                                <div className="w-px flex-1 bg-[rgba(163,163,163,0.15)] mt-1" />
+                        {/* Commits list - expandable */}
+                        {commitsData.commits.map((commit, idx) => {
+                          const isExpanded = expandedCommit === commit.sha
+                          const detail = commitDetails[commit.sha]
+                          const isLoading = loadingCommitDetail === commit.sha
+
+                          return (
+                            <div
+                              key={commit.sha}
+                              className={cn(
+                                'border-b border-[rgba(163,163,163,0.05)]',
+                                idx === commitsData.commits.length - 1 && 'border-b-0'
+                              )}
+                            >
+                              {/* Commit header - clickable */}
+                              <button
+                                className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-[var(--color-paper)]/5 transition-colors px-1 -mx-1 rounded"
+                                onClick={() => handleExpandCommit(commit.sha)}
+                              >
+                                {/* Timeline dot + expand indicator */}
+                                <div className="flex flex-col items-center pt-1.5">
+                                  <div className="w-2 h-2 rounded-full bg-[var(--color-jade)]" />
+                                  {idx !== commitsData.commits.length - 1 && (
+                                    <div className="w-px flex-1 bg-[rgba(163,163,163,0.15)] mt-1" />
+                                  )}
+                                </div>
+                                {/* Commit info */}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed">
+                                    {commit.message}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1 text-[0.625rem] text-[var(--color-stone)]/50">
+                                    <span className="text-mono">{commit.sha.slice(0, 7)}</span>
+                                    <span>·</span>
+                                    <span>{commit.author}</span>
+                                    <span>·</span>
+                                    <span>{new Date(commit.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                                  </div>
+                                </div>
+                                {/* Expand chevron */}
+                                <ChevronDown className={cn(
+                                  'w-4 h-4 text-[var(--color-stone)]/50 transition-transform shrink-0 mt-1',
+                                  isExpanded && 'rotate-180'
+                                )} />
+                              </button>
+                              {/* Expanded content */}
+                              {isExpanded && (
+                                <div className="ml-5 pl-3 border-l border-[rgba(163,163,163,0.15)] mb-2">
+                                  {isLoading ? (
+                                    <div className="py-2 flex items-center gap-2">
+                                      <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
+                                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">Loading...</span>
+                                    </div>
+                                  ) : detail ? (
+                                    <div className="py-2 space-y-2">
+                                      {/* Full commit message */}
+                                      {detail.message && detail.message !== commit.message && (
+                                        <pre className="text-[0.6875rem] text-[var(--color-paper)]/70 whitespace-pre-wrap font-sans leading-relaxed">
+                                          {detail.message}
+                                        </pre>
+                                      )}
+                                      {/* Files changed in this commit */}
+                                      {detail.files && detail.files.length > 0 && (
+                                        <div className="space-y-1">
+                                          <p className="text-[0.625rem] text-[var(--color-stone)]/60 font-medium">
+                                            {detail.files.length} file{detail.files.length !== 1 ? 's' : ''} changed
+                                          </p>
+                                          <div className="space-y-0.5">
+                                            {detail.files.map((file) => (
+                                              <div key={file.file_path} className="flex items-center gap-2 text-[0.625rem]">
+                                                <span className={cn(
+                                                  'uppercase px-1 py-0.5 rounded font-medium text-[0.5rem]',
+                                                  file.change_type === 'added' && 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
+                                                  file.change_type === 'modified' && 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
+                                                  file.change_type === 'deleted' && 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                                  file.change_type === 'renamed' && 'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                                )}>
+                                                  {file.change_type === 'added' ? 'A' : file.change_type === 'modified' ? 'M' : file.change_type === 'deleted' ? 'D' : 'R'}
+                                                </span>
+                                                <span className="text-[var(--color-paper)]/70 font-mono truncate">{file.file_path}</span>
+                                                <span className="text-[var(--color-jade)] shrink-0">+{file.additions}</span>
+                                                <span className="text-[var(--color-vermillion)] shrink-0">-{file.deletions}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
                               )}
                             </div>
-                            {/* Commit info */}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed">
-                                {commit.message}
-                              </p>
-                              <div className="flex items-center gap-2 mt-1 text-[0.625rem] text-[var(--color-stone)]/50">
-                                <span className="text-mono">{commit.sha.slice(0, 7)}</span>
-                                <span>·</span>
-                                <span>{commit.author}</span>
-                                <span>·</span>
-                                <span>{new Date(commit.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
@@ -1396,58 +1512,106 @@ Focus on preserving the functionality from both sides where possible.`
                             </span>
                           </div>
                         </div>
-                        {/* Files list */}
+                        {/* Files list - expandable */}
                         {filesData.files.map((file, idx) => {
                           const totalChanges = file.additions + file.deletions
                           const maxBarWidth = 100
                           const additionWidth = totalChanges > 0 ? Math.max((file.additions / totalChanges) * maxBarWidth, file.additions > 0 ? 4 : 0) : 0
                           const deletionWidth = totalChanges > 0 ? Math.max((file.deletions / totalChanges) * maxBarWidth, file.deletions > 0 ? 4 : 0) : 0
+                          const isExpanded = expandedFile === file.file_path
+                          const diff = fileDiffs[file.file_path]
+                          const isLoading = loadingFileDiff === file.file_path
 
                           return (
                             <div
                               key={file.file_path}
                               className={cn(
-                                'flex items-center justify-between py-2 gap-3',
-                                idx !== filesData.files.length - 1 && 'border-b border-[rgba(163,163,163,0.05)]'
+                                'border-b border-[rgba(163,163,163,0.05)]',
+                                idx === filesData.files.length - 1 && 'border-b-0'
                               )}
                             >
-                              {/* File path with change type indicator */}
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <span className={cn(
-                                  'text-[0.5rem] uppercase px-1 py-0.5 rounded font-medium shrink-0',
-                                  file.change_type === 'added' && 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
-                                  file.change_type === 'modified' && 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
-                                  file.change_type === 'deleted' && 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
-                                  file.change_type === 'renamed' && 'bg-[rgba(168,85,247,0.15)] text-purple-400'
-                                )}>
-                                  {file.change_type === 'added' ? 'A' : file.change_type === 'modified' ? 'M' : file.change_type === 'deleted' ? 'D' : 'R'}
-                                </span>
-                                <span className="text-[0.6875rem] text-[var(--color-paper)]/80 truncate font-mono">
-                                  {file.file_path}
-                                </span>
-                              </div>
-                              {/* Changes stats and bar */}
-                              <div className="flex items-center gap-3 shrink-0">
-                                <div className="flex items-center gap-1.5 text-[0.625rem] min-w-[60px] justify-end">
-                                  {file.additions > 0 && (
-                                    <span className="text-[var(--color-jade)]">+{file.additions}</span>
-                                  )}
-                                  {file.deletions > 0 && (
-                                    <span className="text-[var(--color-vermillion)]">-{file.deletions}</span>
+                              {/* File header - clickable */}
+                              <button
+                                className="w-full flex items-center justify-between py-2 gap-3 text-left hover:bg-[var(--color-paper)]/5 transition-colors px-1 -mx-1 rounded"
+                                onClick={() => handleExpandFile(file.file_path)}
+                              >
+                                {/* File path with change type indicator */}
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <ChevronRight className={cn(
+                                    'w-3 h-3 text-[var(--color-stone)]/50 transition-transform shrink-0',
+                                    isExpanded && 'rotate-90'
+                                  )} />
+                                  <span className={cn(
+                                    'text-[0.5rem] uppercase px-1 py-0.5 rounded font-medium shrink-0',
+                                    file.change_type === 'added' && 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
+                                    file.change_type === 'modified' && 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
+                                    file.change_type === 'deleted' && 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                    file.change_type === 'renamed' && 'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                  )}>
+                                    {file.change_type === 'added' ? 'A' : file.change_type === 'modified' ? 'M' : file.change_type === 'deleted' ? 'D' : 'R'}
+                                  </span>
+                                  <span className="text-[0.6875rem] text-[var(--color-paper)]/80 truncate font-mono">
+                                    {file.file_path}
+                                  </span>
+                                </div>
+                                {/* Changes stats and bar */}
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <div className="flex items-center gap-1.5 text-[0.625rem] min-w-[60px] justify-end">
+                                    {file.additions > 0 && (
+                                      <span className="text-[var(--color-jade)]">+{file.additions}</span>
+                                    )}
+                                    {file.deletions > 0 && (
+                                      <span className="text-[var(--color-vermillion)]">-{file.deletions}</span>
+                                    )}
+                                  </div>
+                                  {/* Visual diff bar */}
+                                  <div className="flex h-2 w-[80px] rounded-sm overflow-hidden bg-[var(--color-void)]">
+                                    <div
+                                      className="bg-[var(--color-jade)]"
+                                      style={{ width: `${additionWidth}%` }}
+                                    />
+                                    <div
+                                      className="bg-[var(--color-vermillion)]"
+                                      style={{ width: `${deletionWidth}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </button>
+                              {/* Expanded diff content */}
+                              {isExpanded && (
+                                <div className="ml-4 mb-2 border-l border-[rgba(163,163,163,0.15)] pl-3">
+                                  {isLoading ? (
+                                    <div className="py-2 flex items-center gap-2">
+                                      <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
+                                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">Loading diff...</span>
+                                    </div>
+                                  ) : diff && diff.diff ? (
+                                    <pre className="text-mono text-[0.625rem] leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-80 overflow-y-auto bg-[var(--color-void)]/50 rounded p-2">
+                                      {diff.diff.split('\n').map((line, lineIdx) => {
+                                        let lineClass = 'text-[var(--color-paper)]/60'
+                                        if (line.startsWith('+') && !line.startsWith('+++')) {
+                                          lineClass = 'text-[var(--color-jade)] bg-[rgba(45,212,191,0.08)]'
+                                        } else if (line.startsWith('-') && !line.startsWith('---')) {
+                                          lineClass = 'text-[var(--color-vermillion)] bg-[rgba(199,62,58,0.08)]'
+                                        } else if (line.startsWith('@@')) {
+                                          lineClass = 'text-purple-400'
+                                        } else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) {
+                                          lineClass = 'text-[var(--color-stone)]/50'
+                                        }
+                                        return (
+                                          <div key={lineIdx} className={cn('px-1 -mx-1', lineClass)}>
+                                            {line || ' '}
+                                          </div>
+                                        )
+                                      })}
+                                    </pre>
+                                  ) : (
+                                    <div className="py-2 text-[0.625rem] text-[var(--color-stone)]/50 italic">
+                                      No diff available
+                                    </div>
                                   )}
                                 </div>
-                                {/* Visual diff bar */}
-                                <div className="flex h-2 w-[80px] rounded-sm overflow-hidden bg-[var(--color-void)]">
-                                  <div
-                                    className="bg-[var(--color-jade)]"
-                                    style={{ width: `${additionWidth}%` }}
-                                  />
-                                  <div
-                                    className="bg-[var(--color-vermillion)]"
-                                    style={{ width: `${deletionWidth}%` }}
-                                  />
-                                </div>
-                              </div>
+                              )}
                             </div>
                           )
                         })}

@@ -3,6 +3,7 @@
 import base64
 import mimetypes
 import os
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -180,8 +181,21 @@ class GluonAgent:
         self,
         working_dir: Path,
         resume_session_id: str | None = None,
+        fork_session: bool = False,
+        new_session_id: str | None = None,
     ) -> ClaudeAgentOptions:
-        """Build ClaudeAgentOptions for a session."""
+        """Build ClaudeAgentOptions for a session.
+
+        Args:
+            working_dir: Path to project directory
+            resume_session_id: Optional Claude session ID to resume
+            fork_session: If True, fork the session for concurrent execution.
+                         This allows multiple Gluon runs to execute in parallel
+                         without blocking each other.
+            new_session_id: If provided, use this as the session ID for new sessions.
+                           This helps avoid control channel conflicts with other
+                           Claude processes.
+        """
         options = ClaudeAgentOptions(
             cwd=working_dir,
             allowed_tools=self.allowed_tools,
@@ -192,6 +206,18 @@ class GluonAgent:
         # Add resume option if we have a previous session
         if resume_session_id:
             options.resume = resume_session_id
+            # Fork the session to allow concurrent execution
+            # This creates an independent branch that won't conflict
+            # with other sessions (including interactive Claude sessions)
+            options.fork_session = True
+        else:
+            # For new sessions, use a unique session ID to avoid control
+            # channel conflicts with other Claude processes (including
+            # interactive Claude sessions running in the terminal)
+            if new_session_id:
+                options.extra_args = {"session-id": new_session_id}
+            if fork_session:
+                options.fork_session = True
 
         return options
 
@@ -201,6 +227,7 @@ class GluonAgent:
         prompt: str | MultimodalPrompt,
         resume_session_id: str | None = None,
         images: list[Path] | None = None,
+        fork_session: bool = True,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -213,12 +240,19 @@ class GluonAgent:
             prompt: User prompt (string or MultimodalPrompt with images)
             resume_session_id: Optional Claude session ID to resume
             images: Optional list of image paths to include
+            fork_session: If True (default), fork the session to allow
+                         concurrent execution. This prevents "Control request
+                         timeout: initialize" errors when running alongside
+                         other Claude sessions.
 
         Yields:
             AgentMessage during execution
             AgentResult as final yield
         """
-        options = self._build_options(working_dir, resume_session_id)
+        # Generate a unique session ID for new sessions to avoid control
+        # channel conflicts with other Claude processes
+        new_session_id = str(uuid.uuid4()) if not resume_session_id else None
+        options = self._build_options(working_dir, resume_session_id, fork_session, new_session_id)
 
         # Build multimodal prompt if images provided
         if images:
@@ -353,6 +387,7 @@ class GluonAgent:
         prompt: str | MultimodalPrompt,
         resume_session_id: str | None = None,
         images: list[Path] | None = None,
+        fork_session: bool = True,
     ) -> AgentResult:
         """
         Execute a prompt and return only the final result.
@@ -361,7 +396,7 @@ class GluonAgent:
         """
         result: AgentResult | None = None
 
-        async for item in self.execute(working_dir, prompt, resume_session_id, images):
+        async for item in self.execute(working_dir, prompt, resume_session_id, images, fork_session):
             if isinstance(item, AgentResult):
                 result = item
 

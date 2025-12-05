@@ -20,6 +20,8 @@ import type {
   RunUsageItem,
   RunCommitsResponse,
   RunFilesResponse,
+  CommitDetail,
+  FileDiff,
   ImageAttachment,
   RunImagesResponse,
   // Advanced Git Operations types
@@ -299,6 +301,16 @@ export async function fetchRunCommits(runId: string): Promise<RunCommitsResponse
 /** Fetch files changed on a run's branch */
 export async function fetchRunFiles(runId: string): Promise<RunFilesResponse> {
   return fetchJson<RunFilesResponse>(`/runs/${runId}/files`)
+}
+
+/** Fetch detailed commit info (full message + files) - lazy loaded on expand */
+export async function fetchCommitDetail(runId: string, sha: string): Promise<CommitDetail> {
+  return fetchJson<CommitDetail>(`/runs/${runId}/commits/${sha}`)
+}
+
+/** Fetch file diff - lazy loaded on expand */
+export async function fetchFileDiff(runId: string, filePath: string): Promise<FileDiff> {
+  return fetchJson<FileDiff>(`/runs/${runId}/files/${encodeURIComponent(filePath)}/diff`)
 }
 
 // ========== Merge Branch API ==========

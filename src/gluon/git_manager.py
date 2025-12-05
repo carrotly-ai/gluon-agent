@@ -772,6 +772,157 @@ Run ID: `{run_id}`
                 })
         return files
 
+    async def get_commit_detail(
+        self,
+        path: Path,
+        sha: str,
+    ) -> dict:
+        """
+        Get detailed information for a specific commit.
+
+        Args:
+            path: Path to the repository
+            sha: Commit SHA to get details for
+
+        Returns:
+            Dict with sha, message (full), author, author_email, date, files (list of changes)
+        """
+        if not await self._is_git_repo(path):
+            return {}
+
+        # Get full commit message (subject + body)
+        rc, stdout, _ = await self._run_git(
+            path,
+            "log",
+            "-1",
+            "--format=%H|%an|%ae|%cI%n%B",
+            sha,
+        )
+        if rc != 0 or not stdout:
+            return {}
+
+        lines = stdout.split("\n", 1)
+        if not lines:
+            return {}
+
+        # Parse header line
+        header_parts = lines[0].split("|", 3)
+        if len(header_parts) < 4:
+            return {}
+
+        # Full message is everything after the header
+        full_message = lines[1].strip() if len(lines) > 1 else ""
+
+        # Get files changed in this commit
+        rc, files_stdout, _ = await self._run_git(
+            path,
+            "diff-tree",
+            "--no-commit-id",
+            "--numstat",
+            "-r",
+            sha,
+        )
+
+        files = []
+        if rc == 0 and files_stdout:
+            for line in files_stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split("\t", 2)
+                if len(parts) >= 3:
+                    additions = int(parts[0]) if parts[0] != "-" else 0
+                    deletions = int(parts[1]) if parts[1] != "-" else 0
+                    file_path = parts[2]
+
+                    # Determine change type based on additions/deletions
+                    if additions > 0 and deletions == 0:
+                        change_type = "added"
+                    elif deletions > 0 and additions == 0:
+                        change_type = "deleted"
+                    elif additions == deletions == 0:
+                        change_type = "renamed"
+                    else:
+                        change_type = "modified"
+
+                    files.append({
+                        "file_path": file_path,
+                        "additions": additions,
+                        "deletions": deletions,
+                        "change_type": change_type,
+                    })
+
+        return {
+            "sha": header_parts[0],
+            "message": full_message,
+            "author": header_parts[1],
+            "author_email": header_parts[2],
+            "date": header_parts[3],
+            "files": files,
+        }
+
+    async def get_file_diff(
+        self,
+        path: Path,
+        file_path: str,
+        branch_name: str | None = None,
+        base_branch: str = "main",
+    ) -> dict:
+        """
+        Get unified diff for a specific file.
+
+        Args:
+            path: Path to the repository
+            file_path: Path to the file within the repo
+            branch_name: Branch to get diff from (default: current branch)
+            base_branch: Base branch to compare against (default: main)
+
+        Returns:
+            Dict with file_path, diff (unified diff string), additions, deletions
+        """
+        if not await self._is_git_repo(path):
+            return {"file_path": file_path, "diff": "", "additions": 0, "deletions": 0}
+
+        if not branch_name:
+            branch_name = await self._get_branch(path)
+            if not branch_name:
+                return {"file_path": file_path, "diff": "", "additions": 0, "deletions": 0}
+
+        # Get merge base to find where branches diverged
+        rc, merge_base, _ = await self._run_git(
+            path, "merge-base", base_branch, branch_name
+        )
+        if rc != 0:
+            # No common ancestor - compare to empty tree
+            merge_base = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+        # Get unified diff for the specific file
+        rc, diff_stdout, _ = await self._run_git(
+            path,
+            "diff",
+            "--unified=3",
+            merge_base,
+            "HEAD",
+            "--",
+            file_path,
+        )
+
+        # Count additions and deletions from diff
+        additions = 0
+        deletions = 0
+        if diff_stdout:
+            for line in diff_stdout.split("\n"):
+                if line.startswith("+") and not line.startswith("+++"):
+                    additions += 1
+                elif line.startswith("-") and not line.startswith("---"):
+                    deletions += 1
+
+        return {
+            "file_path": file_path,
+            "diff": diff_stdout if rc == 0 else "",
+            "additions": additions,
+            "deletions": deletions,
+        }
+
     # ========== Local Merge Operation ==========
 
     async def merge_branch_locally(
