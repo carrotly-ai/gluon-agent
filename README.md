@@ -1,6 +1,16 @@
 # Gluon Agent
 
-AI orchestrator for managing multiple Claude Code agents across projects.
+AI orchestrator for managing multiple Claude Code agents across projects. Features a web dashboard with Kanban board, git worktree isolation for parallel tasks, PR integration, real-time WebSocket updates, and multi-platform bot interfaces (Telegram, Discord).
+
+## Features
+
+- **Web Dashboard** - React-based Kanban board with real-time updates
+- **Git Worktree Isolation** - Run tasks in isolated branches without affecting main
+- **PR Integration** - Create PRs, detect conflicts, merge directly from dashboard
+- **Image Attachments** - Attach screenshots/diagrams to tasks for AI context
+- **Usage Tracking** - Monitor costs, tokens, and usage per project
+- **Multi-Platform Bots** - Telegram and Discord interfaces with natural language
+- **Session Resume** - Continue Claude sessions with follow-up prompts
 
 ## Installation
 
@@ -67,6 +77,69 @@ gluon resume myapp 'Also add logging'
 - `gluon discord` - Run Discord bot interface
 - `gluon serve --telegram --discord` - Run multiple transports concurrently
 
+## Web Dashboard
+
+Gluon includes a full-featured web dashboard built with FastAPI + React, providing a Kanban board view of all tasks with real-time WebSocket updates.
+
+### Quick Start
+
+```bash
+# Start the web server (port 45866)
+gluon web
+
+# Or run in development mode
+cd web-ui && npm run dev  # Terminal 1: Vite dev server
+uvicorn gluon.web.api:app --reload --port 45866  # Terminal 2: FastAPI
+```
+
+Open http://localhost:45866 to access the dashboard.
+
+### Dashboard Features
+
+- **Kanban Board** - Drag-and-drop task management across columns (Queued, Running, Review, Completed, Failed)
+- **Real-time Updates** - WebSocket-powered live status updates
+- **Project Filtering** - Filter tasks by project or workspace
+- **Run Details Modal** - View logs, commits, file changes, PR status
+- **Image Attachments** - Upload screenshots for AI context (paste with ⌘V)
+- **PR Integration** - Create PRs, view merge status, resolve conflicts
+- **Usage Dashboard** - Track costs and token usage by project/day
+
+### Web Dashboard Architecture
+
+```mermaid
+graph TB
+    subgraph "Web Dashboard"
+        REACT[React SPA<br/>Kanban Board]
+        WS_CLIENT[WebSocket Client<br/>Real-time Updates]
+    end
+
+    subgraph "FastAPI Backend"
+        API[REST API<br/>/api/*]
+        WS_SERVER[WebSocket Server<br/>/api/ws]
+        POLLING[Background Polling<br/>Status Updates]
+    end
+
+    subgraph "Core Services"
+        RUNNER[TaskRunner]
+        GIT[GitManager]
+        IMG[ImageStorage]
+        STORE[(SQLite)]
+    end
+
+    REACT -->|fetch/POST| API
+    WS_CLIENT <-->|subscribe| WS_SERVER
+
+    API --> RUNNER
+    API --> GIT
+    API --> IMG
+    API --> STORE
+
+    POLLING --> STORE
+    POLLING --> WS_SERVER
+
+    WS_SERVER -->|broadcast| WS_CLIENT
+```
+
 ## Architecture
 
 ### High-Level Overview
@@ -74,6 +147,7 @@ gluon resume myapp 'Also add logging'
 ```mermaid
 graph TB
     subgraph Interfaces
+        WEB[Web Dashboard]
         CLI[CLI - gluon]
         TG[Telegram Bot]
         DC[Discord Bot]
@@ -85,7 +159,9 @@ graph TB
         RUNNER[TaskRunner]
         STORE[GluonStore]
         GIT[GitManager]
+        WORKTREE[WorktreeManager]
         CHAT[ChatAgent]
+        IMG[ImageStorage]
     end
 
     subgraph Execution
@@ -97,14 +173,19 @@ graph TB
     subgraph Storage
         DB[(SQLite DB)]
         LOGS[Log Files]
+        IMAGES[Image Store]
     end
 
     subgraph External
         BEDROCK[AWS Bedrock]
         REMOTE[Git Remote]
-        WEB[Web/URLs]
+        GITHUB[GitHub API]
+        WEB_EXT[Web/URLs]
     end
 
+    WEB --> RUNNER
+    WEB --> GIT
+    WEB --> IMG
     CLI --> ORCH
     CLI --> RUNNER
     CLI --> GIT
@@ -116,22 +197,28 @@ graph TB
 
     CHAT --> ORCH
     CHAT --> SDK
-    CHAT -.->|WebSearch/Fetch| WEB
+    CHAT -.->|WebSearch/Fetch| WEB_EXT
 
     ORCH --> STORE
     ORCH --> AGENT
     ORCH --> GIT
     RUNNER --> STORE
     RUNNER --> AGENT
+    RUNNER --> WORKTREE
+    RUNNER --> IMG
 
     GIT --> STORE
     GIT -.->|fetch/push| REMOTE
+    GIT -.->|PR/merge| GITHUB
+
+    WORKTREE --> GIT
 
     AGENT --> SDK
     SDK --> CLAUDE
 
     STORE --> DB
     RUNNER --> LOGS
+    IMG --> IMAGES
 
     CLAUDE -.->|spawns| BEDROCK
 ```
@@ -184,7 +271,26 @@ erDiagram
         string prompt
         string initiator
         string log_path
+        bool use_worktree
+        string branch_name
+        string worktree_path
+        string pr_url
+        string pr_status
+        float cost_usd
+        int input_tokens
+        int output_tokens
     }
+
+    ImageAttachment {
+        string id PK
+        string file_path
+        string original_name
+        string mime_type
+        int size_bytes
+        string hash
+    }
+
+    ExecutionRun ||--o{ ImageAttachment : has
 
     ChannelMapping {
         string id PK
@@ -269,6 +375,61 @@ sequenceDiagram
     LogFiles-->>CLI: Log content
     CLI-->>User: Display logs
 ```
+
+### Git Worktree Isolation Flow
+
+Tasks can run in isolated git worktrees, creating a dedicated branch without affecting the main codebase.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant Runner
+    participant WorktreeManager
+    participant GitManager
+    participant Agent
+
+    User->>API: Create run (use_worktree=true)
+    API->>Runner: submit(project_id, prompt, use_worktree=true)
+
+    Runner->>WorktreeManager: create(run_id)
+    WorktreeManager->>WorktreeManager: Create branch gluon-task/{run_id}
+    WorktreeManager->>WorktreeManager: git worktree add /tmp/gluon-worktrees/wt-{run_id}
+    WorktreeManager-->>Runner: worktree_path
+
+    Runner->>Agent: execute(worktree_path, prompt)
+
+    loop Task Execution
+        Agent-->>Runner: AgentMessage
+        Runner->>Runner: Write logs
+    end
+
+    Agent-->>Runner: AgentResult
+    Runner->>GitManager: Commit changes in worktree
+    Runner->>GitManager: Push branch to remote
+    Runner->>GitManager: Create PR via gh CLI
+
+    GitManager-->>Runner: PR URL, PR number
+
+    Runner->>Runner: Update run with PR info
+    Runner-->>API: Run complete with PR
+```
+
+### Worktree Directory Structure
+
+```
+/tmp/gluon-worktrees/
+└── wt-{run_id}/           # Isolated worktree
+    ├── .gluon-images/     # Attached images copied here
+    ├── .env.local         # Copied from parent repo
+    └── ... project files
+```
+
+**Benefits:**
+- Tasks don't affect the main branch until merged
+- Multiple tasks can run in parallel on different branches
+- Easy PR review and selective merging
+- Rollback by simply not merging
 
 ### Telegram Bot Flow
 
@@ -988,16 +1149,152 @@ GLUON_GIT_COMMIT_PREFIX="gluon:"    # Prefix for auto-commit messages
 | Push rejected | Pull with rebase, retry once |
 | Network error (fetch) | **WARN** but proceed |
 
+## Image Attachments
+
+Attach images (screenshots, diagrams, mockups) to tasks to provide visual context to the AI agent.
+
+### Upload Methods
+
+1. **Web Dashboard** - Paste with ⌘V in the task creation dialog or resume textarea
+2. **API** - POST multipart form to `/api/runs/{run_id}/attachments`
+
+### How It Works
+
+```mermaid
+flowchart LR
+    subgraph "Upload"
+        USER[User pastes image]
+        UPLOAD[Upload API]
+        HASH[SHA256 Hash]
+    end
+
+    subgraph "Storage"
+        DEDUP{Duplicate?}
+        STORE[~/.gluon/images/]
+        DB[(run_images table)]
+    end
+
+    subgraph "Task Execution"
+        COPY[Copy to worktree]
+        AI[Claude Agent sees images]
+    end
+
+    USER --> UPLOAD
+    UPLOAD --> HASH
+    HASH --> DEDUP
+    DEDUP -->|No| STORE
+    DEDUP -->|Yes| DB
+    STORE --> DB
+    DB --> COPY
+    COPY --> AI
+```
+
+### Features
+
+- **Deduplication** - Same image uploaded twice only stored once (SHA256)
+- **Worktree Copy** - Images copied to `.gluon-images/` in worktree for AI visibility
+- **Gallery View** - View all images attached to a run in the dashboard
+- **Supported Formats** - PNG, JPEG, GIF, WebP (max 50MB)
+
+## PR Integration
+
+Gluon integrates with GitHub for PR creation, status tracking, and merging.
+
+### PR Workflow
+
+```mermaid
+flowchart TD
+    subgraph "Task Completion"
+        RUN[Run completes in worktree]
+        PUSH[Push branch to remote]
+        CREATE[Create PR via gh CLI]
+    end
+
+    subgraph "Review Phase"
+        PR[PR Open on GitHub]
+        STATUS[Poll PR status]
+        MERGE_CHECK{Mergeable?}
+    end
+
+    subgraph "Actions"
+        MERGE[Merge locally + push]
+        RESOLVE[AI resolves conflicts]
+        CLOSE[PR auto-closed]
+    end
+
+    RUN --> PUSH --> CREATE --> PR
+    PR --> STATUS --> MERGE_CHECK
+    MERGE_CHECK -->|Yes| MERGE --> CLOSE
+    MERGE_CHECK -->|Conflicts| RESOLVE --> PUSH
+```
+
+### Dashboard PR Features
+
+| Feature | Description |
+|---------|-------------|
+| **PR Badge** | Shows PR number, status (open/merged/closed), conflict indicator |
+| **Create PR** | Button to manually create PR for worktree runs |
+| **Merge** | Merge branch locally and push (GitHub auto-closes PR) |
+| **Resolve Conflicts** | One-click to resume task with conflict resolution prompt |
+
+### Conflict Resolution
+
+When a PR has merge conflicts, the dashboard shows a "Resolve" button that:
+
+1. Pre-fills a prompt instructing Claude to rebase and resolve conflicts
+2. Resumes the session in the existing worktree
+3. Claude rebases onto main and intelligently merges changes
+4. Force-pushes the resolved branch
+
+## Usage Tracking
+
+Monitor costs and token usage across all runs.
+
+### Dashboard View
+
+The Usage page (`/usage`) shows:
+
+- **Today's Cost** - Total spend today
+- **Weekly Cost** - 7-day rolling total
+- **Cost by Project** - Breakdown per project
+- **Daily Chart** - Visual cost/token trends
+- **Run List** - Sortable by cost, tokens, date
+
+### API Endpoints
+
+```
+GET /api/usage/summary      # Today/week totals
+GET /api/usage/by-project   # Cost per project
+GET /api/usage/by-day       # Daily aggregates
+GET /api/usage/runs         # Runs with cost data
+```
+
+### Tracked Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `cost_usd` | Total API cost for the run |
+| `input_tokens` | Tokens sent to Claude |
+| `output_tokens` | Tokens received from Claude |
+| `model_used` | Model tier (haiku/sonnet/opus) |
+
 ## File Structure
 
 ```
 ~/.gluon/
 ├── gluon.db          # SQLite database (projects, sessions, runs)
+├── images/           # Image attachments (content-addressed)
+│   └── {hash[:2]}/
+│       └── {hash}.{ext}
 └── logs/
     └── <run_id>/     # Per-run log directories
         ├── stdout.log
         ├── stderr.log
         └── messages.jsonl
+
+/tmp/gluon-worktrees/   # Temporary worktrees for isolated tasks
+└── wt-{run_id}/
+    └── .gluon-images/  # Images copied for AI visibility
 ```
 
 ## Development
@@ -1013,9 +1310,56 @@ ruff check src/ tests/
 ruff format src/ tests/
 ```
 
+## Web API Reference
+
+The web dashboard exposes a REST API at `/api/*` and WebSocket at `/api/ws`.
+
+### Core Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/runs` | GET | List runs (filter by project, status, archived) |
+| `/api/runs` | POST | Create new run |
+| `/api/runs/{id}` | GET | Get run details |
+| `/api/runs/{id}/cancel` | POST | Cancel running task |
+| `/api/runs/{id}/resume` | POST | Resume with follow-up prompt |
+| `/api/runs/{id}/logs` | GET | Get stdout/stderr/messages |
+| `/api/runs/{id}/archive` | POST | Archive run (hide from board) |
+
+### Git/PR Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/runs/{id}/commits` | GET | Commits on run's branch |
+| `/api/runs/{id}/files` | GET | Files changed on branch |
+| `/api/runs/{id}/create-pr` | POST | Create PR for worktree run |
+| `/api/runs/{id}/merge` | POST | Merge branch locally |
+| `/api/projects/{id}/conflicts` | GET | Detect merge conflicts |
+| `/api/projects/{id}/rebase` | POST | Start rebase operation |
+
+### Image Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/images/upload` | POST | Upload image (multipart) |
+| `/api/images/{id}/file` | GET | Serve image file |
+| `/api/runs/{id}/attachments` | GET | List attached images |
+| `/api/runs/{id}/attachments` | POST | Attach image to run |
+
+### WebSocket Events
+
+Connect to `/api/ws` for real-time updates:
+
+```json
+{"type": "run_created", "run": {...}}
+{"type": "run_updated", "run": {...}}
+{"type": "log_line", "run_id": "...", "stream": "stdout", "line": "..."}
+```
+
 ## Limitations
 
 - **No interactive STDIN**: Once a task starts, you cannot send additional input to the running Claude process. To continue work, wait for completion and use `resume` with a new prompt.
 - **Single-process concurrency**: The semaphore only limits concurrency within a single process. Multiple CLI `--background` invocations each run in separate processes. However, `gluon serve` runs all transports in a single process with shared concurrency limits.
 - **Fire-and-forget execution**: The Claude Agent SDK sends the prompt once via `client.query()` and then only receives responses.
 - **Discord requires optional dependency**: Install with `pip install 'gluon-agent[discord]'` to enable Discord support.
+- **GitHub CLI required for PRs**: The `gh` CLI must be installed and authenticated for PR creation/merge features.

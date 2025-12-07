@@ -7,70 +7,86 @@ Gluon Agent is an AI orchestrator that manages multiple Claude Code agents acros
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Gluon Agent                                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  ┌──────────────┐  ┌──────────────────────────────────────────────┐             │
-│  │     CLI      │  │              Transport Layer                  │             │
-│  │   (cli.py)   │  │  ┌──────────────┐  ┌──────────────┐          │             │
-│  └──────┬───────┘  │  │  Telegram    │  │   Discord    │          │             │
-│         │          │  │  Transport   │  │  Transport   │          │             │
-│         │          │  └──────┬───────┘  └──────┬───────┘          │             │
-│         │          └─────────┼─────────────────┼──────────────────┘             │
-│         │                    │                 │                                 │
-│         │                    └────────┬────────┘                                 │
-│         │                             ▼                                          │
-│         │                    ┌───────────────────┐                               │
-│         │                    │   GluonBotCore    │   (Shared Bot Logic)          │
-│         │                    │  (bot_core.py)    │                               │
-│         │                    │  - Task execution │                               │
-│         │                    │  - Concurrency    │                               │
-│         │                    │  - Message history│                               │
-│         │                    └─────────┬─────────┘                               │
-│         │                              │                                          │
-│         │    ┌─────────────────────────┤                                          │
-│         │    │                         │                                          │
-│         │    ▼                         │                                          │
-│         │  ┌────────────────┐          │                                          │
-│         │  │   Chat Agent   │          │   (Natural Language Interpreter)        │
-│         │  │(chat_agent.py) │          │                                          │
-│         │  │ Claude + MCP   │          │                                          │
-│         │  └───────┬────────┘          │                                          │
-│         │          │                   │                                          │
-│         └──────────┼───────────────────┤                                          │
-│                    ▼                   ▼                                          │
-│         ┌───────────────────────────────────┐                                    │
-│         │         Orchestrator              │         (Business Logic)           │
-│         │          (core.py)                │                                    │
-│         │  - Project management             │                                    │
-│         │  - Workspace management           │                                    │
-│         │  - Session management             │                                    │
-│         │  - Run management                 │                                    │
-│         │  - Execution coordination         │                                    │
-│         └─────────────┬─────────────────────┘                                    │
-│                       │                                                           │
-│     ┌─────────────────┼─────────────────┬─────────────────┐                      │
-│     ▼                 ▼                 ▼                 ▼                      │
-│  ┌────────┐     ┌─────────┐       ┌──────────┐     ┌──────────────┐              │
-│  │ Store  │     │  Agent  │       │   Git    │     │   Models     │              │
-│  │(store) │     │(agent)  │       │ Manager  │     │  (models)    │              │
-│  │        │     │         │       │(git_mgr) │     │              │              │
-│  │ SQLite │     │ Claude  │       │          │     │ - Workspace  │              │
-│  │  CRUD  │     │ Agent   │       │ Pre/post │     │ - Project    │              │
-│  │        │     │  SDK    │       │ sync     │     │ - Session    │              │
-│  └────────┘     └─────────┘       └──────────┘     │ - ExecRun    │              │
-│                                                     │ - ChannelMap │              │
-│                                                     │ - GitStatus  │              │
-│                                                     └──────────────┘              │
-│                                                                                   │
-└───────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              Gluon Agent                                              │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│  ┌──────────────┐  ┌───────────────────────────────────────────────────────────┐     │
+│  │     CLI      │  │              Interface Layer                               │     │
+│  │   (cli.py)   │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │     │
+│  └──────┬───────┘  │  │  Telegram    │  │   Discord    │  │     Web      │     │     │
+│         │          │  │  Transport   │  │  Transport   │  │  Dashboard   │     │     │
+│         │          │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘     │     │
+│         │          └─────────┼─────────────────┼─────────────────┼─────────────┘     │
+│         │                    │                 │                 │                    │
+│         │                    └────────┬────────┘                 │                    │
+│         │                             ▼                          │                    │
+│         │                    ┌───────────────────┐               │                    │
+│         │                    │   GluonBotCore    │               │                    │
+│         │                    │  (bot_core.py)    │               │                    │
+│         │                    │  - Task execution │               │                    │
+│         │                    │  - Concurrency    │               │                    │
+│         │                    └─────────┬─────────┘               │                    │
+│         │                              │                         │                    │
+│         │    ┌─────────────────────────┤                         │                    │
+│         │    │                         │                         │                    │
+│         │    ▼                         │                         ▼                    │
+│         │  ┌────────────────┐          │          ┌─────────────────────────┐        │
+│         │  │   Chat Agent   │          │          │    FastAPI Web API      │        │
+│         │  │(chat_agent.py) │          │          │    (web/api.py)         │        │
+│         │  │ Claude + MCP   │          │          │  - REST endpoints       │        │
+│         │  └───────┬────────┘          │          │  - WebSocket            │        │
+│         │          │                   │          │  - Background polling   │        │
+│         │          │                   │          └───────────┬─────────────┘        │
+│         └──────────┼───────────────────┼──────────────────────┤                      │
+│                    ▼                   ▼                      ▼                      │
+│         ┌───────────────────────────────────────────────────────────┐                │
+│         │                    Task Runner                             │                │
+│         │                    (runner.py)                            │                │
+│         │  - Background task execution                              │                │
+│         │  - Subprocess management                                  │                │
+│         │  - Log file management                                    │                │
+│         └─────────────────────────┬─────────────────────────────────┘                │
+│                                   │                                                   │
+│         ┌────────────────┬────────┼────────┬───────────────────┐                     │
+│         ▼                ▼        ▼        ▼                   ▼                     │
+│  ┌────────────┐   ┌───────────┐ ┌──────────────┐  ┌──────────────────┐              │
+│  │   Store    │   │  Worktree │ │ Git Manager  │  │  Image Storage   │              │
+│  │ (store.py) │   │  Manager  │ │(git_manager) │  │ (image_storage)  │              │
+│  │            │   │(worktree) │ │              │  │                  │              │
+│  │  SQLite    │   │           │ │ - Pre/post   │  │ - SHA256 dedup   │              │
+│  │  CRUD      │   │ - Create  │ │   sync       │  │ - Worktree copy  │              │
+│  │            │   │ - Cleanup │ │ - PR create  │  │ - Gallery API    │              │
+│  │            │   │ - Branch  │ │ - Merge      │  │                  │              │
+│  └────────────┘   └───────────┘ │ - Rebase     │  └──────────────────┘              │
+│                                 │ - Conflicts  │                                     │
+│                                 └──────────────┘                                     │
+│                                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│  │                              Agent Layer                                     │    │
+│  │  ┌─────────────┐       ┌─────────────────┐       ┌────────────────────┐     │    │
+│  │  │ GluonAgent  │  ───▶ │ Claude Agent SDK │  ───▶ │    Claude CLI      │     │    │
+│  │  │ (agent.py)  │       │                 │       │  (subprocess)      │     │    │
+│  │  └─────────────┘       └─────────────────┘       └────────────────────┘     │    │
+│  └─────────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                       │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+
+Storage:
+  ~/.gluon/
+  ├── gluon.db           # SQLite database
+  ├── images/            # Image attachments (content-addressed by SHA256)
+  └── logs/{run_id}/     # Per-run logs (stdout, stderr, messages.jsonl)
+
+  /tmp/gluon-worktrees/  # Temporary worktrees for isolated task execution
+  └── wt-{run_id}/       # Branch: gluon-task/{run_id}
 
 External Dependencies:
   - Claude Code CLI (claude-agent-sdk)
   - python-telegram-bot (for Telegram transport)
   - discord.py (for Discord transport)
-  - Git (for repository synchronization)
+  - GitHub CLI (gh) - for PR creation and merging
+  - Git (for repository synchronization and worktrees)
 ```
 
 ## Component Details
@@ -470,6 +486,84 @@ Background task execution with subprocess management.
 - `TaskRunner` - Manages background task execution
 - Log file management (stdout, stderr, messages.jsonl)
 - Process lifecycle management
+
+### 11. WorktreeManager (`worktree.py`)
+
+Manages isolated git worktrees for task execution.
+
+**Key Methods:**
+```python
+async def create(run_id: str) -> Path
+    # Creates worktree at /tmp/gluon-worktrees/wt-{run_id}
+    # Creates branch gluon-task/{run_id}
+    # Copies .env files and config
+
+async def cleanup(commit_changes: bool | None = None) -> WorktreeResult
+    # Commits changes if any
+    # Removes worktree directory
+    # Optionally merges to source branch
+```
+
+**Worktree Lifecycle:**
+```
+create() → Task runs → cleanup(commit=True) → PR created
+                    ↓
+               cleanup(commit=False) → Branch deleted
+```
+
+### 12. ImageStorage (`image_storage.py`)
+
+Content-addressed image storage with deduplication.
+
+**Key Methods:**
+```python
+def save_image(data: bytes, original_name: str, mime_type: str | None) -> ImageAttachment
+    # Computes SHA256 hash
+    # Stores at ~/.gluon/images/{hash[:2]}/{hash}.{ext}
+    # Returns existing if duplicate
+
+def copy_to_worktree(run_id: str, worktree_path: Path) -> list[str]
+    # Copies attached images to {worktree_path}/.gluon-images/
+    # Returns list of copied file paths for AI visibility
+
+def list_images_for_run(run_id: str) -> list[ImageAttachment]
+    # Returns all images attached to a run
+```
+
+**Storage Schema:**
+```
+~/.gluon/images/
+├── ab/
+│   └── abcdef123456...789.png
+├── cd/
+│   └── cdef456789...abc.jpg
+```
+
+### 13. Web API (`web/api.py`)
+
+FastAPI-based REST API and WebSocket server.
+
+**Key Features:**
+- 50+ REST endpoints for runs, projects, workspaces, usage, images, git operations
+- WebSocket endpoint at `/api/ws` for real-time updates
+- Background polling task (every 2s) for status changes
+- Serves React SPA from `web/dist/`
+
+**WebSocket Manager (`web/websocket.py`):**
+```python
+class WebSocketManager:
+    async def broadcast_run_created(run, project_name)
+    async def broadcast_run_update(run, project_name)
+    async def stream_log_line(run_id, stream, line)
+```
+
+**API Endpoint Categories:**
+- Runs: CRUD, cancel, resume, archive, logs
+- Projects: CRUD, git status, conflicts, rebase
+- Workspaces: CRUD, scan
+- Usage: summary, by-project, by-day, runs
+- Images: upload, serve, attach/detach
+- Git: commits, files, create-pr, merge, force-push
 
 ## Data Flow
 
