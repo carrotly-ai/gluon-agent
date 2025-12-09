@@ -4,9 +4,11 @@ AI orchestrator for managing multiple Claude Code agents across projects. Featur
 
 ## Features
 
-- **Web Dashboard** - React-based Kanban board with real-time updates
+- **Web Dashboard** - React-based Kanban board with real-time WebSocket updates
 - **Git Worktree Isolation** - Run tasks in isolated branches without affecting main
 - **PR Integration** - Create PRs, detect conflicts, merge directly from dashboard
+- **AI Conflict Resolution** - One-click to have Claude rebase and resolve merge conflicts
+- **Advanced Git Operations** - Full rebase/branch management API with 3-way diff viewer
 - **Image Attachments** - Attach screenshots/diagrams to tasks for AI context
 - **Usage Tracking** - Monitor costs, tokens, and usage per project
 - **Multi-Platform Bots** - Telegram and Discord interfaces with natural language
@@ -99,10 +101,53 @@ Open http://localhost:45866 to access the dashboard.
 - **Kanban Board** - Drag-and-drop task management across columns (Queued, Running, Review, Completed, Failed)
 - **Real-time Updates** - WebSocket-powered live status updates
 - **Project Filtering** - Filter tasks by project or workspace
-- **Run Details Modal** - View logs, commits, file changes, PR status
+- **Run Details Modal** - Comprehensive task viewer with multiple tabs
 - **Image Attachments** - Upload screenshots for AI context (paste with ⌘V)
-- **PR Integration** - Create PRs, view merge status, resolve conflicts
+- **PR Integration** - Create PRs, view merge status, resolve conflicts with AI
 - **Usage Dashboard** - Track costs and token usage by project/day
+
+### Run Details Modal
+
+The modal provides a comprehensive view of each task with multiple tabs:
+
+```mermaid
+flowchart LR
+    subgraph "Modal Header"
+        STATUS[Status Badge]
+        PROJECT[Project Name]
+        BRANCH[Branch Info]
+        PR[PR Badge]
+        ACTIONS[Actions: Resume, Merge, Resolve]
+    end
+
+    subgraph "Tab Navigation"
+        MSG[Messages]
+        COMMITS[Commits]
+        FILES[Files]
+        ATTACH[Attachments]
+        HISTORY[History]
+    end
+
+    subgraph "Messages Tab"
+        FILTER[Filter Bar: All/Tools/Text/Errors]
+        TOOLCALL[Expandable Tool Calls]
+        TEXTMSG[Text Messages]
+        TIMESTAMPS[Timestamps]
+    end
+
+    MSG --> FILTER
+    FILTER --> TOOLCALL
+    FILTER --> TEXTMSG
+    TOOLCALL --> TIMESTAMPS
+```
+
+| Tab | Features |
+|-----|----------|
+| **Messages** | Filterable by type (All/Tools/Text/Errors), expandable tool calls with parameters, timestamps |
+| **Commits** | Expandable commit list with author, message, files changed, diff viewer |
+| **Files** | All files changed on branch with additions/deletions, inline diff viewer |
+| **Attachments** | Image gallery with preview, download, upload new images |
+| **History** | Session history showing all runs in the conversation thread |
 
 ### Web Dashboard Architecture
 
@@ -1246,6 +1291,126 @@ When a PR has merge conflicts, the dashboard shows a "Resolve" button that:
 3. Claude rebases onto main and intelligently merges changes
 4. Force-pushes the resolved branch
 
+## Advanced Git Operations
+
+Gluon provides a comprehensive API for advanced git operations, enabling programmatic control over rebasing, conflict resolution, and branch management.
+
+### Rebase Operations
+
+```mermaid
+sequenceDiagram
+    participant UI as Dashboard
+    participant API as Gluon API
+    participant Git as Git Manager
+    participant Repo as Repository
+
+    UI->>API: POST /api/projects/{id}/rebase
+    API->>Git: rebase_branch(path, "main")
+    Git->>Repo: git rebase main
+
+    alt Rebase Success
+        Repo-->>Git: Success
+        Git-->>API: {status: "success"}
+        API-->>UI: Rebase complete
+    else Conflicts Detected
+        Repo-->>Git: Conflicts
+        Git-->>API: {status: "conflict", files: [...]}
+        API-->>UI: Show conflict files
+
+        loop For Each Conflict
+            UI->>API: GET /api/projects/{id}/conflicts/{file}
+            API-->>UI: 3-way diff (ours/theirs/base)
+
+            UI->>API: POST /api/projects/{id}/conflicts/resolve
+            Note over API: User chooses resolution
+        end
+
+        UI->>API: POST /api/projects/{id}/rebase/continue
+        API->>Git: rebase_continue()
+        Git->>Repo: git rebase --continue
+    end
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/projects/{id}/rebase` | POST | Start rebase onto target branch |
+| `/api/projects/{id}/rebase/continue` | POST | Continue after resolving conflicts |
+| `/api/projects/{id}/rebase/abort` | POST | Abort rebase and restore state |
+| `/api/projects/{id}/rebase/skip` | POST | Skip current commit during rebase |
+| `/api/projects/{id}/conflicts` | GET | List files with conflicts |
+| `/api/projects/{id}/conflicts/{file}` | GET | Get 3-way diff for conflict |
+| `/api/projects/{id}/conflicts/resolve` | POST | Mark conflict as resolved |
+| `/api/projects/{id}/force-push-check` | GET | Check if force push is needed |
+| `/api/projects/{id}/force-push` | POST | Force push with lease (safe) |
+
+### Branch Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/projects/{id}/branches` | GET | List local and remote branches |
+| `/api/projects/{id}/branches/rename` | POST | Rename a branch |
+| `/api/projects/{id}/branches/change-base` | POST | Change base branch for PR |
+| `/api/projects/{id}/branches/{name}` | DELETE | Delete a branch |
+
+### Conflict Detection Flow
+
+```mermaid
+flowchart TD
+    subgraph "Detection"
+        PR[PR Open on GitHub]
+        POLL[Poll PR Status]
+        CHECK{mergeable?}
+    end
+
+    subgraph "States"
+        CLEAN[MERGEABLE<br/>✅ Ready to merge]
+        CONFLICT[CONFLICTING<br/>⚠️ Has conflicts]
+        UNKNOWN[UNKNOWN<br/>🔄 Checking...]
+    end
+
+    subgraph "Resolution"
+        RESOLVE_BTN[Resolve Button]
+        PROMPT[Pre-filled prompt:<br/>'Rebase and resolve conflicts']
+        AI[Claude resolves conflicts]
+        FORCE[Force push branch]
+    end
+
+    PR --> POLL --> CHECK
+    CHECK -->|yes| CLEAN
+    CHECK -->|no| CONFLICT
+    CHECK -->|null| UNKNOWN
+
+    CONFLICT --> RESOLVE_BTN
+    RESOLVE_BTN --> PROMPT --> AI --> FORCE
+    FORCE --> PR
+
+    style CLEAN fill:#c8e6c9
+    style CONFLICT fill:#ffcdd2
+    style UNKNOWN fill:#fff9c4
+```
+
+### Force Push Safety
+
+Force push uses `--force-with-lease` for safety:
+
+```mermaid
+flowchart LR
+    CHECK[Check if force push needed]
+    CHECK --> AHEAD{Ahead of remote?}
+    AHEAD -->|No| NORMAL[Normal push]
+    AHEAD -->|Yes| DIVERGED{Diverged?}
+    DIVERGED -->|No| NORMAL
+    DIVERGED -->|Yes| FORCE[Force push with lease]
+    FORCE --> VERIFY{Remote unchanged?}
+    VERIFY -->|Yes| SUCCESS[Push succeeds]
+    VERIFY -->|No| FAIL[Push rejected<br/>Remote was updated]
+
+    style SUCCESS fill:#c8e6c9
+    style FAIL fill:#ffcdd2
+```
+
 ## Usage Tracking
 
 Monitor costs and token usage across all runs.
@@ -1331,11 +1496,29 @@ The web dashboard exposes a REST API at `/api/*` and WebSocket at `/api/ws`.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/runs/{id}/commits` | GET | Commits on run's branch |
+| `/api/runs/{id}/commits/{sha}` | GET | Get commit detail with files |
 | `/api/runs/{id}/files` | GET | Files changed on branch |
+| `/api/runs/{id}/files/{path}` | GET | Get file diff |
 | `/api/runs/{id}/create-pr` | POST | Create PR for worktree run |
 | `/api/runs/{id}/merge` | POST | Merge branch locally |
+
+### Advanced Git Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/api/projects/{id}/conflicts` | GET | Detect merge conflicts |
-| `/api/projects/{id}/rebase` | POST | Start rebase operation |
+| `/api/projects/{id}/conflicts/{file}` | GET | Get 3-way diff for conflict |
+| `/api/projects/{id}/conflicts/resolve` | POST | Resolve a conflict |
+| `/api/projects/{id}/rebase` | POST | Start rebase onto target branch |
+| `/api/projects/{id}/rebase/continue` | POST | Continue rebase after resolving |
+| `/api/projects/{id}/rebase/abort` | POST | Abort rebase in progress |
+| `/api/projects/{id}/rebase/skip` | POST | Skip current commit |
+| `/api/projects/{id}/force-push-check` | GET | Check if force push needed |
+| `/api/projects/{id}/force-push` | POST | Force push with lease |
+| `/api/projects/{id}/branches` | GET | List local/remote branches |
+| `/api/projects/{id}/branches/rename` | POST | Rename a branch |
+| `/api/projects/{id}/branches/change-base` | POST | Change PR base branch |
+| `/api/projects/{id}/branches/{name}` | DELETE | Delete a branch |
 
 ### Image Endpoints
 
