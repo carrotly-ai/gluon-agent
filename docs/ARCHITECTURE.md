@@ -6,88 +6,119 @@ Gluon Agent is an AI orchestrator that manages multiple Claude Code agents acros
 
 ## System Architecture
 
+```mermaid
+graph TB
+    subgraph "Interface Layer"
+        CLI[CLI<br/>cli.py]
+        TG[Telegram<br/>Transport]
+        DC[Discord<br/>Transport]
+        WEB[Web<br/>Dashboard]
+    end
+
+    subgraph "Bot Core"
+        BOTCORE[GluonBotCore<br/>bot_core.py]
+        CHAT[Chat Agent<br/>chat_agent.py]
+    end
+
+    subgraph "Web Layer"
+        API[FastAPI Web API<br/>web/api.py]
+        WS[WebSocket<br/>Manager]
+    end
+
+    subgraph "Orchestration"
+        RUNNER[Task Runner<br/>runner.py]
+        ORCH[Orchestrator<br/>core.py]
+    end
+
+    subgraph "Services"
+        STORE[(Store<br/>SQLite)]
+        WORKTREE[Worktree<br/>Manager]
+        GIT[Git Manager<br/>git_manager.py]
+        IMG[Image Storage<br/>image_storage.py]
+    end
+
+    subgraph "Agent Layer"
+        AGENT[GluonAgent<br/>agent.py]
+        SDK[Claude Agent SDK]
+        CLAUDE[Claude CLI<br/>subprocess]
+    end
+
+    subgraph "External"
+        BEDROCK[AWS Bedrock]
+        GITHUB[GitHub API]
+        REMOTE[Git Remote]
+    end
+
+    %% Interface connections
+    CLI --> ORCH
+    CLI --> RUNNER
+    TG --> BOTCORE
+    DC --> BOTCORE
+    WEB --> API
+
+    %% Bot core connections
+    BOTCORE --> CHAT
+    BOTCORE --> ORCH
+    BOTCORE --> RUNNER
+
+    %% Web connections
+    API --> RUNNER
+    API --> GIT
+    API --> IMG
+    API --> STORE
+    WS --> API
+
+    %% Orchestration connections
+    RUNNER --> STORE
+    RUNNER --> AGENT
+    RUNNER --> WORKTREE
+    RUNNER --> IMG
+    ORCH --> STORE
+    ORCH --> AGENT
+    ORCH --> GIT
+
+    %% Service connections
+    WORKTREE --> GIT
+    GIT -.-> REMOTE
+    GIT -.-> GITHUB
+
+    %% Agent connections
+    AGENT --> SDK
+    SDK --> CLAUDE
+    CLAUDE -.-> BEDROCK
+
+    style STORE fill:#fff9c4
+    style BEDROCK fill:#ff9900
+    style GITHUB fill:#6e5494
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              Gluon Agent                                              │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                       │
-│  ┌──────────────┐  ┌───────────────────────────────────────────────────────────┐     │
-│  │     CLI      │  │              Interface Layer                               │     │
-│  │   (cli.py)   │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │     │
-│  └──────┬───────┘  │  │  Telegram    │  │   Discord    │  │     Web      │     │     │
-│         │          │  │  Transport   │  │  Transport   │  │  Dashboard   │     │     │
-│         │          │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘     │     │
-│         │          └─────────┼─────────────────┼─────────────────┼─────────────┘     │
-│         │                    │                 │                 │                    │
-│         │                    └────────┬────────┘                 │                    │
-│         │                             ▼                          │                    │
-│         │                    ┌───────────────────┐               │                    │
-│         │                    │   GluonBotCore    │               │                    │
-│         │                    │  (bot_core.py)    │               │                    │
-│         │                    │  - Task execution │               │                    │
-│         │                    │  - Concurrency    │               │                    │
-│         │                    └─────────┬─────────┘               │                    │
-│         │                              │                         │                    │
-│         │    ┌─────────────────────────┤                         │                    │
-│         │    │                         │                         │                    │
-│         │    ▼                         │                         ▼                    │
-│         │  ┌────────────────┐          │          ┌─────────────────────────┐        │
-│         │  │   Chat Agent   │          │          │    FastAPI Web API      │        │
-│         │  │(chat_agent.py) │          │          │    (web/api.py)         │        │
-│         │  │ Claude + MCP   │          │          │  - REST endpoints       │        │
-│         │  └───────┬────────┘          │          │  - WebSocket            │        │
-│         │          │                   │          │  - Background polling   │        │
-│         │          │                   │          └───────────┬─────────────┘        │
-│         └──────────┼───────────────────┼──────────────────────┤                      │
-│                    ▼                   ▼                      ▼                      │
-│         ┌───────────────────────────────────────────────────────────┐                │
-│         │                    Task Runner                             │                │
-│         │                    (runner.py)                            │                │
-│         │  - Background task execution                              │                │
-│         │  - Subprocess management                                  │                │
-│         │  - Log file management                                    │                │
-│         └─────────────────────────┬─────────────────────────────────┘                │
-│                                   │                                                   │
-│         ┌────────────────┬────────┼────────┬───────────────────┐                     │
-│         ▼                ▼        ▼        ▼                   ▼                     │
-│  ┌────────────┐   ┌───────────┐ ┌──────────────┐  ┌──────────────────┐              │
-│  │   Store    │   │  Worktree │ │ Git Manager  │  │  Image Storage   │              │
-│  │ (store.py) │   │  Manager  │ │(git_manager) │  │ (image_storage)  │              │
-│  │            │   │(worktree) │ │              │  │                  │              │
-│  │  SQLite    │   │           │ │ - Pre/post   │  │ - SHA256 dedup   │              │
-│  │  CRUD      │   │ - Create  │ │   sync       │  │ - Worktree copy  │              │
-│  │            │   │ - Cleanup │ │ - PR create  │  │ - Gallery API    │              │
-│  │            │   │ - Branch  │ │ - Merge      │  │                  │              │
-│  └────────────┘   └───────────┘ │ - Rebase     │  └──────────────────┘              │
-│                                 │ - Conflicts  │                                     │
-│                                 └──────────────┘                                     │
-│                                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐    │
-│  │                              Agent Layer                                     │    │
-│  │  ┌─────────────┐       ┌─────────────────┐       ┌────────────────────┐     │    │
-│  │  │ GluonAgent  │  ───▶ │ Claude Agent SDK │  ───▶ │    Claude CLI      │     │    │
-│  │  │ (agent.py)  │       │                 │       │  (subprocess)      │     │    │
-│  │  └─────────────┘       └─────────────────┘       └────────────────────┘     │    │
-│  └─────────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                       │
-└───────────────────────────────────────────────────────────────────────────────────────┘
 
-Storage:
-  ~/.gluon/
-  ├── gluon.db           # SQLite database
-  ├── images/            # Image attachments (content-addressed by SHA256)
-  └── logs/{run_id}/     # Per-run logs (stdout, stderr, messages.jsonl)
+### Storage Layout
 
-  /tmp/gluon-worktrees/  # Temporary worktrees for isolated task execution
-  └── wt-{run_id}/       # Branch: gluon-task/{run_id}
-
-External Dependencies:
-  - Claude Code CLI (claude-agent-sdk)
-  - python-telegram-bot (for Telegram transport)
-  - discord.py (for Discord transport)
-  - GitHub CLI (gh) - for PR creation and merging
-  - Git (for repository synchronization and worktrees)
 ```
+~/.gluon/
+├── gluon.db           # SQLite database
+├── images/            # Image attachments (content-addressed by SHA256)
+│   └── {hash[:2]}/
+│       └── {hash}.{ext}
+└── logs/{run_id}/     # Per-run logs
+    ├── stdout.log
+    ├── stderr.log
+    └── messages.jsonl
+
+/tmp/gluon-worktrees/  # Temporary worktrees
+└── wt-{run_id}/       # Branch: gluon-task/{run_id}
+    └── .gluon-images/ # Copied images for AI visibility
+```
+
+### External Dependencies
+
+| Dependency | Purpose |
+|------------|---------|
+| Claude Code CLI | claude-agent-sdk integration |
+| python-telegram-bot | Telegram transport |
+| discord.py | Discord transport |
+| GitHub CLI (gh) | PR creation, merging, conflict detection |
+| Git | Repository sync, worktrees, rebase |
 
 ## Component Details
 
@@ -201,11 +232,17 @@ class Session(BaseModel):
 ```
 
 **Status Lifecycle:**
-```
-ACTIVE ──▶ PAUSED ──▶ ACTIVE (resume)
-   │          │
-   ▼          ▼
-COMPLETED  FAILED
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE: create
+    ACTIVE --> PAUSED: task completes
+    ACTIVE --> FAILED: error
+    PAUSED --> ACTIVE: resume
+    PAUSED --> COMPLETED: explicit close
+    PAUSED --> FAILED: error on resume
+    COMPLETED --> [*]
+    FAILED --> [*]
 ```
 
 #### ExecutionRun
@@ -224,12 +261,18 @@ class ExecutionRun(BaseModel):
 ```
 
 **Run Status Lifecycle:**
-```
-PENDING ──▶ RUNNING ──▶ COMPLETED
-                │
-                ├──▶ FAILED
-                │
-                └──▶ CANCELLED
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: create
+    PENDING --> RUNNING: start execution
+    RUNNING --> COMPLETED: success
+    RUNNING --> FAILED: error
+    RUNNING --> CANCELLED: user cancel
+    PENDING --> CANCELLED: user cancel
+    COMPLETED --> [*]
+    FAILED --> [*]
+    CANCELLED --> [*]
 ```
 
 #### ChannelMapping
@@ -456,12 +499,13 @@ Natural language interface using Claude to interpret commands.
 - `get_git_status` - Get git status for a project
 
 **Usage Flow:**
-```
-User Message ──▶ Claude (with MCP tools) ──▶ Tool Calls ──▶ Response
-                        │
-                        ▼
-               Sets _pending_task for
-               actual execution by caller
+
+```mermaid
+flowchart LR
+    USER[User Message] --> CLAUDE[Claude<br/>with MCP tools]
+    CLAUDE --> TOOLS[Tool Calls]
+    TOOLS --> RESP[Response]
+    CLAUDE --> TASK[Sets _pending_task<br/>for caller execution]
 ```
 
 ### 9. CLI (`cli.py`)
@@ -505,10 +549,15 @@ async def cleanup(commit_changes: bool | None = None) -> WorktreeResult
 ```
 
 **Worktree Lifecycle:**
-```
-create() → Task runs → cleanup(commit=True) → PR created
-                    ↓
-               cleanup(commit=False) → Branch deleted
+
+```mermaid
+flowchart LR
+    CREATE[create] --> TASK[Task runs]
+    TASK --> COMMIT{Commit changes?}
+    COMMIT -->|Yes| CLEANUP_Y[cleanup<br/>commit=True]
+    CLEANUP_Y --> PR[PR created]
+    COMMIT -->|No| CLEANUP_N[cleanup<br/>commit=False]
+    CLEANUP_N --> DELETE[Branch deleted]
 ```
 
 ### 12. ImageStorage (`image_storage.py`)
@@ -569,97 +618,125 @@ class WebSocketManager:
 
 ### Task Execution Flow
 
-```
-1. User Request (CLI/Telegram/Discord/NL)
-         │
-         ▼
-2. Orchestrator.execute(project, prompt, session_id?)
-         │
-         ├─▶ Pre-task git sync (if git_manager configured)
-         ├─▶ Find/create Session (or resume specific session_id)
-         │
-         ▼
-3. GluonAgent.execute(working_dir, prompt, resume_id?)
-         │
-         ├─▶ Build ClaudeAgentOptions
-         │
-         ▼
-4. ClaudeSDKClient
-         │
-         ├─▶ claude query <prompt>
-         │
-         ▼
-5. Stream responses (AssistantMessage, SystemMessage, ResultMessage)
-         │
-         ├─▶ Capture session_id
-         ├─▶ Track cost/turns
-         │
-         ▼
-6. Update Session in store
-         │
-         ├─▶ Status: PAUSED (success) or FAILED
-         ├─▶ Post-task git sync (commit + push)
-         │
-         ▼
-7. Return AgentResult to user
+```mermaid
+sequenceDiagram
+    participant User
+    participant Interface as CLI/Bot/Web
+    participant Orch as Orchestrator
+    participant Git as GitManager
+    participant Agent as GluonAgent
+    participant SDK as Claude SDK
+    participant Store
+
+    User->>Interface: Request task
+    Interface->>Orch: execute(project, prompt)
+
+    opt Git enabled
+        Orch->>Git: pre_task_sync()
+        Git-->>Orch: GitSyncResult
+    end
+
+    Orch->>Store: find/create Session
+    Store-->>Orch: Session
+
+    Orch->>Agent: execute(working_dir, prompt)
+    Agent->>SDK: ClaudeSDKClient(options)
+    SDK->>SDK: claude query <prompt>
+
+    loop Streaming
+        SDK-->>Agent: AssistantMessage
+        Agent-->>Orch: AgentMessage
+        Orch-->>Interface: Stream output
+    end
+
+    SDK-->>Agent: ResultMessage
+    Agent-->>Orch: AgentResult (session_id, cost)
+
+    Orch->>Store: Update Session (PAUSED/FAILED)
+
+    opt Git enabled
+        Orch->>Git: post_task_sync()
+    end
+
+    Orch-->>Interface: AgentResult
+    Interface-->>User: Display result
 ```
 
 ### Message-Based Session Resume (Discord)
 
-```
-1. User @mentions bot with task
-         │
-         ▼
-2. DiscordTransport._handle_task_request()
-         │
-         ├─▶ Create ExecutionRun
-         ├─▶ Send status message
-         ├─▶ Execute via BotCore.execute_task()
-         │
-         ▼
-3. On completion:
-         │
-         ├─▶ Edit status message with "💬 Reply to continue"
-         ├─▶ Store message_id -> run_id in memory map
-         │
-         ▼
-4. User replies to completion message
-         │
-         ▼
-5. DiscordTransport._handle_reply_resume()
-         │
-         ├─▶ Lookup run_id from message map
-         ├─▶ Get session_id from original run
-         ├─▶ Create new run with session_id
-         ├─▶ Execute with session resume
+```mermaid
+sequenceDiagram
+    participant User
+    participant Discord
+    participant Transport as DiscordTransport
+    participant BotCore
+    participant Store
+
+    User->>Discord: @GluonBot Fix the bug
+    Discord->>Transport: on_message event
+
+    Transport->>Store: create_run()
+    Store-->>Transport: ExecutionRun
+    Transport->>Discord: "🚀 Starting task..."
+
+    Transport->>BotCore: execute_task()
+    loop Execution
+        BotCore-->>Transport: AgentMessage
+        Transport->>Discord: Progress updates
+    end
+
+    BotCore-->>Transport: AgentResult
+    Transport->>Discord: Edit message: "✅ Complete<br/>💬 Reply to continue"
+    Transport->>Transport: Store message_id → run_id
+
+    Note over User,Store: Later...
+
+    User->>Discord: Reply: "Also add tests"
+    Discord->>Transport: on_message (with reference)
+
+    Transport->>Transport: Lookup run_id from message map
+    Transport->>Store: Get session_id from run
+    Transport->>Store: create_run(session_id)
+
+    Transport->>BotCore: execute_task(session_id)
+    Note over BotCore: Resumes Claude session
 ```
 
 ### Workspace Discovery Flow
 
-```
-1. User: gluon workspace add carrotly /path/to/workspaces/carrotly
-         │
-         ▼
-2. Orchestrator.register_workspace("carrotly", path)
-         │
-         ├─▶ Create Workspace in store
-         │
-         ▼
-3. Workspace.scan_for_projects()
-         │
-         ├─▶ Iterate immediate children
-         ├─▶ Check for PROJECT_MARKERS
-         │   (package.json, pyproject.toml, .git, etc.)
-         │
-         ▼
-4. For each discovered project:
-         │
-         ├─▶ Check if already registered (by path)
-         ├─▶ Generate unique name
-         ├─▶ Create Project with workspace_id
-         │
-         ▼
-5. Return (workspace, [discovered_projects])
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Orch as Orchestrator
+    participant Store
+    participant FS as Filesystem
+
+    User->>CLI: gluon workspace add carrotly /path/
+    CLI->>Orch: register_workspace("carrotly", path)
+
+    Orch->>Store: create_workspace()
+    Store-->>Orch: Workspace
+
+    Orch->>FS: scan_for_projects()
+
+    loop For each child directory
+        FS->>FS: Check PROJECT_MARKERS<br/>(package.json, pyproject.toml, .git)
+
+        alt Has marker
+            FS-->>Orch: Project path found
+            Orch->>Store: Check if path registered
+            Store-->>Orch: Exists?
+
+            alt Not registered
+                Orch->>Orch: Generate unique name
+                Orch->>Store: create_project(workspace_id)
+            end
+        end
+    end
+
+    Orch-->>CLI: (Workspace, [discovered_projects])
+    CLI-->>User: "Found N projects"
 ```
 
 ## Database Schema
