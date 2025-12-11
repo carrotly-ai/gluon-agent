@@ -18,11 +18,13 @@ from claude_agent_sdk import (
 from gluon.agent import find_claude_cli
 from gluon.core import (
     Orchestrator,
+    ProjectExistsError,
     ProjectNotFoundError,
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
 from gluon.models_config import ModelTier, get_model_id
+from gluon.runner import TaskRunner, format_duration
 
 SYSTEM_PROMPT = """You are Gluon, an AI orchestrator that manages multiple Claude Code agents \
 across different software projects.
@@ -58,7 +60,10 @@ When users ask you to do something, use the available tools to help them. Be con
 - list_projects, list_sessions, get_status - View projects and sessions
 - run_task, resume_session - Execute coding tasks
 - add_workspace, list_workspaces, scan_workspace - Manage workspaces
-- list_runs, cancel_run - Monitor and cancel background runs
+- add_project - Register a single project
+- list_runs, get_run, get_logs, cancel_run - Monitor runs and view logs
+- get_usage - View cost and token usage summary
+- create_pr - Create a pull request for a worktree run
 - get_git_status - Check git status for a project
 - git_sync - Auto-commit, fetch, and fast-forward a project
 - git_push - Commit and push changes to remote
@@ -540,6 +545,189 @@ class GluonChatAgent:
             except ProjectNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
+        # Additional tools for enhanced functionality
+        @tool(
+            "get_run",
+            "Get details for a specific run (status, cost, duration, error)",
+            {
+                "run_id": str,  # Run ID (can be short ID like 'abc12345')
+            },
+        )
+        async def get_run(args: dict[str, Any]) -> dict[str, Any]:
+            run_id = args.get("run_id", "")
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            # Build project lookup
+            project_lookup = {p.id: p.name for p in orchestrator.list_projects()}
+            proj_name = project_lookup.get(run.project_id, run.project_id[:8])
+
+            status_emojis = {
+                "pending": "⏳",
+                "running": "🔄",
+                "completed": "✅",
+                "failed": "❌",
+                "cancelled": "🚫",
+            }
+            emoji = status_emojis.get(run.status.value, "❓")
+
+            result = f"**Run `{run.id[:8]}`** {emoji}\n"
+            result += f"**Project:** {proj_name}\n"
+            result += f"**Status:** {run.status.value}\n"
+            result += f"**Prompt:** {run.prompt[:100]}{'...' if len(run.prompt) > 100 else ''}\n"
+
+            if run.duration_seconds:
+                result += f"**Duration:** {format_duration(run.duration_seconds)}\n"
+            if run.cost_usd:
+                result += f"**Cost:** ${run.cost_usd:.4f}\n"
+            if run.input_tokens or run.output_tokens:
+                result += f"**Tokens:** {run.input_tokens or 0:,} in / {run.output_tokens or 0:,} out\n"
+            if run.model_used:
+                result += f"**Model:** {run.model_used}\n"
+            if run.branch_name:
+                result += f"**Branch:** {run.branch_name}\n"
+            if run.pr_url:
+                result += f"**PR:** {run.pr_url}\n"
+            if run.error_message:
+                result += f"**Error:** {run.error_message}\n"
+            if run.initiator:
+                result += f"**Source:** {run.initiator}\n"
+
+            return {"content": [{"type": "text", "text": result}]}
+
+        @tool(
+            "get_logs",
+            "Get logs from a run (what Claude did)",
+            {
+                "run_id": str,  # Run ID (can be short ID)
+                "tail": int,  # Optional: only last N lines (default: 50)
+            },
+        )
+        async def get_logs(args: dict[str, Any]) -> dict[str, Any]:
+            run_id = args.get("run_id", "")
+            tail = args.get("tail", 50)
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            # Use runner to get logs
+            runner = TaskRunner(store=orchestrator.store)
+            logs = runner.get_logs(run.id, tail=tail)
+
+            stdout = logs.get("stdout", "")
+            if not stdout:
+                return {"content": [{"type": "text", "text": f"No logs available for run `{run_id[:8]}`"}]}
+
+            # Truncate if too long for chat
+            if len(stdout) > 3000:
+                stdout = "...(truncated)...\n" + stdout[-3000:]
+
+            result = f"**Logs for `{run.id[:8]}`:**\n```\n{stdout}\n```"
+            return {"content": [{"type": "text", "text": result}]}
+
+        @tool(
+            "add_project",
+            "Register a single project (use add_workspace for multiple projects)",
+            {
+                "name": str,  # Unique name for the project
+                "path": str,  # Path to the project directory (can use ~ for home)
+            },
+        )
+        async def add_project(args: dict[str, Any]) -> dict[str, Any]:
+            name = args.get("name", "")
+            path = args.get("path", "")
+
+            if not name or not path:
+                return {"content": [{"type": "text", "text": "Error: name and path are required"}]}
+
+            # Expand ~ to home directory
+            path = os.path.expanduser(path)
+
+            try:
+                project = orchestrator.register_project(name, path)
+                return {"content": [{"type": "text", "text": f"✅ Project `{name}` registered: {project.path}"}]}
+            except ProjectExistsError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+            except ValueError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+        @tool(
+            "get_usage",
+            "Get usage summary (today's cost, weekly cost, run counts)",
+            {},
+        )
+        async def get_usage(args: dict[str, Any]) -> dict[str, Any]:
+            summary = orchestrator.store.get_usage_summary()
+
+            result = "**Usage Summary**\n"
+            result += f"**Today:** ${summary.get('today_cost', 0):.4f} ({summary.get('today_runs', 0)} runs)\n"
+            result += f"**This Week:** ${summary.get('week_cost', 0):.4f} ({summary.get('week_runs', 0)} runs)\n"
+            result += f"**Tokens Today:** {summary.get('today_input_tokens', 0):,} in / {summary.get('today_output_tokens', 0):,} out\n"
+
+            return {"content": [{"type": "text", "text": result}]}
+
+        @tool(
+            "create_pr",
+            "Create a pull request for a worktree run",
+            {
+                "run_id": str,  # Run ID (must be a completed worktree run with a branch)
+            },
+        )
+        async def create_pr(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            run_id = args.get("run_id", "")
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            if not run.branch_name:
+                return {"content": [{"type": "text", "text": f"Run `{run_id[:8]}` has no branch (not a worktree run)"}]}
+
+            if run.pr_url:
+                return {"content": [{"type": "text", "text": f"PR already exists: {run.pr_url}"}]}
+
+            # Get project path
+            project = orchestrator.store.get_project(run.project_id)
+            if not project:
+                return {"content": [{"type": "text", "text": f"Project not found for run `{run_id[:8]}`"}]}
+
+            git_manager = GitManager(orchestrator.store)
+            try:
+                result = await git_manager.push_branch_and_create_pr(
+                    project_path=project.expanded_path,
+                    branch_name=run.branch_name,
+                    prompt=run.prompt,
+                    run_id=run.id,
+                )
+
+                if result.get("pr_url"):
+                    # Update run with PR info
+                    run.pr_number = result.get("pr_number")
+                    run.pr_url = result.get("pr_url")
+                    run.pr_status = result.get("pr_status")
+                    orchestrator.store.update_run(run)
+                    return {"content": [{"type": "text", "text": f"✅ PR created: {result['pr_url']}"}]}
+                elif result.get("error"):
+                    return {"content": [{"type": "text", "text": f"❌ {result['error']}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": "PR creation returned no result"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error creating PR: {e}"}]}
+
         return [
             list_projects,
             list_sessions,
@@ -555,6 +743,12 @@ class GluonChatAgent:
             git_sync,
             git_push,
             git_fetch,
+            # New tools
+            get_run,
+            get_logs,
+            add_project,
+            get_usage,
+            create_pr,
         ]
 
     async def chat(
@@ -646,6 +840,12 @@ class GluonChatAgent:
                 "mcp__gluon__git_sync",
                 "mcp__gluon__git_push",
                 "mcp__gluon__git_fetch",
+                # New tools
+                "mcp__gluon__get_run",
+                "mcp__gluon__get_logs",
+                "mcp__gluon__add_project",
+                "mcp__gluon__get_usage",
+                "mcp__gluon__create_pr",
             ],
             max_turns=3,
             model=haiku_model,
