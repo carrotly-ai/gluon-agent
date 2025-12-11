@@ -132,3 +132,20 @@ export function formatDateWithContext(dateStr: string | null): string {
 
   return `${formatDate(dateStr)}, ${formatTime(dateStr)}`
 }
+
+/**
+ * Format a message timestamp for log/chat display (HH:MM:SS).
+ *
+ * @param dateStr - ISO 8601 timestamp string or null
+ * @returns Formatted time string with seconds
+ */
+export function formatMessageTime(dateStr: string | null): string {
+  const date = parseUtcTimestamp(dateStr)
+  if (!date) return ''
+
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}

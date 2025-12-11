@@ -8,7 +8,7 @@ import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachm
 import { formatFileSize } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { formatTime, formatDateWithContext, formatMessageTime } from '@/lib/timestamps'
+import { formatDateWithContext, formatMessageTime } from '@/lib/timestamps'
 import ReactMarkdown from 'react-markdown'
 
 interface RunDetailDialogProps {

@@ -228,19 +228,19 @@ export function SettingsPage() {
                     key={ws.id}
                     className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <FolderOpen className="w-4 h-4 text-[var(--color-stone)]/80 mt-0.5 shrink-0" />
-                        <div className="min-w-0">
-                          <h3 className="text-[0.8125rem] font-medium text-[var(--color-paper)] truncate">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FolderOpen className="w-4 h-4 text-[var(--color-stone)]/80 shrink-0" />
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h3 className="text-[0.8125rem] font-medium text-[var(--color-paper)] shrink-0">
                             {ws.name}
                           </h3>
-                          <p className="text-[0.6875rem] text-[var(--color-stone)]/80 truncate mt-0.5">
+                          <span className="text-[0.6875rem] text-[var(--color-stone)]/60 shrink-0">
+                            ({ws.project_count} project{ws.project_count !== 1 ? 's' : ''})
+                          </span>
+                          <span className="text-[0.6875rem] text-[var(--color-stone)]/50 truncate">
                             {ws.path}
-                          </p>
-                          <p className="text-[0.625rem] text-[var(--color-stone)]/60 mt-1">
-                            {ws.project_count} project{ws.project_count !== 1 ? 's' : ''}
-                          </p>
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
