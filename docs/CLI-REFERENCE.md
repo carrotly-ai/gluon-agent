@@ -10,11 +10,39 @@ gluon project list                  # List all projects
 gluon project remove <name>         # Remove a project
 ```
 
+### Path Format
+
+Project paths support environment variable expansion for portability across different environments (host, Docker, CI/CD):
+
+```bash
+# Environment variables with ${} syntax
+gluon project add myapp "${HOME}/projects/myapp"
+gluon project add myapp "${WORKSPACE_ROOT}/myapp"
+
+# Home directory shorthand
+gluon project add myapp "~/projects/myapp"
+
+# Absolute paths (work on current environment)
+gluon project add myapp /Users/mcutler/projects/myapp
+```
+
+**Why use environment variables?**
+- **Portability**: Same command works on host and Docker
+- **Example**: `${HOME}` → `/Users/mcutler` on Mac, `/home/gluon` in Docker
+- **CI/CD**: Works with environment-specific variables
+- **Flexibility**: No need to hardcode absolute paths
+
 ### Examples
 
 ```bash
-# Register a Next.js app
-gluon project add myapp /Users/me/projects/myapp
+# Register using environment variables (works everywhere)
+gluon project add myapp "${HOME}/projects/myapp"
+
+# Register using home shorthand
+gluon project add myapp "~/projects/myapp"
+
+# Register using absolute path (current environment only)
+gluon project add myapp /Users/mcutler/projects/myapp
 
 # List all registered projects
 gluon project list
@@ -35,10 +63,23 @@ gluon workspace projects <name>     # List projects in workspace
 gluon workspace remove <name>       # Remove workspace
 ```
 
+### Path Format
+
+Like projects, workspace paths support environment variable expansion:
+
+```bash
+gluon workspace add myworkspace "${HOME}/workspaces"
+gluon workspace add myworkspace "~/workspaces"
+gluon workspace add myworkspace /Users/mcutler/workspaces
+```
+
 ### Examples
 
 ```bash
-# Register a workspace containing multiple projects
+# Register workspace with environment variables (portable)
+gluon workspace add work "${HOME}/workspaces/company"
+
+# Use home shorthand
 gluon workspace add work ~/workspaces/company
 
 # Re-scan to find newly created projects
