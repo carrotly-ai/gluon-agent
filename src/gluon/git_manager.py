@@ -180,7 +180,7 @@ class GitManager:
 
     async def refresh_status(self, project: Project) -> GitStatus:
         """Fetch and update git status for a single project."""
-        path = project.path
+        path = project.expanded_path
 
         # Check if git repo
         is_repo = await self._is_git_repo(path)
@@ -249,7 +249,7 @@ class GitManager:
         if not GIT_ENABLED:
             return GitSyncResult.skip("Git sync disabled")
 
-        path = project.path
+        path = project.expanded_path
 
         # Check if git repo
         if not await self._is_git_repo(path):
@@ -340,7 +340,7 @@ class GitManager:
         if not GIT_ENABLED:
             return GitSyncResult.skip("Git sync disabled")
 
-        path = project.path
+        path = project.expanded_path
 
         # Check if git repo
         if not await self._is_git_repo(path):

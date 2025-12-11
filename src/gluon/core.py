@@ -139,19 +139,23 @@ class Orchestrator:
             ProjectExistsError: If project with name already exists
             ValueError: If path doesn't exist or isn't a directory
         """
-        # Validate path
-        project_path = Path(path).resolve()
-        if not project_path.exists():
-            raise ValueError(f"Path does not exist: {project_path}")
-        if not project_path.is_dir():
-            raise ValueError(f"Path is not a directory: {project_path}")
+        # Create project with path (may contain ${VAR})
+        # Path validation will happen with expanded_path
+        project = Project(name=name, path=Path(path), metadata=metadata)
 
-        # Check for existing project
+        # Validate expanded path exists
+        expanded = project.expanded_path
+        if not expanded.exists():
+            raise ValueError(f"Path does not exist: {path} (expanded to {expanded})")
+        if not expanded.is_dir():
+            raise ValueError(f"Path is not a directory: {path} (expanded to {expanded})")
+
+        # Check for existing project by name
         existing = self.store.get_project_by_name(name)
         if existing:
             raise ProjectExistsError(f"Project '{name}' already exists")
 
-        return self.store.create_project(name, project_path, metadata)
+        return self.store.create_project(name, project.path, metadata)
 
     def get_project(self, name_or_id: str) -> Project:
         """
@@ -388,14 +392,14 @@ class Orchestrator:
         project = self.get_project(project_name)
 
         # Determine working directory (main project or worktree)
-        working_dir = project.path
+        working_dir = project.expanded_path
         worktree_manager: WorktreeManager | None = None
 
         # Create worktree if requested and project is a git repo
         if use_worktree:
-            if await is_git_repository(project.path):
+            if await is_git_repository(project.expanded_path):
                 worktree_run_id = run_id or str(uuid4())[:8]
-                worktree_manager = WorktreeManager(project.path)
+                worktree_manager = WorktreeManager(project.expanded_path)
                 try:
                     working_dir = await worktree_manager.create(worktree_run_id)
                     yield AgentMessage(
@@ -407,7 +411,7 @@ class Orchestrator:
                     logger.warning(f"Failed to create worktree, using main directory: {e}")
                     worktree_manager = None
             else:
-                logger.info(f"Worktree requested but {project.path} is not a git repo, using main directory")
+                logger.info(f"Worktree requested but {project.expanded_path} is not a git repo, using main directory")
 
         try:
             # Pre-task git sync (only for main directory, not worktree)

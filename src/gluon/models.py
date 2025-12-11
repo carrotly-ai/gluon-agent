@@ -87,7 +87,7 @@ class Workspace(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     name: str  # Human-readable name (unique)
-    path: Path  # Absolute path to workspace directory
+    path: Path  # Path (may contain ${VAR} or ~, expanded at runtime)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     scan_depth: int = 1  # How deep to scan for projects (1 = immediate children)
@@ -95,19 +95,31 @@ class Workspace(BaseModel):
     ignore_patterns: list[str] = Field(default_factory=lambda: [".*", "node_modules", "__pycache__", "venv", ".venv"])
 
     def model_post_init(self, __context: Any) -> None:
-        """Expand environment variables and ensure path is absolute."""
-        self.path = expand_path(self.path)
-        if not self.path.is_absolute():
-            self.path = self.path.resolve()
+        """Convert path to Path object if needed."""
+        if isinstance(self.path, str):
+            self.path = Path(self.path)
+
+    @property
+    def expanded_path(self) -> Path:
+        """Get the expanded path with environment variables substituted.
+
+        Returns an absolute path with all variables expanded.
+        Call this when you need the actual filesystem path.
+        """
+        expanded = expand_path(self.path)
+        if not expanded.is_absolute():
+            expanded = expanded.resolve()
+        return expanded
 
     def scan_for_projects(self) -> list[Path]:
         """Scan workspace for project directories."""
         projects: list[Path] = []
 
-        if not self.path.exists() or not self.path.is_dir():
+        path = self.expanded_path
+        if not path.exists() or not path.is_dir():
             return projects
 
-        for item in self.path.iterdir():
+        for item in path.iterdir():
             # Skip ignored patterns
             if any(item.match(pattern) for pattern in self.ignore_patterns):
                 continue
@@ -134,17 +146,28 @@ class Project(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     name: str  # Human-readable name (unique)
-    path: Path  # Absolute path to project directory
+    path: Path  # Path (may contain ${VAR} or ~, expanded at runtime)
     workspace_id: str | None = None  # FK to Workspace (None = standalone project)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     metadata: dict[str, Any] | None = None  # Optional extra data
 
     def model_post_init(self, __context: Any) -> None:
-        """Expand environment variables and ensure path is absolute."""
-        self.path = expand_path(self.path)
-        if not self.path.is_absolute():
-            self.path = self.path.resolve()
+        """Convert path to Path object if needed."""
+        if isinstance(self.path, str):
+            self.path = Path(self.path)
+
+    @property
+    def expanded_path(self) -> Path:
+        """Get the expanded path with environment variables substituted.
+
+        Returns an absolute path with all variables expanded.
+        Call this when you need the actual filesystem path.
+        """
+        expanded = expand_path(self.path)
+        if not expanded.is_absolute():
+            expanded = expanded.resolve()
+        return expanded
 
     @property
     def is_workspace_managed(self) -> bool:

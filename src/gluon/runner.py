@@ -140,14 +140,14 @@ class TaskRunner:
             return
 
         # Determine working directory (main project or worktree)
-        working_dir = project.path
+        working_dir = project.expanded_path
         worktree_manager: WorktreeManager | None = None
 
         # Create worktree if requested and project is a git repo
         if run.use_worktree:
-            if await is_git_repository(project.path):
+            if await is_git_repository(project.expanded_path):
                 worktree_run_id = run.id[:8]
-                worktree_manager = WorktreeManager(project.path)
+                worktree_manager = WorktreeManager(project.expanded_path)
                 try:
                     working_dir = await worktree_manager.create(worktree_run_id)
                     run.worktree_path = str(working_dir)
@@ -262,7 +262,7 @@ but explicit commits with good messages are preferred.
 
                         # Determine working path (worktree or project)
                         working_path = (
-                            Path(run.worktree_path) if run.worktree_path else project.path
+                            Path(run.worktree_path) if run.worktree_path else project.expanded_path
                         )
 
                         # Capture git info (branch, commit, PR) after task completion
