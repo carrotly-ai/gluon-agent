@@ -100,6 +100,8 @@ gluon sessions [project]                  # List sessions
 gluon status                              # Show overall status
 ```
 
+> **Note**: All tasks (foreground and background) are tracked and visible in `gluon runs` and the web dashboard. Logs are written to `~/.gluon/logs/{run_id}/` for all executions.
+
 ### Model Tiers
 
 | Tier | Model | Use Case |
@@ -127,12 +129,12 @@ gluon resume myapp 'Also add tests'
 gluon resume myapp
 ```
 
-## Background Runs
+## Run Management
 
-When running tasks with `--background`, use these commands to monitor and manage them:
+All tasks (foreground and background) are tracked as ExecutionRuns and visible via these commands:
 
 ```bash
-gluon runs                     # List all background runs
+gluon runs                     # List all runs (foreground + background)
 gluon runs --active            # Show only active runs
 gluon runs --project <name>    # Filter by project
 gluon logs <run_id>            # View logs for a run

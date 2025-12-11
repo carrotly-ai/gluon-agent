@@ -14,10 +14,12 @@ interface CreateTaskDialogProps {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5', description: 'Fast, high-quality' },
   { value: 'claude-opus-4.5', label: 'Claude Opus 4.5', description: 'Highest quality' },
+  { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5', description: 'Fast, high-quality' },
   { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5', description: 'Fastest' },
 ]
+
+const DEFAULT_MODEL = 'claude-sonnet-4.5'
 
 // Pending image (uploaded before run creation)
 interface PendingImage {
@@ -29,7 +31,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState(MODEL_OPTIONS[0].value)
+  const [model, setModel] = useState(DEFAULT_MODEL)
   const [useWorktree, setUseWorktree] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +59,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       setPrompt('')
       setSelectedProject(initialProject || '')
       setError(null)
-      setModel(MODEL_OPTIONS[0].value)
+      setModel(DEFAULT_MODEL)
       setUseWorktree(true)
       // Revoke preview URLs to prevent memory leaks
       pendingImages.forEach(img => URL.revokeObjectURL(img.preview))

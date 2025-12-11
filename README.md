@@ -9,6 +9,7 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 - **Multi-Project Management** - Register projects and workspaces, run tasks across your entire codebase
 - **Session Resume** - Continue Claude sessions with follow-up prompts
+- **Unified Task Tracking** - All tasks visible across all interfaces (CLI, Web, Telegram, Discord)
 - **Web Dashboard** - React-based Kanban board with real-time WebSocket updates
 - **Git Worktree Isolation** - Run tasks in isolated branches without affecting main
 - **PR Integration** - Create PRs, detect conflicts, merge directly from dashboard

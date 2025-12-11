@@ -662,6 +662,68 @@ sequenceDiagram
     Interface-->>User: Display result
 ```
 
+### Unified Task Tracking
+
+All task executions, regardless of interface, are tracked via `ExecutionRun` records. This ensures complete visibility across all interfaces:
+
+```mermaid
+flowchart TB
+    subgraph "Interfaces"
+        CLI[CLI Foreground]
+        BG[CLI Background]
+        WEB[Web Dashboard]
+        TG[Telegram Bot]
+        DC[Discord Bot]
+    end
+
+    subgraph "Orchestrator"
+        EXEC[orchestrator.execute]
+        RUN[ExecutionRun Created]
+        WS[WebSocket Broadcast]
+    end
+
+    subgraph "Visibility"
+        DB[(SQLite)]
+        DASH[Web Dashboard]
+        RUNS[gluon runs]
+        API[REST API]
+    end
+
+    CLI --> EXEC
+    BG --> EXEC
+    WEB --> EXEC
+    TG --> EXEC
+    DC --> EXEC
+
+    EXEC --> RUN
+    RUN --> DB
+    RUN --> WS
+
+    DB --> DASH
+    DB --> RUNS
+    DB --> API
+
+    WS -->|Real-time| DASH
+```
+
+**Key Design Decisions:**
+
+1. **Single Entry Point**: All interfaces call `orchestrator.execute()` which creates/manages `ExecutionRun` records
+2. **Initiator Tracking**: Each run records its source via the `initiator` field (e.g., `cli:foreground`, `telegram:123456`, `web:dashboard`)
+3. **Real-time Updates**: WebSocket broadcasts notify the dashboard of run state changes
+4. **Log Persistence**: All runs write logs to `~/.gluon/logs/{run_id}/` regardless of interface
+
+**Interface to Initiator Mapping:**
+
+| Interface | Initiator Format | Example |
+|-----------|------------------|---------|
+| CLI Foreground | `cli:foreground` | `cli:foreground` |
+| CLI Background | `cli:background` | `cli:background` |
+| Web Dashboard | `web:dashboard` | `web:dashboard` |
+| Telegram Bot | `telegram:{user_id}` | `telegram:123456789` |
+| Discord Bot | `discord:{user_id}` | `discord:987654321` |
+| Orchestrator (resume) | `orchestrator` | `orchestrator` |
+
 ### Message-Based Session Resume (Discord)
 
 ```mermaid

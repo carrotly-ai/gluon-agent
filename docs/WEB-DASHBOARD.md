@@ -17,6 +17,7 @@ Open http://localhost:45866 to access the dashboard.
 
 ## Features
 
+- **Unified Task Visibility** - See all tasks from all interfaces (CLI, Telegram, Discord) in one place
 - **Kanban Board** - Drag-and-drop task management across columns (Queued, Running, Review, Completed, Failed)
 - **Real-time Updates** - WebSocket-powered live status updates
 - **Project Filtering** - Filter tasks by project or workspace
@@ -24,6 +25,23 @@ Open http://localhost:45866 to access the dashboard.
 - **Image Attachments** - Upload screenshots for AI context (paste with ⌘V)
 - **PR Integration** - Create PRs, view merge status, resolve conflicts with AI
 - **Usage Dashboard** - Track costs and token usage by project/day
+
+## Unified Task Tracking
+
+The dashboard displays **all** tasks regardless of where they were initiated:
+
+| Source | Visible in Dashboard | Initiator Field |
+|--------|---------------------|-----------------|
+| `gluon run` (foreground) | ✅ Yes | `cli:foreground` |
+| `gluon run --background` | ✅ Yes | `cli:background` |
+| Web Dashboard | ✅ Yes | `web:dashboard` |
+| Telegram Bot | ✅ Yes | `telegram:{user_id}` |
+| Discord Bot | ✅ Yes | `discord:{user_id}` |
+
+This unified tracking means:
+- Run `gluon run myapp "task"` from terminal → appears immediately in web dashboard
+- Start a task from Telegram → monitor progress in web dashboard
+- View all your team's tasks in one Kanban board regardless of interface used
 
 ## Architecture
 
