@@ -19,6 +19,8 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from gluon.models_config import get_model_id
+
 # Default tools available to Claude Code agents
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "TodoWrite"]
 
@@ -172,7 +174,13 @@ class GluonAgent:
         permission_mode: str = "acceptEdits",
         cli_path: Path | str | None = None,
     ):
-        self.model = model
+        # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
+        # This ensures consistent model resolution across local and Docker environments
+        try:
+            self.model = get_model_id(model)
+        except ValueError:
+            # Already a full model ID, use as-is
+            self.model = model
         self.allowed_tools = allowed_tools or DEFAULT_TOOLS
         self.permission_mode = permission_mode
         # Auto-detect CLI path if not provided
