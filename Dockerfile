@@ -11,12 +11,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     build-essential \
     gnupg \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js v24 LTS from NodeSource
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Bun JavaScript runtime
+RUN curl -fsSL https://bun.sh/install | bash \
+    && mv /root/.bun /opt/bun \
+    && ln -s /opt/bun/bin/bun /usr/local/bin/bun \
+    && ln -s /opt/bun/bin/bunx /usr/local/bin/bunx
 
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
