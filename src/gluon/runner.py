@@ -384,10 +384,12 @@ but explicit commits with good messages are preferred.
             Dict with stdout, stderr, and messages content
         """
         run = self.store.get_run(run_id)
-        if not run or not run.log_path:
+        if not run:
             return {"stdout": "", "stderr": "", "messages": ""}
 
-        log_dir = run.log_path
+        # Construct log path from run ID to handle Docker path translation
+        # (stored absolute paths like /Users/x/.gluon don't work in container)
+        log_dir = Path.home() / ".gluon" / "logs" / run.id
         result = {}
 
         for name in ["stdout", "stderr", "messages"]:
