@@ -258,19 +258,13 @@ class GluonBotCore:
             create_thread_callback: Optional callback to create threads
             use_worktree: Execute in isolated Git worktree (default: False)
         """
-        import os
-        from pathlib import Path
-
         result: AgentResult | None = None
         message_buffer: list[str] = []
         last_update_time = 0.0
         thread_id: str | None = None
 
-        # Mark run as running
-        log_dir = Path.home() / ".gluon" / "logs" / run.id
-        log_dir.mkdir(parents=True, exist_ok=True)
-        run.mark_running(pid=os.getpid(), log_path=log_dir)
-        self.store.update_run(run)
+        # Note: Run status management (mark_running, mark_completed, mark_failed)
+        # is now handled by orchestrator.execute() for unified tracking
 
         async def send_update(text: str, thread: bool = False) -> None:
             """Send an update message."""
@@ -294,6 +288,7 @@ class GluonBotCore:
                 execution = self.orchestrator.execute(
                     project_name,
                     run.prompt,
+                    run_id=run.id,  # Link to pre-created ExecutionRun
                     force_new_session=force_new_session,
                     model=model,
                     session_id=session_id,
@@ -325,34 +320,31 @@ class GluonBotCore:
                         text = text[-4000:]
                     await send_update(text, thread=bool(thread_id))
 
-                # Update run status and send summary
+                # Send summary message (status updates handled by orchestrator)
                 if result:
-                    run.session_id = result.session_id
                     if result.success:
-                        run.mark_completed(exit_code=0)
                         summary = (
                             f"✅ **Complete** (`{run.id[:8]}`)\n"
                             f"Cost: ${result.total_cost_usd:.4f}\n"
                             f"Turns: {result.total_turns}"
                         )
                     else:
-                        run.mark_failed(result.error or "Unknown error", exit_code=1)
                         summary = f"❌ **Failed** (`{run.id[:8]}`): {result.error}"
 
                     # Send completion message
                     await send_update(summary, thread=bool(thread_id))
 
         except asyncio.CancelledError:
-            run.mark_cancelled()
+            # Note: orchestrator exception handler marks run as failed
             await send_update(f"Task `{run.id[:8]}` was cancelled.", thread=bool(thread_id))
 
         except Exception as e:
+            # Note: orchestrator exception handler marks run as failed
             logger.exception("Task execution failed")
-            run.mark_failed(str(e), exit_code=1)
             await send_update(f"❌ Error (`{run.id[:8]}`): {e}", thread=bool(thread_id))
 
         finally:
-            self.store.update_run(run)
+            # Unregister task from active tasks
             self.unregister_task(run.id)
 
     # ========== Chat Agent Integration ==========

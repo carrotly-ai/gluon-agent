@@ -560,6 +560,7 @@ def run(
             force_new_session=new_session,
             model=model_tier,
             use_worktree=worktree,
+            initiator="cli:foreground",
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:

@@ -85,6 +85,7 @@ class AgentResult:
     success: bool
     error: str | None = None
     session_id: str | None = None  # Gluon session ID (for linking runs)
+    execution_run_id: str | None = None  # ExecutionRun ID (for dashboard visibility)
     # Token usage
     input_tokens: int | None = None
     output_tokens: int | None = None

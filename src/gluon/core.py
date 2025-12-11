@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
-from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace
+from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace, utc_now
 from gluon.models_config import DEFAULT_MODEL, ModelTier, get_model_id
 from gluon.store import GluonStore
 from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
@@ -18,6 +20,25 @@ if TYPE_CHECKING:
     from gluon.git_manager import GitManager
 
 logger = logging.getLogger(__name__)
+
+
+async def _broadcast_run_event(event_type: str, run: "ExecutionRun", project_name: str) -> None:
+    """Broadcast run event to WebSocket clients (if web module available).
+
+    Uses lazy import to avoid circular dependencies and gracefully handles
+    cases where web module is not installed or no clients are connected.
+    """
+    try:
+        from gluon.web.websocket import ws_manager
+
+        if event_type == "created":
+            await ws_manager.broadcast_run_created(run, project_name)
+        else:
+            await ws_manager.broadcast_run_update(run, project_name)
+    except ImportError:
+        pass  # Web module not installed
+    except Exception as e:
+        logger.debug(f"WebSocket broadcast failed (non-critical): {e}")
 
 
 class ProjectNotFoundError(Exception):
@@ -369,6 +390,7 @@ class Orchestrator:
         run_id: str | None = None,
         session_id: str | None = None,
         use_worktree: bool = False,
+        initiator: str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -376,20 +398,52 @@ class Orchestrator:
         Automatically resumes the last session if available,
         unless force_new_session is True.
 
+        All executions are tracked via ExecutionRun records, making them
+        visible in the dashboard regardless of interface (CLI, bot, web).
+
         Args:
             project_name: Name or ID of the project
             prompt: User prompt to execute
             force_new_session: Force creation of new session
             model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
-            run_id: Optional run ID for git commit metadata
+            run_id: Optional run ID to link to existing ExecutionRun
             session_id: Specific session ID to resume (overrides auto-detection)
             use_worktree: Execute in isolated Git worktree (default: False)
+            initiator: Source of execution (e.g., "cli:foreground", "telegram:123")
 
         Yields:
             AgentMessage during execution
             AgentResult as final yield
         """
         project = self.get_project(project_name)
+
+        # ========== ExecutionRun Management ==========
+        # All executions are tracked via ExecutionRun for unified visibility
+        run: ExecutionRun | None = None
+        if run_id:
+            # Link to existing ExecutionRun (from bots/web that pre-create)
+            run = self.store.get_run(run_id)
+            if not run:
+                raise ValueError(f"Run not found: {run_id}")
+        else:
+            # Create new ExecutionRun (for CLI foreground, etc.)
+            run = self.store.create_run(
+                project_id=project.id,
+                prompt=prompt,
+                initiator=initiator or "orchestrator",
+                use_worktree=use_worktree,
+            )
+            # Broadcast new run to dashboard (only for newly created runs)
+            await _broadcast_run_event("created", run, project.name)
+
+        # Create log directory for all runs
+        log_dir = Path.home() / ".gluon" / "logs" / run.id
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Mark run as running
+        run.mark_running(pid=os.getpid(), log_path=log_dir)
+        self.store.update_run(run)
+        await _broadcast_run_event("updated", run, project.name)
 
         # Determine working directory (main project or worktree)
         working_dir = project.expanded_path
@@ -455,26 +509,74 @@ class Orchestrator:
             # Create agent with specified model
             agent = GluonAgent(model=model_id)
 
-            # Execute via agent
+            # Execute via agent with log file writing
             result: AgentResult | None = None
+            stdout_path = log_dir / "stdout.log"
+            messages_path = log_dir / "messages.jsonl"
 
-            async for item in agent.execute(
-                working_dir=working_dir,
-                prompt=prompt,
-                resume_session_id=resume_session_id,
-            ):
-                if isinstance(item, AgentMessage):
-                    # Capture session ID from system messages
-                    if item.type == "system" and item.metadata:
-                        new_session_id = item.metadata.get("session_id")
-                        if new_session_id and new_session_id != session.claude_session_id:
-                            session.claude_session_id = new_session_id
-                            self.store.update_session(session)
+            with open(stdout_path, "w") as stdout_file, open(messages_path, "w") as messages_file:
+                async for item in agent.execute(
+                    working_dir=working_dir,
+                    prompt=prompt,
+                    resume_session_id=resume_session_id,
+                ):
+                    if isinstance(item, AgentMessage):
+                        # Write to log files
+                        msg_dict = {
+                            "timestamp": utc_now().isoformat(),
+                            "type": item.type,
+                            "content": item.content,
+                            "metadata": item.metadata,
+                        }
+                        messages_file.write(json.dumps(msg_dict) + "\n")
+                        messages_file.flush()
 
-                    yield item
+                        if item.type == "text" and item.content:
+                            stdout_file.write(item.content + "\n")
+                            stdout_file.flush()
 
-                elif isinstance(item, AgentResult):
-                    result = item
+                        # Capture session ID from system messages
+                        if item.type == "system" and item.metadata:
+                            new_session_id = item.metadata.get("session_id")
+                            if new_session_id and new_session_id != session.claude_session_id:
+                                session.claude_session_id = new_session_id
+                                self.store.update_session(session)
+
+                        yield item
+
+                    elif isinstance(item, AgentResult):
+                        result = item
+
+                        # Log final result
+                        result_dict = {
+                            "timestamp": utc_now().isoformat(),
+                            "type": "result",
+                            "session_id": item.claude_session_id,
+                            "cost_usd": item.total_cost_usd,
+                            "input_tokens": item.input_tokens,
+                            "output_tokens": item.output_tokens,
+                            "model_used": item.model_used,
+                            "turns": item.total_turns,
+                            "success": item.success,
+                            "error": item.error,
+                        }
+                        messages_file.write(json.dumps(result_dict) + "\n")
+
+            # Update ExecutionRun with result
+            if result:
+                run.cost_usd = result.total_cost_usd
+                run.input_tokens = result.input_tokens
+                run.output_tokens = result.output_tokens
+                run.model_used = result.model_used
+                run.claude_session_id = result.claude_session_id
+
+                if result.success:
+                    run.mark_completed(exit_code=0)
+                else:
+                    run.mark_failed(result.error or "Unknown error", exit_code=1)
+
+                self.store.update_run(run)
+                await _broadcast_run_event("updated", run, project.name)
 
             # Update session with result
             if result:
@@ -492,7 +594,7 @@ class Orchestrator:
                             project,
                             commit_msg,
                             session_id=session.id,
-                            run_id=run_id,
+                            run_id=run.id,  # Use run.id from ExecutionRun
                         )
                         if sync_result.action != "none":
                             yield AgentMessage(
@@ -507,9 +609,18 @@ class Orchestrator:
 
                 self.store.update_session(session)
 
-                # Add Gluon session ID to result for run linking
+                # Add Gluon session ID and run ID to result for linking
                 result.session_id = session.id
+                result.execution_run_id = run.id
                 yield result
+
+        except Exception as e:
+            # Mark run as failed if exception occurs
+            if run:
+                run.mark_failed(str(e), exit_code=1)
+                self.store.update_run(run)
+                await _broadcast_run_event("updated", run, project.name)
+            raise
 
         finally:
             # Cleanup worktree if one was created
