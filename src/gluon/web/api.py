@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSoc
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from gluon.cleanup import LogCleanupService
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.models import RunStatus
 from gluon.runner import TaskRunner
@@ -1597,6 +1598,11 @@ def create_app() -> FastAPI:
     # Track last known run states to detect changes
     _last_run_states: dict[str, str] = {}
     _polling_task: asyncio.Task | None = None
+    _cleanup_task: asyncio.Task | None = None
+
+    # Cleanup configuration
+    cleanup_interval_seconds = 8 * 60 * 60  # 8 hours
+    cleanup_initial_delay_seconds = 300  # 5 minutes after startup
 
     async def _poll_run_status_changes() -> None:
         """Background task to poll for run status changes and broadcast updates."""
@@ -1642,23 +1648,71 @@ def create_app() -> FastAPI:
             # Poll every 2 seconds
             await asyncio.sleep(2)
 
+    async def _cleanup_old_logs() -> None:
+        """Background task to cleanup old log files based on retention policies.
+
+        Runs after initial delay, then every 8 hours.
+        - Archived runs: logs deleted 30 days after execution
+        - Failed runs: logs deleted 7 days after execution
+        - Orphan logs (no DB record): deleted immediately
+        """
+        cleanup_service = LogCleanupService(store=store)
+
+        # Initial delay before first cleanup (300 seconds = 5 minutes)
+        logger.info(
+            f"Log cleanup scheduled: first run in {cleanup_initial_delay_seconds}s, "
+            f"then every {cleanup_interval_seconds // 3600}h"
+        )
+        await asyncio.sleep(cleanup_initial_delay_seconds)
+
+        while True:
+            try:
+                logger.info("Starting log cleanup...")
+                stats = cleanup_service.cleanup()
+                total = (
+                    stats["orphan_deleted"]
+                    + stats["archived_deleted"]
+                    + stats["failed_deleted"]
+                )
+                if total > 0 or stats["errors"] > 0:
+                    logger.info(
+                        f"Log cleanup complete: {stats['orphan_deleted']} orphan, "
+                        f"{stats['archived_deleted']} archived, "
+                        f"{stats['failed_deleted']} failed deleted, "
+                        f"{stats['errors']} errors"
+                    )
+                else:
+                    logger.info("Log cleanup complete: no logs to delete")
+            except Exception as e:
+                logger.error(f"Error in log cleanup task: {e}")
+
+            # Wait for next cleanup cycle
+            await asyncio.sleep(cleanup_interval_seconds)
+
     @app.on_event("startup")
     async def start_background_tasks() -> None:
-        """Start background polling task on app startup."""
-        nonlocal _polling_task
+        """Start background tasks on app startup."""
+        nonlocal _polling_task, _cleanup_task
         _polling_task = asyncio.create_task(_poll_run_status_changes())
-        logger.info("Started run status polling background task")
+        _cleanup_task = asyncio.create_task(_cleanup_old_logs())
+        logger.info("Started background tasks: run status polling, log cleanup")
 
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
         """Stop background tasks on app shutdown."""
+        tasks_to_cancel = []
         if _polling_task:
-            _polling_task.cancel()
+            tasks_to_cancel.append(("run status polling", _polling_task))
+        if _cleanup_task:
+            tasks_to_cancel.append(("log cleanup", _cleanup_task))
+
+        for name, task in tasks_to_cancel:
+            task.cancel()
             try:
-                await _polling_task
+                await task
             except asyncio.CancelledError:
                 pass
-            logger.info("Stopped run status polling background task")
+            logger.info(f"Stopped {name} background task")
 
     # ========== Static Files (SPA) ==========
 
