@@ -610,15 +610,15 @@ def create_app() -> FastAPI:
 
         for project in projects:
             sessions = orchestrator.list_sessions(project.name)
-            # Get git branch from project path
-            git_branch = _get_git_branch(project.path)
-            # Get ahead/behind counts
-            git_ahead, git_behind = _get_git_ahead_behind(project.path)
+            # Use expanded_path for git commands (resolves ${HOME}, ~, etc.)
+            expanded = project.expanded_path
+            git_branch = _get_git_branch(expanded)
+            git_ahead, git_behind = _get_git_ahead_behind(expanded)
             result.append(
                 ProjectResponse(
                     id=project.id,
                     name=project.name,
-                    path=str(project.path),
+                    path=str(project.path),  # Keep original path for display
                     session_count=len(sessions),
                     workspace_id=project.workspace_id,
                     git_branch=git_branch,
