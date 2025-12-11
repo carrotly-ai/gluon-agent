@@ -10,8 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     bash \
     build-essential \
-    nodejs \
-    npm \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js v24 LTS from NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI globally
