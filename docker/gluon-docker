@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Wrapper script for running gluon-agent via Docker
+# Makes it feel like a native CLI tool
+
+set -euo pipefail
+
+IMAGE="${GLUON_DOCKER_IMAGE:-gluon-agent:latest}"
+CONTAINER_HOME="/home/gluon"
+
+# Ensure image is built
+if ! docker image inspect "$IMAGE" &>/dev/null; then
+    echo "📦 Building $IMAGE..."
+    docker build -t "$IMAGE" .
+fi
+
+# Prepare mount arguments
+declare -a MOUNTS=(
+    "-v" "$HOME/.claude:$CONTAINER_HOME/.claude"
+    "-v" "$HOME/.gluon:$CONTAINER_HOME/.gluon"
+    "-v" "$HOME/workspaces:$CONTAINER_HOME/workspaces"
+    "-v" "$HOME/.aws:$CONTAINER_HOME/.aws:ro"
+    "-v" "$HOME/.cache/gluon:$CONTAINER_HOME/.cache/gluon"
+)
+
+# Prepare environment arguments
+declare -a ENVS=(
+    "-e" "AWS_PROFILE=${AWS_PROFILE:-default}"
+    "-e" "AWS_REGION=${AWS_REGION:-us-east-1}"
+)
+
+# Pass through optional AWS credentials if set
+if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
+    ENVS+=("-e" "AWS_ACCESS_KEY_ID")
+fi
+if [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    ENVS+=("-e" "AWS_SECRET_ACCESS_KEY")
+fi
+if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
+    ENVS+=("-e" "AWS_SESSION_TOKEN")
+fi
+
+# Pass through Claude credentials if set
+if [[ -n "${CLAUDE_API_KEY:-}" ]]; then
+    ENVS+=("-e" "CLAUDE_API_KEY")
+fi
+
+# Pass through bot tokens if set
+if [[ -n "${GLUON_TELEGRAM_TOKEN:-}" ]]; then
+    ENVS+=("-e" "GLUON_TELEGRAM_TOKEN")
+fi
+if [[ -n "${GLUON_DISCORD_TOKEN:-}" ]]; then
+    ENVS+=("-e" "GLUON_DISCORD_TOKEN")
+fi
+if [[ -n "${GLUON_DISCORD_GUILD:-}" ]]; then
+    ENVS+=("-e" "GLUON_DISCORD_GUILD")
+fi
+
+# Detect if running interactively
+INTERACTIVE_FLAGS=()
+if [[ -t 0 ]]; then
+    INTERACTIVE_FLAGS=("-it")
+fi
+
+# Run container
+exec docker run --rm \
+    "${INTERACTIVE_FLAGS[@]}" \
+    "${MOUNTS[@]}" \
+    "${ENVS[@]}" \
+    "$IMAGE" \
+    "$@"

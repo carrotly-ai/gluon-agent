@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  gluon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gluon-agent:latest
+    container_name: gluon-agent-dev
+
+    # Mount host directories
+    volumes:
+      # Configuration and state
+      - ${HOME}/.claude:/home/gluon/.claude
+      - ${HOME}/.gluon:/home/gluon/.gluon
+
+      # Projects
+      - ${HOME}/workspaces:/home/gluon/workspaces
+
+      # AWS credentials (read-only)
+      - ${HOME}/.aws:/home/gluon/.aws:ro
+
+      # Cache
+      - ${HOME}/.cache/gluon:/home/gluon/.cache/gluon
+
+    # Pass environment variables
+    environment:
+      # AWS credentials (passed from host)
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+
+      # Claude configuration
+      - CLAUDE_API_KEY
+      - CLAUDE_LOG_LEVEL=info
+
+      # Gluon configuration
+      - GLUON_TELEGRAM_TOKEN
+      - GLUON_DISCORD_TOKEN
+      - GLUON_DISCORD_GUILD
+      - GLUON_GIT_ENABLED=true
+
+    # Interactive mode for CLI
+    stdin_open: true
+    tty: true
+
+    # Network (if needed for web dashboard)
+    ports:
+      - "45866:45866"  # Web dashboard
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+    # Keep container alive when running in background
+    restart: unless-stopped
