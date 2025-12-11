@@ -40,9 +40,11 @@ Dockerfile*
 docker-compose*.yml
 .docker/
 
-# Misc
-*.md
+# Misc (but keep README and LICENSE)
 docs/
+ROADMAP.md
+IMPLEMENTATION-PLAN.md
+PLAN-*.md
 .github/
 tests/
 .pre-commit-config.yaml

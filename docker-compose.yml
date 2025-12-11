@@ -31,10 +31,12 @@ services:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
       - AWS_SESSION_TOKEN
+      - AWS_BEARER_TOKEN_BEDROCK
 
       # Claude configuration
       - CLAUDE_API_KEY
       - CLAUDE_LOG_LEVEL=info
+      - CLAUDE_CODE_USE_BEDROCK=1
 
       # Gluon configuration
       - GLUON_TELEGRAM_TOKEN
@@ -60,5 +62,10 @@ services:
           cpus: '1'
           memory: 1G
 
+    # Override entrypoint to keep container alive for testing
+    # Uncomment the line below to run a specific command
+    # command: gluon status
+
     # Keep container alive when running in background
     restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c", "sleep infinity"]
