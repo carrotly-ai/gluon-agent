@@ -33,10 +33,14 @@ You help users:
 - Run coding tasks on projects using Claude Code agents
 - Resume previous sessions to continue work
 - Check status of sessions, runs, and costs
-- Monitor background task execution
+- Monitor ALL task executions (CLI, Web Dashboard, Telegram, Discord - all in one view)
 - Check git status of projects
 - Read files, search code, and run commands in project directories
 - Search the web and fetch information from URLs
+
+**Unified Task Visibility:**
+All tasks are tracked in a single database regardless of where they were started.
+When you use list_runs, you see ALL runs from CLI, Web Dashboard, and other bot interfaces.
 
 **Model Selection Guidelines:**
 When running tasks, choose the appropriate model based on task complexity:
@@ -334,7 +338,7 @@ class GluonChatAgent:
         # Run management tools
         @tool(
             "list_runs",
-            "List background execution runs",
+            "List all execution runs (from CLI, Web, Telegram, Discord)",
             {
                 "project_name": str,  # Optional: filter by project name
                 "active_only": bool,  # Optional: only show active runs (default: false)
@@ -367,12 +371,30 @@ class GluonChatAgent:
                 "cancelled": "🚫",
             }
 
+            # Map initiator to friendly source names
+            def get_source(initiator: str | None) -> str:
+                if not initiator:
+                    return ""
+                if initiator.startswith("cli:"):
+                    return "CLI"
+                if initiator.startswith("telegram:"):
+                    return "TG"
+                if initiator.startswith("discord:"):
+                    return "DC"
+                if initiator.startswith("web:"):
+                    return "Web"
+                if initiator == "orchestrator":
+                    return "Resume"
+                return initiator[:6]
+
             result = "**Runs:**\n"
             for r in runs:
                 emoji = status_emojis.get(r.status.value, "❓")
                 proj_name = project_lookup.get(r.project_id, r.project_id[:8])
+                source = get_source(r.initiator)
                 prompt_preview = r.prompt[:30] + "..." if len(r.prompt) > 30 else r.prompt
-                result += f"{emoji} `{r.id[:8]}` | {proj_name}\n"
+                source_tag = f"[{source}] " if source else ""
+                result += f"{emoji} `{r.id[:8]}` | {source_tag}{proj_name}\n"
                 result += f"   _{prompt_preview}_\n"
 
             active_count = len(orchestrator.list_runs(active_only=True))

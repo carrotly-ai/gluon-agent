@@ -42,8 +42,10 @@ services:
 
       # Gluon configuration
       - GLUON_TELEGRAM_TOKEN
+      - GLUON_TELEGRAM_USERS
       - GLUON_DISCORD_TOKEN
       - GLUON_DISCORD_GUILD
+      - GLUON_DISCORD_USERS
       - GLUON_GIT_ENABLED=true
 
     # Interactive mode for CLI
