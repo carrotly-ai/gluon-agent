@@ -1,5 +1,6 @@
 """Pydantic models for Gluon Agent."""
 
+import os
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -12,6 +13,37 @@ from pydantic import BaseModel, Field
 def utc_now() -> datetime:
     """Return current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
+
+
+def expand_path(path_str: str | Path) -> Path:
+    """Expand environment variables and user home directory in path.
+
+    Supports:
+    - $VAR or ${VAR} for environment variables
+    - ~ for home directory
+    - Relative paths
+
+    Args:
+        path_str: Path string potentially containing variables or ~
+
+    Returns:
+        Expanded Path object
+
+    Example:
+        expand_path("${HOME}/workspaces/project") → /Users/mcutler/workspaces/project
+        expand_path("~/workspaces/project") → /Users/mcutler/workspaces/project
+    """
+    path_obj = Path(path_str)
+
+    # Expand ~ to home directory
+    if str(path_obj).startswith("~"):
+        path_obj = path_obj.expanduser()
+
+    # Expand environment variables
+    expanded_str = os.path.expandvars(str(path_obj))
+    path_obj = Path(expanded_str)
+
+    return path_obj
 
 
 class SessionStatus(str, Enum):
@@ -63,7 +95,8 @@ class Workspace(BaseModel):
     ignore_patterns: list[str] = Field(default_factory=lambda: [".*", "node_modules", "__pycache__", "venv", ".venv"])
 
     def model_post_init(self, __context: Any) -> None:
-        """Ensure path is absolute."""
+        """Expand environment variables and ensure path is absolute."""
+        self.path = expand_path(self.path)
         if not self.path.is_absolute():
             self.path = self.path.resolve()
 
@@ -108,7 +141,8 @@ class Project(BaseModel):
     metadata: dict[str, Any] | None = None  # Optional extra data
 
     def model_post_init(self, __context: Any) -> None:
-        """Ensure path is absolute."""
+        """Expand environment variables and ensure path is absolute."""
+        self.path = expand_path(self.path)
         if not self.path.is_absolute():
             self.path = self.path.resolve()
 
