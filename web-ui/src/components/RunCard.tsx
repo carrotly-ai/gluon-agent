@@ -1,41 +1,13 @@
 import { X, GitBranch, Archive, ExternalLink } from 'lucide-react'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { formatRelativeTime, formatFullDateTime } from '@/lib/timestamps'
 
 interface RunCardProps {
   run: Run
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
-}
-
-function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHour = Math.floor(diffMin / 60)
-  const diffDay = Math.floor(diffHour / 24)
-
-  if (diffMin < 1) return 'just now'
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  if (diffDay < 7) return `${diffDay}d ago`
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-function formatFullDateTime(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const date = new Date(dateStr)
-  return date.toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
 }
 
 // Map status to CSS variable for border color

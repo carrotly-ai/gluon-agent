@@ -1,12 +1,17 @@
 """Pydantic models for Gluon Agent."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 class SessionStatus(str, Enum):
@@ -51,8 +56,8 @@ class Workspace(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     name: str  # Human-readable name (unique)
     path: Path  # Absolute path to workspace directory
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     scan_depth: int = 1  # How deep to scan for projects (1 = immediate children)
     auto_discover: bool = True  # Whether to auto-discover projects
     ignore_patterns: list[str] = Field(default_factory=lambda: [".*", "node_modules", "__pycache__", "venv", ".venv"])
@@ -98,8 +103,8 @@ class Project(BaseModel):
     name: str  # Human-readable name (unique)
     path: Path  # Absolute path to project directory
     workspace_id: str | None = None  # FK to Workspace (None = standalone project)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     metadata: dict[str, Any] | None = None  # Optional extra data
 
     def model_post_init(self, __context: Any) -> None:
@@ -120,8 +125,8 @@ class Session(BaseModel):
     project_id: str  # FK to Project
     claude_session_id: str | None = None  # Session ID from Claude SDK (for resume)
     status: SessionStatus = SessionStatus.ACTIVE
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     last_prompt: str | None = None  # Last user prompt
     total_cost_usd: float = 0.0
     total_turns: int = 0
@@ -129,27 +134,27 @@ class Session(BaseModel):
     def mark_paused(self) -> None:
         """Mark session as paused (can be resumed)."""
         self.status = SessionStatus.PAUSED
-        self.updated_at = datetime.now()
+        self.updated_at = utc_now()
 
     def mark_completed(self) -> None:
         """Mark session as completed."""
         self.status = SessionStatus.COMPLETED
-        self.updated_at = datetime.now()
+        self.updated_at = utc_now()
 
     def mark_failed(self) -> None:
         """Mark session as failed."""
         self.status = SessionStatus.FAILED
-        self.updated_at = datetime.now()
+        self.updated_at = utc_now()
 
     def add_cost(self, cost: float) -> None:
         """Add to total cost."""
         self.total_cost_usd += cost
-        self.updated_at = datetime.now()
+        self.updated_at = utc_now()
 
     def increment_turns(self) -> None:
         """Increment turn count."""
         self.total_turns += 1
-        self.updated_at = datetime.now()
+        self.updated_at = utc_now()
 
 
 class ExecutionRun(BaseModel):
@@ -164,7 +169,7 @@ class ExecutionRun(BaseModel):
     prompt: str  # The task prompt
     initiator: str | None = None  # Who started the run (e.g., "cli", "telegram:12345")
     thread_id: str | None = None  # Discord/Slack thread ID for resume detection
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
     exit_code: int | None = None
@@ -197,25 +202,25 @@ class ExecutionRun(BaseModel):
         self.status = RunStatus.RUNNING
         self.pid = pid
         self.log_path = log_path
-        self.started_at = datetime.now()
+        self.started_at = utc_now()
 
     def mark_completed(self, exit_code: int = 0) -> None:
         """Mark run as completed."""
         self.status = RunStatus.COMPLETED
         self.exit_code = exit_code
-        self.completed_at = datetime.now()
+        self.completed_at = utc_now()
 
     def mark_failed(self, error: str, exit_code: int = 1) -> None:
         """Mark run as failed."""
         self.status = RunStatus.FAILED
         self.error_message = error
         self.exit_code = exit_code
-        self.completed_at = datetime.now()
+        self.completed_at = utc_now()
 
     def mark_cancelled(self) -> None:
         """Mark run as cancelled."""
         self.status = RunStatus.CANCELLED
-        self.completed_at = datetime.now()
+        self.completed_at = utc_now()
 
     @property
     def is_active(self) -> bool:
@@ -227,7 +232,7 @@ class ExecutionRun(BaseModel):
         """Get duration in seconds if started."""
         if not self.started_at:
             return None
-        end = self.completed_at or datetime.now()
+        end = self.completed_at or utc_now()
         return (end - self.started_at).total_seconds()
 
 
@@ -336,7 +341,7 @@ class ChannelMapping(BaseModel):
     channel_id: str  # Channel ID (platform-specific)
     project_id: str  # Project ID (FK)
     project_name: str  # Cached project name for convenience
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 # ========== Image Attachment Models (Phase 10.1) ==========
@@ -351,8 +356,8 @@ class ImageAttachment(BaseModel):
     mime_type: str | None = None  # e.g., "image/png"
     size_bytes: int
     hash: str  # SHA256 hash for deduplication
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     @property
     def full_path(self) -> Path:

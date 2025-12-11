@@ -15,6 +15,7 @@ from gluon.models import (
     Session,
     SessionStatus,
     Workspace,
+    utc_now,
 )
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
@@ -257,7 +258,7 @@ class GluonStore:
                     )
                 """)
                 # Set default settings
-                now = datetime.now().isoformat()
+                now = utc_now().isoformat()
                 conn.execute(
                     "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
                     ("auto_create_pr", "true", now),
@@ -319,7 +320,7 @@ class GluonStore:
 
     def update_project(self, project: Project) -> None:
         """Update an existing project."""
-        project.updated_at = datetime.now()
+        project.updated_at = utc_now()
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -435,7 +436,7 @@ class GluonStore:
                     status.last_fetch_at.isoformat() if status.last_fetch_at else None,
                     status.last_push_at.isoformat() if status.last_push_at else None,
                     status.last_commit_at.isoformat() if status.last_commit_at else None,
-                    datetime.now().isoformat(),
+                    utc_now().isoformat(),
                     project_id,
                 ),
             )
@@ -541,7 +542,7 @@ class GluonStore:
 
     def update_session(self, session: Session) -> None:
         """Update an existing session."""
-        session.updated_at = datetime.now()
+        session.updated_at = utc_now()
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -630,7 +631,7 @@ class GluonStore:
 
     def update_workspace(self, workspace: Workspace) -> None:
         """Update an existing workspace."""
-        workspace.updated_at = datetime.now()
+        workspace.updated_at = utc_now()
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -853,7 +854,7 @@ class GluonStore:
             return None
         run.status = new_status
         if new_status == RunStatus.CANCELLED:
-            run.completed_at = datetime.now()
+            run.completed_at = utc_now()
         self.update_run(run)
         return run
 
@@ -869,7 +870,7 @@ class GluonStore:
         if not run:
             return None
 
-        archived_at = datetime.now().isoformat() if archived else None
+        archived_at = utc_now().isoformat() if archived else None
 
         with self._get_conn() as conn:
             conn.execute(
@@ -1040,7 +1041,7 @@ class GluonStore:
         """Get aggregated usage statistics for header display."""
         from datetime import timedelta
 
-        now = datetime.now()
+        now = utc_now()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_ago = today - timedelta(days=7)
 
@@ -1235,7 +1236,7 @@ class GluonStore:
                 INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
                 """,
-                (key, value, datetime.now().isoformat()),
+                (key, value, utc_now().isoformat()),
             )
 
     def get_all_settings(self) -> dict[str, str]:
@@ -1313,7 +1314,7 @@ class GluonStore:
                 INSERT OR IGNORE INTO run_images (run_id, image_id, created_at)
                 VALUES (?, ?, ?)
                 """,
-                (run_id, image_id, datetime.now().isoformat()),
+                (run_id, image_id, utc_now().isoformat()),
             )
 
     def detach_image_from_run(self, run_id: str, image_id: str) -> bool:

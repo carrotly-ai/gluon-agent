@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react'
 import { fetchUsageSummary, fetchUsageByProject, fetchUsageRuns } from '@/lib/api'
 import type { UsageSummary, ProjectUsage, RunUsageItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { formatDateWithContext } from '@/lib/timestamps'
 
 function formatCost(cost: number | null): string {
   if (cost === null || cost === undefined) return '-'
@@ -16,12 +17,6 @@ function formatTokens(tokens: number | null): string {
   if (tokens < 1000) return `${tokens}`
   if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}k`
   return `${(tokens / 1000000).toFixed(2)}M`
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 type SortField = 'cost' | 'date' | 'tokens'
@@ -239,7 +234,7 @@ export function UsagePage() {
                           {run.prompt}
                         </p>
                         <div className="flex items-center gap-3 mt-1.5 text-[0.625rem] text-[var(--color-stone)]/60">
-                          <span>{formatDate(run.created_at)}</span>
+                          <span>{formatDateWithContext(run.created_at)}</span>
                           {run.model_used && <span className="text-mono">{run.model_used}</span>}
                           <span className="text-mono">
                             {formatTokens(run.input_tokens)} → {formatTokens(run.output_tokens)}

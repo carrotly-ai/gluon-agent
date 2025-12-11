@@ -8,6 +8,7 @@ import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachm
 import { formatFileSize } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { formatTime, formatDateWithContext, formatMessageTime } from '@/lib/timestamps'
 import ReactMarkdown from 'react-markdown'
 
 interface RunDetailDialogProps {
@@ -30,20 +31,6 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
 }
 
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  const today = new Date()
-  const isToday = date.toDateString() === today.toDateString()
-  if (isToday) return `Today, ${formatTime(dateStr)}`
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + formatTime(dateStr)
-}
 
 function formatTokens(tokens: number | null): string {
   if (tokens === null || tokens === undefined) return '-'
@@ -82,15 +69,6 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
-// Format timestamp to HH:MM:SS
-function formatMessageTime(timestamp: string): string {
-  try {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-  } catch {
-    return ''
-  }
-}
 
 // Get primary value from tool input (for compact display)
 function getToolPrimaryParam(input: unknown): { key: string; value: string } | null {
@@ -1060,7 +1038,7 @@ Focus on preserving the functionality from both sides where possible.`
             {/* Project + Meta Row */}
             <div className="flex items-center gap-4 text-[0.6875rem] text-[var(--color-stone)]/60 mb-4 shrink-0 flex-wrap">
               <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
-              <span className="hidden sm:inline">{formatDate(run?.created_at ?? null)}</span>
+              <span className="hidden sm:inline">{formatDateWithContext(run?.created_at ?? null)}</span>
               {run?.duration_seconds !== null && (
                 <span className="text-mono">{formatDuration(run?.duration_seconds ?? null)}</span>
               )}
@@ -1359,7 +1337,7 @@ Focus on preserving the functionality from both sides where possible.`
                                   {historyRun.prompt}
                                 </p>
                                 <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-0.5">
-                                  {formatDate(historyRun.created_at)} · {formatDuration(historyRun.duration_seconds)}
+                                  {formatDateWithContext(historyRun.created_at)} · {formatDuration(historyRun.duration_seconds)}
                                 </p>
                               </div>
                             </div>
