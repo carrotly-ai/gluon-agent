@@ -8,6 +8,10 @@ services:
     image: gluon-agent:latest
     container_name: gluon-agent-dev
 
+    # Load environment variables from .env.local
+    env_file:
+      - .env.local
+
     # Mount host directories
     volumes:
       # Configuration and state
@@ -62,10 +66,11 @@ services:
           cpus: '1'
           memory: 1G
 
-    # Override entrypoint to keep container alive for testing
-    # Uncomment the line below to run a specific command
+    # Run web dashboard by default
+    # To run different commands, uncomment and modify:
+    # command: gluon serve --telegram --discord
     # command: gluon status
 
     # Keep container alive when running in background
     restart: unless-stopped
-    entrypoint: ["/bin/bash", "-c", "sleep infinity"]
+    command: ["gluon", "web"]

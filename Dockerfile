@@ -40,14 +40,13 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # Switch to non-root user
 USER gluon
 
-# Install gluon-agent package
-RUN pip install --no-cache-dir -e .
+# Install gluon-agent package with web dashboard support
+RUN pip install --no-cache-dir -e '.[web]'
 
 # Add to PATH
 ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon
 
-# Use array syntax for proper signal handling
-ENTRYPOINT ["gluon"]
-CMD ["--help"]
+# Default command (can be overridden by docker-compose or docker run)
+CMD ["gluon", "--help"]
