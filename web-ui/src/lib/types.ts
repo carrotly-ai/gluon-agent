@@ -47,6 +47,9 @@ export interface RunDetail extends Run {
   pr_url: string | null
   pr_status: 'open' | 'merged' | 'closed' | 'draft' | null
   pr_mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
+  // Resume tracking
+  resume_count: number
+  last_resumed_at: string | null
 }
 
 /** Request body for creating a new run */
@@ -126,11 +129,14 @@ export interface ResumeRunRequest {
   prompt: string
 }
 
-/** Response from resume operation */
+/** Response from resume operation (in-place resume) */
 export interface ResumeRunResponse {
-  original_run_id: string
-  new_run_id: string
+  run_id: string  // Same run continues
   status: string
+  resume_count: number
+  // Backward compatibility (deprecated, same as run_id)
+  original_run_id?: string
+  new_run_id?: string
 }
 
 /** Response from session history */

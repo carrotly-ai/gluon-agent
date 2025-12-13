@@ -660,13 +660,13 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     setResuming(true)
     setResumeError(null)
     try {
-      // Resume creates a new run
+      // Resume continues the same run in-place
       const result = await resumeRun(run.id, resumePrompt.trim())
 
-      // Upload images to the new run if any
-      if (resumePendingImages.length > 0 && result.new_run_id) {
+      // Upload images to the run if any (same run_id)
+      if (resumePendingImages.length > 0 && result.run_id) {
         const uploadPromises = resumePendingImages.map(img =>
-          uploadAndAttachImage(result.new_run_id, img.file).catch(err => {
+          uploadAndAttachImage(result.run_id, img.file).catch(err => {
             console.error(`Failed to upload image ${img.file.name}:`, err)
             return null
           })
@@ -674,11 +674,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
         await Promise.all(uploadPromises)
       }
 
-      // Cleanup and close
+      // Cleanup images and prompt, but DON'T close dialog
+      // The run is now RUNNING again - stay open to watch progress
       resumePendingImages.forEach(img => URL.revokeObjectURL(img.preview))
       setResumePendingImages([])
       setResumePrompt('')
-      onOpenChange(false)
+
+      // Refresh the run data to show new status
+      handleRefresh()
     } catch (err) {
       setResumeError(err instanceof Error ? err.message : 'Failed to resume run')
     } finally {
