@@ -18,6 +18,13 @@ MODEL_IDS = {
     ModelTier.HAIKU: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 }
 
+# UI model name aliases (maps UI names to tier names)
+MODEL_ALIASES = {
+    "claude-opus-4.5": ModelTier.OPUS,
+    "claude-sonnet-4.5": ModelTier.SONNET,
+    "claude-haiku-4.5": ModelTier.HAIKU,
+}
+
 # Default model for general tasks
 DEFAULT_MODEL = ModelTier.SONNET
 
@@ -27,7 +34,7 @@ def get_model_id(tier: ModelTier | str) -> str:
     Get the full model ID for a given tier.
 
     Args:
-        tier: Model tier (opus/sonnet/haiku) or ModelTier enum
+        tier: Model tier (opus/sonnet/haiku), UI name (claude-opus-4.5), or ModelTier enum
 
     Returns:
         Full AWS Bedrock model ID
@@ -36,10 +43,25 @@ def get_model_id(tier: ModelTier | str) -> str:
         ValueError: If the tier is invalid
     """
     if isinstance(tier, str):
-        try:
-            tier = ModelTier(tier.lower())
-        except ValueError:
-            raise ValueError(f"Invalid model tier: {tier}. Must be one of: {', '.join(t.value for t in ModelTier)}")
+        # Check if it's already a full Bedrock model ID
+        if tier.startswith("global.anthropic.") or tier.startswith("us.anthropic.") or tier.startswith("apac.anthropic."):
+            return tier
+
+        tier_lower = tier.lower()
+
+        # Check UI aliases first (e.g., "claude-haiku-4.5")
+        if tier_lower in MODEL_ALIASES:
+            tier = MODEL_ALIASES[tier_lower]
+        else:
+            # Try as tier name (e.g., "haiku")
+            try:
+                tier = ModelTier(tier_lower)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid model: {tier}. Must be one of: "
+                    f"{', '.join(t.value for t in ModelTier)} or "
+                    f"{', '.join(MODEL_ALIASES.keys())}"
+                )
 
     return MODEL_IDS[tier]
 

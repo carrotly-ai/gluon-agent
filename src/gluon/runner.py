@@ -70,6 +70,7 @@ class TaskRunner:
         initiator: str | None = None,
         claude_session_id: str | None = None,
         use_worktree: bool = False,
+        model: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -81,12 +82,13 @@ class TaskRunner:
             initiator: Who started the run (e.g., "cli", "telegram:12345")
             claude_session_id: Optional Claude SDK session ID to resume from
             use_worktree: Execute in isolated Git worktree (default: False)
+            model: Model to use (e.g., "haiku", "claude-haiku-4.5", or full Bedrock ID)
 
         Returns:
             ExecutionRun with current status
         """
         # Create run record
-        run = self.store.create_run(project_id, prompt, initiator=initiator, use_worktree=use_worktree)
+        run = self.store.create_run(project_id, prompt, initiator=initiator, use_worktree=use_worktree, model=model)
         run.claude_session_id = claude_session_id  # Set for resume
 
         if wait:
@@ -325,8 +327,11 @@ but explicit commits with good messages are preferred.
                     stdout_file.write(f"Working in worktree on branch: {run.branch_name}\n\n")
                     stdout_file.flush()
 
+                # Create agent with the model specified for this run
+                agent = GluonAgent(model=run.model) if run.model else self.agent
+
                 # Execute via agent with images as base64 content blocks
-                async for item in self.agent.execute(
+                async for item in agent.execute(
                     working_dir=working_dir,
                     prompt=effective_prompt,
                     resume_session_id=run.claude_session_id,

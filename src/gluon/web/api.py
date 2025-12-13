@@ -298,6 +298,7 @@ def create_app() -> FastAPI:
             wait=False,
             use_worktree=body.use_worktree,
             initiator="web:dashboard",
+            model=body.model,
         )
 
         project_lookup = get_project_lookup()

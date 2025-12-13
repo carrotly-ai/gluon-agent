@@ -224,6 +224,7 @@ class ExecutionRun(BaseModel):
     pid: int | None = None  # OS process ID for cancellation
     status: RunStatus = RunStatus.PENDING
     prompt: str  # The task prompt
+    model: str | None = None  # Requested model (e.g., "claude-haiku-4.5", "haiku")
     initiator: str | None = None  # Who started the run (e.g., "cli", "telegram:12345")
     thread_id: str | None = None  # Discord/Slack thread ID for resume detection
     created_at: datetime = Field(default_factory=utc_now)

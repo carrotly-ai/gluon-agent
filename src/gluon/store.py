@@ -136,6 +136,8 @@ MIGRATIONS = [
     # Resume tracking for in-place resume (Phase: Resume Refactor)
     "ALTER TABLE execution_runs ADD COLUMN resume_count INTEGER DEFAULT 0;",
     "ALTER TABLE execution_runs ADD COLUMN last_resumed_at TEXT;",
+    # Model selection (Phase: Model Parameter)
+    "ALTER TABLE execution_runs ADD COLUMN model TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -705,6 +707,7 @@ class GluonStore:
         initiator: str | None = None,
         session_id: str | None = None,
         use_worktree: bool = False,
+        model: str | None = None,
     ) -> ExecutionRun:
         """Create a new execution run."""
         run = ExecutionRun(
@@ -713,14 +716,15 @@ class GluonStore:
             initiator=initiator,
             session_id=session_id,
             use_worktree=use_worktree,
+            model=model,
         )
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO execution_runs
                 (id, session_id, project_id, pid, status, prompt, initiator, created_at,
-                 started_at, completed_at, exit_code, log_path, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 started_at, completed_at, exit_code, log_path, error_message, model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -736,6 +740,7 @@ class GluonStore:
                     run.exit_code,
                     str(run.log_path) if run.log_path else None,
                     run.error_message,
+                    run.model,
                 ),
             )
         return run
@@ -946,6 +951,8 @@ class GluonStore:
             # Resume tracking
             resume_count=row["resume_count"] if "resume_count" in keys and row["resume_count"] is not None else 0,
             last_resumed_at=datetime.fromisoformat(row["last_resumed_at"]) if "last_resumed_at" in keys and row["last_resumed_at"] else None,
+            # Model selection
+            model=row["model"] if "model" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
