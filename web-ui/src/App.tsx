@@ -7,28 +7,69 @@ import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { UsagePage } from './components/UsagePage'
 import { SettingsPage } from './components/SettingsPage'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
-import { useHashFilter } from './hooks/useHashFilter'
+import { useRouteSync, type RunDetailTab } from './hooks/useRouteSync'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, archiveRun, fetchProjects, fetchRuns } from './lib/api'
+import { cancelRun, archiveRun, fetchProjects, fetchRuns, fetchRun } from './lib/api'
 import { getWorkspaceFromPath } from './lib/types'
 import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
 
 function App() {
   const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
-  const [selectedRun, setSelectedRun] = useState<Run | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
-  const { filter, setFilter, viewMode, setViewMode } = useHashFilter()
   const { theme, toggleTheme } = useTheme()
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
+
+  // URL-based routing
+  const {
+    viewMode,
+    setViewMode,
+    filter,
+    setFilter,
+    selectedRunId,
+    selectedTab,
+    openRunDetail,
+    closeRunDetail,
+    setRunDetailTab,
+    settingsTab,
+    setSettingsTab,
+  } = useRouteSync()
+
+  // Selected run state (loaded from API when URL has runId)
+  const [selectedRun, setSelectedRun] = useState<Run | null>(null)
+  const [loadingRun, setLoadingRun] = useState(false)
 
   // Fetch projects for workspace mapping
   useEffect(() => {
     fetchProjects().then(setProjects).catch(console.error)
   }, [])
+
+  // Fetch run when URL changes to include a runId
+  useEffect(() => {
+    if (!selectedRunId) {
+      setSelectedRun(null)
+      return
+    }
+
+    // First check if run is in current runs list
+    const runFromList = runs.find(r => r.id === selectedRunId || r.id.startsWith(selectedRunId))
+    if (runFromList) {
+      setSelectedRun(runFromList)
+      return
+    }
+
+    // Otherwise fetch from API (for archived runs or deep links)
+    setLoadingRun(true)
+    fetchRun(selectedRunId)
+      .then(setSelectedRun)
+      .catch(() => {
+        // Run not found, close modal
+        closeRunDetail()
+      })
+      .finally(() => setLoadingRun(false))
+  }, [selectedRunId, runs, closeRunDetail])
 
   // Fetch archived runs when viewing archived filter
   useEffect(() => {
@@ -72,9 +113,8 @@ function App() {
   }, [runs, filter, projectWorkspaceMap, archivedRuns])
 
   const handleRunClick = useCallback((run: Run) => {
-    setSelectedRun(run)
-    setDialogOpen(true)
-  }, [])
+    openRunDetail(run.id)
+  }, [openRunDetail])
 
   const handleCancelRun = useCallback(async (run: Run) => {
     try {
@@ -101,6 +141,16 @@ function App() {
       setSelectedRun(updatedRun)
     }
   }, [setRuns, selectedRun?.id])
+
+  const handleDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      closeRunDetail()
+    }
+  }, [closeRunDetail])
+
+  const handleTabChange = useCallback((tab: string) => {
+    setRunDetailTab(tab as RunDetailTab)
+  }, [setRunDetailTab])
 
   const activeRuns = filteredRuns.filter(r => r.status === 'running').length
 
@@ -212,7 +262,7 @@ function App() {
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden min-h-0">
         {viewMode === 'settings' ? (
-          <SettingsPage />
+          <SettingsPage tab={settingsTab} onTabChange={setSettingsTab} />
         ) : viewMode === 'usage' ? (
           <UsagePage />
         ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
@@ -236,9 +286,11 @@ function App() {
 
       <RunDetailDialog
         run={selectedRun}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        open={!!selectedRunId && !loadingRun}
+        onOpenChange={handleDialogOpenChange}
         onRunUpdated={handleRunUpdated}
+        initialTab={selectedTab || undefined}
+        onTabChange={handleTabChange}
       />
 
       <CreateTaskDialog

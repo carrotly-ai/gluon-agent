@@ -11,11 +11,15 @@ import { cn } from '@/lib/utils'
 import { formatDateWithContext, formatMessageTime, formatRelativeTime } from '@/lib/timestamps'
 import ReactMarkdown from 'react-markdown'
 
+type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments'
+
 interface RunDetailDialogProps {
   run: Run | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onRunUpdated: (run: Run) => void
+  initialTab?: TabType
+  onTabChange?: (tab: TabType) => void
 }
 
 // Pending image for resume feature
@@ -370,10 +374,23 @@ function MessagesPanel({ messages, scrollRef }: { messages: AgentMessage[]; scro
   )
 }
 
-export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDetailDialogProps) {
+export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initialTab, onTabChange }: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [logs, setLogs] = useState<{ stdout: string; stderr: string; messages: string }>({ stdout: '', stderr: '', messages: '' })
-  const [activeTab, setActiveTab] = useState<'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments'>('messages')
+  const [activeTab, setActiveTabInternal] = useState<TabType>(initialTab || 'messages')
+
+  // Wrap setActiveTab to notify parent
+  const setActiveTab = useCallback((tab: TabType) => {
+    setActiveTabInternal(tab)
+    onTabChange?.(tab)
+  }, [onTabChange])
+
+  // Sync with initialTab when it changes (URL navigation)
+  useEffect(() => {
+    if (initialTab && initialTab !== activeTab) {
+      setActiveTabInternal(initialTab)
+    }
+  }, [initialTab])
   const [loading, setLoading] = useState(false)
   const [commitsData, setCommitsData] = useState<RunCommitsResponse | null>(null)
   const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
@@ -415,7 +432,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated }: RunDe
     if (!open || !run) {
       setDetail(null)
       setLogs({ stdout: '', stderr: '', messages: '' })
-      setActiveTab('messages')
+      setActiveTabInternal(initialTab || 'messages')
       setResumePrompt('')
       setResumeError(null)
       // Cleanup resume image previews

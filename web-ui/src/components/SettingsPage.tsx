@@ -1,13 +1,21 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useCallback } from 'react'
 import { Plus, FolderOpen, RefreshCw, Trash2, GitBranch, AlertCircle, Check, X, Settings } from 'lucide-react'
 import { fetchWorkspaces, fetchProjects, createWorkspace, deleteWorkspace, scanWorkspace, deleteProject, fetchSettings, updateSetting } from '@/lib/api'
 import type { Workspace, Project, ScanResultResponse } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useState } from 'react'
 
 type Tab = 'workspaces' | 'projects' | 'preferences'
 
-export function SettingsPage() {
-  const [tab, setTab] = useState<Tab>('workspaces')
+interface SettingsPageProps {
+  tab?: Tab
+  onTabChange?: (tab: Tab) => void
+}
+
+export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPageProps) {
+  // Use controlled tab if provided, otherwise manage internally
+  const tab = controlledTab ?? 'workspaces'
+  const setTab = onTabChange ?? (() => {})
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)

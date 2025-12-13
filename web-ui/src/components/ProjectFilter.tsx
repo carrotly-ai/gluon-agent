@@ -2,12 +2,12 @@ import { useEffect, useState, useRef } from 'react'
 import { ChevronDown, Folder, FolderOpen, Archive } from 'lucide-react'
 import { fetchProjects } from '@/lib/api'
 import { groupProjectsByWorkspace, type Project, type ProjectWithWorkspace } from '@/lib/types'
-import { type HashFilter } from '@/hooks/useHashFilter'
+import { type RouteFilter } from '@/hooks/useRouteSync'
 import { cn } from '@/lib/utils'
 
 interface ProjectFilterProps {
-  filter: HashFilter
-  onFilterChange: (filter: HashFilter) => void
+  filter: RouteFilter
+  onFilterChange: (filter: RouteFilter) => void
 }
 
 export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
@@ -44,7 +44,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
     return 'All Projects'
   }
 
-  const handleSelect = (newFilter: HashFilter) => {
+  const handleSelect = (newFilter: RouteFilter) => {
     onFilterChange(newFilter)
     setOpen(false)
   }
