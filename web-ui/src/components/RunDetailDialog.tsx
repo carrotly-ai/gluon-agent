@@ -8,7 +8,7 @@ import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachm
 import { formatFileSize } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { formatDateWithContext, formatMessageTime } from '@/lib/timestamps'
+import { formatDateWithContext, formatMessageTime, formatRelativeTime } from '@/lib/timestamps'
 import ReactMarkdown from 'react-markdown'
 
 interface RunDetailDialogProps {
@@ -1337,7 +1337,7 @@ Focus on preserving the functionality from both sides where possible.`
                             {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''} ahead of {commitsData.base_branch}
                           </span>
                         </div>
-                        {/* Commits list - expandable */}
+                        {/* Commits list - compact expandable */}
                         {commitsData.commits.map((commit, idx) => {
                           const isExpanded = expandedCommit === commit.sha
                           const detail = commitDetails[commit.sha]
@@ -1351,36 +1351,28 @@ Focus on preserving the functionality from both sides where possible.`
                                 idx === commitsData.commits.length - 1 && 'border-b-0'
                               )}
                             >
-                              {/* Commit header - clickable */}
+                              {/* Commit header - compact single line */}
                               <button
-                                className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-[var(--color-paper)]/5 transition-colors px-1 -mx-1 rounded"
+                                className="w-full flex items-center gap-2 py-1.5 text-left hover:bg-[var(--color-paper)]/5 transition-colors px-1 -mx-1 rounded"
                                 onClick={() => handleExpandCommit(commit.sha)}
                               >
-                                {/* Timeline dot + expand indicator */}
-                                <div className="flex flex-col items-center pt-1.5">
-                                  <div className="w-2 h-2 rounded-full bg-[var(--color-jade)]" />
-                                  {idx !== commitsData.commits.length - 1 && (
-                                    <div className="w-px flex-1 bg-[rgba(163,163,163,0.15)] mt-1" />
-                                  )}
-                                </div>
-                                {/* Commit info */}
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed">
-                                    {commit.message}
-                                  </p>
-                                  <div className="flex items-center gap-2 mt-1 text-[0.625rem] text-[var(--color-stone)]/50">
-                                    <span className="text-mono">{commit.sha.slice(0, 7)}</span>
-                                    <span>·</span>
-                                    <span>{commit.author}</span>
-                                    <span>·</span>
-                                    <span>{new Date(commit.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-                                  </div>
-                                </div>
                                 {/* Expand chevron */}
-                                <ChevronDown className={cn(
-                                  'w-4 h-4 text-[var(--color-stone)]/50 transition-transform shrink-0 mt-1',
-                                  isExpanded && 'rotate-180'
+                                <ChevronRight className={cn(
+                                  'w-3 h-3 text-[var(--color-stone)]/40 transition-transform shrink-0',
+                                  isExpanded && 'rotate-90'
                                 )} />
+                                {/* Commit message */}
+                                <span className="text-[0.6875rem] text-[var(--color-paper)]/90 truncate flex-1 min-w-0">
+                                  {commit.message}
+                                </span>
+                                {/* Relative time */}
+                                <span className="text-[0.625rem] text-[var(--color-stone)]/50 shrink-0">
+                                  {formatRelativeTime(commit.date)}
+                                </span>
+                                {/* Short hash */}
+                                <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/40 shrink-0">
+                                  {commit.sha.slice(0, 7)}
+                                </span>
                               </button>
                               {/* Expanded content */}
                               {isExpanded && (
