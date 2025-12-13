@@ -163,31 +163,36 @@ function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; is
   // Find the current in-progress task for the header
   const currentTask = todos.find(t => t.status === 'in_progress')
 
+  // All done = use jade green for everything
+  const allDone = todos.length > 0 && completed === todos.length
+
   return (
     <div className="group">
       {/* Compact header */}
       <div
         className={cn(
           'flex items-center gap-2 py-1.5 px-3 cursor-pointer transition-colors',
-          'border-l-2 border-l-[var(--color-harvest)]/40 hover:border-l-[var(--color-harvest)]/60 hover:bg-[var(--color-paper)]/[0.02]',
-          isExpanded && 'border-l-[var(--color-harvest)]/60'
+          allDone
+            ? 'border-l-2 border-l-[var(--color-jade)]/50 hover:border-l-[var(--color-jade)]/70 hover:bg-[var(--color-paper)]/[0.02]'
+            : 'border-l-2 border-l-[var(--color-harvest)]/40 hover:border-l-[var(--color-harvest)]/60 hover:bg-[var(--color-paper)]/[0.02]',
+          isExpanded && (allDone ? 'border-l-[var(--color-jade)]/70' : 'border-l-[var(--color-harvest)]/60')
         )}
         onClick={onToggle}
       >
         <ChevronRight className={cn('w-3 h-3 text-[var(--color-stone)]/30 transition-transform', isExpanded && 'rotate-90')} />
 
         {/* Icon */}
-        <CheckCircle2 className="w-2.5 h-2.5 text-[var(--color-harvest)]/70 shrink-0" />
+        <CheckCircle2 className={cn('w-2.5 h-2.5 shrink-0', allDone ? 'text-[var(--color-jade)]/80' : 'text-[var(--color-harvest)]/70')} />
 
         {/* Tool name + summary */}
-        <span className="text-[0.6875rem] font-medium text-[var(--color-harvest)]/80 font-mono">TodoWrite</span>
+        <span className={cn('text-[0.6875rem] font-medium font-mono', allDone ? 'text-[var(--color-jade)]/90' : 'text-[var(--color-harvest)]/80')}>TodoWrite</span>
 
         {/* Current task or summary */}
         <span className="text-[0.6875rem] text-[var(--color-paper)]/60 truncate flex-1 min-w-0">
           {currentTask ? (
             <span className="text-[var(--color-sky)]">{currentTask.content}</span>
           ) : todos.length > 0 ? (
-            <span className="text-[var(--color-stone)]/60">
+            <span className={allDone ? 'text-[var(--color-jade)]/70' : 'text-[var(--color-stone)]/60'}>
               {completed}/{todos.length} done
               {inProgress > 0 && <span className="text-[var(--color-sky)]"> · {inProgress} active</span>}
             </span>
@@ -202,7 +207,7 @@ function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; is
 
       {/* Expanded todo list */}
       {isExpanded && todos.length > 0 && (
-        <div className="border-l-2 border-l-[var(--color-harvest)]/60 ml-0 pl-4 py-2 bg-[var(--color-paper)]/[0.02]">
+        <div className={cn('border-l-2 ml-0 pl-4 py-2 bg-[var(--color-paper)]/[0.02]', allDone ? 'border-l-[var(--color-jade)]/70' : 'border-l-[var(--color-harvest)]/60')}>
           <div className="space-y-1">
             {todos.map((todo, idx) => (
               <div key={idx} className="flex items-start gap-2 text-[0.6875rem]">
