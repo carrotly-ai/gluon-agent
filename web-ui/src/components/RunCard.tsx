@@ -16,7 +16,7 @@ function getStatusBorderColor(status: string): string {
     case 'running':
       return 'var(--color-sky)'
     case 'pending':
-      return 'var(--color-harvest)'
+      return 'var(--color-stone)'
     case 'completed':
       return 'var(--color-jade)'
     case 'review':
