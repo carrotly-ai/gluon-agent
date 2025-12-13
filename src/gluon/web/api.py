@@ -1145,9 +1145,8 @@ def create_app() -> FastAPI:
             )
 
             if merge_result.get("success"):
-                # Update run's PR status to merged (if there was a PR)
-                if run.pr_status == "open":
-                    run.pr_status = "merged"
+                # Mark run as merged (works for both PRs and local-only merges)
+                run.pr_status = "merged"
                 store.update_run(run)
 
                 # Broadcast update
