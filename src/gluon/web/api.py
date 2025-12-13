@@ -1644,7 +1644,8 @@ def create_app() -> FastAPI:
 
                 for run in runs:
                     run_key = run.id
-                    current_state = run.status.value
+                    # Track status AND pr_status for Kanban column changes
+                    current_state = f"{run.status.value}:{run.pr_status or 'none'}"
 
                     # Check if state changed
                     if run_key in _last_run_states:
@@ -1662,7 +1663,7 @@ def create_app() -> FastAPI:
                     current_ids = {r.id for r in runs}
                     _last_run_states.clear()
                     for run in runs:
-                        _last_run_states[run.id] = run.status.value
+                        _last_run_states[run.id] = f"{run.status.value}:{run.pr_status or 'none'}"
 
                 # Refresh project lookup occasionally (new projects)
                 project_lookup = get_project_lookup()
