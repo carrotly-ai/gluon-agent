@@ -268,6 +268,7 @@ def create_app() -> FastAPI:
             prompt=body.prompt,
             wait=False,
             use_worktree=body.use_worktree,
+            initiator="web:dashboard",
         )
 
         project_lookup = get_project_lookup()
@@ -352,6 +353,7 @@ def create_app() -> FastAPI:
             prompt=body.prompt,
             claude_session_id=original_run.claude_session_id,
             wait=False,
+            initiator="web:resume",
         )
 
         # Broadcast to WebSocket clients
