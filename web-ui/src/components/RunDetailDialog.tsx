@@ -1132,14 +1132,6 @@ Focus on preserving the functionality from both sides where possible.`
                   <span className="text-mono text-[var(--color-sky)]">{toolCount} tools</span>
                 ) : null
               })()}
-              {(detail?.input_tokens || detail?.output_tokens) && (
-                <span className="text-mono text-[var(--color-stone)]/60">
-                  {formatTokens(detail.input_tokens)} → {formatTokens(detail.output_tokens)}
-                </span>
-              )}
-              {detail?.model_used && (
-                <span className="text-mono text-[var(--color-stone)]/50">{detail.model_used}</span>
-              )}
             </div>
 
             {/* Git Info Row - show on mobile only (desktop shows in header) */}
@@ -1806,11 +1798,21 @@ Focus on preserving the functionality from both sides where possible.`
             )}
 
             {/* Footer Meta */}
-            {detail?.session_id && (
-              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0">
+            {(detail?.session_id || detail?.input_tokens || detail?.model_used) && (
+              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0 flex items-center justify-between">
                 <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/50">
-                  session {detail.session_id.slice(0, 12)}
+                  {detail?.session_id ? `session ${detail.session_id.slice(0, 12)}` : ''}
                 </span>
+                <div className="flex items-center gap-4 text-mono text-[0.625rem] text-[var(--color-stone)]/50">
+                  {(detail?.input_tokens || detail?.output_tokens) && (
+                    <span>
+                      {formatTokens(detail.input_tokens)} → {formatTokens(detail.output_tokens)}
+                    </span>
+                  )}
+                  {detail?.model_used && (
+                    <span className="text-[var(--color-stone)]/40">{detail.model_used}</span>
+                  )}
+                </div>
               </div>
             )}
           </div>
