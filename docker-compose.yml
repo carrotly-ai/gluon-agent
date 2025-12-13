@@ -41,8 +41,8 @@ services:
       - CLAUDE_CODE_USE_BEDROCK=1
 
       # Node.js memory tuning for Claude Code CLI
-      # Limit heap to 3GB to leave room for subprocesses within 6GB container
-      - NODE_OPTIONS=--max-old-space-size=3072
+      # Limit heap to 6GB to leave room for subprocesses within 12GB container
+      - NODE_OPTIONS=--max-old-space-size=6144
 
       # Gluon configuration
       - GLUON_TELEGRAM_TOKEN
@@ -62,15 +62,15 @@ services:
 
     # Resource limits for running concurrent Claude Code agents
     # Each agent can use 512MB-1GB for context windows and code analysis
-    # With 2-3 concurrent agents + web dashboard overhead, need 4-6GB
+    # With 5-6 concurrent agents + web dashboard overhead, need 8-12GB
     deploy:
       resources:
         limits:
+          cpus: '8'
+          memory: 12G
+        reservations:
           cpus: '4'
           memory: 6G
-        reservations:
-          cpus: '2'
-          memory: 3G
 
     # Run web dashboard by default
     # To run different commands, uncomment and modify:
