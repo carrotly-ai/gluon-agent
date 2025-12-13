@@ -546,21 +546,8 @@ class Orchestrator:
 
                     elif isinstance(item, AgentResult):
                         result = item
-
-                        # Log final result
-                        result_dict = {
-                            "timestamp": utc_now().isoformat(),
-                            "type": "result",
-                            "session_id": item.claude_session_id,
-                            "cost_usd": item.total_cost_usd,
-                            "input_tokens": item.input_tokens,
-                            "output_tokens": item.output_tokens,
-                            "model_used": item.model_used,
-                            "turns": item.total_turns,
-                            "success": item.success,
-                            "error": item.error,
-                        }
-                        messages_file.write(json.dumps(result_dict) + "\n")
+                        # AgentResult summary - don't write to messages.jsonl
+                        # since AgentMessage type="result" already logged the completion
 
             # Update ExecutionRun with result
             if result:

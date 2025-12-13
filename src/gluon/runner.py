@@ -197,6 +197,7 @@ class TaskRunner:
             resume_msg = {
                 "type": "system",
                 "subtype": "resume",
+                "content": f"=== Resume #{run.resume_count} ===",
                 "resume_attempt": run.resume_count,
                 "prompt": run.prompt,
                 "timestamp": run.last_resumed_at.isoformat() if run.last_resumed_at else None,
@@ -351,21 +352,8 @@ but explicit commits with good messages are preferred.
                             stderr_file.flush()
 
                     elif isinstance(item, AgentResult):
-                        # Log final result
-                        result_dict = {
-                            "timestamp": datetime.now(UTC).isoformat(),
-                            "type": "result",
-                            "session_id": item.claude_session_id,
-                            "cost_usd": item.total_cost_usd,
-                            "input_tokens": item.input_tokens,
-                            "output_tokens": item.output_tokens,
-                            "model_used": item.model_used,
-                            "turns": item.total_turns,
-                            "success": item.success,
-                            "error": item.error,
-                        }
-                        messages_file.write(json.dumps(result_dict) + "\n")
-
+                        # AgentResult summary - update run record (don't write to messages.jsonl
+                        # since AgentMessage type="result" already logged the completion)
                         # Update run with Claude session ID for future resume
                         run.claude_session_id = item.claude_session_id
                         # Store cost tracking data (accumulate for resumed runs)
