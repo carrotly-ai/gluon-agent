@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Sparkles } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Sparkles, Maximize2 } from 'lucide-react'
 import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment, CommitDetail, FileDiff } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
@@ -1188,6 +1189,14 @@ Focus on preserving the functionality from both sides where possible.`
                   <span>{archiving ? '...' : 'Archive'}</span>
                 </button>
               )} */}
+              {/* Full-screen view toggle */}
+              <Link
+                to={`/runs/${run?.id}/${activeTab}`}
+                className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
+                title="Open in full screen"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </Link>
               {/* Refresh */}
               <button
                 className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
