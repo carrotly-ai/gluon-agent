@@ -126,7 +126,7 @@ function DroppableColumn({
         <div className="p-2 sm:p-3 space-y-2">
           {runs.length === 0 ? (
             <p className="text-caption text-center py-8 opacity-40">
-              {status === 'review' ? 'No PRs pending review' : 'Empty'}
+              {status === 'review' ? 'No branches awaiting merge' : 'Empty'}
             </p>
           ) : (
             runs.map((run) => (
@@ -169,8 +169,14 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRun
   // Group runs by column status (review is a virtual column)
   const runsByColumn = runs.reduce<Record<KanbanColumn, Run[]>>(
     (acc, run) => {
-      // "Review" column: completed runs with open PRs
-      if (run.status === 'completed' && run.pr_status === 'open') {
+      // "Review" column: completed worktree runs that haven't been merged yet
+      // This includes: open PRs, local-only branches awaiting merge, draft PRs
+      const needsReview = run.status === 'completed' &&
+        run.use_worktree &&
+        run.branch_name &&
+        run.pr_status !== 'merged'
+
+      if (needsReview) {
         acc['review'].push(run)
       } else {
         // Use the actual status column
