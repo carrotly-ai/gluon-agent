@@ -40,8 +40,8 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
         run.status === 'running' && "card-running overflow-visible"
       )}
       style={{ borderLeft: `3px solid ${getStatusBorderColor(
-        // Use 'review' for completed runs with open PRs (virtual REVIEW column)
-        run.status === 'completed' && run.pr_status === 'open' ? 'review' : run.status
+        // Use 'review' for completed worktree runs that haven't been merged (virtual REVIEW column)
+        run.status === 'completed' && run.use_worktree && run.branch_name && run.pr_status !== 'merged' ? 'review' : run.status
       )}` }}
       onClick={onClick}
     >
