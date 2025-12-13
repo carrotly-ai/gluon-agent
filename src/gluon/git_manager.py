@@ -635,6 +635,55 @@ Run ID: `{run_id}`
 
     # ========== Commits and File Changes ==========
 
+    async def get_commit_count(
+        self,
+        path: Path,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> int:
+        """Get count of commits on branch since diverging from base (lightweight)."""
+        if not await self._is_git_repo(path):
+            return 0
+
+        # Get merge base
+        rc, merge_base, _ = await self._run_git(path, "merge-base", base_branch, branch_name)
+        if rc != 0:
+            return 0
+
+        # Count commits
+        rc, stdout, _ = await self._run_git(
+            path, "rev-list", "--count", f"{merge_base.strip()}..{branch_name}"
+        )
+        if rc == 0:
+            try:
+                return int(stdout.strip())
+            except ValueError:
+                pass
+        return 0
+
+    async def get_file_count(
+        self,
+        path: Path,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> int:
+        """Get count of files changed on branch since diverging from base (lightweight)."""
+        if not await self._is_git_repo(path):
+            return 0
+
+        # Get merge base
+        rc, merge_base, _ = await self._run_git(path, "merge-base", base_branch, branch_name)
+        if rc != 0:
+            return 0
+
+        # Count files changed (using --numstat and counting lines)
+        rc, stdout, _ = await self._run_git(
+            path, "diff", "--numstat", f"{merge_base.strip()}..{branch_name}"
+        )
+        if rc == 0 and stdout.strip():
+            return len([line for line in stdout.strip().split("\n") if line.strip()])
+        return 0
+
     async def get_branch_commits(
         self,
         path: Path,

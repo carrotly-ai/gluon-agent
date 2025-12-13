@@ -60,6 +60,9 @@ class RunDetailResponse(RunResponse):
     # Resume tracking fields
     resume_count: int = Field(default=0, description="Number of times this run has been resumed")
     last_resumed_at: str | None = Field(default=None, description="ISO timestamp of last resume")
+    # Precomputed counts for tab badges (avoids lazy loading)
+    commit_count: int | None = Field(default=None, description="Number of commits on branch")
+    file_count: int | None = Field(default=None, description="Number of files changed on branch")
 
 
 class CreateRunRequest(BaseModel):

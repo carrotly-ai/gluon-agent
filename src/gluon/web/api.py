@@ -231,6 +231,20 @@ def create_app() -> FastAPI:
             if git_status:
                 has_remote = git_status.remote is not None
 
+        # Compute commit/file counts for tab badges (lightweight git operations)
+        commit_count = None
+        file_count = None
+        if run.branch_name and project:
+            from gluon.git_manager import GitManager
+            git_manager_temp = GitManager(store)
+            working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+            base_branch = run.source_branch or "main"
+            try:
+                commit_count = await git_manager_temp.get_commit_count(working_path, run.branch_name, base_branch)
+                file_count = await git_manager_temp.get_file_count(working_path, run.branch_name, base_branch)
+            except Exception:
+                pass  # Counts are optional, don't fail request
+
         return RunDetailResponse(
             id=run.id,
             project_id=run.project_id,
@@ -264,6 +278,9 @@ def create_app() -> FastAPI:
             # Resume tracking
             resume_count=run.resume_count,
             last_resumed_at=run.last_resumed_at.isoformat() if run.last_resumed_at else None,
+            # Precomputed counts for tab badges
+            commit_count=commit_count,
+            file_count=file_count,
         )
 
     @app.post("/api/runs", response_model=RunResponse)

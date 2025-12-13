@@ -51,6 +51,9 @@ export interface RunDetail extends Run {
   // Resume tracking
   resume_count: number
   last_resumed_at: string | null
+  // Precomputed counts for tab badges
+  commit_count: number | null
+  file_count: number | null
 }
 
 /** Request body for creating a new run */

@@ -1285,9 +1285,12 @@ Focus on preserving the functionality from both sides where possible.`
                       >
                         <GitCommit className="w-3 h-3" />
                         Commits
-                        {commitsData && commitsData.commit_count > 0 && (
-                          <span className="text-[0.5rem] text-[var(--color-stone)]/50">({commitsData.commit_count})</span>
-                        )}
+                        {(() => {
+                          const count = commitsData?.commit_count ?? detail?.commit_count
+                          return count && count > 0 ? (
+                            <span className="text-[0.5rem] text-[var(--color-stone)]/50">({count})</span>
+                          ) : null
+                        })()}
                       </button>
                       <button
                         className={cn(
@@ -1300,9 +1303,12 @@ Focus on preserving the functionality from both sides where possible.`
                       >
                         <FileCode className="w-3 h-3" />
                         Files
-                        {filesData && filesData.file_count > 0 && (
-                          <span className="text-[0.5rem] text-[var(--color-stone)]/50">({filesData.file_count})</span>
-                        )}
+                        {(() => {
+                          const count = filesData?.file_count ?? detail?.file_count
+                          return count && count > 0 ? (
+                            <span className="text-[0.5rem] text-[var(--color-stone)]/50">({count})</span>
+                          ) : null
+                        })()}
                       </button>
                     </>
                   )}
