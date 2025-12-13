@@ -1806,7 +1806,7 @@ Focus on preserving the functionality from both sides where possible.`
                 <div className="flex items-center gap-4 text-mono text-[0.625rem] text-[var(--color-stone)]/50">
                   {(detail?.input_tokens || detail?.output_tokens) && (
                     <span>
-                      {formatTokens(detail.input_tokens)} → {formatTokens(detail.output_tokens)}
+                      {formatTokens(detail.input_tokens)} input → {formatTokens(detail.output_tokens)} output
                     </span>
                   )}
                   {detail?.model_used && (
