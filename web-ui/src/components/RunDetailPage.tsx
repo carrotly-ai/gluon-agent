@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Filter, Sparkles, Minimize2 } from 'lucide-react'
 import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment, CommitDetail, FileDiff } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
@@ -783,6 +784,13 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
         setDetail(updatedDetail)
         setRun(updatedDetail)
         onRunUpdated?.(updatedDetail)
+        toast.success('Pull request created', {
+          description: `PR #${updatedDetail.pr_number} opened`,
+          action: {
+            label: 'View',
+            onClick: () => window.open(result.pr_url, '_blank'),
+          },
+        })
       } else {
         setPrError(result.error || 'Failed to create PR')
       }
@@ -804,6 +812,9 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
         setDetail(updatedDetail)
         setRun(updatedDetail)
         onRunUpdated?.(updatedDetail)
+        toast.success('Branch merged successfully', {
+          description: `Merged into ${detail?.source_branch || 'main'}`,
+        })
       } else if (result.has_conflicts && result.conflicting_files && result.conflicting_files.length > 0) {
         const filesStr = result.conflicting_files.slice(0, 10).join('\n- ')
         const moreCount = result.conflicting_files.length > 10 ? result.conflicting_files.length - 10 : 0

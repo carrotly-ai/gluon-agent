@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import './index.css'
 import App from './App.tsx'
 import { RunDetailPage } from './components/RunDetailPage.tsx'
@@ -8,6 +9,16 @@ import { RunDetailPage } from './components/RunDetailPage.tsx'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: 'var(--color-ink)',
+            border: '1px solid rgba(163,163,163,0.15)',
+            color: 'var(--color-paper)',
+          },
+        }}
+      />
       <Routes>
         {/* Redirect root to board */}
         <Route path="/" element={<Navigate to="/board" replace />} />

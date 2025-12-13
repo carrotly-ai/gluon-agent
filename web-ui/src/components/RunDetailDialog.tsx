@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -908,6 +909,13 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
         const updatedDetail = await fetchRun(run.id)
         setDetail(updatedDetail)
         onRunUpdated(updatedDetail)
+        toast.success('Pull request created', {
+          description: `PR #${updatedDetail.pr_number} opened`,
+          action: {
+            label: 'View',
+            onClick: () => window.open(result.pr_url, '_blank'),
+          },
+        })
       } else {
         setPrError(result.error || 'Failed to create PR')
       }
@@ -929,6 +937,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
         const updatedDetail = await fetchRun(run.id)
         setDetail(updatedDetail)
         onRunUpdated(updatedDetail)
+        toast.success('Branch merged successfully', {
+          description: `Merged into ${detail?.source_branch || 'main'}`,
+        })
       } else if (result.has_conflicts && result.conflicting_files && result.conflicting_files.length > 0) {
         // Merge conflicts detected - prompt user to resolve via agent resume
         const filesStr = result.conflicting_files.slice(0, 10).join('\n- ')
