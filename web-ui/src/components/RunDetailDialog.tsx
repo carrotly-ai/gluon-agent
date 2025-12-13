@@ -216,7 +216,7 @@ function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; is
                 )}
                 {/* Content */}
                 <span className={cn(
-                  todo.status === 'completed' && 'text-[var(--color-stone)]/50 line-through',
+                  todo.status === 'completed' && 'text-[var(--color-jade)]/70 line-through',
                   todo.status === 'in_progress' && 'text-[var(--color-paper)]/90',
                   todo.status === 'pending' && 'text-[var(--color-paper)]/60'
                 )}>
