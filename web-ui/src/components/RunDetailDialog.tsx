@@ -170,14 +170,14 @@ function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isE
         )}
 
         {/* Icon */}
-        <Wrench className="w-3.5 h-3.5 text-[var(--color-sky)] shrink-0" />
+        <Wrench className="w-3 h-3 text-[var(--color-sky)] shrink-0" />
 
         {/* Tool name */}
-        <span className="text-[0.8125rem] font-semibold text-[var(--color-sky)] font-mono">{toolName}</span>
+        <span className="text-[0.6875rem] font-semibold text-[var(--color-sky)] font-mono">{toolName}</span>
 
         {/* Primary param preview */}
         {primaryParam && (
-          <span className="text-[0.8125rem] text-[var(--color-paper)] font-mono truncate flex-1 min-w-0">
+          <span className="text-[0.6875rem] text-[var(--color-paper)] font-mono truncate flex-1 min-w-0">
             <span className="text-[var(--color-harvest)]">{primaryParam.key}</span>
             <span className="text-[var(--color-stone)]/60">=</span>
             <span className="text-[var(--color-paper)]/90">"{primaryParam.value}"</span>
@@ -193,8 +193,8 @@ function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isE
         <div className="bg-[rgba(102,178,255,0.05)] border-t border-[rgba(102,178,255,0.15)] rounded-b-md px-3 py-2 ml-5">
           <div className="space-y-1.5">
             {fullParams.map((param, idx) => (
-              <div key={idx} className="flex gap-2 text-[0.8125rem] font-mono">
-                <span className="text-[var(--color-harvest)] shrink-0 min-w-[80px]">{param.key}</span>
+              <div key={idx} className="flex gap-2 text-[0.625rem] font-mono">
+                <span className="text-[var(--color-harvest)] shrink-0 min-w-[70px]">{param.key}</span>
                 <span className="text-[var(--color-paper)]/90 whitespace-pre-wrap break-all">{param.value}</span>
               </div>
             ))}
