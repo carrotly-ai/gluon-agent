@@ -70,6 +70,12 @@ function parseMessages(messagesContent: string): AgentMessage[] {
 }
 
 
+// Strip worktree prefix from paths for cleaner display
+// e.g., /tmp/gluon-worktrees/wt-358a086b/src/foo.ts → src/foo.ts
+function stripWorktreePrefix(path: string): string {
+  return path.replace(/^\/tmp\/gluon-worktrees\/wt-[a-f0-9]+\//, '')
+}
+
 // Get primary value from tool input (for compact display)
 function getToolPrimaryParam(input: unknown): { key: string; value: string } | null {
   if (!input || typeof input !== 'object') return null
@@ -79,7 +85,11 @@ function getToolPrimaryParam(input: unknown): { key: string; value: string } | n
   const priorityKeys = ['file_path', 'command', 'pattern', 'query', 'url', 'path', 'content', 'prompt']
   for (const key of priorityKeys) {
     if (obj[key] && typeof obj[key] === 'string') {
-      const val = obj[key] as string
+      let val = obj[key] as string
+      // Strip worktree prefix for file paths in compact display
+      if (key === 'file_path' || key === 'path') {
+        val = stripWorktreePrefix(val)
+      }
       return { key, value: val.length > 80 ? val.slice(0, 77) + '...' : val }
     }
   }
