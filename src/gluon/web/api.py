@@ -205,7 +205,7 @@ def create_app() -> FastAPI:
             try:
                 project = store.get_project(run.project_id)
                 if project:
-                    pr_info = await runner.git_manager._get_pr_info(project.path, run.branch_name)
+                    pr_info = await runner.git_manager._get_pr_info(project.expanded_path, run.branch_name)
                     if pr_info:
                         # Check for any changes to pr_status or pr_mergeable
                         status_changed = pr_info.get("status") != run.pr_status
@@ -237,7 +237,7 @@ def create_app() -> FastAPI:
         if run.branch_name and project:
             from gluon.git_manager import GitManager
             git_manager_temp = GitManager(store)
-            working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+            working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
             base_branch = run.source_branch or "main"
             try:
                 commit_count = await git_manager_temp.get_commit_count(working_path, run.branch_name, base_branch)
@@ -439,7 +439,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
 
         # Get base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -489,7 +489,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
 
         # Get base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -537,7 +537,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
 
         # Fetch commit details
         git_manager = GitManager(store)
@@ -576,7 +576,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
 
         # Get base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -1062,7 +1062,7 @@ def create_app() -> FastAPI:
         git_manager = GitManager()
 
         # Determine working path (worktree if still exists, else project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.path
+        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
 
         try:
             pr_result = await git_manager.push_branch_and_create_pr(
@@ -1130,7 +1130,8 @@ def create_app() -> FastAPI:
         git_manager = GitManager(store)
 
         # Use main project path (not worktree) for merging
-        project_path = project.path
+        # Must use expanded_path to resolve ${HOME} and other variables
+        project_path = project.expanded_path
 
         # Determine base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -1347,10 +1348,10 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
         # Detect conflict state
-        conflict_state = await git_manager._detect_conflict_state(project.path)
+        conflict_state = await git_manager._detect_conflict_state(project.expanded_path)
 
         # Get detailed conflict info
-        conflicts = await git_manager.detect_conflicts(project.path)
+        conflicts = await git_manager.detect_conflicts(project.expanded_path)
 
         return ConflictDetectionResponse(
             has_conflicts=len(conflicts) > 0,
@@ -1378,7 +1379,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        diff_data = await git_manager.get_conflict_diff(project.path, file_path)
+        diff_data = await git_manager.get_conflict_diff(project.expanded_path, file_path)
 
         return ConflictDiffResponse(
             file_path=diff_data["file_path"],
@@ -1403,7 +1404,7 @@ def create_app() -> FastAPI:
                 detail=f"Invalid resolution: {body.resolution}. Must be ours, theirs, or resolved.",
             )
 
-        result = await git_manager.resolve_conflict(project.path, body.file_path, body.resolution)
+        result = await git_manager.resolve_conflict(project.expanded_path, body.file_path, body.resolution)
 
         return ResolveConflictResponse(
             success=result["success"],
@@ -1419,7 +1420,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.rebase_branch(project.path, body.onto_branch)
+        result = await git_manager.rebase_branch(project.expanded_path, body.onto_branch)
 
         return RebaseResponse(
             success=result["success"],
@@ -1436,7 +1437,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.rebase_continue(project.path)
+        result = await git_manager.rebase_continue(project.expanded_path)
 
         return RebaseResponse(
             success=result["success"],
@@ -1453,7 +1454,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.rebase_abort(project.path)
+        result = await git_manager.rebase_abort(project.expanded_path)
 
         return RebaseResponse(
             success=result["success"],
@@ -1469,7 +1470,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.rebase_skip(project.path)
+        result = await git_manager.rebase_skip(project.expanded_path)
 
         return RebaseResponse(
             success=result["success"],
@@ -1486,7 +1487,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.check_force_push_needed(project.path, branch)
+        result = await git_manager.check_force_push_needed(project.expanded_path, branch)
 
         return ForcePushCheckResponse(
             needed=result["needed"],
@@ -1505,7 +1506,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
         result = await git_manager.force_push(
-            project.path,
+            project.expanded_path,
             branch=body.branch,
             force_with_lease=body.force_with_lease,
         )
@@ -1524,7 +1525,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        branches = await git_manager.list_branches(project.path)
+        branches = await git_manager.list_branches(project.expanded_path)
 
         current_branch = None
         for b in branches:
@@ -1555,7 +1556,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.rename_branch(project.path, body.old_name, body.new_name)
+        result = await git_manager.rename_branch(project.expanded_path, body.old_name, body.new_name)
 
         return BranchOperationResponse(
             success=result["success"],
@@ -1571,7 +1572,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.change_base_branch(project.path, body.feature_branch, body.new_base)
+        result = await git_manager.change_base_branch(project.expanded_path, body.feature_branch, body.new_base)
 
         return BranchOperationResponse(
             success=result["success"],
@@ -1593,7 +1594,7 @@ def create_app() -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.delete_branch(project.path, branch_name, force=force, remote=remote)
+        result = await git_manager.delete_branch(project.expanded_path, branch_name, force=force, remote=remote)
 
         return BranchOperationResponse(
             success=result["success"],
