@@ -133,6 +133,9 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);",
     # PR mergeable status for conflict detection
     "ALTER TABLE execution_runs ADD COLUMN pr_mergeable TEXT;",
+    # Resume tracking for in-place resume (Phase: Resume Refactor)
+    "ALTER TABLE execution_runs ADD COLUMN resume_count INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN last_resumed_at TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -813,11 +816,12 @@ class GluonStore:
             conn.execute(
                 """
                 UPDATE execution_runs
-                SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, started_at = ?,
-                    completed_at = ?, exit_code = ?, log_path = ?, error_message = ?, thread_id = ?,
-                    cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?,
+                SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, prompt = ?,
+                    started_at = ?, completed_at = ?, exit_code = ?, log_path = ?, error_message = ?,
+                    thread_id = ?, cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?,
                     branch_name = ?, source_branch = ?, worktree_path = ?, use_worktree = ?,
-                    git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?
+                    git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?, pr_mergeable = ?,
+                    archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -825,6 +829,7 @@ class GluonStore:
                     run.claude_session_id,
                     run.pid,
                     run.status.value,
+                    run.prompt,
                     run.started_at.isoformat() if run.started_at else None,
                     run.completed_at.isoformat() if run.completed_at else None,
                     run.exit_code,
@@ -843,6 +848,11 @@ class GluonStore:
                     run.pr_number,
                     run.pr_url,
                     run.pr_status,
+                    run.pr_mergeable,
+                    1 if run.archived else 0,
+                    run.archived_at.isoformat() if run.archived_at else None,
+                    run.resume_count,
+                    run.last_resumed_at.isoformat() if run.last_resumed_at else None,
                     run.id,
                 ),
             )
@@ -933,6 +943,9 @@ class GluonStore:
             # Archive tracking
             archived=bool(row["archived"]) if "archived" in keys and row["archived"] is not None else False,
             archived_at=datetime.fromisoformat(row["archived_at"]) if "archived_at" in keys and row["archived_at"] else None,
+            # Resume tracking
+            resume_count=row["resume_count"] if "resume_count" in keys and row["resume_count"] is not None else 0,
+            last_resumed_at=datetime.fromisoformat(row["last_resumed_at"]) if "last_resumed_at" in keys and row["last_resumed_at"] else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:

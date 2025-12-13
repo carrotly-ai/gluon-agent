@@ -12,15 +12,15 @@ import subprocess
 import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
-from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 from gluon.models import ExecutionRun, RunStatus
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
+from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 
 
 @dataclass
@@ -99,6 +99,111 @@ class TaskRunner:
             self._spawn_background_process(run)
             return run
 
+    async def resume_in_place(
+        self,
+        run_id: str,
+        new_prompt: str,
+        wait: bool = False,
+        initiator: str | None = None,
+    ) -> ExecutionRun:
+        """
+        Resume an existing run in-place (same run ID, same worktree).
+
+        This continues the Claude session with a new prompt while preserving:
+        - The same run ID
+        - The same worktree and branch (if use_worktree=True)
+        - The same log directory (logs are appended)
+        - Accumulated cost tracking
+
+        Args:
+            run_id: ID of the run to resume
+            new_prompt: New prompt to continue with
+            wait: If True, wait for completion. If False, return immediately.
+            initiator: Who started the resume (e.g., "web:resume")
+
+        Returns:
+            The same ExecutionRun with updated status
+
+        Raises:
+            ValueError: If run not found or cannot be resumed
+        """
+        run = self.store.get_run(run_id)
+        if not run:
+            raise ValueError(f"Run not found: {run_id}")
+
+        if not run.is_resumable:
+            raise ValueError(
+                f"Run {run_id[:8]} cannot be resumed (status={run.status.value}, "
+                f"has_session={run.claude_session_id is not None})"
+            )
+
+        # Validate worktree still exists if this was a worktree run
+        if run.use_worktree and run.worktree_path:
+            wt_path = Path(run.worktree_path)
+            if not wt_path.exists():
+                raise ValueError(
+                    f"Worktree for run {run_id[:8]} no longer exists at {wt_path}. "
+                    "Cannot resume - the branch may have been merged or deleted."
+                )
+
+        # Prepare run for resume (resets status, increments resume_count)
+        run.prepare_for_resume(new_prompt)
+        if initiator:
+            run.initiator = initiator
+
+        # Write resume marker to log files
+        self._write_resume_marker(run)
+
+        # Update in database
+        self.store.update_run(run)
+
+        if wait:
+            # Execute synchronously
+            await self._execute_run(run)
+            # Refresh from DB
+            return self.store.get_run(run.id) or run
+        else:
+            # Execute in background subprocess
+            self._spawn_background_process(run)
+            return run
+
+    def _write_resume_marker(self, run: ExecutionRun) -> None:
+        """Write a resume marker to log files for visual separation."""
+        if not run.log_path:
+            return
+
+        log_dir = Path(run.log_path)
+        if not log_dir.exists():
+            return
+
+        marker = (
+            f"\n\n{'='*60}\n"
+            f"RESUMED - Attempt #{run.resume_count}\n"
+            f"Prompt: {run.prompt[:100]}{'...' if len(run.prompt) > 100 else ''}\n"
+            f"Time: {run.last_resumed_at.isoformat() if run.last_resumed_at else 'N/A'}\n"
+            f"{'='*60}\n\n"
+        )
+
+        # Append to stdout.log
+        stdout_path = log_dir / "stdout.log"
+        if stdout_path.exists():
+            with open(stdout_path, "a") as f:
+                f.write(marker)
+
+        # Append resume marker to messages.jsonl
+        messages_path = log_dir / "messages.jsonl"
+        if messages_path.exists():
+            import json
+            resume_msg = {
+                "type": "system",
+                "subtype": "resume",
+                "resume_attempt": run.resume_count,
+                "prompt": run.prompt,
+                "timestamp": run.last_resumed_at.isoformat() if run.last_resumed_at else None,
+            }
+            with open(messages_path, "a") as f:
+                f.write(json.dumps(resume_msg) + "\n")
+
     def _spawn_background_process(self, run: ExecutionRun) -> None:
         """Spawn a detached subprocess to execute the run."""
         # Use the same Python interpreter to run the worker
@@ -142,10 +247,18 @@ class TaskRunner:
         # Determine working directory (main project or worktree)
         working_dir = project.expanded_path
         worktree_manager: WorktreeManager | None = None
+        is_resumed = run.resume_count > 0
 
         # Create worktree if requested and project is a git repo
+        # For resumed runs, reuse existing worktree if it exists
         if run.use_worktree:
-            if await is_git_repository(project.expanded_path):
+            if is_resumed and run.worktree_path and Path(run.worktree_path).exists():
+                # Reuse existing worktree for resumed run
+                working_dir = Path(run.worktree_path)
+                worktree_manager = WorktreeManager(project.expanded_path)
+                worktree_manager.worktree_path = working_dir
+                worktree_manager.branch_name = run.branch_name
+            elif await is_git_repository(project.expanded_path):
                 worktree_run_id = run.id[:8]
                 worktree_manager = WorktreeManager(project.expanded_path)
                 try:
@@ -154,7 +267,7 @@ class TaskRunner:
                     # Get the branch name from the worktree (format: gluon-{run_id})
                     run.branch_name = f"gluon-{worktree_run_id}"
                     self.store.update_run(run)
-                except WorktreeError as e:
+                except WorktreeError:
                     # Log warning but continue with main directory
                     run.use_worktree = False
                     worktree_manager = None
@@ -178,11 +291,12 @@ class TaskRunner:
             pass  # Continue without images if retrieval fails
 
         try:
-            # Open log files
+            # Open log files (append mode for resumed runs, write for new runs)
+            log_mode = "a" if is_resumed else "w"
             with (
-                open(stdout_path, "w") as stdout_file,
-                open(stderr_path, "w") as stderr_file,
-                open(messages_path, "w") as messages_file,
+                open(stdout_path, log_mode) as stdout_file,
+                open(stderr_path, log_mode) as stderr_file,
+                open(messages_path, log_mode) as messages_file,
             ):
                 # Log any attached images
                 if image_paths:
@@ -220,7 +334,7 @@ but explicit commits with good messages are preferred.
                     if isinstance(item, AgentMessage):
                         # Log message
                         msg_dict = {
-                            "timestamp": datetime.now().isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                             "type": item.type,
                             "content": item.content,
                             "metadata": item.metadata,
@@ -239,7 +353,7 @@ but explicit commits with good messages are preferred.
                     elif isinstance(item, AgentResult):
                         # Log final result
                         result_dict = {
-                            "timestamp": datetime.now().isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                             "type": "result",
                             "session_id": item.claude_session_id,
                             "cost_usd": item.total_cost_usd,
@@ -254,10 +368,15 @@ but explicit commits with good messages are preferred.
 
                         # Update run with Claude session ID for future resume
                         run.claude_session_id = item.claude_session_id
-                        # Store cost tracking data
-                        run.cost_usd = item.total_cost_usd
-                        run.input_tokens = item.input_tokens
-                        run.output_tokens = item.output_tokens
+                        # Store cost tracking data (accumulate for resumed runs)
+                        if is_resumed and run.cost_usd is not None:
+                            run.cost_usd = (run.cost_usd or 0) + (item.total_cost_usd or 0)
+                            run.input_tokens = (run.input_tokens or 0) + (item.input_tokens or 0)
+                            run.output_tokens = (run.output_tokens or 0) + (item.output_tokens or 0)
+                        else:
+                            run.cost_usd = item.total_cost_usd
+                            run.input_tokens = item.input_tokens
+                            run.output_tokens = item.output_tokens
                         run.model_used = item.model_used
 
                         # Determine working path (worktree or project)
@@ -282,9 +401,15 @@ but explicit commits with good messages are preferred.
                         if run.use_worktree and run.branch_name and item.success:
                             # Safety net: auto-commit any uncommitted changes
                             try:
+                                prompt_preview = run.prompt[:60]
+                                ellipsis = "..." if len(run.prompt) > 60 else ""
+                                commit_msg = (
+                                    f"chore: {prompt_preview}{ellipsis}\n\n"
+                                    f"Auto-committed by Gluon Agent\nRun ID: {run.id}"
+                                )
                                 commit_result = await self.git_manager.auto_commit_changes(
                                     path=working_path,
-                                    message=f"chore: {run.prompt[:60]}{'...' if len(run.prompt) > 60 else ''}\n\nAuto-committed by Gluon Agent\nRun ID: {run.id}",
+                                    message=commit_msg,
                                     run_id=run.id,
                                 )
                                 if commit_result.get("committed"):

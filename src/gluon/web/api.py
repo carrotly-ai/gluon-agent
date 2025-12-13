@@ -252,6 +252,9 @@ def create_app() -> FastAPI:
             pr_url=run.pr_url,
             pr_status=run.pr_status,
             pr_mergeable=run.pr_mergeable,
+            # Resume tracking
+            resume_count=run.resume_count,
+            last_resumed_at=run.last_resumed_at.isoformat() if run.last_resumed_at else None,
         )
 
     @app.post("/api/runs", response_model=RunResponse)
@@ -312,57 +315,46 @@ def create_app() -> FastAPI:
     @app.post("/api/runs/{run_id}/resume", response_model=ResumeRunResponse)
     async def resume_run(run_id: str, body: ResumeRunRequest) -> ResumeRunResponse:
         """
-        Resume a completed/failed run by creating a new run that continues
-        from the original session.
+        Resume a completed/failed run in-place (same run ID continues).
 
-        The new run inherits the Claude session context from the original run,
-        allowing the agent to continue where it left off.
+        The run continues with the same Claude session context, worktree,
+        and branch. Logs are appended, costs accumulate.
         """
-        # Get the original run
-        original_run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not original_run:
+        # Get the run to resume
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
-
-        # Check if the run has a Claude session ID that can be resumed
-        if not original_run.claude_session_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Run does not have a session to resume",
-            )
-
-        # Only completed or failed runs can be resumed
-        if original_run.status not in (RunStatus.COMPLETED, RunStatus.FAILED):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot resume run with status: {original_run.status.value}. "
-                "Only completed or failed runs can be resumed.",
-            )
 
         # Get the project for this run
         project_lookup = get_project_lookup()
-        project_name = project_lookup.get(original_run.project_id)
+        project_name = project_lookup.get(run.project_id)
         if not project_name:
             raise HTTPException(
                 status_code=400,
                 detail="Could not find project for this run",
             )
 
-        # Create a new run that continues from the same Claude session
-        new_run = await runner.submit(
-            project_id=original_run.project_id,
-            prompt=body.prompt,
-            claude_session_id=original_run.claude_session_id,
-            wait=False,
-            initiator="web:resume",
-        )
+        # Use resume_in_place which handles all validation
+        try:
+            resumed_run = await runner.resume_in_place(
+                run_id=run.id,
+                new_prompt=body.prompt,
+                wait=False,
+                initiator="web:resume",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-        # Broadcast to WebSocket clients
-        await ws_manager.broadcast_run_created(new_run, project_name)
+        # Broadcast to WebSocket clients (run_updated since same run continues)
+        await ws_manager.broadcast_run_update(resumed_run, project_name)
 
         return ResumeRunResponse(
-            original_run_id=original_run.id,
-            new_run_id=new_run.id,
-            status=new_run.status.value,
+            run_id=resumed_run.id,
+            status=resumed_run.status.value,
+            resume_count=resumed_run.resume_count,
+            # Backward compatibility
+            original_run_id=resumed_run.id,
+            new_run_id=resumed_run.id,
         )
 
     @app.get("/api/runs/{run_id}/session-history", response_model=SessionHistoryResponse)

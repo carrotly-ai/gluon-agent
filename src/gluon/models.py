@@ -254,6 +254,10 @@ class ExecutionRun(BaseModel):
     archived: bool = False  # Whether the run is archived (hidden from board)
     archived_at: datetime | None = None  # When it was archived
 
+    # Resume tracking (in-place resume)
+    resume_count: int = 0  # Number of times this run has been resumed
+    last_resumed_at: datetime | None = None  # When last resumed
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
@@ -278,6 +282,34 @@ class ExecutionRun(BaseModel):
         """Mark run as cancelled."""
         self.status = RunStatus.CANCELLED
         self.completed_at = utc_now()
+
+    def prepare_for_resume(self, new_prompt: str) -> None:
+        """
+        Prepare run for in-place resume.
+
+        Resets status and timing fields while preserving:
+        - run ID, project_id, claude_session_id
+        - worktree info (branch_name, worktree_path, source_branch)
+        - log_path (logs will be appended)
+        - cost tracking (will accumulate)
+        """
+        self.prompt = new_prompt
+        self.status = RunStatus.RUNNING
+        self.started_at = utc_now()
+        self.completed_at = None
+        self.exit_code = None
+        self.error_message = None
+        self.resume_count += 1
+        self.last_resumed_at = utc_now()
+        # Reset PID - will be set by mark_running or subprocess
+
+    @property
+    def is_resumable(self) -> bool:
+        """Check if run can be resumed (completed or failed with session)."""
+        return (
+            self.status in (RunStatus.COMPLETED, RunStatus.FAILED)
+            and self.claude_session_id is not None
+        )
 
     @property
     def is_active(self) -> bool:

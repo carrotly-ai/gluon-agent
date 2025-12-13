@@ -56,6 +56,9 @@ class RunDetailResponse(RunResponse):
     pr_url: str | None = Field(default=None, description="GitHub PR URL")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
     pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
+    # Resume tracking fields
+    resume_count: int = Field(default=0, description="Number of times this run has been resumed")
+    last_resumed_at: str | None = Field(default=None, description="ISO timestamp of last resume")
 
 
 class CreateRunRequest(BaseModel):
@@ -156,11 +159,14 @@ class ResumeRunRequest(BaseModel):
 
 
 class ResumeRunResponse(BaseModel):
-    """Response model for resume operation."""
+    """Response model for resume operation (in-place resume)."""
 
-    original_run_id: str = Field(description="ID of the run being resumed")
-    new_run_id: str = Field(description="ID of the new continuation run")
-    status: str = Field(description="Status of the new run")
+    run_id: str = Field(description="ID of the run being resumed (same run continues)")
+    status: str = Field(description="Current status of the run (should be 'running')")
+    resume_count: int = Field(description="Number of times this run has been resumed")
+    # Backward compatibility fields (deprecated, same as run_id)
+    original_run_id: str | None = Field(default=None, description="Deprecated: Same as run_id")
+    new_run_id: str | None = Field(default=None, description="Deprecated: Same as run_id")
 
 
 class SessionHistoryResponse(BaseModel):
