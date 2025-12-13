@@ -47,6 +47,7 @@ export interface RunDetail extends Run {
   pr_url: string | null
   pr_status: 'open' | 'merged' | 'closed' | 'draft' | null
   pr_mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
+  has_remote: boolean  // Whether the project has a git remote configured
   // Resume tracking
   resume_count: number
   last_resumed_at: string | null

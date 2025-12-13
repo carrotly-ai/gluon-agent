@@ -223,6 +223,14 @@ def create_app() -> FastAPI:
 
         project_lookup = get_project_lookup()
 
+        # Check if project has a git remote configured
+        has_remote = True  # Default to true
+        project = store.get_project(run.project_id)
+        if project:
+            git_status = store.get_git_status(project.id)
+            if git_status:
+                has_remote = git_status.remote is not None
+
         return RunDetailResponse(
             id=run.id,
             project_id=run.project_id,
@@ -252,6 +260,7 @@ def create_app() -> FastAPI:
             pr_url=run.pr_url,
             pr_status=run.pr_status,
             pr_mergeable=run.pr_mergeable,
+            has_remote=has_remote,
             # Resume tracking
             resume_count=run.resume_count,
             last_resumed_at=run.last_resumed_at.isoformat() if run.last_resumed_at else None,

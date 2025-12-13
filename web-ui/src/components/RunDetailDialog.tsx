@@ -977,8 +977,8 @@ Focus on preserving the functionality from both sides where possible.`
                   <span>Resolve</span>
                 </button>
               )}
-              {/* Create PR - show for worktree runs with branch but no PR */}
-              {detail?.use_worktree && detail?.branch_name && !detail?.pr_url && !isActive && (
+              {/* Create PR - show for worktree runs with branch, has remote, but no PR */}
+              {detail?.use_worktree && detail?.branch_name && detail?.has_remote && !detail?.pr_url && !isActive && (
                 <button
                   onClick={handleCreatePr}
                   disabled={creatingPr}
@@ -991,6 +991,23 @@ Focus on preserving the functionality from both sides where possible.`
                 >
                   <GitPullRequest className="w-3 h-3" />
                   <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
+                </button>
+              )}
+              {/* Merge (local) - show for worktree runs with branch but NO remote */}
+              {detail?.use_worktree && detail?.branch_name && !detail?.has_remote && !isActive && (
+                <button
+                  onClick={handleMerge}
+                  disabled={merging}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                    merging
+                      ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                      : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                  )}
+                  title="Merge branch locally"
+                >
+                  <GitMerge className="w-3 h-3" />
+                  <span>{merging ? 'Merging...' : 'Merge'}</span>
                 </button>
               )}
               {/* Cancel - for active runs */}

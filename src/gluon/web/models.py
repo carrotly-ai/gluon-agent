@@ -56,6 +56,7 @@ class RunDetailResponse(RunResponse):
     pr_url: str | None = Field(default=None, description="GitHub PR URL")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
     pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
+    has_remote: bool = Field(default=True, description="Whether the project has a git remote configured")
     # Resume tracking fields
     resume_count: int = Field(default=0, description="Number of times this run has been resumed")
     last_resumed_at: str | None = Field(default=None, description="ISO timestamp of last resume")
