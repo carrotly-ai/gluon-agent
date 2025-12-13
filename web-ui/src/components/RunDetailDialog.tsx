@@ -1514,7 +1514,14 @@ Focus on preserving the functionality from both sides where possible.`
                     ) : (
                       <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
                         <GitCommit className="w-6 h-6 mb-2 opacity-50" />
-                        <span className="text-[0.6875rem]">No commits on this branch</span>
+                        {detail?.pr_status === 'merged' ? (
+                          <>
+                            <span className="text-[0.6875rem]">Branch merged into {detail?.source_branch || 'main'}</span>
+                            <span className="text-[0.625rem] mt-1 opacity-70">Commit history no longer available</span>
+                          </>
+                        ) : (
+                          <span className="text-[0.6875rem]">No commits on this branch</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1653,7 +1660,14 @@ Focus on preserving the functionality from both sides where possible.`
                     ) : (
                       <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
                         <FileCode className="w-6 h-6 mb-2 opacity-50" />
-                        <span className="text-[0.6875rem]">No files changed on this branch</span>
+                        {detail?.pr_status === 'merged' ? (
+                          <>
+                            <span className="text-[0.6875rem]">Branch merged into {detail?.source_branch || 'main'}</span>
+                            <span className="text-[0.625rem] mt-1 opacity-70">File changes no longer available</span>
+                          </>
+                        ) : (
+                          <span className="text-[0.6875rem]">No files changed on this branch</span>
+                        )}
                       </div>
                     )}
                   </div>
