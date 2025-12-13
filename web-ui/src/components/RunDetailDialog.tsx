@@ -145,8 +145,100 @@ const MESSAGE_CONFIG: Record<string, {
   result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.06)]', border: 'border-l-2 border-l-[var(--color-jade)]', label: 'Done' },
 }
 
+// Special renderer for TodoWrite tool
+interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm?: string
+}
+
+function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
+  const time = formatMessageTime(msg.timestamp)
+  const input = msg.metadata?.input as { todos?: TodoItem[] } | undefined
+  const todos = input?.todos || []
+
+  const completed = todos.filter(t => t.status === 'completed').length
+  const inProgress = todos.filter(t => t.status === 'in_progress').length
+
+  // Find the current in-progress task for the header
+  const currentTask = todos.find(t => t.status === 'in_progress')
+
+  return (
+    <div className="group">
+      {/* Compact header */}
+      <div
+        className={cn(
+          'flex items-center gap-2 py-1.5 px-3 cursor-pointer transition-colors',
+          'border-l-2 border-l-[var(--color-harvest)]/40 hover:border-l-[var(--color-harvest)]/60 hover:bg-[var(--color-paper)]/[0.02]',
+          isExpanded && 'border-l-[var(--color-harvest)]/60'
+        )}
+        onClick={onToggle}
+      >
+        <ChevronRight className={cn('w-3 h-3 text-[var(--color-stone)]/30 transition-transform', isExpanded && 'rotate-90')} />
+
+        {/* Icon */}
+        <CheckCircle2 className="w-2.5 h-2.5 text-[var(--color-harvest)]/70 shrink-0" />
+
+        {/* Tool name + summary */}
+        <span className="text-[0.6875rem] font-medium text-[var(--color-harvest)]/80 font-mono">TodoWrite</span>
+
+        {/* Current task or summary */}
+        <span className="text-[0.6875rem] text-[var(--color-paper)]/60 truncate flex-1 min-w-0">
+          {currentTask ? (
+            <span className="text-[var(--color-sky)]">{currentTask.content}</span>
+          ) : todos.length > 0 ? (
+            <span className="text-[var(--color-stone)]/60">
+              {completed}/{todos.length} done
+              {inProgress > 0 && <span className="text-[var(--color-sky)]"> · {inProgress} active</span>}
+            </span>
+          ) : (
+            <span className="text-[var(--color-stone)]/50">cleared</span>
+          )}
+        </span>
+
+        {/* Timestamp */}
+        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      </div>
+
+      {/* Expanded todo list */}
+      {isExpanded && todos.length > 0 && (
+        <div className="border-l-2 border-l-[var(--color-harvest)]/60 ml-0 pl-4 py-2 bg-[var(--color-paper)]/[0.02]">
+          <div className="space-y-1">
+            {todos.map((todo, idx) => (
+              <div key={idx} className="flex items-start gap-2 text-[0.6875rem]">
+                {/* Status indicator */}
+                {todo.status === 'completed' ? (
+                  <span className="text-[var(--color-jade)] shrink-0">✓</span>
+                ) : todo.status === 'in_progress' ? (
+                  <span className="text-[var(--color-sky)] shrink-0">●</span>
+                ) : (
+                  <span className="text-[var(--color-stone)]/40 shrink-0">○</span>
+                )}
+                {/* Content */}
+                <span className={cn(
+                  todo.status === 'completed' && 'text-[var(--color-stone)]/50 line-through',
+                  todo.status === 'in_progress' && 'text-[var(--color-paper)]/90',
+                  todo.status === 'pending' && 'text-[var(--color-paper)]/60'
+                )}>
+                  {todo.content}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
   const toolName = msg.metadata?.tool || 'Unknown'
+
+  // Use specialized renderer for TodoWrite
+  if (toolName === 'TodoWrite') {
+    return <TodoWriteMessage msg={msg} isExpanded={isExpanded} onToggle={onToggle} />
+  }
+
   const primaryParam = getToolPrimaryParam(msg.metadata?.input)
   const fullParams = formatToolInputFull(msg.metadata?.input)
   const hasMultipleParams = fullParams.length > 1
