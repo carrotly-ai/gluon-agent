@@ -1057,8 +1057,8 @@ Focus on preserving the functionality from both sides where possible.`
                   <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
                 </button>
               )}
-              {/* Merge (local) - show for worktree runs with branch but NO remote */}
-              {detail?.use_worktree && detail?.branch_name && !detail?.has_remote && !isActive && (
+              {/* Merge (local) - show for worktree runs with branch but NO remote, hide if already merged */}
+              {detail?.use_worktree && detail?.branch_name && !detail?.has_remote && detail?.pr_status !== 'merged' && !isActive && (
                 <button
                   onClick={handleMerge}
                   disabled={merging}
