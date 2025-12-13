@@ -1083,10 +1083,16 @@ def create_app() -> FastAPI:
     @app.post("/api/runs/{run_id}/merge")
     async def merge_run_branch(run_id: str) -> dict:
         """
-        Merge a run's feature branch into the base branch locally and push.
+        Merge a run's feature branch into the base branch locally and push (if remote exists).
         GitHub will automatically close the PR when the merge is pushed.
 
-        This is useful for PRs in review that are ready to be merged.
+        Works for:
+        - Runs with open PRs (merges and pushes, PR auto-closes)
+        - Runs without PRs (local merge only)
+        - Runs without remotes (local merge only)
+
+        Returns conflict info if merge fails due to conflicts, allowing
+        the user to resume the agent to resolve them.
         """
         run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
         if not run:
@@ -1096,12 +1102,6 @@ def create_app() -> FastAPI:
             raise HTTPException(
                 status_code=400,
                 detail="Run is not a worktree run or has no branch"
-            )
-
-        if run.pr_status != "open":
-            raise HTTPException(
-                status_code=400,
-                detail=f"PR is not open (status: {run.pr_status or 'no PR'})"
             )
 
         project = store.get_project(run.project_id)
@@ -1123,11 +1123,13 @@ def create_app() -> FastAPI:
                 project_path=project_path,
                 branch_name=run.branch_name,
                 base_branch=base_branch,
+                push_after_merge=True,  # Will only push if remote exists
             )
 
             if merge_result.get("success"):
-                # Update run's PR status to merged
-                run.pr_status = "merged"
+                # Update run's PR status to merged (if there was a PR)
+                if run.pr_status == "open":
+                    run.pr_status = "merged"
                 store.update_run(run)
 
                 # Broadcast update
@@ -1141,9 +1143,12 @@ def create_app() -> FastAPI:
                     "merged_commit_sha": merge_result.get("merged_commit_sha"),
                 }
             else:
+                # Return conflict info if available
                 return {
                     "success": False,
                     "error": merge_result.get("error", "Merge failed"),
+                    "has_conflicts": merge_result.get("has_conflicts", False),
+                    "conflicting_files": merge_result.get("conflicting_files", []),
                 }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to merge: {e}")

@@ -930,24 +930,29 @@ Run ID: `{run_id}`
         project_path: Path,
         branch_name: str,
         base_branch: str = "main",
+        push_after_merge: bool = True,
     ) -> dict:
         """
-        Merge a feature branch into the base branch locally and push.
+        Merge a feature branch into the base branch locally and optionally push.
         GitHub will automatically close the PR when the merge is pushed.
 
         Args:
             project_path: Path to the repository (main repo, not worktree)
             branch_name: The feature branch to merge
             base_branch: The base branch to merge into (default: main)
+            push_after_merge: Whether to push after merge (default: True)
 
         Returns:
-            dict with: success, message, merged_commit_sha, error
+            dict with: success, message, merged_commit_sha, error,
+                       has_conflicts, conflicting_files
         """
         result = {
             "success": False,
             "message": "",
             "merged_commit_sha": None,
             "error": None,
+            "has_conflicts": False,
+            "conflicting_files": [],
         }
 
         # Check if git repo
@@ -997,33 +1002,48 @@ Run ID: `{run_id}`
             project_path, "merge", branch_name, "--no-edit"
         )
         if rc != 0:
-            # Merge conflict or other failure - abort the merge
+            # Merge conflict - get list of conflicting files before aborting
+            conflict_rc, conflict_stdout, _ = await self._run_git(
+                project_path, "diff", "--name-only", "--diff-filter=U"
+            )
+            if conflict_rc == 0 and conflict_stdout.strip():
+                conflicting_files = [f.strip() for f in conflict_stdout.strip().split("\n") if f.strip()]
+                result["has_conflicts"] = True
+                result["conflicting_files"] = conflicting_files
+                result["error"] = f"Merge conflicts in {len(conflicting_files)} file(s): {', '.join(conflicting_files[:5])}"
+                if len(conflicting_files) > 5:
+                    result["error"] += f" (and {len(conflicting_files) - 5} more)"
+            else:
+                result["error"] = f"Merge failed: {stderr}"
+
+            # Abort the merge
             await self._run_git(project_path, "merge", "--abort")
             # Restore stash if we created one
             if stashed:
                 await self._run_git(project_path, "stash", "pop")
-            result["error"] = f"Merge conflict or failure: {stderr}"
             return result
 
         # Get the merge commit SHA
         merge_sha = await self._get_commit_sha(project_path)
 
-        # Push the merge to remote
-        rc, _, stderr = await self._run_git(project_path, "push")
-        if rc != 0:
-            # Restore stash if we created one
-            if stashed:
-                await self._run_git(project_path, "stash", "pop")
-            result["error"] = f"Failed to push merge: {stderr}"
-            return result
-
-        # Optionally delete the feature branch locally and remotely
-        # Delete local branch
-        await self._run_git(project_path, "branch", "-d", branch_name)
-        # Delete remote branch
+        # Push the merge to remote (if requested and has remote)
         remote, _ = await self._get_remote(project_path)
-        if remote:
+        pushed = False
+        if push_after_merge and remote:
+            rc, _, stderr = await self._run_git(project_path, "push")
+            if rc != 0:
+                # Restore stash if we created one
+                if stashed:
+                    await self._run_git(project_path, "stash", "pop")
+                result["error"] = f"Failed to push merge: {stderr}"
+                return result
+            pushed = True
+
+            # Delete remote branch after successful push
             await self._run_git(project_path, "push", remote, "--delete", branch_name)
+
+        # Delete local feature branch
+        await self._run_git(project_path, "branch", "-d", branch_name)
 
         # Restore stash after successful merge
         if stashed:
@@ -1031,9 +1051,12 @@ Run ID: `{run_id}`
             await self._run_git(project_path, "stash", "pop")
 
         result["success"] = True
-        result["message"] = f"Successfully merged {branch_name} into {base_branch}"
+        if pushed:
+            result["message"] = f"Successfully merged {branch_name} into {base_branch} and pushed"
+        else:
+            result["message"] = f"Successfully merged {branch_name} into {base_branch} (local only)"
         result["merged_commit_sha"] = merge_sha
-        logger.info(f"Merged branch {branch_name} into {base_branch}")
+        logger.info(f"Merged branch {branch_name} into {base_branch} (pushed: {pushed})")
         return result
 
     # ========== Background Sync ==========

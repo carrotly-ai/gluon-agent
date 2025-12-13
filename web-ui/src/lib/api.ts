@@ -320,9 +320,11 @@ export interface MergeResponse {
   message?: string
   merged_commit_sha?: string
   error?: string
+  has_conflicts?: boolean
+  conflicting_files?: string[]
 }
 
-/** Merge a run's branch locally and push (GitHub will auto-close the PR) */
+/** Merge a run's branch locally and push (if remote exists, GitHub will auto-close the PR) */
 export async function mergeRunBranch(runId: string): Promise<MergeResponse> {
   return fetchJson<MergeResponse>(`/runs/${runId}/merge`, {
     method: 'POST',
