@@ -1034,17 +1034,26 @@ Run ID: `{run_id}`
                 result["error"] = f"Failed to checkout {base_branch}: {stderr}"
                 return result
 
-        # Pull latest changes on base branch
-        rc, _, stderr = await self._run_git(project_path, "pull", "--ff-only")
-        if rc != 0:
-            # If fast-forward fails, try a regular pull
-            rc, _, stderr = await self._run_git(project_path, "pull")
+        # Pull latest changes on base branch (only if tracking info exists)
+        # Check if the base branch has an upstream configured
+        rc, upstream, _ = await self._run_git(
+            project_path, "rev-parse", "--abbrev-ref", f"{base_branch}@{{upstream}}"
+        )
+        has_upstream = rc == 0 and upstream.strip()
+
+        if has_upstream:
+            rc, _, stderr = await self._run_git(project_path, "pull", "--ff-only")
             if rc != 0:
-                # Restore stash if we created one
-                if stashed:
-                    await self._run_git(project_path, "stash", "pop")
-                result["error"] = f"Failed to pull latest {base_branch}: {stderr}"
-                return result
+                # If fast-forward fails, try a regular pull
+                rc, _, stderr = await self._run_git(project_path, "pull")
+                if rc != 0:
+                    # Restore stash if we created one
+                    if stashed:
+                        await self._run_git(project_path, "stash", "pop")
+                    result["error"] = f"Failed to pull latest {base_branch}: {stderr}"
+                    return result
+        else:
+            logger.debug(f"No upstream tracking for {base_branch}, skipping pull")
 
         # Merge the feature branch
         rc, stdout, stderr = await self._run_git(
