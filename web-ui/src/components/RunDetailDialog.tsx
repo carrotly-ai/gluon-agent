@@ -3,10 +3,10 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, Archive, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Sparkles } from 'lucide-react'
+import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Sparkles } from 'lucide-react'
 import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment, CommitDetail, FileDiff } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, archiveRun, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
+import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatDateWithContext, formatMessageTime, formatRelativeTime } from '@/lib/timestamps'
 import ReactMarkdown from 'react-markdown'
@@ -413,7 +413,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
   const [sessionHistory, setSessionHistory] = useState<Run[]>([])
   const [expandedHistoryRun, setExpandedHistoryRun] = useState<string | null>(null)
   const [historyLogs, setHistoryLogs] = useState<Record<string, { stdout: string; stderr: string }>>({})
-  const [archiving, setArchiving] = useState(false)
+  // Archive state removed - Archive button currently disabled
   const [creatingPr, setCreatingPr] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
   const [merging, setMerging] = useState(false)
@@ -767,19 +767,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
     }
   }
 
-  const handleArchive = async () => {
-    if (!run) return
-    setArchiving(true)
-    try {
-      const updated = await archiveRun(run.id)
-      onRunUpdated(updated)
-      onOpenChange(false) // Close dialog after archiving
-    } catch (err) {
-      console.error('Failed to archive run:', err)
-    } finally {
-      setArchiving(false)
-    }
-  }
+  // handleArchive removed - Archive button currently disabled
 
   const handleCreatePr = async () => {
     if (!run) return
@@ -1038,7 +1026,7 @@ Focus on preserving the functionality from both sides where possible.`
                 </button>
               )}
               {/* Archive - for completed runs */}
-              {!isActive && (
+              {/* {!isActive && (
                 <button
                   className="flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] border border-[var(--color-stone)]/15 hover:border-[var(--color-stone)]/30 rounded-sm transition-colors"
                   onClick={handleArchive}
@@ -1048,7 +1036,7 @@ Focus on preserving the functionality from both sides where possible.`
                   <Archive className="w-3 h-3" />
                   <span>{archiving ? '...' : 'Archive'}</span>
                 </button>
-              )}
+              )} */}
               {/* Refresh */}
               <button
                 className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
@@ -1371,8 +1359,8 @@ Focus on preserving the functionality from both sides where possible.`
                             {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''} ahead of {commitsData.base_branch}
                           </span>
                         </div>
-                        {/* Commits list - compact expandable */}
-                        {commitsData.commits.map((commit, idx) => {
+                        {/* Commits list - compact expandable (newest first) */}
+                        {commitsData.commits.slice().reverse().map((commit, idx) => {
                           const isExpanded = expandedCommit === commit.sha
                           const detail = commitDetails[commit.sha]
                           const isLoading = loadingCommitDetail === commit.sha
