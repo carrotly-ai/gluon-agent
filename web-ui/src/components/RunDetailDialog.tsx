@@ -135,13 +135,14 @@ const MESSAGE_CONFIG: Record<string, {
   icon: typeof Wrench
   color: string
   bg: string
+  border: string
   label: string
 }> = {
-  tool_use: { icon: Wrench, color: 'text-[var(--color-sky)]', bg: 'bg-[rgba(102,178,255,0.1)]', label: 'Tool' },
-  text: { icon: MessageSquare, color: 'text-[var(--color-paper)]', bg: '', label: 'Text' },
-  system: { icon: Settings2, color: 'text-[var(--color-stone)]', bg: '', label: 'System' },
-  error: { icon: AlertCircle, color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.12)]', label: 'Error' },
-  result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.12)]', label: 'Done' },
+  tool_use: { icon: Wrench, color: 'text-[var(--color-stone)]', bg: '', border: 'border-l-2 border-l-[var(--color-stone)]/30', label: 'Tool' },
+  text: { icon: MessageSquare, color: 'text-[var(--color-paper)]/70', bg: '', border: '', label: 'Text' },
+  system: { icon: Settings2, color: 'text-[var(--color-stone)]/60', bg: '', border: '', label: 'System' },
+  error: { icon: AlertCircle, color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.06)]', border: 'border-l-2 border-l-[var(--color-vermillion)]', label: 'Error' },
+  result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.06)]', border: 'border-l-2 border-l-[var(--color-jade)]', label: 'Done' },
 }
 
 function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
@@ -156,46 +157,45 @@ function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isE
       {/* Compact header - always visible */}
       <div
         className={cn(
-          'flex items-center gap-2 py-2 px-3 rounded-md cursor-pointer transition-colors',
-          'bg-[rgba(102,178,255,0.06)] hover:bg-[rgba(102,178,255,0.1)]',
-          isExpanded && 'rounded-b-none'
+          'flex items-center gap-2 py-1.5 px-3 cursor-pointer transition-colors',
+          'border-l-2 border-l-[var(--color-stone)]/20 hover:border-l-[var(--color-stone)]/40 hover:bg-[var(--color-paper)]/[0.02]',
+          isExpanded && 'border-l-[var(--color-stone)]/40'
         )}
         onClick={onToggle}
       >
         {/* Expand/collapse indicator */}
         {hasMultipleParams ? (
-          <ChevronRight className={cn('w-3.5 h-3.5 text-[var(--color-stone)]/40 transition-transform', isExpanded && 'rotate-90')} />
+          <ChevronRight className={cn('w-3 h-3 text-[var(--color-stone)]/30 transition-transform', isExpanded && 'rotate-90')} />
         ) : (
-          <div className="w-3.5" />
+          <div className="w-3" />
         )}
 
         {/* Icon */}
-        <Wrench className="w-3 h-3 text-[var(--color-sky)] shrink-0" />
+        <Wrench className="w-2.5 h-2.5 text-[var(--color-stone)]/50 shrink-0" />
 
         {/* Tool name */}
-        <span className="text-[0.6875rem] font-semibold text-[var(--color-sky)] font-mono">{toolName}</span>
+        <span className="text-[0.6875rem] font-medium text-[var(--color-stone)]/80 font-mono">{toolName}</span>
 
         {/* Primary param preview */}
         {primaryParam && (
-          <span className="text-[0.6875rem] text-[var(--color-paper)] font-mono truncate flex-1 min-w-0">
-            <span className="text-[var(--color-harvest)]">{primaryParam.key}</span>
-            <span className="text-[var(--color-stone)]/60">=</span>
-            <span className="text-[var(--color-paper)]/90">"{primaryParam.value}"</span>
+          <span className="text-[0.6875rem] text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
+            <span className="text-[var(--color-stone)]/50">{primaryParam.key}=</span>
+            <span className="text-[var(--color-paper)]/70">"{primaryParam.value}"</span>
           </span>
         )}
 
         {/* Timestamp */}
-        <span className="text-[0.6875rem] text-[var(--color-stone)]/70 font-mono shrink-0">{time}</span>
+        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
       </div>
 
       {/* Expanded params */}
       {isExpanded && fullParams.length > 0 && (
-        <div className="bg-[rgba(102,178,255,0.05)] border-t border-[rgba(102,178,255,0.15)] rounded-b-md px-3 py-2 ml-5">
-          <div className="space-y-1.5">
+        <div className="border-l-2 border-l-[var(--color-stone)]/40 ml-0 pl-6 py-1.5 bg-[var(--color-paper)]/[0.02]">
+          <div className="space-y-1">
             {fullParams.map((param, idx) => (
               <div key={idx} className="flex gap-2 text-[0.625rem] font-mono">
-                <span className="text-[var(--color-harvest)] shrink-0 min-w-[70px]">{param.key}</span>
-                <span className="text-[var(--color-paper)]/90 whitespace-pre-wrap break-all">{param.value}</span>
+                <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">{param.key}</span>
+                <span className="text-[var(--color-paper)]/70 whitespace-pre-wrap break-all">{param.value}</span>
               </div>
             ))}
           </div>
@@ -211,17 +211,17 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
   const [isExpanded, setIsExpanded] = useState(!isLong)
 
   return (
-    <div className="flex items-start gap-2 py-2 px-3">
-      <MessageSquare className="w-3.5 h-3.5 text-[var(--color-paper)]/60 shrink-0 mt-0.5" />
+    <div className="flex items-start gap-2 py-1.5 px-3">
+      <MessageSquare className="w-2.5 h-2.5 text-[var(--color-paper)]/40 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <div className={cn(
-          'text-[0.8125rem] text-[var(--color-paper)] leading-relaxed',
+          'text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed',
           !isExpanded && 'line-clamp-2'
         )}>
           <ReactMarkdown
             components={{
               p: ({ children }) => <span>{children} </span>,
-              code: ({ children }) => <code className="text-[var(--color-sky)] bg-[var(--color-ink)] px-1 py-0.5 rounded text-[0.8125rem]">{children}</code>,
+              code: ({ children }) => <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-[0.6875rem]">{children}</code>,
             }}
           >
             {msg.content}
@@ -229,14 +229,14 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
         </div>
         {isLong && (
           <button
-            className="text-[0.6875rem] text-[var(--color-sky)] hover:underline mt-1"
+            className="text-[0.625rem] text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] mt-1"
             onClick={() => setIsExpanded(!isExpanded)}
           >
             {isExpanded ? 'Show less' : 'Show more'}
           </button>
         )}
       </div>
-      <span className="text-[0.6875rem] text-[var(--color-stone)]/70 font-mono shrink-0">{time}</span>
+      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
     </div>
   )
 }
@@ -247,10 +247,10 @@ function SystemMessage({ msg }: { msg: AgentMessage }) {
   const Icon = config.icon
 
   return (
-    <div className={cn('flex items-center gap-2 py-1.5 px-3 rounded-md', config.bg)}>
-      <Icon className={cn('w-3.5 h-3.5 shrink-0', config.color)} />
-      <span className={cn('text-[0.8125rem] flex-1', config.color)}>{msg.content}</span>
-      <span className="text-[0.6875rem] text-[var(--color-stone)]/70 font-mono shrink-0">{time}</span>
+    <div className={cn('flex items-center gap-2 py-1.5 px-3', config.bg, config.border)}>
+      <Icon className={cn('w-2.5 h-2.5 shrink-0', config.color)} />
+      <span className={cn('text-[0.6875rem] flex-1', config.color)}>{msg.content}</span>
+      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
     </div>
   )
 }
