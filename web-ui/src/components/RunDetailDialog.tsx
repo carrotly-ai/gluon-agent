@@ -261,6 +261,24 @@ type MessageFilter = 'all' | 'tool_use' | 'text' | 'error'
 function MessagesPanel({ messages, scrollRef }: { messages: AgentMessage[]; scrollRef?: React.RefObject<HTMLDivElement | null> }) {
   const [filter, setFilter] = useState<MessageFilter>('all')
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set())
+  const [showScrollButton, setShowScrollButton] = useState(false)
+  const internalScrollRef = useRef<HTMLDivElement>(null)
+  const containerRef = scrollRef || internalScrollRef
+
+  // Track scroll position to show/hide scroll-to-bottom button
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+    setShowScrollButton(!isNearBottom)
+  }, [containerRef])
+
+  const scrollToBottom = useCallback(() => {
+    const container = containerRef.current
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    }
+  }, [containerRef])
 
   const toggleToolExpanded = (idx: number) => {
     setExpandedTools(prev => {
@@ -345,29 +363,46 @@ function MessagesPanel({ messages, scrollRef }: { messages: AgentMessage[]; scro
       </div>
 
       {/* Messages list */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        {filteredMessages.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-[var(--color-stone)]/50 text-[0.75rem]">
-            No messages
-          </div>
-        ) : (
-          filteredMessages.map((msg) => {
-            const originalIdx = messages.indexOf(msg)
-            if (msg.type === 'tool_use') {
-              return (
-                <ToolCallMessage
-                  key={originalIdx}
-                  msg={msg}
-                  isExpanded={expandedTools.has(originalIdx)}
-                  onToggle={() => toggleToolExpanded(originalIdx)}
-                />
-              )
-            }
-            if (msg.type === 'text') {
-              return <TextMessage key={originalIdx} msg={msg} />
-            }
-            return <SystemMessage key={originalIdx} msg={msg} />
-          })
+      <div className="relative flex-1">
+        <div
+          ref={containerRef as React.RefObject<HTMLDivElement>}
+          className="absolute inset-0 overflow-y-auto px-2 py-2 space-y-1"
+          onScroll={handleScroll}
+        >
+          {filteredMessages.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-[var(--color-stone)]/50 text-[0.75rem]">
+              No messages
+            </div>
+          ) : (
+            filteredMessages.map((msg) => {
+              const originalIdx = messages.indexOf(msg)
+              if (msg.type === 'tool_use') {
+                return (
+                  <ToolCallMessage
+                    key={originalIdx}
+                    msg={msg}
+                    isExpanded={expandedTools.has(originalIdx)}
+                    onToggle={() => toggleToolExpanded(originalIdx)}
+                  />
+                )
+              }
+              if (msg.type === 'text') {
+                return <TextMessage key={originalIdx} msg={msg} />
+              }
+              return <SystemMessage key={originalIdx} msg={msg} />
+            })
+          )}
+        </div>
+
+        {/* Scroll to bottom button */}
+        {showScrollButton && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-3 right-3 p-1.5 rounded-full bg-[var(--color-ink)] border border-[var(--color-stone)]/20 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:border-[var(--color-stone)]/40 transition-all shadow-lg"
+            title="Scroll to bottom"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
         )}
       </div>
     </div>
