@@ -5,18 +5,43 @@
 
 AI orchestrator for managing multiple Claude Code agents across projects. Run AI-powered coding tasks with session persistence, git worktree isolation, and real-time monitoring via web dashboard or chat bots.
 
+## Why Gluon?
+
+**Run multiple AI coding agents in parallel**, each in isolated git branches, while monitoring progress from a single dashboard. Perfect for:
+
+- Running several feature implementations simultaneously
+- Delegating bug fixes to AI agents while you focus on architecture
+- Managing a backlog of AI-assisted tasks across multiple projects
+- Teams wanting visibility into AI-assisted development work
+
 ## Features
 
+### Core Capabilities
 - **Multi-Project Management** - Register projects and workspaces, run tasks across your entire codebase
-- **Session Resume** - Continue Claude sessions with follow-up prompts
+- **Session Resume** - Continue Claude sessions with follow-up prompts, keeping full context
 - **Unified Task Tracking** - All tasks visible across all interfaces (CLI, Web, Telegram, Discord)
-- **Web Dashboard** - React-based Kanban board with real-time WebSocket updates
-- **Git Worktree Isolation** - Run tasks in isolated branches without affecting main
-- **PR Integration** - Create PRs, detect conflicts, merge directly from dashboard
+- **Model Selection** - Choose between Haiku (fast), Sonnet (balanced), or Opus (complex tasks)
+
+### Web Dashboard
+- **Kanban Board** - Drag-and-drop task management with Queue, Running, Review, and Done columns
+- **Real-Time Updates** - WebSocket-powered live status changes
+- **Run Details Modal** - View messages, tool calls, commits, file diffs, and attachments
+- **Full-Screen Mode** - Expanded view for detailed run analysis
+- **Message Filtering** - Filter by tools, text, or errors with counts
+- **Toast Notifications** - Instant feedback for merge and PR actions
+
+### Git Integration
+- **Worktree Isolation** - Each task runs in its own git branch without affecting main
+- **PR Integration** - Create PRs directly from the dashboard with one click
+- **Conflict Detection** - Automatic detection of merge conflicts with file-level details
 - **AI Conflict Resolution** - One-click to have Claude rebase and resolve merge conflicts
-- **Image Attachments** - Attach screenshots/diagrams to tasks for AI context
+- **Local & Remote Support** - Works with both GitHub repos and local-only repositories
+
+### Additional Features
+- **Image Attachments** - Paste screenshots/diagrams for AI context (Cmd+V in resume prompt)
 - **Usage Tracking** - Monitor costs, tokens, and usage per project
-- **Multi-Platform Bots** - Telegram and Discord interfaces with natural language
+- **Docker Deployment** - Full containerized deployment with docker-compose
+- **Log Persistence** - Stdout, stderr, and structured message logs for every run
 
 ## Requirements
 
@@ -38,53 +63,85 @@ cd gluon-agent
 uv venv
 uv pip install -e .
 
-# Or with optional dependencies
-uv pip install -e '.[telegram]'      # Telegram bot support
-uv pip install -e '.[discord]'       # Discord bot support
-uv pip install -e '.[all]'           # All optional features
+# Or install with bot support
+uv pip install -e '.[telegram]'      # Telegram bot
+uv pip install -e '.[discord]'       # Discord bot
+uv pip install -e '.[all]'           # All features
 ```
 
 ## Quick Start
 
-### CLI Usage
+### 1. Register a Project
 
 ```bash
-# Register a project
-gluon project add myapp /path/to/myapp
-
-# Run a coding task
-gluon run myapp 'Fix the authentication bug'
-
-# Resume the session with a follow-up
-gluon resume myapp 'Also add logging'
-
-# Run in background
-gluon run myapp 'Implement user registration' --background
-
-# Check status
-gluon status
-gluon runs
+gluon project add myapp ~/projects/myapp
 ```
 
-### Web Dashboard
+### 2. Run a Task
 
 ```bash
-# Start the web server
-gluon web
+# Interactive mode (see output in terminal)
+gluon run myapp 'Fix the authentication bug in login.py'
 
+# Background mode (monitor via dashboard)
+gluon run myapp 'Implement user registration' --background
+
+# Use git worktree for isolated branch
+gluon run myapp 'Add dark mode support' --background --worktree
+```
+
+### 3. Resume with Follow-up
+
+```bash
+# Continue the conversation
+gluon resume myapp 'Also add unit tests for the new code'
+```
+
+### 4. Monitor Progress
+
+```bash
+# Check all runs
+gluon runs
+
+# View specific run logs
+gluon logs <run-id>
+gluon logs <run-id> -f  # Follow live
+```
+
+## Web Dashboard
+
+```bash
+gluon web
 # Open http://localhost:45866
 ```
 
-The dashboard provides a Kanban board view of all tasks with real-time updates, PR integration, and usage tracking.
+The dashboard provides:
 
-### Telegram Bot
+| Column | Description |
+|--------|-------------|
+| **Queue** | Pending tasks waiting to start |
+| **Running** | Active AI agents with live progress |
+| **Review** | Completed tasks with branches ready for PR/merge |
+| **Done** | Merged or archived tasks |
+
+**Run Details** include:
+- Live message stream with tool call visualization
+- Git commits and file diffs
+- Image attachments
+- Cost and token usage
+- One-click PR creation and merge
+
+## Chat Bots
+
+### Telegram
 
 ```bash
 export GLUON_TELEGRAM_TOKEN="your-bot-token"
+export GLUON_TELEGRAM_USERS="123456789"  # Allowed user IDs
 gluon bot
 ```
 
-### Discord Bot
+### Discord
 
 ```bash
 export GLUON_DISCORD_TOKEN="your-bot-token"
@@ -92,12 +149,27 @@ export GLUON_DISCORD_GUILD="your-guild-id"
 gluon discord
 ```
 
-### Multi-Transport
+### Natural Language Interface
+
+Chat with Gluon using natural language:
+
+> "Run a task on myapp to fix the login bug"
+> "What's the status of my running tasks?"
+> "Show me the logs for the last task"
+
+## Docker Deployment
 
 ```bash
-# Run all interfaces simultaneously
-gluon serve --telegram --discord --web
+# Copy and configure environment
+cp .env.example .env
+
+# Start all services
+docker-compose up -d
+
+# Access dashboard at http://localhost:45866
 ```
+
+See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions.
 
 ## Architecture
 
@@ -135,38 +207,33 @@ graph TB
     SDK --> CLAUDE
 ```
 
+## Model Selection
+
+| Model | Best For | Flag |
+|-------|----------|------|
+| **Haiku** | Quick fixes, simple tasks | `--model haiku` |
+| **Sonnet** | Most coding tasks (default) | `--model sonnet` |
+| **Opus** | Complex refactoring, architecture | `--model opus` |
+
+```bash
+gluon run myapp 'Fix typo' --model haiku
+gluon run myapp 'Implement OAuth' --model sonnet
+gluon run myapp 'Redesign database schema' --model opus
+```
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](docs/CLI-REFERENCE.md) | Complete CLI command reference |
 | [Web Dashboard](docs/WEB-DASHBOARD.md) | Dashboard features and API |
+| [Git Operations](docs/GIT-OPERATIONS.md) | Worktrees, PR integration, conflict resolution |
 | [Telegram Bot](docs/TELEGRAM-BOT.md) | Telegram setup and commands |
 | [Discord Bot](docs/DISCORD-BOT.md) | Discord setup and commands |
-| [Git Operations](docs/GIT-OPERATIONS.md) | Git sync, worktrees, PR integration |
+| [Docker](docs/DOCKER.md) | Container deployment |
 | [Architecture](docs/ARCHITECTURE.md) | System architecture and data models |
 | [API Reference](docs/API.md) | REST and WebSocket API |
 | [Development](docs/DEVELOPMENT.md) | Contributing and extending |
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `GLUON_TELEGRAM_TOKEN` | Telegram bot token |
-| `GLUON_TELEGRAM_USERS` | Allowed Telegram user IDs (comma-separated) |
-| `GLUON_DISCORD_TOKEN` | Discord bot token |
-| `GLUON_DISCORD_GUILD` | Discord guild (server) ID |
-| `GLUON_DISCORD_USERS` | Allowed Discord user IDs (comma-separated) |
-
-### Model Selection
-
-```bash
-gluon run myapp 'Fix bug' --model haiku    # Fast, economical
-gluon run myapp 'Refactor' --model sonnet  # Balanced (default)
-gluon run myapp 'Review' --model opus      # Complex tasks
-```
 
 ## Data Storage
 
@@ -180,6 +247,16 @@ gluon run myapp 'Review' --model opus      # Complex tasks
         ├── stderr.log
         └── messages.jsonl
 ```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GLUON_TELEGRAM_TOKEN` | Telegram bot token |
+| `GLUON_TELEGRAM_USERS` | Allowed Telegram user IDs (comma-separated) |
+| `GLUON_DISCORD_TOKEN` | Discord bot token |
+| `GLUON_DISCORD_GUILD` | Discord guild (server) ID |
+| `GLUON_DISCORD_USERS` | Allowed Discord user IDs (comma-separated) |
 
 ## License
 
