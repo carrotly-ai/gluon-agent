@@ -51,8 +51,8 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # Switch to non-root user
 USER gluon
 
-# Install gluon-agent package with web dashboard support
-RUN pip install --no-cache-dir -e '.[web]'
+# Install gluon-agent package with all features (web, telegram, discord)
+RUN pip install --no-cache-dir -e '.[all]'
 
 # Add to PATH
 ENV PATH="/home/gluon/.local/bin:$PATH"

@@ -44,12 +44,7 @@ services:
       # Limit heap to 6GB to leave room for subprocesses within 12GB container
       - NODE_OPTIONS=--max-old-space-size=6144
 
-      # Gluon configuration
-      - GLUON_TELEGRAM_TOKEN
-      - GLUON_TELEGRAM_USERS
-      - GLUON_DISCORD_TOKEN
-      - GLUON_DISCORD_GUILD
-      - GLUON_DISCORD_USERS
+      # Gluon configuration (loaded from env_file, only override if needed)
       - GLUON_GIT_ENABLED=true
 
     # Interactive mode for CLI
@@ -79,4 +74,4 @@ services:
 
     # Keep container alive when running in background
     restart: unless-stopped
-    command: ["gluon", "web"]
+    command: ["gluon", "serve", "--telegram", "--discord"]
