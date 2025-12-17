@@ -933,7 +933,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/workspaces/{workspace_id}/scan", response_model=ScanResultResponse)
     async def scan_workspace(workspace_id: str) -> ScanResultResponse:
-        """Rescan workspace for new projects."""
+        """Rescan workspace for new projects and remove missing ones."""
         workspace = store.get_workspace(workspace_id)
         if not workspace:
             workspace = store.get_workspace_by_name(workspace_id)
@@ -941,8 +941,22 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
 
         projects_added = []
+        projects_removed = []
+
+        # Get current project paths on disk
         project_paths = workspace.scan_for_projects()
 
+        # Check existing projects in this workspace for removed directories
+        existing_projects = store.list_projects_by_workspace(workspace.id)
+        for project in existing_projects:
+            project_path = project.expanded_path
+            if not project_path.exists():
+                # Directory no longer exists - remove the project
+                logger.info(f"Removing project '{project.name}' - directory no longer exists: {project_path}")
+                store.delete_project(project.id)
+                projects_removed.append(project.name)
+
+        # Add new projects that don't exist in database
         for project_path in project_paths:
             project_name = project_path.name
             existing = store.get_project_by_name(project_name)
@@ -958,6 +972,7 @@ def create_app() -> FastAPI:
             workspace_id=workspace.id,
             projects_found=len(project_paths),
             projects_added=projects_added,
+            projects_removed=projects_removed,
         )
 
     # ========== Phase 8: Usage Dashboard ==========

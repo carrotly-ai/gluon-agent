@@ -260,6 +260,7 @@ export interface ScanResultResponse {
   workspace_id: string
   projects_found: number
   projects_added: string[]
+  projects_removed: string[]
 }
 
 // ========== Usage Dashboard Types (Phase 8) ==========

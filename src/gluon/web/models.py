@@ -245,6 +245,10 @@ class ScanResultResponse(BaseModel):
     workspace_id: str
     projects_found: int
     projects_added: list[str] = Field(description="Names of newly added projects")
+    projects_removed: list[str] = Field(
+        default_factory=list,
+        description="Names of projects removed (directory no longer exists)",
+    )
 
 
 # Phase 8: Usage Dashboard Models

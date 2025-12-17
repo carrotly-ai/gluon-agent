@@ -206,18 +206,31 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
 
         {/* Scan result notification */}
         {scanResult && (
-          <div className="flex items-center gap-2 p-3 bg-[var(--color-jade)]/10 border border-[var(--color-jade)]/20 rounded-sm">
-            <Check className="w-4 h-4 text-[var(--color-jade)]" />
-            <span className="text-[0.75rem] text-[var(--color-jade)]">
-              Found {scanResult.projects_found} projects, added {scanResult.projects_added.length} new
-              {scanResult.projects_added.length > 0 && `: ${scanResult.projects_added.join(', ')}`}
-            </span>
-            <button
-              className="ml-auto text-[var(--color-jade)] hover:opacity-80"
-              onClick={() => setScanResult(null)}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex flex-col gap-2 p-3 bg-[var(--color-jade)]/10 border border-[var(--color-jade)]/20 rounded-sm">
+            <div className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-[var(--color-jade)]" />
+              <span className="text-[0.75rem] text-[var(--color-jade)]">
+                Found {scanResult.projects_found} projects
+                {scanResult.projects_added.length > 0 && `, added ${scanResult.projects_added.length} new`}
+                {scanResult.projects_removed.length > 0 && `, removed ${scanResult.projects_removed.length}`}
+              </span>
+              <button
+                className="ml-auto text-[var(--color-jade)] hover:opacity-80"
+                onClick={() => setScanResult(null)}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {scanResult.projects_added.length > 0 && (
+              <div className="text-[0.7rem] text-[var(--color-jade)]/80 pl-6">
+                Added: {scanResult.projects_added.join(', ')}
+              </div>
+            )}
+            {scanResult.projects_removed.length > 0 && (
+              <div className="text-[0.7rem] text-red-400/80 pl-6">
+                Removed: {scanResult.projects_removed.join(', ')}
+              </div>
+            )}
           </div>
         )}
 
