@@ -46,6 +46,9 @@ app.add_typer(workspace_app, name="workspace")
 git_app = typer.Typer(help="Git operations for projects")
 app.add_typer(git_app, name="git")
 
+mcp_app = typer.Typer(help="MCP server diagnostics")
+app.add_typer(mcp_app, name="mcp")
+
 console = Console()
 
 
@@ -492,6 +495,115 @@ def git_push(
                 console.print("  Pushed to remote")
 
     anyio.run(_push)
+
+
+# ========== MCP Commands ==========
+
+
+@mcp_app.command("status")
+def mcp_status(
+    project: Annotated[str | None, typer.Argument(help="Optional project name to check project-level config")] = None,
+):
+    """
+    Show MCP server configuration and test connectivity.
+
+    Checks which MCP config file would be used and tests each server's reachability.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    from gluon.agent import find_mcp_config
+
+    # Determine working directory
+    working_dir = None
+    if project:
+        orchestrator = get_orchestrator()
+        try:
+            proj = orchestrator.get_project(project)
+            working_dir = proj.expanded_path
+            console.print(f"[dim]Project:[/dim] {project} ({working_dir})")
+        except ProjectNotFoundError:
+            console.print(f"[yellow]Warning:[/yellow] Project '{project}' not found, using global config")
+
+    # Find MCP config
+    mcp_path = find_mcp_config(working_dir)
+
+    if not mcp_path:
+        console.print("[yellow]No MCP configuration found.[/yellow]")
+        console.print("\nExpected locations:")
+        console.print("  • Project: .mcp.json (in project directory)")
+        console.print("  • Global: ~/.claude/.mcp.json")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold]MCP Config:[/bold] {mcp_path}")
+
+    # Load and display config
+    try:
+        with open(mcp_path) as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Error parsing MCP config:[/red] {e}")
+        raise typer.Exit(1)
+
+    servers = config.get("mcpServers", {})
+    if not servers:
+        console.print("[yellow]No MCP servers configured.[/yellow]")
+        raise typer.Exit(0)
+
+    # Create table for results
+    table = Table(title="MCP Servers")
+    table.add_column("Server", style="cyan")
+    table.add_column("Type", style="dim")
+    table.add_column("URL/Command")
+    table.add_column("Status")
+
+    for name, server in servers.items():
+        server_type = server.get("type", "stdio")
+        url = server.get("url", "")
+        command = server.get("command", "")
+
+        # Test connectivity for HTTP/SSE servers
+        status = "[dim]—[/dim]"
+        if server_type in ("http", "sse") and url:
+            try:
+                headers = server.get("headers", {})
+                req = urllib.request.Request(url, headers=headers, method="POST")
+                # Send minimal MCP request
+                req.add_header("Content-Type", "application/json")
+                data = json.dumps({"jsonrpc": "2.0", "method": "initialize", "id": 1}).encode()
+                with urllib.request.urlopen(req, data=data, timeout=5) as resp:
+                    status = f"[green]✓ OK ({resp.status})[/green]"
+            except urllib.error.HTTPError as e:
+                if e.code in (400, 405, 406):
+                    # Server responded, just doesn't like our request format
+                    status = f"[green]✓ Reachable[/green]"
+                else:
+                    status = f"[yellow]HTTP {e.code}[/yellow]"
+            except urllib.error.URLError as e:
+                reason = str(e.reason)
+                if "Connection refused" in reason:
+                    status = "[red]✗ Connection refused[/red]"
+                elif "Name or service not known" in reason or "nodename nor servname" in reason:
+                    status = "[red]✗ Host not found[/red]"
+                else:
+                    status = f"[red]✗ {reason[:30]}[/red]"
+            except Exception as e:
+                status = f"[red]✗ {str(e)[:30]}[/red]"
+        elif server_type == "stdio":
+            status = "[dim]stdio (not tested)[/dim]"
+
+        # Add row
+        location = url if url else command
+        table.add_row(name, server_type, location, status)
+
+    console.print(table)
+
+    # Show tips for common issues
+    console.print("\n[bold]Tips:[/bold]")
+    console.print("  • For services on your Mac, use [cyan]host.docker.internal[/cyan] instead of [cyan]localhost[/cyan]")
+    console.print("  • Project-level [cyan].mcp.json[/cyan] overrides global config")
+    console.print("  • Run [cyan]gluon mcp status <project>[/cyan] to check project-specific config")
 
 
 # ========== Execution Commands ==========
