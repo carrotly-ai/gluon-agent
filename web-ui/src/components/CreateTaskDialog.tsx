@@ -20,6 +20,21 @@ const MODEL_OPTIONS = [
 ]
 
 const DEFAULT_MODEL = 'claude-sonnet-4.5'
+const MODEL_STORAGE_KEY = 'gluon-last-model'
+const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
+
+// Get last used model from sessionStorage
+function getLastUsedModel(): string {
+  if (typeof window === 'undefined') return DEFAULT_MODEL
+  return sessionStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODEL
+}
+
+// Get last worktree setting from sessionStorage
+function getLastWorktreeSetting(): boolean {
+  if (typeof window === 'undefined') return true
+  const stored = sessionStorage.getItem(WORKTREE_STORAGE_KEY)
+  return stored === null ? true : stored === 'true'
+}
 
 // Pending image (uploaded before run creation)
 interface PendingImage {
@@ -31,8 +46,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState(DEFAULT_MODEL)
-  const [useWorktree, setUseWorktree] = useState(true)
+  const [model, setModel] = useState(getLastUsedModel)
+  const [useWorktree, setUseWorktree] = useState(getLastWorktreeSetting)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
@@ -53,19 +68,28 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
     }
   }, [open, initialProject])
 
-  // Reset form when closed
+  // Reset form when closed (but preserve model and worktree preferences)
   useEffect(() => {
     if (!open) {
       setPrompt('')
       setSelectedProject(initialProject || '')
       setError(null)
-      setModel(DEFAULT_MODEL)
-      setUseWorktree(true)
+      // Don't reset model and worktree - they persist via sessionStorage
       // Revoke preview URLs to prevent memory leaks
       pendingImages.forEach(img => URL.revokeObjectURL(img.preview))
       setPendingImages([])
     }
   }, [open, initialProject])
+
+  // Persist model selection to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(MODEL_STORAGE_KEY, model)
+  }, [model])
+
+  // Persist worktree setting to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(WORKTREE_STORAGE_KEY, String(useWorktree))
+  }, [useWorktree])
 
   // Image handling functions
   const handleFileSelect = useCallback((files: FileList | null) => {
