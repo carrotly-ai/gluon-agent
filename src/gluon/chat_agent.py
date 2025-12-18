@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import (
@@ -68,6 +69,11 @@ When users ask you to do something, use the available tools to help them. Be con
 - git_sync - Auto-commit, fetch, and fast-forward a project
 - git_push - Commit and push changes to remote
 - git_fetch - Fetch from remote to see what's new
+- get_run_commits - Get commits made on a run's branch
+- get_run_files - Get files changed on a run's branch
+- get_file_diff - Get the diff for a specific file
+- merge_branch - Merge a run's branch into main
+- check_conflicts - Check for merge conflicts in a project
 
 **Built-in Tools:**
 - Read, Glob, Grep - Read files and search code
@@ -728,6 +734,295 @@ class GluonChatAgent:
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error creating PR: {e}"}]}
 
+        # ========== Agent Workflow Tools (inspect & merge) ==========
+
+        @tool(
+            "get_run_commits",
+            "Get commits made on a run's branch (for worktree runs)",
+            {
+                "run_id": str,  # Run ID (can be short ID like 'abc12345')
+            },
+        )
+        async def get_run_commits(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            run_id = args.get("run_id", "")
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            if not run.branch_name:
+                return {"content": [{"type": "text", "text": f"Run `{run_id[:8]}` has no branch (not a worktree run)"}]}
+
+            project = orchestrator.store.get_project(run.project_id)
+            if not project:
+                return {"content": [{"type": "text", "text": f"Project not found for run `{run_id[:8]}`"}]}
+
+            # Determine working path
+            working_path = (
+                Path(run.worktree_path)
+                if run.worktree_path and Path(run.worktree_path).exists()
+                else project.expanded_path
+            )
+            base_branch = run.source_branch or "main"
+
+            git_manager = GitManager(orchestrator.store)
+            try:
+                commits_data = await git_manager.get_branch_commits(
+                    path=working_path,
+                    branch_name=run.branch_name,
+                    base_branch=base_branch,
+                )
+
+                if not commits_data:
+                    return {"content": [{"type": "text", "text": f"No commits on branch `{run.branch_name}`"}]}
+
+                result = f"**Commits on `{run.branch_name}`** ({len(commits_data)} total):\n"
+                for c in commits_data[:10]:  # Limit to 10 for readability
+                    sha_short = c["sha"][:7]
+                    msg_first_line = c["message"].split("\n")[0][:60]
+                    result += f"- `{sha_short}` {msg_first_line}\n"
+
+                if len(commits_data) > 10:
+                    result += f"... and {len(commits_data) - 10} more commits\n"
+
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error getting commits: {e}"}]}
+
+        @tool(
+            "get_run_files",
+            "Get files changed on a run's branch (for worktree runs)",
+            {
+                "run_id": str,  # Run ID (can be short ID like 'abc12345')
+            },
+        )
+        async def get_run_files(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            run_id = args.get("run_id", "")
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            if not run.branch_name:
+                return {"content": [{"type": "text", "text": f"Run `{run_id[:8]}` has no branch (not a worktree run)"}]}
+
+            project = orchestrator.store.get_project(run.project_id)
+            if not project:
+                return {"content": [{"type": "text", "text": f"Project not found for run `{run_id[:8]}`"}]}
+
+            # Determine working path
+            working_path = (
+                Path(run.worktree_path)
+                if run.worktree_path and Path(run.worktree_path).exists()
+                else project.expanded_path
+            )
+            base_branch = run.source_branch or "main"
+
+            git_manager = GitManager(orchestrator.store)
+            try:
+                files_data = await git_manager.get_changed_files(
+                    path=working_path,
+                    branch_name=run.branch_name,
+                    base_branch=base_branch,
+                )
+
+                if not files_data:
+                    return {"content": [{"type": "text", "text": f"No files changed on branch `{run.branch_name}`"}]}
+
+                total_additions = sum(f["additions"] for f in files_data)
+                total_deletions = sum(f["deletions"] for f in files_data)
+
+                result = f"**Files changed on `{run.branch_name}`** ({len(files_data)} files, +{total_additions}/-{total_deletions}):\n"
+                for f in files_data[:20]:  # Limit to 20 for readability
+                    status_emoji = {"added": "🟢", "modified": "🟡", "deleted": "🔴"}.get(f["status"], "⚪")
+                    result += f"{status_emoji} `{f['file_path']}` (+{f['additions']}/-{f['deletions']})\n"
+
+                if len(files_data) > 20:
+                    result += f"... and {len(files_data) - 20} more files\n"
+
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error getting files: {e}"}]}
+
+        @tool(
+            "get_file_diff",
+            "Get the diff for a specific file in a run's branch",
+            {
+                "run_id": str,  # Run ID (can be short ID like 'abc12345')
+                "file_path": str,  # Path to the file (e.g., 'src/main.py')
+            },
+        )
+        async def get_file_diff(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            run_id = args.get("run_id", "")
+            file_path = args.get("file_path", "")
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+            if not file_path:
+                return {"content": [{"type": "text", "text": "Error: file_path is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            if not run.branch_name:
+                return {"content": [{"type": "text", "text": f"Run `{run_id[:8]}` has no branch (not a worktree run)"}]}
+
+            project = orchestrator.store.get_project(run.project_id)
+            if not project:
+                return {"content": [{"type": "text", "text": f"Project not found for run `{run_id[:8]}`"}]}
+
+            # Determine working path
+            working_path = (
+                Path(run.worktree_path)
+                if run.worktree_path and Path(run.worktree_path).exists()
+                else project.expanded_path
+            )
+            base_branch = run.source_branch or "main"
+
+            git_manager = GitManager(orchestrator.store)
+            try:
+                diff_data = await git_manager.get_file_diff(
+                    path=working_path,
+                    file_path=file_path,
+                    branch_name=run.branch_name,
+                    base_branch=base_branch,
+                )
+
+                diff_text = diff_data.get("diff", "")
+                if not diff_text:
+                    return {"content": [{"type": "text", "text": f"No diff available for `{file_path}`"}]}
+
+                # Truncate if too long for chat
+                if len(diff_text) > 3000:
+                    diff_text = diff_text[:3000] + "\n... (truncated)"
+
+                result = f"**Diff for `{file_path}`** (+{diff_data['additions']}/-{diff_data['deletions']}):\n```diff\n{diff_text}\n```"
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error getting diff: {e}"}]}
+
+        @tool(
+            "merge_branch",
+            "Merge a run's feature branch into main (completes the workflow)",
+            {
+                "run_id": str,  # Run ID (must be a completed worktree run with a branch)
+            },
+        )
+        async def merge_branch(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            run_id = args.get("run_id", "")
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            if not run.use_worktree or not run.branch_name:
+                return {"content": [{"type": "text", "text": f"Run `{run_id[:8]}` is not a worktree run or has no branch"}]}
+
+            project = orchestrator.store.get_project(run.project_id)
+            if not project:
+                return {"content": [{"type": "text", "text": f"Project not found for run `{run_id[:8]}`"}]}
+
+            git_manager = GitManager(orchestrator.store)
+            project_path = project.expanded_path
+            base_branch = run.source_branch or "main"
+
+            try:
+                merge_result = await git_manager.merge_branch_locally(
+                    project_path=project_path,
+                    branch_name=run.branch_name,
+                    base_branch=base_branch,
+                    push_after_merge=True,
+                )
+
+                if merge_result.get("success"):
+                    # Mark run as merged
+                    run.pr_status = "merged"
+                    orchestrator.store.update_run(run)
+
+                    result = f"✅ Successfully merged `{run.branch_name}` into `{base_branch}`"
+                    if merge_result.get("merged_commit_sha"):
+                        result += f"\nCommit: `{merge_result['merged_commit_sha'][:7]}`"
+                    if merge_result.get("message"):
+                        result += f"\n{merge_result['message']}"
+                    return {"content": [{"type": "text", "text": result}]}
+                else:
+                    error = merge_result.get("error", "Merge failed")
+                    if merge_result.get("has_conflicts"):
+                        conflicting = merge_result.get("conflicting_files", [])
+                        result = f"❌ Merge conflict detected!\n**Conflicting files:**\n"
+                        for f in conflicting[:10]:
+                            result += f"- `{f}`\n"
+                        result += "\nUse `check_conflicts` to see details, or resume the agent to resolve."
+                        return {"content": [{"type": "text", "text": result}]}
+                    return {"content": [{"type": "text", "text": f"❌ {error}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error merging: {e}"}]}
+
+        @tool(
+            "check_conflicts",
+            "Check if a project has merge conflicts (rebase/merge in progress)",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                # Detect conflict state
+                conflict_state = await git_manager._detect_conflict_state(project.expanded_path)
+                conflicts = await git_manager.detect_conflicts(project.expanded_path)
+
+                if not conflicts and not conflict_state.get("is_rebase_in_progress") and not conflict_state.get("is_merge_in_progress"):
+                    return {"content": [{"type": "text", "text": f"✅ No conflicts in `{project_name}`"}]}
+
+                result = f"**Conflicts in `{project_name}`:**\n"
+
+                if conflict_state.get("is_rebase_in_progress"):
+                    step = conflict_state.get("rebase_current_step", "?")
+                    total = conflict_state.get("rebase_total_steps", "?")
+                    result += f"⚠️ Rebase in progress (step {step}/{total})\n"
+                elif conflict_state.get("is_merge_in_progress"):
+                    result += "⚠️ Merge in progress\n"
+
+                if conflicts:
+                    result += f"\n**{len(conflicts)} conflicted file(s):**\n"
+                    for c in conflicts[:10]:
+                        markers = c.get("conflict_markers_count", 0)
+                        result += f"- `{c['file_path']}` ({markers} conflict markers)\n"
+                    if len(conflicts) > 10:
+                        result += f"... and {len(conflicts) - 10} more files\n"
+
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error checking conflicts: {e}"}]}
+
         return [
             list_projects,
             list_sessions,
@@ -749,6 +1044,12 @@ class GluonChatAgent:
             add_project,
             get_usage,
             create_pr,
+            # Agent workflow tools (inspect & merge)
+            get_run_commits,
+            get_run_files,
+            get_file_diff,
+            merge_branch,
+            check_conflicts,
         ]
 
     async def chat(
@@ -846,6 +1147,12 @@ class GluonChatAgent:
                 "mcp__gluon__add_project",
                 "mcp__gluon__get_usage",
                 "mcp__gluon__create_pr",
+                # Agent workflow tools (inspect & merge)
+                "mcp__gluon__get_run_commits",
+                "mcp__gluon__get_run_files",
+                "mcp__gluon__get_file_diff",
+                "mcp__gluon__merge_branch",
+                "mcp__gluon__check_conflicts",
             ],
             max_turns=3,
             model=haiku_model,
