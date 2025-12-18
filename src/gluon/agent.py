@@ -208,7 +208,7 @@ class GluonAgent:
         self,
         model: str = "sonnet",
         allowed_tools: list[str] | None = None,
-        permission_mode: str = "acceptEdits",
+        permission_mode: str = "bypassPermissions",
         cli_path: Path | str | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
