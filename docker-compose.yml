@@ -72,6 +72,6 @@ services:
     # command: gluon serve --telegram --discord
     # command: gluon status
 
-    # Keep container alive when running in background
-    restart: unless-stopped
+    # Auto-start when Docker/OrbStack starts
+    restart: always
     command: ["gluon", "serve", "--telegram", "--discord"]
