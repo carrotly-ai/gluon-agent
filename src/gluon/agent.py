@@ -24,6 +24,43 @@ from gluon.models_config import get_model_id
 # Default tools available to Claude Code agents
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "TodoWrite"]
 
+# Default MCP config locations (checked in order of priority)
+MCP_CONFIG_PATHS = [
+    # Host's Claude config (fallback)
+    Path.home() / ".claude" / ".mcp.json",
+    # Alternative location
+    Path.home() / ".claude" / "mcp.json",
+]
+
+
+def find_mcp_config(working_dir: Path | None = None) -> Path | None:
+    """
+    Find MCP configuration file with layered precedence.
+
+    Priority:
+    1. Project-level .mcp.json (if working_dir provided)
+    2. Host's ~/.claude/.mcp.json
+
+    Args:
+        working_dir: Optional project directory to check for local .mcp.json
+
+    Returns:
+        Path to MCP config file, or None if not found
+    """
+    # 1. Project-level .mcp.json (highest priority)
+    if working_dir:
+        project_mcp = working_dir / ".mcp.json"
+        if project_mcp.exists():
+            return project_mcp
+
+    # 2. Check default locations
+    for path in MCP_CONFIG_PATHS:
+        if path.exists():
+            return path
+
+    return None
+
+
 # Common locations for Claude CLI (checked in order)
 CLAUDE_CLI_PATHS = [
     # Official Claude Code installation
@@ -205,11 +242,15 @@ class GluonAgent:
                            This helps avoid control channel conflicts with other
                            Claude processes.
         """
+        # Find MCP config (project-level takes precedence over host config)
+        mcp_config = find_mcp_config(working_dir)
+
         options = ClaudeAgentOptions(
             cwd=working_dir,
             allowed_tools=self.allowed_tools,
             permission_mode=self.permission_mode,
             model=self.model,
+            mcp_servers=mcp_config if mcp_config else {},
         )
 
         # Add resume option if we have a previous session
