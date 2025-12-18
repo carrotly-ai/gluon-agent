@@ -245,9 +245,14 @@ class GluonAgent:
         # Find MCP config (project-level takes precedence over host config)
         mcp_config = find_mcp_config(working_dir)
 
+        # When MCP servers are configured, don't restrict allowed_tools
+        # This lets the agent use MCP tools like mcp__scraper__perplexity
+        # Without MCP, use the configured allowed_tools list
+        effective_tools = None if mcp_config else self.allowed_tools
+
         options = ClaudeAgentOptions(
             cwd=working_dir,
-            allowed_tools=self.allowed_tools,
+            allowed_tools=effective_tools,
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
