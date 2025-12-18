@@ -74,4 +74,4 @@ services:
 
     # Auto-start when Docker/OrbStack starts
     restart: always
-    command: ["gluon", "serve", "--telegram", "--discord"]
+    command: ["gluon", "serve", "--web", "--telegram", "--discord"]
