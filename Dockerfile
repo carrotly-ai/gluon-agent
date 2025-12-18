@@ -44,9 +44,13 @@ WORKDIR /app
 # Copy gluon-agent source (as root first for proper permissions)
 COPY --chown=gluon:gluon pyproject.toml README.md LICENSE* ./
 COPY --chown=gluon:gluon src/ src/
+COPY --chown=gluon:gluon docker-entrypoint.sh /usr/local/bin/
 
 # Install Python dependencies as root first
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Make entrypoint executable
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Switch to non-root user
 USER gluon
@@ -58,6 +62,9 @@ RUN pip install --no-cache-dir -e '.[all]'
 ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon
+
+# Entrypoint registers MCP servers from mounted .mcp.json on startup
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Default command (can be overridden by docker-compose or docker run)
 CMD ["gluon", "--help"]
