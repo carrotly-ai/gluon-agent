@@ -55,6 +55,10 @@ services:
     ports:
       - "45866:45866"  # Web dashboard
 
+    # Allow container to reach host services (e.g., MCP servers on localhost)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     # Resource limits for running concurrent Claude Code agents
     # Each agent can use 512MB-1GB for context windows and code analysis
     # With 5-6 concurrent agents + web dashboard overhead, need 8-12GB
