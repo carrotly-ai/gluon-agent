@@ -66,6 +66,44 @@ def parse_model_flag(text: str) -> tuple[str, str | None]:
     return cleaned, model
 
 
+def parse_channel_topic(topic: str | None) -> dict[str, str | None]:
+    """Parse channel topic for configuration flags.
+
+    Channel topics can contain configuration like:
+        --project myproject --model haiku
+
+    Args:
+        topic: The channel topic string
+
+    Returns:
+        Dict with 'project' and 'model' keys (values may be None)
+
+    Examples:
+        "--project foo --model opus" -> {"project": "foo", "model": "claude-opus-4.5"}
+        "This is our dev channel --model haiku" -> {"project": None, "model": "claude-haiku-4.5"}
+        "Regular topic" -> {"project": None, "model": None}
+    """
+    result: dict[str, str | None] = {"project": None, "model": None}
+
+    if not topic:
+        return result
+
+    # Parse --project or -p flag
+    project_pattern = r"(?:--project|-p)\s+(\S+)"
+    project_match = re.search(project_pattern, topic, re.IGNORECASE)
+    if project_match:
+        result["project"] = project_match.group(1)
+
+    # Parse --model or -m flag
+    model_pattern = r"(?:--model|-m)\s+(\S+)"
+    model_match = re.search(model_pattern, topic, re.IGNORECASE)
+    if model_match:
+        model_arg = model_match.group(1).lower()
+        result["model"] = MODEL_ALIASES.get(model_arg)
+
+    return result
+
+
 class DiscordTransport(Transport):
     """Discord bot transport implementation.
 
@@ -156,18 +194,47 @@ class DiscordTransport(Transport):
             raw_data={"message": message},
         )
 
+    def _get_channel_topic_config(self, channel: discord.abc.Messageable) -> dict[str, str | None]:
+        """Get configuration from channel topic.
+
+        Channel topics can contain flags like:
+            --project myproject --model haiku
+
+        Returns:
+            Dict with 'project' and 'model' keys
+        """
+        if not isinstance(channel, discord.TextChannel):
+            return {"project": None, "model": None}
+
+        return parse_channel_topic(channel.topic)
+
     def _resolve_project(self, channel: discord.abc.Messageable) -> str | None:
-        """Resolve project name from channel context."""
+        """Resolve project name from channel context.
+
+        Priority:
+        1. Channel topic --project flag
+        2. Explicit link command mapping
+        3. Auto-match by channel name
+        """
         if not isinstance(channel, discord.TextChannel):
             return None
 
+        # 1. Check channel topic for --project flag (highest priority)
+        topic_config = self._get_channel_topic_config(channel)
+        if topic_config["project"]:
+            try:
+                project = self.bot_core.orchestrator.get_project(topic_config["project"])
+                return project.name
+            except ProjectNotFoundError:
+                pass  # Fall through to other methods
+
         channel_id = channel.id
 
-        # 1. Check explicit mapping
+        # 2. Check explicit mapping (from link command)
         if channel_id in self._channel_project_map:
             return self._channel_project_map[channel_id]
 
-        # 2. Try auto-matching channel name to project name
+        # 3. Try auto-matching channel name to project name
         # Discord channels use hyphens, but project names may use hyphens or underscores
         # Normalize both for comparison
         def normalize(name: str) -> str:
@@ -359,9 +426,11 @@ class DiscordTransport(Transport):
 
         await message.reply(
             f"**No project linked to this channel.**\n\n"
-            f"Use `@{self.bot.user.name} link <project>` to connect.\n"
-            f"Available projects: {names}{more}\n\n"
-            f"Or rename this channel to match a project name."
+            f"**Options:**\n"
+            f"1. Add `--project <name>` to channel topic\n"
+            f"2. Use `@{self.bot.user.name} link <project>`\n"
+            f"3. Rename channel to match project name\n\n"
+            f"Available: {names}{more}"
         )
 
     async def _handle_link_command(self, message: discord.Message, project_name: str) -> None:
@@ -450,9 +519,9 @@ class DiscordTransport(Transport):
         text = (
             f"**{bot_name} Commands:**\n\n"
             "**Tasks:**\n"
-            f"`@{bot_name} <task>` - Run a task (uses default model: sonnet)\n"
-            f"`@{bot_name} <task> --model opus` - Run with specific model\n"
-            f"`@{bot_name} <task> -m haiku` - Short form for model selection\n\n"
+            f"`@{bot_name} <task>` - Run a task\n"
+            f"`@{bot_name} <task> --model opus` - Override model for this task\n"
+            f"`@{bot_name} <task> -m haiku` - Short form\n\n"
             "**Commands:**\n"
             "`projects` - List registered projects\n"
             "`runs` - List active/recent runs\n"
@@ -461,7 +530,10 @@ class DiscordTransport(Transport):
             "`cancel [run_id]` - Cancel a run\n"
             "`link <project>` - Link channel to project\n"
             "`help` - Show this help\n\n"
-            "**Resume:** Reply to a completion message to continue the session"
+            "**Channel Topic Config:**\n"
+            "Set defaults in channel topic:\n"
+            "`--project myproject --model haiku`\n\n"
+            "**Resume:** Reply to a completion message to continue"
         )
         await message.reply(text)
 
@@ -573,10 +645,13 @@ class DiscordTransport(Transport):
             )
             return
 
-        # Parse --model flag from prompt
+        # Parse --model flag from prompt (highest priority)
         cleaned_prompt, model = parse_model_flag(prompt)
+
+        # Fall back to channel topic --model, then default
         if not model:
-            model = DEFAULT_MODEL
+            topic_config = self._get_channel_topic_config(message.channel)
+            model = topic_config["model"] or DEFAULT_MODEL
 
         # Create run record with model
         run = self.bot_core.store.create_run(
