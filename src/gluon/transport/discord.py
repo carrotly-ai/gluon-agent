@@ -66,6 +66,46 @@ def parse_model_flag(text: str) -> tuple[str, str | None]:
     return cleaned, model
 
 
+def parse_project_specifier(text: str) -> tuple[str, str | None]:
+    """Parse project specifier from message text.
+
+    Supports formats:
+        - project:myproject
+        - p:myproject
+        - --project myproject
+        - -p myproject
+
+    Args:
+        text: The message text potentially containing project specifier
+
+    Returns:
+        Tuple of (cleaned_text, project_name or None)
+
+    Examples:
+        "project:myapp fix the bug" -> ("fix the bug", "myapp")
+        "p:myapp fix the bug" -> ("fix the bug", "myapp")
+        "fix the bug --project myapp" -> ("fix the bug", "myapp")
+        "fix the bug" -> ("fix the bug", None)
+    """
+    # Pattern 1: project:name or p:name at start
+    prefix_pattern = r"^(?:project|p):(\S+)\s+"
+    prefix_match = re.match(prefix_pattern, text, re.IGNORECASE)
+    if prefix_match:
+        project = prefix_match.group(1)
+        cleaned = text[prefix_match.end():].strip()
+        return cleaned, project
+
+    # Pattern 2: --project name or -p name anywhere
+    flag_pattern = r"\s*(?:--project|-p)\s+(\S+)\s*"
+    flag_match = re.search(flag_pattern, text, re.IGNORECASE)
+    if flag_match:
+        project = flag_match.group(1)
+        cleaned = re.sub(flag_pattern, " ", text, flags=re.IGNORECASE).strip()
+        return cleaned, project
+
+    return text.strip(), None
+
+
 def parse_channel_topic(topic: str | None) -> dict[str, str | None]:
     """Parse channel topic for configuration flags.
 
@@ -180,10 +220,19 @@ class DiscordTransport(Transport):
         self._channel_project_map = {int(m.channel_id): m.project_name for m in mappings}
         logger.info(f"Loaded {len(self._channel_project_map)} Discord channel mappings")
 
-    def _make_context(self, message: discord.Message) -> TransportContext:
-        """Create TransportContext from Discord message."""
-        # Resolve project from channel
-        project_hint = self._resolve_project(message.channel)
+    def _make_context(self, message: discord.Message, project_hint: str | None = None) -> TransportContext:
+        """Create TransportContext from Discord message.
+
+        Args:
+            message: Discord message
+            project_hint: Optional project hint override (e.g., from DM specifier)
+        """
+        # Resolve project from channel if not provided
+        if project_hint is None:
+            project_hint = self._resolve_project(message.channel)
+
+        # Determine if this is a DM
+        is_dm = isinstance(message.channel, discord.DMChannel)
 
         return TransportContext(
             transport="discord",
@@ -191,7 +240,7 @@ class DiscordTransport(Transport):
             chat_id=str(message.channel.id),
             project_hint=project_hint,
             message_id=str(message.id),
-            raw_data={"message": message},
+            raw_data={"message": message, "is_dm": is_dm},
         )
 
     def _get_channel_topic_config(self, channel: discord.abc.Messageable) -> dict[str, str | None]:
@@ -347,6 +396,11 @@ class DiscordTransport(Transport):
         """Handle incoming Discord messages."""
         # Ignore own messages
         if message.author == self.bot.user:
+            return
+
+        # Check if this is a DM
+        if isinstance(message.channel, discord.DMChannel):
+            await self._handle_dm_message(message)
             return
 
         # Check if this is a reply to a bot message (for session resume)
@@ -533,9 +587,222 @@ class DiscordTransport(Transport):
             "**Channel Topic Config:**\n"
             "Set defaults in channel topic:\n"
             "`--project myproject --model haiku`\n\n"
-            "**Resume:** Reply to a completion message to continue"
+            "**Resume:** Reply to a completion message to continue\n\n"
+            "**DMs:** Send me a direct message!\n"
+            "- Chat naturally, or\n"
+            "- `project:myapp fix the bug` to run a task"
         )
         await message.reply(text)
+
+    async def _handle_dm_message(self, message: discord.Message) -> None:
+        """Handle direct messages to the bot.
+
+        DMs support two modes:
+        1. Chat mode (no project specifier): Routes to chat agent for conversation
+        2. Task mode (with project specifier): Executes task on specified project
+
+        Project specifier formats:
+        - project:myproject <task>
+        - p:myproject <task>
+        - <task> --project myproject
+        - <task> -p myproject
+        """
+        text = message.content.strip()
+        if not text:
+            return
+
+        user_id = f"discord:{message.author.id}"
+
+        # Check authorization
+        if not self.is_authorized(user_id):
+            await message.reply("You are not authorized to use this bot.")
+            return
+
+        # Handle DM-specific commands (no @mention needed)
+        text_lower = text.lower()
+
+        if text_lower == "projects":
+            await self._handle_projects_command(message)
+            return
+
+        if text_lower == "runs":
+            await self._handle_runs_command(message)
+            return
+
+        if text_lower == "status":
+            await self._handle_status_command(message)
+            return
+
+        if text_lower.startswith("cancel"):
+            await self._handle_cancel_command(message, text[6:].strip())
+            return
+
+        if text_lower == "models":
+            await self._handle_models_command(message)
+            return
+
+        if text_lower == "help":
+            await self._handle_dm_help_command(message)
+            return
+
+        if text_lower == "clear":
+            self.bot_core.clear_history(user_id)
+            await message.reply("Conversation history cleared.")
+            return
+
+        # Check for project specifier
+        cleaned_prompt, project_name = parse_project_specifier(text)
+
+        if project_name:
+            # Task mode: Execute task on specified project
+            await self._handle_dm_task(message, project_name, cleaned_prompt)
+        else:
+            # Chat mode: Route to chat agent
+            await self._handle_dm_chat(message, text)
+
+    async def _handle_dm_help_command(self, message: discord.Message) -> None:
+        """Show DM-specific help."""
+        text = (
+            "**Direct Message Commands:**\n\n"
+            "**Chat Mode:**\n"
+            "Just type naturally! I can answer questions about your projects, "
+            "check status, or help plan tasks.\n\n"
+            "**Task Mode:**\n"
+            "`project:myapp fix the bug` - Run task on project\n"
+            "`p:myapp add tests --model opus` - Short form with model override\n\n"
+            "**Commands:**\n"
+            "`projects` - List registered projects\n"
+            "`runs` - List your recent runs\n"
+            "`status` - Show system status\n"
+            "`models` - List available models\n"
+            "`cancel [run_id]` - Cancel a run\n"
+            "`clear` - Clear conversation history\n"
+            "`help` - Show this help"
+        )
+        await message.reply(text)
+
+    async def _handle_dm_chat(self, message: discord.Message, text: str) -> None:
+        """Handle chat-mode DM via chat agent."""
+        ctx = self._make_context(message)
+
+        # Show typing indicator
+        async with message.channel.typing():
+            async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
+                msg = await message.reply(response.text[:2000])
+                return str(msg.id)
+
+            # Process through chat agent
+            pending_task = await self.bot_core.process_natural_language(
+                ctx=ctx,
+                text=text,
+                send_callback=send_callback,
+            )
+
+            # If chat agent returned a pending task, ask for confirmation
+            if pending_task:
+                project = pending_task.get("project")
+                prompt = pending_task.get("prompt", "")
+                await message.reply(
+                    f"Would you like me to run this task?\n"
+                    f"**Project:** `{project}`\n"
+                    f"**Task:** _{prompt[:100]}{'...' if len(prompt) > 100 else ''}_\n\n"
+                    f"Use `project:{project} {prompt}` to execute."
+                )
+
+    async def _handle_dm_task(self, message: discord.Message, project_name: str, prompt: str) -> None:
+        """Handle task execution from DM with project specifier."""
+        user_id = f"discord:{message.author.id}"
+
+        # Validate project exists
+        try:
+            project = self.bot_core.orchestrator.get_project(project_name)
+        except ProjectNotFoundError:
+            projects = self.bot_core.orchestrator.list_projects()
+            names = ", ".join(f"`{p.name}`" for p in projects[:10])
+            more = f"... and {len(projects) - 10} more" if len(projects) > 10 else ""
+            await message.reply(
+                f"Project `{project_name}` not found.\n\n"
+                f"Available: {names}{more}\n"
+                f"Use `projects` to see all."
+            )
+            return
+
+        if not prompt:
+            await message.reply(
+                f"Project `{project.name}` found, but no task specified.\n"
+                f"Usage: `project:{project.name} <your task here>`"
+            )
+            return
+
+        # Check capacity
+        if self.bot_core.is_at_capacity():
+            await message.reply(
+                f"Max concurrent runs ({self.bot_core._semaphore._value}) reached.\n"
+                "Use `runs` to see active runs or `cancel` to stop one."
+            )
+            return
+
+        # Parse --model flag from prompt
+        cleaned_prompt, model = parse_model_flag(prompt)
+        if not model:
+            model = DEFAULT_MODEL
+
+        # Create run record
+        run = self.bot_core.store.create_run(
+            project.id,
+            cleaned_prompt,
+            initiator=user_id,
+            model=model,
+        )
+
+        # Format model name for display
+        model_short = model.replace("claude-", "").replace("-4.5", "")
+
+        # Send initial status message
+        status_msg = await message.reply(
+            f"🚀 **Starting task** on `{project.name}` ({model_short})\n"
+            f"Run: `{run.id[:8]}`\nStatus: Running..."
+        )
+
+        ctx = self._make_context(message, project_hint=project.name)
+
+        async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
+            # Send to DM channel
+            msg = await message.channel.send(response.text[:2000])
+            return str(msg.id)
+
+        # Execute task
+        async def execute_task():
+            try:
+                await self.bot_core.execute_task(
+                    ctx=ctx,
+                    run=run,
+                    project_name=project.name,
+                    send_callback=send_callback,
+                    force_new_session=True,
+                    model=model,
+                )
+
+                # Update status message with completion
+                run_updated = self.bot_core.store.get_run(run.id)
+                if run_updated:
+                    emoji = "✅" if run_updated.status.value == "completed" else "❌"
+                    await status_msg.edit(
+                        content=(
+                            f"{emoji} **{project.name}** ({model_short}) - `{run.id[:8]}`\n"
+                            f"_{cleaned_prompt[:60]}{'...' if len(cleaned_prompt) > 60 else ''}_\n"
+                            f"💬 Reply to continue"
+                        )
+                    )
+                    # Track this message for future resume
+                    self._message_run_map[status_msg.id] = run.id
+
+            except Exception:
+                logger.exception("DM task execution failed")
+                await status_msg.edit(content=f"❌ **Failed** - `{run.id[:8]}`")
+
+        task = asyncio.create_task(execute_task())
+        self.bot_core.register_task(run.id, task)
 
     async def _handle_reply_resume(self, message: discord.Message, ref_message_id: int) -> None:
         """Handle a reply to a completion message to resume the session."""
