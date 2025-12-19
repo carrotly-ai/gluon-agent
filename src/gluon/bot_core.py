@@ -297,13 +297,53 @@ class GluonBotCore:
 
                 async for item in execution:
                     if isinstance(item, AgentMessage):
+                        content_to_add: str | None = None
+
                         if item.type == "text" and item.content:
-                            message_buffer.append(item.content)
+                            content_to_add = item.content
+                        elif item.type == "tool_use" and item.metadata:
+                            # Format tool call for display
+                            tool_name = item.metadata.get("tool", "unknown")
+                            tool_input = item.metadata.get("input", {})
+                            # Create compact representation of tool call
+                            if isinstance(tool_input, dict):
+                                # Show key params for common tools
+                                if tool_name == "Read" and "file_path" in tool_input:
+                                    param = tool_input["file_path"]
+                                    if len(param) > 50:
+                                        param = "..." + param[-47:]
+                                    content_to_add = f"🔧 `{tool_name}({param})`"
+                                elif tool_name == "Bash" and "command" in tool_input:
+                                    param = tool_input["command"][:40]
+                                    content_to_add = f"🔧 `{tool_name}({param}...)`"
+                                elif tool_name in ("Grep", "Glob") and "pattern" in tool_input:
+                                    param = tool_input["pattern"][:30]
+                                    content_to_add = f"🔧 `{tool_name}({param})`"
+                                elif tool_name == "Edit" and "file_path" in tool_input:
+                                    param = tool_input["file_path"]
+                                    if len(param) > 40:
+                                        param = "..." + param[-37:]
+                                    content_to_add = f"🔧 `{tool_name}({param})`"
+                                elif tool_name == "Write" and "file_path" in tool_input:
+                                    param = tool_input["file_path"]
+                                    if len(param) > 40:
+                                        param = "..." + param[-37:]
+                                    content_to_add = f"🔧 `{tool_name}({param})`"
+                                elif tool_name == "Task":
+                                    desc = tool_input.get("description", "")[:30]
+                                    content_to_add = f"🔧 `{tool_name}({desc})`"
+                                else:
+                                    content_to_add = f"🔧 `{tool_name}`"
+                            else:
+                                content_to_add = f"🔧 `{tool_name}`"
+
+                        if content_to_add:
+                            message_buffer.append(content_to_add)
                             current_time = asyncio.get_event_loop().time()
 
                             # Send updates every 2 seconds
                             if current_time - last_update_time > 2.0 and message_buffer:
-                                text = "\n".join(message_buffer[-3:])
+                                text = "\n".join(message_buffer[-5:])
                                 if len(text) > 4000:
                                     text = text[-4000:]
                                 await send_update(text, thread=bool(thread_id))
