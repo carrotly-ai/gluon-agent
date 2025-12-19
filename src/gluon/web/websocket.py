@@ -141,20 +141,13 @@ class WebSocketManager:
         }
         await self.broadcast(message)
 
-    async def stream_log_line(self, run_id: str, stream: str, line: str) -> None:
-        """Send a log line to subscribed clients."""
+    async def _send_to_subscribers(self, run_id: str, message: dict[str, Any]) -> None:
+        """Send a message to all clients subscribed to a specific run."""
         async with self._lock:
             subscribers = self.log_subscriptions.get(run_id, set()).copy()
 
         if not subscribers:
             return
-
-        message = {
-            "type": "log_line",
-            "run_id": run_id,
-            "stream": stream,
-            "line": line,
-        }
 
         disconnected: set[WebSocket] = set()
         for websocket in subscribers:
@@ -170,6 +163,70 @@ class WebSocketManager:
                     self.connections.discard(ws)
                     if run_id in self.log_subscriptions:
                         self.log_subscriptions[run_id].discard(ws)
+
+    async def stream_log_line(self, run_id: str, stream: str, line: str) -> None:
+        """Send a log line to subscribed clients."""
+        message = {
+            "type": "log_line",
+            "run_id": run_id,
+            "stream": stream,
+            "line": line,
+        }
+        await self._send_to_subscribers(run_id, message)
+
+    async def stream_agent_message(self, run_id: str, msg: dict[str, Any]) -> None:
+        """Stream an agent message to subscribed clients.
+
+        Args:
+            run_id: The run ID to stream to
+            msg: Parsed message from messages.jsonl with type, content, metadata, timestamp
+        """
+        message = {
+            "type": "agent_message",
+            "run_id": run_id,
+            "message": msg,
+        }
+        await self._send_to_subscribers(run_id, message)
+
+    async def stream_progress(
+        self, run_id: str, turns: int, tool_calls: int, elapsed_seconds: float
+    ) -> None:
+        """Stream progress update to subscribed clients.
+
+        Args:
+            run_id: The run ID to stream to
+            turns: Number of conversation turns
+            tool_calls: Number of tool calls made
+            elapsed_seconds: Time elapsed since task start
+        """
+        message = {
+            "type": "progress",
+            "run_id": run_id,
+            "turns": turns,
+            "tool_calls": tool_calls,
+            "elapsed_seconds": elapsed_seconds,
+        }
+        await self._send_to_subscribers(run_id, message)
+
+    async def stream_token_update(
+        self, run_id: str, input_tokens: int, output_tokens: int, estimated_cost_usd: float
+    ) -> None:
+        """Stream token/cost update to subscribed clients.
+
+        Args:
+            run_id: The run ID to stream to
+            input_tokens: Total input tokens used
+            output_tokens: Total output tokens used
+            estimated_cost_usd: Estimated cost in USD
+        """
+        message = {
+            "type": "token_update",
+            "run_id": run_id,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+        }
+        await self._send_to_subscribers(run_id, message)
 
     async def handle_client_message(self, websocket: WebSocket, data: str) -> None:
         """Handle incoming WebSocket message from client."""

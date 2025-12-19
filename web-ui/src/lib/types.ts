@@ -150,7 +150,16 @@ export interface SessionHistoryResponse {
 }
 
 /** WebSocket message types */
-export type WebSocketMessageType = 'run_created' | 'run_updated' | 'log_line' | 'subscribed' | 'unsubscribed' | 'pong'
+export type WebSocketMessageType =
+  | 'run_created'
+  | 'run_updated'
+  | 'log_line'
+  | 'agent_message'
+  | 'progress'
+  | 'token_update'
+  | 'subscribed'
+  | 'unsubscribed'
+  | 'pong'
 
 export interface WebSocketMessage {
   type: WebSocketMessageType
@@ -173,12 +182,52 @@ export interface LogLineMessage extends WebSocketMessage {
   line: string
 }
 
+/** Agent message from messages.jsonl - text, tool_use, error, result, etc. */
+export interface AgentMessageData {
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result'
+  content: string
+  metadata?: Record<string, unknown>
+  timestamp?: string
+}
+
+export interface AgentMessageWSMessage extends WebSocketMessage {
+  type: 'agent_message'
+  run_id: string
+  message: AgentMessageData
+}
+
+/** Progress update during task execution */
+export interface ProgressMessage extends WebSocketMessage {
+  type: 'progress'
+  run_id: string
+  turns: number
+  tool_calls: number
+  elapsed_seconds: number
+}
+
+/** Token/cost update during task execution */
+export interface TokenUpdateMessage extends WebSocketMessage {
+  type: 'token_update'
+  run_id: string
+  input_tokens: number
+  output_tokens: number
+  estimated_cost_usd: number
+}
+
 export interface SubscribedMessage extends WebSocketMessage {
   type: 'subscribed'
   run_id: string
 }
 
-export type WSMessage = RunCreatedMessage | RunUpdatedMessage | LogLineMessage | SubscribedMessage | WebSocketMessage
+export type WSMessage =
+  | RunCreatedMessage
+  | RunUpdatedMessage
+  | LogLineMessage
+  | AgentMessageWSMessage
+  | ProgressMessage
+  | TokenUpdateMessage
+  | SubscribedMessage
+  | WebSocketMessage
 
 /** Kanban column definitions */
 export const KANBAN_COLUMNS = {

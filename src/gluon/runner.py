@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -61,6 +62,15 @@ class TaskRunner:
         log_dir = self.config.log_path / run_id
         log_dir.mkdir(parents=True, exist_ok=True)
         return log_dir
+
+    def get_log_path(self, run_id: str) -> Path | None:
+        """Get log directory path for a run, if it exists.
+
+        Used by external code (e.g., WebSocket log polling) to find log files.
+        Returns None if the log directory doesn't exist.
+        """
+        log_dir = self.config.log_path / run_id
+        return log_dir if log_dir.exists() else None
 
     async def submit(
         self,
@@ -280,6 +290,13 @@ class TaskRunner:
         stdout_path = log_dir / "stdout.log"
         stderr_path = log_dir / "stderr.log"
         messages_path = log_dir / "messages.jsonl"
+        progress_path = log_dir / "progress.json"
+        tokens_path = log_dir / "tokens.json"
+
+        # Progress tracking for WebSocket streaming
+        turn_count = 0
+        tool_count = 0
+        start_time = time.time()
 
         # Update run status
         run.mark_running(pid=os.getpid(), log_path=log_dir)
@@ -352,9 +369,20 @@ but explicit commits with good messages are preferred.
                         if item.type == "text":
                             stdout_file.write(item.content + "\n")
                             stdout_file.flush()
+                            turn_count += 1
+                        elif item.type == "tool_use":
+                            tool_count += 1
                         elif item.type == "error":
                             stderr_file.write(item.content + "\n")
                             stderr_file.flush()
+
+                        # Update progress.json for WebSocket streaming
+                        progress_data = {
+                            "turns": turn_count,
+                            "tool_calls": tool_count,
+                            "elapsed_seconds": round(time.time() - start_time, 1),
+                        }
+                        progress_path.write_text(json.dumps(progress_data))
 
                     elif isinstance(item, AgentResult):
                         # AgentResult summary - update run record (don't write to messages.jsonl
@@ -371,6 +399,23 @@ but explicit commits with good messages are preferred.
                             run.input_tokens = item.input_tokens
                             run.output_tokens = item.output_tokens
                         run.model_used = item.model_used
+
+                        # Update tokens.json for WebSocket streaming
+                        tokens_data = {
+                            "input_tokens": run.input_tokens or 0,
+                            "output_tokens": run.output_tokens or 0,
+                            "estimated_cost_usd": run.cost_usd or 0,
+                        }
+                        tokens_path.write_text(json.dumps(tokens_data))
+
+                        # Final progress update
+                        turn_count = item.total_turns or turn_count
+                        progress_data = {
+                            "turns": turn_count,
+                            "tool_calls": tool_count,
+                            "elapsed_seconds": round(time.time() - start_time, 1),
+                        }
+                        progress_path.write_text(json.dumps(progress_data))
 
                         # Determine working path (worktree or project)
                         working_path = (

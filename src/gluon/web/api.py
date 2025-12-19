@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -1640,6 +1641,12 @@ def create_app() -> FastAPI:
     _last_run_states: dict[str, str] = {}
     _polling_task: asyncio.Task | None = None
     _cleanup_task: asyncio.Task | None = None
+    _log_polling_task: asyncio.Task | None = None
+
+    # Track file positions for incremental log reading
+    _log_file_positions: dict[str, int] = {}  # run_id -> last byte position
+    _progress_file_mtimes: dict[str, float] = {}  # run_id -> last mtime
+    _tokens_file_mtimes: dict[str, float] = {}  # run_id -> last mtime
 
     # Cleanup configuration
     cleanup_interval_seconds = 8 * 60 * 60  # 8 hours
@@ -1690,6 +1697,96 @@ def create_app() -> FastAPI:
             # Poll every 2 seconds
             await asyncio.sleep(2)
 
+    async def _poll_log_updates() -> None:
+        """Background task to poll log files for new content and stream to WebSocket subscribers.
+
+        Only polls runs that have active WebSocket subscribers, minimizing I/O.
+        Reads messages.jsonl incrementally and broadcasts new lines.
+        Also checks progress.json and tokens.json for updates.
+        """
+        while True:
+            try:
+                # Only poll runs with active subscribers
+                subscribed_runs = list(ws_manager.log_subscriptions.keys())
+
+                for run_id in subscribed_runs:
+                    log_dir = runner.get_log_path(run_id)
+                    if not log_dir or not log_dir.exists():
+                        continue
+
+                    # 1. Poll messages.jsonl for new agent messages
+                    messages_path = log_dir / "messages.jsonl"
+                    if messages_path.exists():
+                        last_pos = _log_file_positions.get(run_id, 0)
+                        current_size = messages_path.stat().st_size
+
+                        if current_size > last_pos:
+                            try:
+                                with open(messages_path, "r") as f:
+                                    f.seek(last_pos)
+                                    for line in f:
+                                        if line.strip():
+                                            try:
+                                                msg = json.loads(line)
+                                                await ws_manager.stream_agent_message(run_id, msg)
+                                            except json.JSONDecodeError:
+                                                pass  # Skip malformed lines
+                                    _log_file_positions[run_id] = f.tell()
+                            except Exception as e:
+                                logger.debug(f"Error reading messages.jsonl for {run_id[:8]}: {e}")
+
+                    # 2. Poll progress.json for progress updates
+                    progress_path = log_dir / "progress.json"
+                    if progress_path.exists():
+                        try:
+                            current_mtime = progress_path.stat().st_mtime
+                            last_mtime = _progress_file_mtimes.get(run_id, 0)
+
+                            if current_mtime > last_mtime:
+                                progress = json.loads(progress_path.read_text())
+                                await ws_manager.stream_progress(
+                                    run_id,
+                                    turns=progress.get("turns", 0),
+                                    tool_calls=progress.get("tool_calls", 0),
+                                    elapsed_seconds=progress.get("elapsed_seconds", 0),
+                                )
+                                _progress_file_mtimes[run_id] = current_mtime
+                        except Exception as e:
+                            logger.debug(f"Error reading progress.json for {run_id[:8]}: {e}")
+
+                    # 3. Poll tokens.json for token/cost updates
+                    tokens_path = log_dir / "tokens.json"
+                    if tokens_path.exists():
+                        try:
+                            current_mtime = tokens_path.stat().st_mtime
+                            last_mtime = _tokens_file_mtimes.get(run_id, 0)
+
+                            if current_mtime > last_mtime:
+                                tokens = json.loads(tokens_path.read_text())
+                                await ws_manager.stream_token_update(
+                                    run_id,
+                                    input_tokens=tokens.get("input_tokens", 0),
+                                    output_tokens=tokens.get("output_tokens", 0),
+                                    estimated_cost_usd=tokens.get("estimated_cost_usd", 0),
+                                )
+                                _tokens_file_mtimes[run_id] = current_mtime
+                        except Exception as e:
+                            logger.debug(f"Error reading tokens.json for {run_id[:8]}: {e}")
+
+                # Cleanup tracking for unsubscribed runs
+                active_subs = set(ws_manager.log_subscriptions.keys())
+                for run_id in list(_log_file_positions.keys()):
+                    if run_id not in active_subs:
+                        _log_file_positions.pop(run_id, None)
+                        _progress_file_mtimes.pop(run_id, None)
+                        _tokens_file_mtimes.pop(run_id, None)
+
+            except Exception as e:
+                logger.error(f"Error in log polling: {e}")
+
+            # Poll every 100ms for responsive streaming
+            await asyncio.sleep(0.1)
+
     async def _cleanup_old_logs() -> None:
         """Background task to cleanup old log files based on retention policies.
 
@@ -1734,10 +1831,11 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
-        nonlocal _polling_task, _cleanup_task
+        nonlocal _polling_task, _cleanup_task, _log_polling_task
         _polling_task = asyncio.create_task(_poll_run_status_changes())
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
-        logger.info("Started background tasks: run status polling, log cleanup")
+        _log_polling_task = asyncio.create_task(_poll_log_updates())
+        logger.info("Started background tasks: run status polling, log streaming, log cleanup")
 
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
@@ -1745,6 +1843,8 @@ def create_app() -> FastAPI:
         tasks_to_cancel = []
         if _polling_task:
             tasks_to_cancel.append(("run status polling", _polling_task))
+        if _log_polling_task:
+            tasks_to_cancel.append(("log streaming", _log_polling_task))
         if _cleanup_task:
             tasks_to_cancel.append(("log cleanup", _cleanup_task))
 
