@@ -61,19 +61,25 @@ When users ask you to do something, use the available tools to help them. Be con
 - list_projects, list_sessions, get_status - View projects and sessions
 - run_task, resume_session - Execute coding tasks
 - add_workspace, list_workspaces, scan_workspace - Manage workspaces
-- add_project - Register a single project
+- add_project, remove_project - Register/unregister projects
+- remove_workspace, list_workspace_projects - Workspace management
 - list_runs, get_run, get_logs, cancel_run - Monitor runs and view logs
-- get_usage - View cost and token usage summary
+- archive_run - Archive completed runs (hides from default list)
+- get_usage, get_usage_by_project - Cost and token usage analytics
 - create_pr - Create a pull request for a worktree run
 - get_git_status - Check git status for a project
 - git_sync - Auto-commit, fetch, and fast-forward a project
 - git_push - Commit and push changes to remote
 - git_fetch - Fetch from remote to see what's new
+- list_branches, delete_branch - Branch management
 - get_run_commits - Get commits made on a run's branch
 - get_run_files - Get files changed on a run's branch
 - get_file_diff - Get the diff for a specific file
 - merge_branch - Merge a run's branch into main
 - check_conflicts - Check for merge conflicts in a project
+- rebase_branch, rebase_continue, rebase_abort - Rebase operations
+- upload_image, list_run_images - Attach images to runs
+- get_setting, set_setting - Configuration management
 
 **Built-in Tools:**
 - Read, Glob, Grep - Read files and search code
@@ -1023,6 +1029,476 @@ class GluonChatAgent:
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error checking conflicts: {e}"}]}
 
+        # ========== Phase 1: High Priority Tools ==========
+
+        @tool(
+            "archive_run",
+            "Archive a completed run (hides from default list, cleans up after retention period)",
+            {
+                "run_id": str,  # Run ID (can be short ID like 'abc12345')
+                "unarchive": bool,  # Optional: set to true to unarchive (default: false)
+            },
+        )
+        async def archive_run(args: dict[str, Any]) -> dict[str, Any]:
+            run_id = args.get("run_id", "")
+            unarchive = args.get("unarchive", False)
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            updated = orchestrator.store.archive_run(run.id, archived=not unarchive)
+            if updated:
+                action = "unarchived" if unarchive else "archived"
+                return {"content": [{"type": "text", "text": f"✅ Run `{run.id[:8]}` {action}"}]}
+            else:
+                return {"content": [{"type": "text", "text": f"Failed to update run `{run_id[:8]}`"}]}
+
+        @tool(
+            "list_branches",
+            "List all git branches in a project with their status",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def list_branches(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                branches = await git_manager.list_branches(project.expanded_path)
+
+                if not branches:
+                    return {"content": [{"type": "text", "text": f"No branches found in `{project_name}`"}]}
+
+                result = f"**Branches in `{project_name}`:**\n"
+                for b in branches:
+                    current = "→ " if b.get("is_current") else "  "
+                    name = b.get("name", "unknown")
+                    ahead = b.get("ahead", 0)
+                    behind = b.get("behind", 0)
+
+                    status = ""
+                    if ahead or behind:
+                        if ahead and behind:
+                            status = f" (↑{ahead} ↓{behind})"
+                        elif ahead:
+                            status = f" (↑{ahead})"
+                        elif behind:
+                            status = f" (↓{behind})"
+
+                    result += f"{current}`{name}`{status}\n"
+
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error listing branches: {e}"}]}
+
+        @tool(
+            "delete_branch",
+            "Delete a git branch (local or remote)",
+            {
+                "project_name": str,  # Name of the project
+                "branch": str,  # Branch name to delete
+                "remote": bool,  # Optional: delete from remote (default: false, local only)
+                "force": bool,  # Optional: force delete unmerged branch (default: false)
+            },
+        )
+        async def delete_branch(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+            branch = args.get("branch", "")
+            remote = args.get("remote", False)
+            force = args.get("force", False)
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+            if not branch:
+                return {"content": [{"type": "text", "text": "Error: branch is required"}]}
+
+            # Prevent deleting main/master
+            if branch in ("main", "master"):
+                return {"content": [{"type": "text", "text": "Error: Cannot delete main/master branch"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                result_data = await git_manager.delete_branch(
+                    project.expanded_path, branch, force=force, remote=remote
+                )
+
+                if result_data.get("success"):
+                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Branch deleted')}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Delete failed')}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error deleting branch: {e}"}]}
+
+        @tool(
+            "upload_image",
+            "Upload an image to attach to a run (for visual context)",
+            {
+                "run_id": str,  # Run ID to attach the image to
+                "image_path": str,  # Path to the image file (can use ~ for home)
+            },
+        )
+        async def upload_image(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.image_storage import ImageStorageService, ImageStorageError
+
+            run_id = args.get("run_id", "")
+            image_path = args.get("image_path", "")
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+            if not image_path:
+                return {"content": [{"type": "text", "text": "Error: image_path is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            # Expand path
+            image_path = os.path.expanduser(image_path)
+            path = Path(image_path)
+
+            if not path.exists():
+                return {"content": [{"type": "text", "text": f"Image file not found: {image_path}"}]}
+
+            try:
+                storage = ImageStorageService(orchestrator.store)
+                data = path.read_bytes()
+                image = storage.save_image(data, path.name)
+                storage.attach_to_run(run.id, image.id)
+
+                return {"content": [{"type": "text", "text": f"✅ Image `{path.name}` attached to run `{run.id[:8]}`"}]}
+            except ImageStorageError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error uploading image: {e}"}]}
+
+        # ========== Phase 2: Medium Priority Tools ==========
+
+        @tool(
+            "remove_project",
+            "Remove a project from Gluon (does not delete files, just unregisters)",
+            {
+                "project_name": str,  # Name of the project to remove
+            },
+        )
+        async def remove_project(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project_name", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                success = orchestrator.remove_project(project_name)
+                if success:
+                    return {"content": [{"type": "text", "text": f"✅ Project `{project_name}` removed"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"Failed to remove project `{project_name}`"}]}
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+        @tool(
+            "remove_workspace",
+            "Remove a workspace from Gluon (optionally remove projects too)",
+            {
+                "name": str,  # Name of the workspace to remove
+                "remove_projects": bool,  # Optional: also remove all projects in workspace (default: false)
+            },
+        )
+        async def remove_workspace(args: dict[str, Any]) -> dict[str, Any]:
+            name = args.get("name", "")
+            remove_projects = args.get("remove_projects", False)
+
+            if not name:
+                return {"content": [{"type": "text", "text": "Error: workspace name is required"}]}
+
+            try:
+                success = orchestrator.remove_workspace(name, remove_projects=remove_projects)
+                if success:
+                    msg = f"✅ Workspace `{name}` removed"
+                    if remove_projects:
+                        msg += " (along with its projects)"
+                    return {"content": [{"type": "text", "text": msg}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"Failed to remove workspace `{name}`"}]}
+            except WorkspaceNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+        @tool(
+            "list_workspace_projects",
+            "List all projects in a specific workspace",
+            {
+                "name": str,  # Name of the workspace
+            },
+        )
+        async def list_workspace_projects(args: dict[str, Any]) -> dict[str, Any]:
+            name = args.get("name", "")
+
+            if not name:
+                return {"content": [{"type": "text", "text": "Error: workspace name is required"}]}
+
+            try:
+                projects = orchestrator.list_workspace_projects(name)
+
+                if not projects:
+                    return {"content": [{"type": "text", "text": f"No projects in workspace `{name}`"}]}
+
+                result = f"**Projects in `{name}`:**\n"
+                for p in projects:
+                    sessions = orchestrator.list_sessions(p.name)
+                    result += f"- `{p.name}`: {p.path} ({len(sessions)} sessions)\n"
+
+                return {"content": [{"type": "text", "text": result}]}
+            except WorkspaceNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+        @tool(
+            "get_usage_by_project",
+            "Get cost breakdown by project",
+            {
+                "days": int,  # Optional: number of days to look back (default: 7)
+            },
+        )
+        async def get_usage_by_project(args: dict[str, Any]) -> dict[str, Any]:
+            from datetime import timedelta
+            from gluon.models import utc_now
+
+            days = args.get("days", 7)
+            since = utc_now() - timedelta(days=days)
+
+            usage_data = orchestrator.store.get_usage_by_project(since=since)
+
+            if not usage_data:
+                return {"content": [{"type": "text", "text": f"No usage data in the last {days} days"}]}
+
+            result = f"**Usage by Project (last {days} days):**\n"
+            total_cost = 0.0
+            total_runs = 0
+
+            for u in usage_data:
+                cost = u.get("cost_usd", 0) or 0
+                runs = u.get("run_count", 0)
+                total_cost += cost
+                total_runs += runs
+                result += f"- `{u.get('project_name')}`: ${cost:.4f} ({runs} runs)\n"
+
+            result += f"\n**Total:** ${total_cost:.4f} ({total_runs} runs)"
+
+            return {"content": [{"type": "text", "text": result}]}
+
+        @tool(
+            "get_setting",
+            "Get a Gluon configuration setting",
+            {
+                "key": str,  # Setting key (e.g., 'auto_create_pr')
+            },
+        )
+        async def get_setting(args: dict[str, Any]) -> dict[str, Any]:
+            key = args.get("key", "")
+
+            if not key:
+                # List all settings
+                settings = orchestrator.store.get_all_settings()
+                if not settings:
+                    return {"content": [{"type": "text", "text": "No settings configured"}]}
+
+                result = "**Gluon Settings:**\n"
+                for k, v in settings.items():
+                    result += f"- `{k}`: {v}\n"
+                return {"content": [{"type": "text", "text": result}]}
+
+            value = orchestrator.store.get_setting(key)
+            if value is None:
+                return {"content": [{"type": "text", "text": f"Setting `{key}` not found"}]}
+
+            return {"content": [{"type": "text", "text": f"**{key}:** {value}"}]}
+
+        @tool(
+            "set_setting",
+            "Update a Gluon configuration setting",
+            {
+                "key": str,  # Setting key (e.g., 'auto_create_pr')
+                "value": str,  # New value for the setting
+            },
+        )
+        async def set_setting(args: dict[str, Any]) -> dict[str, Any]:
+            key = args.get("key", "")
+            value = args.get("value", "")
+
+            if not key:
+                return {"content": [{"type": "text", "text": "Error: key is required"}]}
+            if not value:
+                return {"content": [{"type": "text", "text": "Error: value is required"}]}
+
+            orchestrator.store.set_setting(key, value)
+            return {"content": [{"type": "text", "text": f"✅ Setting `{key}` updated to `{value}`"}]}
+
+        @tool(
+            "rebase_branch",
+            "Rebase current branch onto another branch",
+            {
+                "project_name": str,  # Name of the project
+                "onto_branch": str,  # Branch to rebase onto (e.g., 'main')
+            },
+        )
+        async def rebase_branch(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+            onto_branch = args.get("onto_branch", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+            if not onto_branch:
+                return {"content": [{"type": "text", "text": "Error: onto_branch is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                result_data = await git_manager.rebase_branch(project.expanded_path, onto_branch)
+
+                if result_data.get("success"):
+                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase completed')}"}]}
+                else:
+                    conflicts = result_data.get("conflicts", [])
+                    if conflicts:
+                        result = f"❌ Rebase conflict!\n**Conflicting files:**\n"
+                        for f in conflicts[:10]:
+                            result += f"- `{f}`\n"
+                        result += "\nUse `rebase_continue` after resolving, or `rebase_abort` to cancel."
+                        return {"content": [{"type": "text", "text": result}]}
+                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Rebase failed')}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error during rebase: {e}"}]}
+
+        @tool(
+            "rebase_continue",
+            "Continue a rebase after resolving conflicts",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def rebase_continue(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                result_data = await git_manager.rebase_continue(project.expanded_path)
+
+                if result_data.get("success"):
+                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase continued')}"}]}
+                else:
+                    conflicts = result_data.get("conflicts", [])
+                    if conflicts:
+                        result = f"❌ More conflicts!\n**Conflicting files:**\n"
+                        for f in conflicts[:10]:
+                            result += f"- `{f}`\n"
+                        return {"content": [{"type": "text", "text": result}]}
+                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Continue failed')}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error during rebase continue: {e}"}]}
+
+        @tool(
+            "rebase_abort",
+            "Abort an in-progress rebase and restore previous state",
+            {
+                "project_name": str,  # Name of the project
+            },
+        )
+        async def rebase_abort(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                result_data = await git_manager.rebase_abort(project.expanded_path)
+
+                if result_data.get("success"):
+                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase aborted')}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Abort failed')}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error aborting rebase: {e}"}]}
+
+        @tool(
+            "list_run_images",
+            "List images attached to a run",
+            {
+                "run_id": str,  # Run ID (can be short ID)
+            },
+        )
+        async def list_run_images(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.image_storage import ImageStorageService
+
+            run_id = args.get("run_id", "")
+
+            if not run_id:
+                return {"content": [{"type": "text", "text": "Error: run_id is required"}]}
+
+            run = orchestrator.get_run(run_id)
+            if not run:
+                return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
+
+            storage = ImageStorageService(orchestrator.store)
+            images = storage.list_images_for_run(run.id)
+
+            if not images:
+                return {"content": [{"type": "text", "text": f"No images attached to run `{run.id[:8]}`"}]}
+
+            result = f"**Images for run `{run.id[:8]}`:**\n"
+            for img in images:
+                size_kb = img.size_bytes / 1024
+                result += f"- `{img.original_name}` ({size_kb:.1f} KB)\n"
+
+            return {"content": [{"type": "text", "text": result}]}
+
         return [
             list_projects,
             list_sessions,
@@ -1050,6 +1526,22 @@ class GluonChatAgent:
             get_file_diff,
             merge_branch,
             check_conflicts,
+            # Phase 1: High Priority Tools
+            archive_run,
+            list_branches,
+            delete_branch,
+            upload_image,
+            # Phase 2: Medium Priority Tools
+            remove_project,
+            remove_workspace,
+            list_workspace_projects,
+            get_usage_by_project,
+            get_setting,
+            set_setting,
+            rebase_branch,
+            rebase_continue,
+            rebase_abort,
+            list_run_images,
         ]
 
     async def chat(
@@ -1153,6 +1645,22 @@ class GluonChatAgent:
                 "mcp__gluon__get_file_diff",
                 "mcp__gluon__merge_branch",
                 "mcp__gluon__check_conflicts",
+                # Phase 1: High Priority Tools
+                "mcp__gluon__archive_run",
+                "mcp__gluon__list_branches",
+                "mcp__gluon__delete_branch",
+                "mcp__gluon__upload_image",
+                # Phase 2: Medium Priority Tools
+                "mcp__gluon__remove_project",
+                "mcp__gluon__remove_workspace",
+                "mcp__gluon__list_workspace_projects",
+                "mcp__gluon__get_usage_by_project",
+                "mcp__gluon__get_setting",
+                "mcp__gluon__set_setting",
+                "mcp__gluon__rebase_branch",
+                "mcp__gluon__rebase_continue",
+                "mcp__gluon__rebase_abort",
+                "mcp__gluon__list_run_images",
             ],
             max_turns=3,
             model=haiku_model,
