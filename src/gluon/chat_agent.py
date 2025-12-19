@@ -77,6 +77,7 @@ When users ask you to do something, use the available tools to help them. Be con
 - get_file_diff - Get the diff for a specific file
 - merge_branch - Merge a run's branch into main
 - check_conflicts - Check for merge conflicts in a project
+- get_conflict_diff, resolve_conflict - Conflict resolution (3-way diff, ours/theirs)
 - rebase_branch, rebase_continue, rebase_abort - Rebase operations
 - upload_image, list_run_images - Attach images to runs
 - get_setting, set_setting - Configuration management
@@ -1499,6 +1500,110 @@ class GluonChatAgent:
 
             return {"content": [{"type": "text", "text": result}]}
 
+        # ========== Conflict Resolution Tools ==========
+
+        @tool(
+            "get_conflict_diff",
+            "Get 3-way diff for a conflicted file (base, ours, theirs versions)",
+            {
+                "project_name": str,  # Name of the project
+                "file_path": str,  # Path to the conflicted file
+            },
+        )
+        async def get_conflict_diff(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+            file_path = args.get("file_path", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+            if not file_path:
+                return {"content": [{"type": "text", "text": "Error: file_path is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                diff_data = await git_manager.get_conflict_diff(project.expanded_path, file_path)
+
+                result = f"**Conflict in `{file_path}`:**\n\n"
+
+                if diff_data.get("base"):
+                    base_preview = diff_data["base"][:500]
+                    if len(diff_data["base"]) > 500:
+                        base_preview += "\n... (truncated)"
+                    result += f"**Base (common ancestor):**\n```\n{base_preview}\n```\n\n"
+                else:
+                    result += "**Base:** (not available - file added in both branches)\n\n"
+
+                if diff_data.get("ours"):
+                    ours_preview = diff_data["ours"][:500]
+                    if len(diff_data["ours"]) > 500:
+                        ours_preview += "\n... (truncated)"
+                    result += f"**Ours (HEAD):**\n```\n{ours_preview}\n```\n\n"
+
+                if diff_data.get("theirs"):
+                    theirs_preview = diff_data["theirs"][:500]
+                    if len(diff_data["theirs"]) > 500:
+                        theirs_preview += "\n... (truncated)"
+                    result += f"**Theirs (incoming):**\n```\n{theirs_preview}\n```\n\n"
+
+                result += "Use `resolve_conflict` to resolve with 'ours', 'theirs', or 'resolved' (after manual edit)."
+
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error getting conflict diff: {e}"}]}
+
+        @tool(
+            "resolve_conflict",
+            "Resolve a git conflict by choosing ours, theirs, or marking as resolved",
+            {
+                "project_name": str,  # Name of the project
+                "file_path": str,  # Path to the conflicted file
+                "resolution": str,  # Resolution strategy: 'ours', 'theirs', or 'resolved'
+            },
+        )
+        async def resolve_conflict(args: dict[str, Any]) -> dict[str, Any]:
+            from gluon.git_manager import GitManager
+
+            project_name = args.get("project_name", "")
+            file_path = args.get("file_path", "")
+            resolution = args.get("resolution", "")
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
+            if not file_path:
+                return {"content": [{"type": "text", "text": "Error: file_path is required"}]}
+            if not resolution:
+                return {"content": [{"type": "text", "text": "Error: resolution is required ('ours', 'theirs', or 'resolved')"}]}
+
+            if resolution not in ("ours", "theirs", "resolved"):
+                return {"content": [{"type": "text", "text": "Error: resolution must be 'ours', 'theirs', or 'resolved'"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            git_manager = GitManager(orchestrator.store)
+
+            try:
+                result_data = await git_manager.resolve_conflict(
+                    project.expanded_path, file_path, resolution
+                )
+
+                if result_data.get("success"):
+                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Conflict resolved')}"}]}
+                else:
+                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Resolution failed')}"}]}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error resolving conflict: {e}"}]}
+
         return [
             list_projects,
             list_sessions,
@@ -1542,6 +1647,9 @@ class GluonChatAgent:
             rebase_continue,
             rebase_abort,
             list_run_images,
+            # Conflict Resolution Tools
+            get_conflict_diff,
+            resolve_conflict,
         ]
 
     async def chat(
@@ -1661,6 +1769,9 @@ class GluonChatAgent:
                 "mcp__gluon__rebase_continue",
                 "mcp__gluon__rebase_abort",
                 "mcp__gluon__list_run_images",
+                # Conflict Resolution Tools
+                "mcp__gluon__get_conflict_diff",
+                "mcp__gluon__resolve_conflict",
             ],
             max_turns=3,
             model=haiku_model,
