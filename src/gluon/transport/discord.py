@@ -21,6 +21,50 @@ from gluon.transport.capabilities import DISCORD_CAPS, TransportCapabilities
 
 logger = logging.getLogger(__name__)
 
+# Model aliases for convenience
+MODEL_ALIASES: dict[str, str] = {
+    "opus": "claude-opus-4.5",
+    "sonnet": "claude-sonnet-4.5",
+    "haiku": "claude-haiku-4.5",
+    "claude-opus-4.5": "claude-opus-4.5",
+    "claude-sonnet-4.5": "claude-sonnet-4.5",
+    "claude-haiku-4.5": "claude-haiku-4.5",
+}
+
+DEFAULT_MODEL = "claude-sonnet-4.5"
+
+
+def parse_model_flag(text: str) -> tuple[str, str | None]:
+    """Parse --model flag from prompt text.
+
+    Args:
+        text: The prompt text potentially containing --model flag
+
+    Returns:
+        Tuple of (cleaned_prompt, model_name or None)
+
+    Examples:
+        "fix the bug --model opus" -> ("fix the bug", "claude-opus-4.5")
+        "fix the bug" -> ("fix the bug", None)
+    """
+    # Match --model or -m followed by model name
+    pattern = r"\s*(?:--model|-m)\s+(\S+)\s*"
+    match = re.search(pattern, text, re.IGNORECASE)
+
+    if not match:
+        return text.strip(), None
+
+    model_arg = match.group(1).lower()
+    model = MODEL_ALIASES.get(model_arg)
+
+    if not model:
+        # Unknown model, return None and keep the flag in text
+        return text.strip(), None
+
+    # Remove the flag from the prompt
+    cleaned = re.sub(pattern, " ", text, flags=re.IGNORECASE).strip()
+    return cleaned, model
+
 
 class DiscordTransport(Transport):
     """Discord bot transport implementation.
@@ -284,6 +328,14 @@ class DiscordTransport(Transport):
             await self._handle_cancel_command(message, text[6:].strip())
             return
 
+        if text.lower() == "models":
+            await self._handle_models_command(message)
+            return
+
+        if text.lower() == "help":
+            await self._handle_help_command(message)
+            return
+
         # Check for project context
         project_name = ctx.project_hint
         if not project_name:
@@ -379,6 +431,39 @@ class DiscordTransport(Transport):
         run.mark_cancelled()
         self.bot_core.store.update_run(run)
         await message.reply(f"✅ Cancelled run `{run.id[:8]}`")
+
+    async def _handle_models_command(self, message: discord.Message) -> None:
+        """Handle the models command - list available models."""
+        text = (
+            "**Available Models:**\n"
+            "- `opus` / `claude-opus-4.5` - Highest quality, best for complex reasoning\n"
+            "- `sonnet` / `claude-sonnet-4.5` - Fast, high-quality (default)\n"
+            "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost\n\n"
+            "**Usage:** `@gluon <task> --model opus`\n"
+            "**Short form:** `@gluon <task> -m haiku`"
+        )
+        await message.reply(text)
+
+    async def _handle_help_command(self, message: discord.Message) -> None:
+        """Handle the help command - show available commands."""
+        bot_name = self.bot.user.name if self.bot.user else "gluon"
+        text = (
+            f"**{bot_name} Commands:**\n\n"
+            "**Tasks:**\n"
+            f"`@{bot_name} <task>` - Run a task (uses default model: sonnet)\n"
+            f"`@{bot_name} <task> --model opus` - Run with specific model\n"
+            f"`@{bot_name} <task> -m haiku` - Short form for model selection\n\n"
+            "**Commands:**\n"
+            "`projects` - List registered projects\n"
+            "`runs` - List active/recent runs\n"
+            "`status` - Show system status\n"
+            "`models` - List available models\n"
+            "`cancel [run_id]` - Cancel a run\n"
+            "`link <project>` - Link channel to project\n"
+            "`help` - Show this help\n\n"
+            "**Resume:** Reply to a completion message to continue the session"
+        )
+        await message.reply(text)
 
     async def _handle_reply_resume(self, message: discord.Message, ref_message_id: int) -> None:
         """Handle a reply to a completion message to resume the session."""
@@ -488,16 +573,25 @@ class DiscordTransport(Transport):
             )
             return
 
-        # Create run record
+        # Parse --model flag from prompt
+        cleaned_prompt, model = parse_model_flag(prompt)
+        if not model:
+            model = DEFAULT_MODEL
+
+        # Create run record with model
         run = self.bot_core.store.create_run(
             self.bot_core.orchestrator.get_project(project_name).id,
-            prompt,
+            cleaned_prompt,
             initiator=user_id,
+            model=model,
         )
+
+        # Format model name for display (opus/sonnet/haiku)
+        model_short = model.replace("claude-", "").replace("-4.5", "")
 
         # Send initial status message
         status_msg = await message.reply(
-            f"🚀 **Starting task** on `{project_name}`\nRun: `{run.id[:8]}`\nStatus: Running..."
+            f"🚀 **Starting task** on `{project_name}` ({model_short})\nRun: `{run.id[:8]}`\nStatus: Running..."
         )
 
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
@@ -512,6 +606,7 @@ class DiscordTransport(Transport):
                     project_name=project_name,
                     send_callback=send_callback,
                     force_new_session=True,
+                    model=model,
                 )
 
                 # Update status message with completion
@@ -520,8 +615,8 @@ class DiscordTransport(Transport):
                     emoji = "✅" if run_updated.status.value == "completed" else "❌"
                     await status_msg.edit(
                         content=(
-                            f"{emoji} **{project_name}** - `{run.id[:8]}`\n"
-                            f"_{prompt[:60]}{'...' if len(prompt) > 60 else ''}_\n"
+                            f"{emoji} **{project_name}** ({model_short}) - `{run.id[:8]}`\n"
+                            f"_{cleaned_prompt[:60]}{'...' if len(cleaned_prompt) > 60 else ''}_\n"
                             f"💬 Reply to continue"
                         )
                     )
