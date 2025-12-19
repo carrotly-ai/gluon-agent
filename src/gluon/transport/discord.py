@@ -123,13 +123,25 @@ class DiscordTransport(Transport):
         if channel_id in self._channel_project_map:
             return self._channel_project_map[channel_id]
 
-        # 2. Try auto-matching channel name
-        channel_name = channel.name.lower().replace("-", "_").replace(" ", "_")
+        # 2. Try auto-matching channel name to project name
+        # Discord channels use hyphens, but project names may use hyphens or underscores
+        # Normalize both for comparison
+        def normalize(name: str) -> str:
+            return name.lower().replace("-", "_").replace(" ", "_")
+
+        channel_normalized = normalize(channel.name)
+
+        # Try exact match first
         try:
-            project = self.bot_core.orchestrator.get_project(channel_name)
+            project = self.bot_core.orchestrator.get_project(channel.name)
             return project.name
         except ProjectNotFoundError:
             pass
+
+        # Try matching against all projects with normalization
+        for project in self.bot_core.orchestrator.list_projects():
+            if normalize(project.name) == channel_normalized:
+                return project.name
 
         return None
 
