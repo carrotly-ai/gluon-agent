@@ -977,19 +977,18 @@ def serve(
     if telegram:
         telegram_token = os.environ.get("GLUON_TELEGRAM_TOKEN")
         if not telegram_token:
-            console.print("[red]Error:[/red] GLUON_TELEGRAM_TOKEN required for Telegram.")
-            raise typer.Exit(1)
+            console.print("[yellow]⚠[/yellow] Telegram skipped: GLUON_TELEGRAM_TOKEN not set")
+        else:
+            telegram_users_str = os.environ.get("GLUON_TELEGRAM_USERS", "")
+            telegram_users = (
+                [int(u.strip()) for u in telegram_users_str.split(",") if u.strip()] if telegram_users_str else None
+            )
 
-        telegram_users_str = os.environ.get("GLUON_TELEGRAM_USERS", "")
-        telegram_users = (
-            [int(u.strip()) for u in telegram_users_str.split(",") if u.strip()] if telegram_users_str else None
-        )
+            from gluon.transport.telegram import TelegramTransport
 
-        from gluon.transport.telegram import TelegramTransport
-
-        tg_transport = TelegramTransport(telegram_token, bot_core, telegram_users)
-        transports_to_run.append(("Telegram", tg_transport))
-        console.print("[green]✓[/green] Telegram transport configured")
+            tg_transport = TelegramTransport(telegram_token, bot_core, telegram_users)
+            transports_to_run.append(("Telegram", tg_transport))
+            console.print("[green]✓[/green] Telegram transport configured")
 
     # Configure Discord
     if discord:
@@ -998,30 +997,27 @@ def serve(
 
             _ = DiscordTransport  # Verify import succeeded
         except ImportError:
-            console.print("[red]Error:[/red] Discord support not installed.")
-            console.print("Install with: [cyan]pip install 'gluon-agent[discord]'[/cyan]")
-            raise typer.Exit(1)
+            console.print("[yellow]⚠[/yellow] Discord skipped: discord.py not installed")
+        else:
+            discord_token = os.environ.get("GLUON_DISCORD_TOKEN")
+            discord_guild_str = os.environ.get("GLUON_DISCORD_GUILD", "0")
+            discord_guild = int(discord_guild_str) if discord_guild_str.isdigit() else 0
 
-        discord_token = os.environ.get("GLUON_DISCORD_TOKEN")
-        if not discord_token:
-            console.print("[red]Error:[/red] GLUON_DISCORD_TOKEN required for Discord.")
-            raise typer.Exit(1)
+            if not discord_token:
+                console.print("[yellow]⚠[/yellow] Discord skipped: GLUON_DISCORD_TOKEN not set")
+            elif not discord_guild:
+                console.print("[yellow]⚠[/yellow] Discord skipped: GLUON_DISCORD_GUILD not set")
+            else:
+                discord_users_str = os.environ.get("GLUON_DISCORD_USERS", "")
+                discord_users = (
+                    [int(u.strip()) for u in discord_users_str.split(",") if u.strip()] if discord_users_str else None
+                )
 
-        discord_guild = int(os.environ.get("GLUON_DISCORD_GUILD", "0"))
-        if not discord_guild:
-            console.print("[red]Error:[/red] GLUON_DISCORD_GUILD required for Discord.")
-            raise typer.Exit(1)
+                from gluon.transport.discord import DiscordTransport
 
-        discord_users_str = os.environ.get("GLUON_DISCORD_USERS", "")
-        discord_users = (
-            [int(u.strip()) for u in discord_users_str.split(",") if u.strip()] if discord_users_str else None
-        )
-
-        from gluon.transport.discord import DiscordTransport
-
-        dc_transport = DiscordTransport(discord_token, discord_guild, bot_core, discord_users)
-        transports_to_run.append(("Discord", dc_transport))
-        console.print("[green]✓[/green] Discord transport configured")
+                dc_transport = DiscordTransport(discord_token, discord_guild, bot_core, discord_users)
+                transports_to_run.append(("Discord", dc_transport))
+                console.print("[green]✓[/green] Discord transport configured")
 
     # Configure Web dashboard
     web_server = None
@@ -1040,6 +1036,12 @@ def serve(
             console.print("[red]Error:[/red] Web dashboard dependencies not installed.")
             console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
             raise typer.Exit(1)
+
+    # Verify at least one service is configured
+    if not transports_to_run and not web_server:
+        console.print("[red]Error:[/red] No services configured.")
+        console.print("Check that required environment variables are set for your transports.")
+        raise typer.Exit(1)
 
     async def _run_all():
         """Run all configured transports concurrently."""
