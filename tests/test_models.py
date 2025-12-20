@@ -22,10 +22,11 @@ class TestProject:
         assert isinstance(project.updated_at, datetime)
 
     def test_project_path_resolved(self):
-        """Test that relative paths are resolved to absolute."""
+        """Test that expanded_path returns absolute path."""
         project = Project(name="test", path=Path("."))
 
-        assert project.path.is_absolute()
+        # path stores original value, expanded_path returns absolute
+        assert project.expanded_path.is_absolute()
 
     def test_project_metadata(self, tmp_path: Path):
         """Test project with metadata."""
