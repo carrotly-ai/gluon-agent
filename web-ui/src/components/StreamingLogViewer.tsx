@@ -5,27 +5,72 @@
  * Shows progress indicators and token usage during active runs.
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { ChevronDown, ChevronRight, Wrench, MessageSquare, AlertCircle, CheckCircle2, Settings2, Filter, Zap, Clock, DollarSign } from 'lucide-react'
-import { useRunLogStream, type RunProgress, type RunTokens } from '@/hooks/useRunLogStream'
-import type { RunStatus } from '@/lib/types'
-import { formatMessageTime } from '@/lib/timestamps'
-import { cn } from '@/lib/utils'
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  Filter,
+  MessageSquare,
+  Settings2,
+  Wrench,
+  Zap,
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
+import { formatMessageTime } from '@/lib/timestamps'
+import type { RunStatus } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 // Message type configuration
-const MESSAGE_CONFIG: Record<string, {
-  icon: typeof Wrench
-  color: string
-  bg: string
-  border: string
-  label: string
-}> = {
-  tool_use: { icon: Wrench, color: 'text-[var(--color-stone)]', bg: '', border: 'border-l-2 border-l-[var(--color-stone)]/30', label: 'Tool' },
-  text: { icon: MessageSquare, color: 'text-[var(--color-paper)]/70', bg: '', border: '', label: 'Text' },
-  system: { icon: Settings2, color: 'text-[var(--color-stone)]/60', bg: '', border: '', label: 'System' },
-  error: { icon: AlertCircle, color: 'text-[var(--color-vermillion)]', bg: 'bg-[rgba(199,62,58,0.06)]', border: 'border-l-2 border-l-[var(--color-vermillion)]', label: 'Error' },
-  result: { icon: CheckCircle2, color: 'text-[var(--color-jade)]', bg: 'bg-[rgba(45,212,191,0.06)]', border: 'border-l-2 border-l-[var(--color-jade)]', label: 'Done' },
+const MESSAGE_CONFIG: Record<
+  string,
+  {
+    icon: typeof Wrench
+    color: string
+    bg: string
+    border: string
+    label: string
+  }
+> = {
+  tool_use: {
+    icon: Wrench,
+    color: 'text-[var(--color-stone)]',
+    bg: '',
+    border: 'border-l-2 border-l-[var(--color-stone)]/30',
+    label: 'Tool',
+  },
+  text: {
+    icon: MessageSquare,
+    color: 'text-[var(--color-paper)]/70',
+    bg: '',
+    border: '',
+    label: 'Text',
+  },
+  system: {
+    icon: Settings2,
+    color: 'text-[var(--color-stone)]/60',
+    bg: '',
+    border: '',
+    label: 'System',
+  },
+  error: {
+    icon: AlertCircle,
+    color: 'text-[var(--color-vermillion)]',
+    bg: 'bg-[rgba(199,62,58,0.06)]',
+    border: 'border-l-2 border-l-[var(--color-vermillion)]',
+    label: 'Error',
+  },
+  result: {
+    icon: CheckCircle2,
+    color: 'text-[var(--color-jade)]',
+    bg: 'bg-[rgba(45,212,191,0.06)]',
+    border: 'border-l-2 border-l-[var(--color-jade)]',
+    label: 'Done',
+  },
 }
 
 // Helper to get primary parameter from tool input
@@ -33,7 +78,16 @@ function getToolPrimaryParam(input: unknown): { key: string; value: string } | n
   if (!input || typeof input !== 'object') return null
   const obj = input as Record<string, unknown>
 
-  const priorityKeys = ['file_path', 'command', 'pattern', 'query', 'url', 'path', 'content', 'prompt']
+  const priorityKeys = [
+    'file_path',
+    'command',
+    'pattern',
+    'query',
+    'url',
+    'path',
+    'content',
+    'prompt',
+  ]
   for (const key of priorityKeys) {
     if (obj[key] && typeof obj[key] === 'string') {
       let val = obj[key] as string
@@ -41,7 +95,7 @@ function getToolPrimaryParam(input: unknown): { key: string; value: string } | n
       if (key === 'file_path' || key === 'path') {
         val = val.replace(/^\/tmp\/gluon-worktrees\/wt-[a-f0-9]+\//, '')
       }
-      return { key, value: val.length > 80 ? val.slice(0, 77) + '...' : val }
+      return { key, value: val.length > 80 ? `${val.slice(0, 77)}...` : val }
     }
   }
   return null
@@ -91,14 +145,22 @@ interface TodoItem {
   activeForm?: string
 }
 
-function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
+function TodoWriteMessage({
+  msg,
+  isExpanded,
+  onToggle,
+}: {
+  msg: AgentMessage
+  isExpanded: boolean
+  onToggle: () => void
+}) {
   const time = formatMessageTime(msg.timestamp)
   const input = msg.metadata?.input as { todos?: TodoItem[] } | undefined
   const todos = input?.todos || []
 
-  const completed = todos.filter(t => t.status === 'completed').length
-  const inProgress = todos.filter(t => t.status === 'in_progress').length
-  const currentTask = todos.find(t => t.status === 'in_progress')
+  const completed = todos.filter((t) => t.status === 'completed').length
+  const inProgress = todos.filter((t) => t.status === 'in_progress').length
+  const currentTask = todos.find((t) => t.status === 'in_progress')
 
   return (
     <div className="group">
@@ -110,22 +172,33 @@ function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; is
         )}
         onClick={onToggle}
       >
-        <ChevronRight className={cn('w-3 h-3 text-[var(--color-stone)]/30 transition-transform', isExpanded && 'rotate-90')} />
+        <ChevronRight
+          className={cn(
+            'w-3 h-3 text-[var(--color-stone)]/30 transition-transform',
+            isExpanded && 'rotate-90'
+          )}
+        />
         <CheckCircle2 className="w-2.5 h-2.5 shrink-0 text-[var(--color-jade)]/80" />
-        <span className="text-[0.6875rem] font-medium font-mono text-[var(--color-jade)]/90">TodoWrite</span>
+        <span className="text-[0.6875rem] font-medium font-mono text-[var(--color-jade)]/90">
+          TodoWrite
+        </span>
         <span className="text-[0.6875rem] text-[var(--color-paper)]/60 truncate flex-1 min-w-0">
           {currentTask ? (
             <span className="text-[var(--color-sky)]">{currentTask.content}</span>
           ) : todos.length > 0 ? (
             <span className="text-[var(--color-jade)]/70">
               {completed}/{todos.length} done
-              {inProgress > 0 && <span className="text-[var(--color-sky)]"> - {inProgress} active</span>}
+              {inProgress > 0 && (
+                <span className="text-[var(--color-sky)]"> - {inProgress} active</span>
+              )}
             </span>
           ) : (
             <span className="text-[var(--color-stone)]/50">cleared</span>
           )}
         </span>
-        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+          {time}
+        </span>
       </div>
 
       {isExpanded && todos.length > 0 && (
@@ -140,11 +213,13 @@ function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; is
                 ) : (
                   <span className="text-[var(--color-stone)]/40 shrink-0">o</span>
                 )}
-                <span className={cn(
-                  todo.status === 'completed' && 'text-[var(--color-jade)]/70 line-through',
-                  todo.status === 'in_progress' && 'text-[var(--color-paper)]/90',
-                  todo.status === 'pending' && 'text-[var(--color-paper)]/60'
-                )}>
+                <span
+                  className={cn(
+                    todo.status === 'completed' && 'text-[var(--color-jade)]/70 line-through',
+                    todo.status === 'in_progress' && 'text-[var(--color-paper)]/90',
+                    todo.status === 'pending' && 'text-[var(--color-paper)]/60'
+                  )}
+                >
                   {todo.content}
                 </span>
               </div>
@@ -156,7 +231,15 @@ function TodoWriteMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; is
   )
 }
 
-function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isExpanded: boolean; onToggle: () => void }) {
+function ToolCallMessage({
+  msg,
+  isExpanded,
+  onToggle,
+}: {
+  msg: AgentMessage
+  isExpanded: boolean
+  onToggle: () => void
+}) {
   const toolName = msg.metadata?.tool || 'Unknown'
 
   if (toolName === 'TodoWrite') {
@@ -179,19 +262,28 @@ function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isE
         onClick={onToggle}
       >
         {hasMultipleParams ? (
-          <ChevronRight className={cn('w-3 h-3 text-[var(--color-stone)]/30 transition-transform', isExpanded && 'rotate-90')} />
+          <ChevronRight
+            className={cn(
+              'w-3 h-3 text-[var(--color-stone)]/30 transition-transform',
+              isExpanded && 'rotate-90'
+            )}
+          />
         ) : (
           <div className="w-3" />
         )}
         <Wrench className="w-2.5 h-2.5 text-[var(--color-stone)]/50 shrink-0" />
-        <span className="text-[0.6875rem] font-medium text-[var(--color-stone)]/80 font-mono">{toolName}</span>
+        <span className="text-[0.6875rem] font-medium text-[var(--color-stone)]/80 font-mono">
+          {toolName}
+        </span>
         {primaryParam && (
           <span className="text-[0.6875rem] text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
             <span className="text-[var(--color-stone)]/50">{primaryParam.key}=</span>
             <span className="text-[var(--color-paper)]/70">"{primaryParam.value}"</span>
           </span>
         )}
-        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+          {time}
+        </span>
       </div>
 
       {isExpanded && fullParams.length > 0 && (
@@ -199,8 +291,12 @@ function ToolCallMessage({ msg, isExpanded, onToggle }: { msg: AgentMessage; isE
           <div className="space-y-1">
             {fullParams.map((param, idx) => (
               <div key={idx} className="flex gap-2 text-[0.625rem] font-mono">
-                <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">{param.key}</span>
-                <span className="text-[var(--color-paper)]/70 whitespace-pre-wrap break-all">{param.value}</span>
+                <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">
+                  {param.key}
+                </span>
+                <span className="text-[var(--color-paper)]/70 whitespace-pre-wrap break-all">
+                  {param.value}
+                </span>
               </div>
             ))}
           </div>
@@ -219,14 +315,20 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
     <div className="flex items-start gap-2 py-1.5 px-3">
       <MessageSquare className="w-2.5 h-2.5 text-[var(--color-paper)]/40 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <div className={cn(
-          'text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed',
-          !isExpanded && 'line-clamp-2'
-        )}>
+        <div
+          className={cn(
+            'text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed',
+            !isExpanded && 'line-clamp-2'
+          )}
+        >
           <ReactMarkdown
             components={{
               p: ({ children }) => <span>{children} </span>,
-              code: ({ children }) => <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-[0.6875rem]">{children}</code>,
+              code: ({ children }) => (
+                <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-[0.6875rem]">
+                  {children}
+                </code>
+              ),
             }}
           >
             {msg.content}
@@ -241,7 +343,9 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
           </button>
         )}
       </div>
-      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+        {time}
+      </span>
     </div>
   )
 }
@@ -255,13 +359,21 @@ function SystemMessage({ msg }: { msg: AgentMessage }) {
     <div className={cn('flex items-center gap-2 py-1.5 px-3', config.bg, config.border)}>
       <Icon className={cn('w-2.5 h-2.5 shrink-0', config.color)} />
       <span className={cn('text-[0.6875rem] flex-1', config.color)}>{msg.content}</span>
-      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+        {time}
+      </span>
     </div>
   )
 }
 
 // Progress indicator component
-function ProgressIndicator({ progress, tokens }: { progress: RunProgress | null; tokens: RunTokens | null }) {
+function ProgressIndicator({
+  progress,
+  tokens,
+}: {
+  progress: RunProgress | null
+  tokens: RunTokens | null
+}) {
   if (!progress && !tokens) return null
 
   return (
@@ -287,7 +399,8 @@ function ProgressIndicator({ progress, tokens }: { progress: RunProgress | null;
           <DollarSign className="w-3 h-3" />
           <span>${tokens.estimated_cost_usd.toFixed(4)}</span>
           <span className="text-[var(--color-stone)]/50">
-            ({Math.round(tokens.input_tokens / 1000)}k in / {Math.round(tokens.output_tokens / 1000)}k out)
+            ({Math.round(tokens.input_tokens / 1000)}k in /{' '}
+            {Math.round(tokens.output_tokens / 1000)}k out)
           </span>
         </div>
       )}
@@ -296,7 +409,13 @@ function ProgressIndicator({ progress, tokens }: { progress: RunProgress | null;
 }
 
 // Streaming indicator when connected
-function StreamingIndicator({ connected, subscribed }: { connected: boolean; subscribed: boolean }) {
+function StreamingIndicator({
+  connected,
+  subscribed,
+}: {
+  connected: boolean
+  subscribed: boolean
+}) {
   if (!connected) return null
 
   return (
@@ -316,17 +435,18 @@ export interface StreamingLogViewerProps {
   onRefreshInitial?: () => void
 }
 
-export function StreamingLogViewer({
-  runId,
-  runStatus,
-  initialMessages,
-}: StreamingLogViewerProps) {
+export function StreamingLogViewer({ runId, runStatus, initialMessages }: StreamingLogViewerProps) {
   const isActive = runStatus === 'running' || runStatus === 'pending'
 
   // Only subscribe when run is active
-  const { connected, subscribed, messages: streamedMessages, progress, tokens, clear } = useRunLogStream(
-    isActive ? runId : null
-  )
+  const {
+    connected,
+    subscribed,
+    messages: streamedMessages,
+    progress,
+    tokens,
+    clear,
+  } = useRunLogStream(isActive ? runId : null)
 
   const [filter, setFilter] = useState<MessageFilter>('all')
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set())
@@ -338,18 +458,20 @@ export function StreamingLogViewer({
     if (!isActive) {
       clear()
     }
-  }, [isActive, runId, clear])
+  }, [isActive, clear])
 
   // Combine initial messages with streamed messages
   // For active runs, we start streaming from where we are, so don't duplicate
   const allMessages: AgentMessage[] = [
     ...initialMessages,
-    ...streamedMessages.map((msg): AgentMessage => ({
-      timestamp: msg.timestamp || new Date().toISOString(),
-      type: msg.type,
-      content: msg.content,
-      metadata: msg.metadata as AgentMessage['metadata'],
-    })),
+    ...streamedMessages.map(
+      (msg): AgentMessage => ({
+        timestamp: msg.timestamp || new Date().toISOString(),
+        type: msg.type,
+        content: msg.content,
+        metadata: msg.metadata as AgentMessage['metadata'],
+      })
+    ),
   ]
 
   // Handle scroll position tracking
@@ -372,10 +494,10 @@ export function StreamingLogViewer({
     if (isNearBottom) {
       container.scrollTo({ top: container.scrollHeight })
     }
-  }, [allMessages.length])
+  }, [])
 
   const toggleToolExpanded = (idx: number) => {
-    setExpandedTools(prev => {
+    setExpandedTools((prev) => {
       const next = new Set(prev)
       if (next.has(idx)) {
         next.delete(idx)
@@ -388,14 +510,13 @@ export function StreamingLogViewer({
 
   // Count message types for filter badges
   const counts = {
-    tool_use: allMessages.filter(m => m.type === 'tool_use').length,
-    text: allMessages.filter(m => m.type === 'text').length,
-    error: allMessages.filter(m => m.type === 'error').length,
+    tool_use: allMessages.filter((m) => m.type === 'tool_use').length,
+    text: allMessages.filter((m) => m.type === 'text').length,
+    error: allMessages.filter((m) => m.type === 'error').length,
   }
 
-  const filteredMessages = filter === 'all'
-    ? allMessages
-    : allMessages.filter(m => m.type === filter)
+  const filteredMessages =
+    filter === 'all' ? allMessages : allMessages.filter((m) => m.type === filter)
 
   return (
     <div className="flex flex-col h-full">

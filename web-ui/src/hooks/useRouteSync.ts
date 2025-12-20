@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 export type FilterType = 'all' | 'workspace' | 'project' | 'archived'
 
@@ -9,7 +9,14 @@ export interface RouteFilter {
 }
 
 // Valid tabs for RunDetailDialog
-export type RunDetailTab = 'messages' | 'output' | 'errors' | 'history' | 'commits' | 'files' | 'attachments'
+export type RunDetailTab =
+  | 'messages'
+  | 'output'
+  | 'errors'
+  | 'history'
+  | 'commits'
+  | 'files'
+  | 'attachments'
 
 // Valid tabs for SettingsPage
 export type SettingsTab = 'workspaces' | 'projects' | 'preferences'
@@ -63,57 +70,72 @@ export function useRouteSync() {
   }, [viewMode, location.pathname])
 
   // Navigation functions
-  const setViewMode = useCallback((view: 'board' | 'usage' | 'settings') => {
-    switch (view) {
-      case 'board':
-        navigate('/board' + location.search)
-        break
-      case 'usage':
-        navigate('/cost')
-        break
-      case 'settings':
-        navigate('/settings')
-        break
-    }
-  }, [navigate, location.search])
+  const setViewMode = useCallback(
+    (view: 'board' | 'usage' | 'settings') => {
+      switch (view) {
+        case 'board':
+          navigate(`/board${location.search}`)
+          break
+        case 'usage':
+          navigate('/cost')
+          break
+        case 'settings':
+          navigate('/settings')
+          break
+      }
+    },
+    [navigate, location.search]
+  )
 
-  const setFilter = useCallback((newFilter: RouteFilter) => {
-    const params = new URLSearchParams()
+  const setFilter = useCallback(
+    (newFilter: RouteFilter) => {
+      const params = new URLSearchParams()
 
-    switch (newFilter.type) {
-      case 'workspace':
-        if (newFilter.value) params.set('workspace', newFilter.value)
-        break
-      case 'project':
-        if (newFilter.value) params.set('project', newFilter.value)
-        break
-      case 'archived':
-        params.set('filter', 'archived')
-        break
-      // 'all' - no params needed
-    }
+      switch (newFilter.type) {
+        case 'workspace':
+          if (newFilter.value) params.set('workspace', newFilter.value)
+          break
+        case 'project':
+          if (newFilter.value) params.set('project', newFilter.value)
+          break
+        case 'archived':
+          params.set('filter', 'archived')
+          break
+        // 'all' - no params needed
+      }
 
-    const search = params.toString()
-    navigate('/board' + (search ? `?${search}` : ''))
-  }, [navigate])
+      const search = params.toString()
+      navigate(`/board${search ? `?${search}` : ''}`)
+    },
+    [navigate]
+  )
 
-  const openRunDetail = useCallback((runId: string, tab?: RunDetailTab) => {
-    const tabPath = tab ? `/${tab}` : ''
-    navigate(`/board/${runId}${tabPath}${location.search}`)
-  }, [navigate, location.search])
+  const openRunDetail = useCallback(
+    (runId: string, tab?: RunDetailTab) => {
+      const tabPath = tab ? `/${tab}` : ''
+      navigate(`/board/${runId}${tabPath}${location.search}`)
+    },
+    [navigate, location.search]
+  )
 
   const closeRunDetail = useCallback(() => {
-    navigate('/board' + location.search)
+    navigate(`/board${location.search}`)
   }, [navigate, location.search])
 
-  const setRunDetailTab = useCallback((tab: RunDetailTab) => {
-    if (!selectedRunId) return
-    navigate(`/board/${selectedRunId}/${tab}${location.search}`)
-  }, [navigate, selectedRunId, location.search])
+  const setRunDetailTab = useCallback(
+    (tab: RunDetailTab) => {
+      if (!selectedRunId) return
+      navigate(`/board/${selectedRunId}/${tab}${location.search}`)
+    },
+    [navigate, selectedRunId, location.search]
+  )
 
-  const setSettingsTab = useCallback((tab: SettingsTab) => {
-    navigate(`/settings/${tab}`)
-  }, [navigate])
+  const setSettingsTab = useCallback(
+    (tab: SettingsTab) => {
+      navigate(`/settings/${tab}`)
+    },
+    [navigate]
+  )
 
   return {
     // View mode

@@ -1,7 +1,7 @@
-import { X, GitBranch, Archive, ExternalLink } from 'lucide-react'
+import { Archive, ExternalLink, GitBranch, X } from 'lucide-react'
+import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { formatRelativeTime, formatFullDateTime } from '@/lib/timestamps'
 
 interface RunCardProps {
   run: Run
@@ -20,7 +20,7 @@ function getStatusBorderColor(status: string): string {
     case 'completed':
       return 'var(--color-jade)'
     case 'review':
-      return '#a855f7'  // Purple for review
+      return '#a855f7' // Purple for review
     case 'failed':
       return 'var(--color-vermillion)'
     case 'cancelled':
@@ -36,13 +36,20 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
   return (
     <div
       className={cn(
-        "card hover-whisper cursor-grab active:cursor-grabbing group relative",
-        run.status === 'running' && "card-running overflow-visible"
+        'card hover-whisper cursor-grab active:cursor-grabbing group relative',
+        run.status === 'running' && 'card-running overflow-visible'
       )}
-      style={{ borderLeft: `3px solid ${getStatusBorderColor(
-        // Use 'review' for completed worktree runs that haven't been merged (virtual REVIEW column)
-        run.status === 'completed' && run.use_worktree && run.branch_name && run.pr_status !== 'merged' ? 'review' : run.status
-      )}` }}
+      style={{
+        borderLeft: `3px solid ${getStatusBorderColor(
+          // Use 'review' for completed worktree runs that haven't been merged (virtual REVIEW column)
+          run.status === 'completed' &&
+            run.use_worktree &&
+            run.branch_name &&
+            run.pr_status !== 'merged'
+            ? 'review'
+            : run.status
+        )}`,
+      }}
       onClick={onClick}
     >
       {/* Pulsing stripe overlay for running cards */}
@@ -91,7 +98,7 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
           display: '-webkit-box',
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical',
-          overflow: 'hidden'
+          overflow: 'hidden',
         }}
         title={run.prompt}
       >
@@ -122,10 +129,12 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
               rel="noopener noreferrer"
               className={cn(
                 'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase transition-colors',
-                run.pr_status === 'open' && 'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+                run.pr_status === 'open' &&
+                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
                 run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
                 run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
-                run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]',
+                run.pr_status === 'draft' &&
+                  'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]',
                 !run.pr_status && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
               )}
               onClick={(e) => e.stopPropagation()}
@@ -169,7 +178,7 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
-            overflow: 'hidden'
+            overflow: 'hidden',
           }}
         >
           {run.error_message}

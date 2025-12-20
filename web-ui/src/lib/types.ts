@@ -47,7 +47,7 @@ export interface RunDetail extends Run {
   pr_url: string | null
   pr_status: 'open' | 'merged' | 'closed' | 'draft' | null
   pr_mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
-  has_remote: boolean  // Whether the project has a git remote configured
+  has_remote: boolean // Whether the project has a git remote configured
   // Resume tracking
   resume_count: number
   last_resumed_at: string | null
@@ -115,7 +115,10 @@ export function groupProjectsByWorkspace(projects: Project[]): Map<string, Proje
   const sortedKeys = Array.from(groups.keys()).sort()
 
   for (const key of sortedKeys) {
-    sortedGroups.set(key, groups.get(key)!.sort((a, b) => a.name.localeCompare(b.name)))
+    sortedGroups.set(
+      key,
+      groups.get(key)!.sort((a, b) => a.name.localeCompare(b.name))
+    )
   }
 
   return sortedGroups
@@ -135,7 +138,7 @@ export interface ResumeRunRequest {
 
 /** Response from resume operation (in-place resume) */
 export interface ResumeRunResponse {
-  run_id: string  // Same run continues
+  run_id: string // Same run continues
   status: string
   resume_count: number
   // Backward compatibility (deprecated, same as run_id)
@@ -379,7 +382,7 @@ export interface RunCommitsResponse {
 /** Detailed commit with files - for expanded view */
 export interface CommitDetail {
   sha: string
-  message: string  // Full message (subject + body)
+  message: string // Full message (subject + body)
   author: string
   author_email: string
   date: string

@@ -1,18 +1,59 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Copy,
+  Download,
+  ExternalLink,
+  FileCode,
+  GitBranch,
+  GitCommit,
+  GitMerge,
+  GitPullRequest,
+  Image as ImageIcon,
+  Maximize2,
+  Minus,
+  Play,
+  Plus,
+  RotateCw,
+  Sparkles,
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
-  Dialog,
-  DialogContent,
-} from '@/components/ui/dialog'
-import { RotateCw, ChevronLeft, Copy, Check, Play, ChevronDown, ChevronRight, Clock, GitBranch, GitCommit, ExternalLink, GitPullRequest, FileCode, Plus, Minus, GitMerge, Image as ImageIcon, Download, Sparkles, Maximize2 } from 'lucide-react'
-import type { Run, RunDetail, RunCommitsResponse, RunFilesResponse, ImageAttachment, CommitDetail, FileDiff } from '@/lib/types'
-import { formatFileSize } from '@/lib/types'
-import { fetchRun, fetchLogs, cancelRun, resumeRun, fetchSessionHistory, createPrForRun, fetchRunCommits, fetchRunFiles, mergeRunBranch, fetchRunAttachments, getImageFileUrl, uploadAndAttachImage, fetchCommitDetail, fetchFileDiff } from '@/lib/api'
-import { cn } from '@/lib/utils'
+  cancelRun,
+  createPrForRun,
+  fetchCommitDetail,
+  fetchFileDiff,
+  fetchLogs,
+  fetchRun,
+  fetchRunAttachments,
+  fetchRunCommits,
+  fetchRunFiles,
+  fetchSessionHistory,
+  getImageFileUrl,
+  mergeRunBranch,
+  resumeRun,
+  uploadAndAttachImage,
+} from '@/lib/api'
 import { formatDateWithContext, formatRelativeTime } from '@/lib/timestamps'
+import type {
+  CommitDetail,
+  FileDiff,
+  ImageAttachment,
+  Run,
+  RunCommitsResponse,
+  RunDetail,
+  RunFilesResponse,
+  RunStatus,
+} from '@/lib/types'
+import { formatFileSize } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { StreamingLogViewer } from './StreamingLogViewer'
-import type { RunStatus } from '@/lib/types'
 
 type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments'
 
@@ -37,7 +78,6 @@ function formatDuration(seconds: number | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
 }
-
 
 function formatTokens(tokens: number | null): string {
   if (tokens === null || tokens === undefined) return '-'
@@ -76,24 +116,37 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
-
-export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initialTab, onTabChange }: RunDetailDialogProps) {
+export function RunDetailDialog({
+  run,
+  open,
+  onOpenChange,
+  onRunUpdated,
+  initialTab,
+  onTabChange,
+}: RunDetailDialogProps) {
   const [detail, setDetail] = useState<RunDetail | null>(null)
-  const [logs, setLogs] = useState<{ stdout: string; stderr: string; messages: string }>({ stdout: '', stderr: '', messages: '' })
+  const [logs, setLogs] = useState<{ stdout: string; stderr: string; messages: string }>({
+    stdout: '',
+    stderr: '',
+    messages: '',
+  })
   const [activeTab, setActiveTabInternal] = useState<TabType>(initialTab || 'messages')
 
   // Wrap setActiveTab to notify parent
-  const setActiveTab = useCallback((tab: TabType) => {
-    setActiveTabInternal(tab)
-    onTabChange?.(tab)
-  }, [onTabChange])
+  const setActiveTab = useCallback(
+    (tab: TabType) => {
+      setActiveTabInternal(tab)
+      onTabChange?.(tab)
+    },
+    [onTabChange]
+  )
 
   // Sync with initialTab when it changes (URL navigation)
   useEffect(() => {
     if (initialTab && initialTab !== activeTab) {
       setActiveTabInternal(initialTab)
     }
-  }, [initialTab])
+  }, [initialTab, activeTab])
   const [loading, setLoading] = useState(false)
   const [commitsData, setCommitsData] = useState<RunCommitsResponse | null>(null)
   const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
@@ -115,7 +168,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
   const [resumeError, setResumeError] = useState<string | null>(null)
   const [sessionHistory, setSessionHistory] = useState<Run[]>([])
   const [expandedHistoryRun, setExpandedHistoryRun] = useState<string | null>(null)
-  const [historyLogs, setHistoryLogs] = useState<Record<string, { stdout: string; stderr: string }>>({})
+  const [historyLogs, setHistoryLogs] = useState<
+    Record<string, { stdout: string; stderr: string }>
+  >({})
   // Archive state removed - Archive button currently disabled
   const [creatingPr, setCreatingPr] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
@@ -139,7 +194,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
       setResumePrompt('')
       setResumeError(null)
       // Cleanup resume image previews
-      resumePendingImages.forEach(img => URL.revokeObjectURL(img.preview))
+      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setResumePendingImages([])
       setSessionHistory([])
       setExpandedHistoryRun(null)
@@ -168,14 +223,18 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
           fetchLogs(runId, 'messages').catch(() => ({ content: '' })),
         ])
         setDetail(runDetail)
-        setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
+        setLogs({
+          stdout: stdoutLogs.content || '',
+          stderr: stderrLogs.content || '',
+          messages: messagesLogs.content || '',
+        })
 
         // Fetch session history if there's a session
         if (runDetail.session_id) {
           try {
             const history = await fetchSessionHistory(runId)
             // Filter out the current run and only show previous runs
-            const previousRuns = history.runs.filter(r => r.id !== runId)
+            const previousRuns = history.runs.filter((r) => r.id !== runId)
             setSessionHistory(previousRuns)
           } catch {
             // Session history is optional, don't fail if it errors
@@ -190,7 +249,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
     }
 
     load()
-  }, [open, run])
+  }, [
+    open,
+    run,
+    initialTab, // Cleanup resume image previews
+    resumePendingImages.forEach,
+  ])
 
   // Auto-refresh for active runs
   useEffect(() => {
@@ -200,17 +264,22 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
 
     const intervalId = setInterval(async () => {
       try {
-        const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] = await Promise.all([
-          fetchRun(run.id),
-          fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
-          fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
-          fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
-          // Also refresh commits and files during active runs
-          fetchRunCommits(run.id).catch(() => null),
-          fetchRunFiles(run.id).catch(() => null),
-        ])
+        const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] =
+          await Promise.all([
+            fetchRun(run.id),
+            fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
+            fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
+            fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
+            // Also refresh commits and files during active runs
+            fetchRunCommits(run.id).catch(() => null),
+            fetchRunFiles(run.id).catch(() => null),
+          ])
         setDetail(runDetail)
-        setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
+        setLogs({
+          stdout: stdoutLogs.content || '',
+          stderr: stderrLogs.content || '',
+          messages: messagesLogs.content || '',
+        })
         // Update commits and files if fetched successfully
         if (newCommitsData) setCommitsData(newCommitsData)
         if (newFilesData) setFilesData(newFilesData)
@@ -221,7 +290,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
     }, 3000) // Refresh every 3 seconds
 
     return () => clearInterval(intervalId)
-  }, [open, run?.id, run?.status, onRunUpdated])
+  }, [open, run?.id, run?.status, onRunUpdated, run])
 
   // Poll PR status when dialog is open with an open PR
   // This catches when user merges PR on GitHub
@@ -246,7 +315,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
     }, 7000) // Poll every 7 seconds for PR status changes
 
     return () => clearInterval(pollInterval)
-  }, [open, detail?.id, detail?.pr_status, detail?.status, onRunUpdated])
+  }, [open, detail?.id, detail?.pr_status, detail?.status, onRunUpdated, detail])
 
   // Auto-scroll to bottom when content changes
   useEffect(() => {
@@ -284,17 +353,22 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
     try {
       // Fetch run details (which refreshes PR status from GitHub if PR is open),
       // logs, commits, and files all in parallel
-      const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] = await Promise.all([
-        fetchRun(run.id),
-        fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
-        fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
-        fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
-        // Also refresh commits and files data
-        fetchRunCommits(run.id).catch(() => null),
-        fetchRunFiles(run.id).catch(() => null),
-      ])
+      const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] =
+        await Promise.all([
+          fetchRun(run.id),
+          fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
+          fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
+          fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
+          // Also refresh commits and files data
+          fetchRunCommits(run.id).catch(() => null),
+          fetchRunFiles(run.id).catch(() => null),
+        ])
       setDetail(runDetail)
-      setLogs({ stdout: stdoutLogs.content || '', stderr: stderrLogs.content || '', messages: messagesLogs.content || '' })
+      setLogs({
+        stdout: stdoutLogs.content || '',
+        stderr: stderrLogs.content || '',
+        messages: messagesLogs.content || '',
+      })
       // Update commits and files if fetched successfully
       if (newCommitsData) {
         setCommitsData(newCommitsData)
@@ -336,7 +410,9 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
         if (file) {
           const ext = file.type.split('/')[1] || 'png'
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-          const namedFile = new File([file], `pasted-image-${timestamp}.${ext}`, { type: file.type })
+          const namedFile = new File([file], `pasted-image-${timestamp}.${ext}`, {
+            type: file.type,
+          })
           imageFiles.push(namedFile)
         }
       }
@@ -355,12 +431,12 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
           preview: URL.createObjectURL(file),
         })
       }
-      setResumePendingImages(prev => [...prev, ...newImages])
+      setResumePendingImages((prev) => [...prev, ...newImages])
     }
   }, [])
 
   const removeResumeImage = useCallback((index: number) => {
-    setResumePendingImages(prev => {
+    setResumePendingImages((prev) => {
       const updated = [...prev]
       URL.revokeObjectURL(updated[index].preview)
       updated.splice(index, 1)
@@ -378,8 +454,8 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
 
       // Upload images to the run if any (same run_id)
       if (resumePendingImages.length > 0 && result.run_id) {
-        const uploadPromises = resumePendingImages.map(img =>
-          uploadAndAttachImage(result.run_id, img.file).catch(err => {
+        const uploadPromises = resumePendingImages.map((img) =>
+          uploadAndAttachImage(result.run_id, img.file).catch((err) => {
             console.error(`Failed to upload image ${img.file.name}:`, err)
             return null
           })
@@ -389,7 +465,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
 
       // Cleanup images and prompt, but DON'T close dialog
       // The run is now RUNNING again - stay open to watch progress
-      resumePendingImages.forEach(img => URL.revokeObjectURL(img.preview))
+      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setResumePendingImages([])
       setResumePrompt('')
 
@@ -415,14 +491,14 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
           fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
           fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
         ])
-        setHistoryLogs(prev => ({
+        setHistoryLogs((prev) => ({
           ...prev,
-          [historyRunId]: { stdout: stdout.content || '', stderr: stderr.content || '' }
+          [historyRunId]: { stdout: stdout.content || '', stderr: stderr.content || '' },
         }))
       } catch {
-        setHistoryLogs(prev => ({
+        setHistoryLogs((prev) => ({
           ...prev,
-          [historyRunId]: { stdout: '', stderr: '' }
+          [historyRunId]: { stdout: '', stderr: '' },
         }))
       }
     }
@@ -440,7 +516,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
       setLoadingCommitDetail(sha)
       try {
         const detail = await fetchCommitDetail(run.id, sha)
-        setCommitDetails(prev => ({ ...prev, [sha]: detail }))
+        setCommitDetails((prev) => ({ ...prev, [sha]: detail }))
       } catch (err) {
         console.error('Failed to load commit details:', err)
       } finally {
@@ -461,7 +537,7 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
       setLoadingFileDiff(filePath)
       try {
         const diff = await fetchFileDiff(run.id, filePath)
-        setFileDiffs(prev => ({ ...prev, [filePath]: diff }))
+        setFileDiffs((prev) => ({ ...prev, [filePath]: diff }))
       } catch (err) {
         console.error('Failed to load file diff:', err)
       } finally {
@@ -514,10 +590,15 @@ export function RunDetailDialog({ run, open, onOpenChange, onRunUpdated, initial
         toast.success('Branch merged successfully', {
           description: `Merged into ${detail?.source_branch || 'main'}`,
         })
-      } else if (result.has_conflicts && result.conflicting_files && result.conflicting_files.length > 0) {
+      } else if (
+        result.has_conflicts &&
+        result.conflicting_files &&
+        result.conflicting_files.length > 0
+      ) {
         // Merge conflicts detected - prompt user to resolve via agent resume
         const filesStr = result.conflicting_files.slice(0, 10).join('\n- ')
-        const moreCount = result.conflicting_files.length > 10 ? result.conflicting_files.length - 10 : 0
+        const moreCount =
+          result.conflicting_files.length > 10 ? result.conflicting_files.length - 10 : 0
         const conflictPrompt = `The merge has conflicts that need to be resolved. Please fix these merge conflicts:
 
 Conflicting files:
@@ -532,11 +613,15 @@ Steps to resolve:
 Focus on preserving functionality from both sides where possible.`
 
         setResumePrompt(conflictPrompt)
-        setMergeError(`Merge conflicts in ${result.conflicting_files.length} file(s). Use the resume prompt below to have Claude resolve them.`)
+        setMergeError(
+          `Merge conflicts in ${result.conflicting_files.length} file(s). Use the resume prompt below to have Claude resolve them.`
+        )
 
         // Scroll to resume section
         setTimeout(() => {
-          document.querySelector('textarea[placeholder*="Continue with follow-up"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          document
+            .querySelector('textarea[placeholder*="Continue with follow-up"]')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }, 100)
       } else {
         setMergeError(result.error || 'Failed to merge branch')
@@ -599,11 +684,23 @@ Focus on preserving functionality from both sides where possible.`
     } else if (activeTab === 'attachments' && attachments.length === 0 && !loadingAttachments) {
       loadAttachments()
     }
-  }, [activeTab, run?.id])
+  }, [
+    activeTab,
+    attachments.length,
+    commitsData,
+    filesData,
+    loadAttachments,
+    loadCommits,
+    loadFiles,
+    loadingAttachments,
+    loadingCommits,
+    loadingFiles,
+  ])
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
-  const isResumable = (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
+  const isResumable =
+    (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
   const hasHistory = sessionHistory.length > 0
 
   return (
@@ -622,19 +719,27 @@ Focus on preserving functionality from both sides where possible.`
             {/* Run status and ID */}
             <div className="flex items-center gap-2 shrink-0">
               <div className={cn('mark', `mark-${run?.status}`)} />
-              <span className="text-mono text-[var(--color-stone)]/60 text-[0.625rem]">{run?.id.slice(0, 8)}</span>
-              <span className="text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/55">{run?.status}</span>
+              <span className="text-mono text-[var(--color-stone)]/60 text-[0.625rem]">
+                {run?.id.slice(0, 8)}
+              </span>
+              <span className="text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/55">
+                {run?.status}
+              </span>
             </div>
             {/* Git context - branch and commit */}
             {detail?.branch_name && (
               <div className="hidden sm:flex items-center gap-1.5 ml-1 text-[0.625rem] text-[var(--color-stone)]/50">
                 <span className="text-[var(--color-stone)]/30">on</span>
                 <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
-                <span className="text-purple-300/80 truncate max-w-[100px]">{detail.branch_name}</span>
+                <span className="text-purple-300/80 truncate max-w-[100px]">
+                  {detail.branch_name}
+                </span>
                 {detail.git_commit_sha && (
                   <>
                     <span className="text-[var(--color-stone)]/30">@</span>
-                    <span className="text-mono text-[var(--color-stone)]/50">{detail.git_commit_sha.slice(0, 7)}</span>
+                    <span className="text-mono text-[var(--color-stone)]/50">
+                      {detail.git_commit_sha.slice(0, 7)}
+                    </span>
                   </>
                 )}
               </div>
@@ -651,13 +756,23 @@ Focus on preserving functionality from both sides where possible.`
                 rel="noopener noreferrer"
                 className={cn(
                   'hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm text-[0.625rem] transition-colors',
-                  detail.pr_mergeable === 'CONFLICTING' && 'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-red-400 hover:bg-[rgba(239,68,68,0.2)]',
-                  detail.pr_mergeable !== 'CONFLICTING' && detail.pr_status === 'open' && 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
-                  detail.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
-                  detail.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
-                  detail.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
+                  detail.pr_mergeable === 'CONFLICTING' &&
+                    'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-red-400 hover:bg-[rgba(239,68,68,0.2)]',
+                  detail.pr_mergeable !== 'CONFLICTING' &&
+                    detail.pr_status === 'open' &&
+                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                  detail.pr_status === 'merged' &&
+                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                  detail.pr_status === 'closed' &&
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                  detail.pr_status === 'draft' &&
+                    'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                 )}
-                title={detail.pr_mergeable === 'CONFLICTING' ? 'PR has merge conflicts - click to view on GitHub' : `View PR #${detail.pr_number} on GitHub`}
+                title={
+                  detail.pr_mergeable === 'CONFLICTING'
+                    ? 'PR has merge conflicts - click to view on GitHub'
+                    : `View PR #${detail.pr_number} on GitHub`
+                }
               >
                 <GitPullRequest className="w-3 h-3" />
                 <span>#{detail.pr_number}</span>
@@ -678,22 +793,25 @@ Focus on preserving functionality from both sides where possible.`
             {/* Action buttons */}
             <div className="flex items-center gap-1 pr-8">
               {/* Merge - only show when PR is open AND mergeable (no conflicts) */}
-              {detail?.pr_status === 'open' && detail?.pr_mergeable !== 'CONFLICTING' && detail?.branch_name && !isActive && (
-                <button
-                  onClick={handleMerge}
-                  disabled={merging}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
-                    merging
-                      ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                      : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                  )}
-                  title="Merge branch locally and push to remote"
-                >
-                  <GitMerge className="w-3 h-3" />
-                  <span>{merging ? 'Merging...' : 'Merge'}</span>
-                </button>
-              )}
+              {detail?.pr_status === 'open' &&
+                detail?.pr_mergeable !== 'CONFLICTING' &&
+                detail?.branch_name &&
+                !isActive && (
+                  <button
+                    onClick={handleMerge}
+                    disabled={merging}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                      merging
+                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                    )}
+                    title="Merge branch locally and push to remote"
+                  >
+                    <GitMerge className="w-3 h-3" />
+                    <span>{merging ? 'Merging...' : 'Merge'}</span>
+                  </button>
+                )}
               {/* Resolve Conflicts - show when PR has conflicts and run is resumable */}
               {detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive && (
                 <button
@@ -709,7 +827,9 @@ Focus on preserving the functionality from both sides where possible.`
                     setResumePrompt(conflictPrompt)
                     // Scroll to resume section
                     setTimeout(() => {
-                      document.querySelector('textarea[placeholder*="Continue with follow-up"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      document
+                        .querySelector('textarea[placeholder*="Continue with follow-up"]')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                     }, 100)
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
@@ -720,38 +840,46 @@ Focus on preserving the functionality from both sides where possible.`
                 </button>
               )}
               {/* Create PR - show for worktree runs with branch, has remote, but no PR */}
-              {detail?.use_worktree && detail?.branch_name && detail?.has_remote && !detail?.pr_url && !isActive && (
-                <button
-                  onClick={handleCreatePr}
-                  disabled={creatingPr}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
-                    creatingPr
-                      ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                      : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                  )}
-                >
-                  <GitPullRequest className="w-3 h-3" />
-                  <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
-                </button>
-              )}
+              {detail?.use_worktree &&
+                detail?.branch_name &&
+                detail?.has_remote &&
+                !detail?.pr_url &&
+                !isActive && (
+                  <button
+                    onClick={handleCreatePr}
+                    disabled={creatingPr}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                      creatingPr
+                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                    )}
+                  >
+                    <GitPullRequest className="w-3 h-3" />
+                    <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
+                  </button>
+                )}
               {/* Merge (local) - show for worktree runs with branch but NO remote, hide if already merged */}
-              {detail?.use_worktree && detail?.branch_name && !detail?.has_remote && detail?.pr_status !== 'merged' && !isActive && (
-                <button
-                  onClick={handleMerge}
-                  disabled={merging}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
-                    merging
-                      ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                      : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                  )}
-                  title="Merge branch locally"
-                >
-                  <GitMerge className="w-3 h-3" />
-                  <span>{merging ? 'Merging...' : 'Merge'}</span>
-                </button>
-              )}
+              {detail?.use_worktree &&
+                detail?.branch_name &&
+                !detail?.has_remote &&
+                detail?.pr_status !== 'merged' &&
+                !isActive && (
+                  <button
+                    onClick={handleMerge}
+                    disabled={merging}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                      merging
+                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                    )}
+                    title="Merge branch locally"
+                  >
+                    <GitMerge className="w-3 h-3" />
+                    <span>{merging ? 'Merging...' : 'Merge'}</span>
+                  </button>
+                )}
               {/* Cancel - for active runs */}
               {isActive && (
                 <button
@@ -801,7 +929,9 @@ Focus on preserving the functionality from both sides where possible.`
             {/* Project + Meta Row */}
             <div className="flex items-center gap-4 text-[0.6875rem] text-[var(--color-stone)]/60 mb-4 shrink-0 flex-wrap">
               <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
-              <span className="hidden sm:inline">{formatDateWithContext(run?.created_at ?? null)}</span>
+              <span className="hidden sm:inline">
+                {formatDateWithContext(run?.created_at ?? null)}
+              </span>
               {run?.duration_seconds !== null && (
                 <span className="text-mono">{formatDuration(run?.duration_seconds ?? null)}</span>
               )}
@@ -809,11 +939,15 @@ Focus on preserving the functionality from both sides where possible.`
                 <span className="text-mono">exit {detail?.exit_code}</span>
               )}
               {detail?.cost_usd != null && detail.cost_usd > 0 && (
-                <span className="text-mono text-[var(--color-harvest)]">${detail.cost_usd.toFixed(4)}</span>
+                <span className="text-mono text-[var(--color-harvest)]">
+                  ${detail.cost_usd.toFixed(4)}
+                </span>
               )}
               {/* Tool count - calculated from messages */}
               {(() => {
-                const toolCount = parseMessages(logs.messages).filter(m => m.type === 'tool_use').length
+                const toolCount = parseMessages(logs.messages).filter(
+                  (m) => m.type === 'tool_use'
+                ).length
                 return toolCount > 0 ? (
                   <span className="text-mono text-[var(--color-sky)]">{toolCount} tools</span>
                 ) : null
@@ -842,11 +976,17 @@ Focus on preserving the functionality from both sides where possible.`
                     rel="noopener noreferrer"
                     className={cn(
                       'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
-                      detail.pr_mergeable === 'CONFLICTING' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
-                      detail.pr_mergeable !== 'CONFLICTING' && detail.pr_status === 'open' && 'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
-                      detail.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
-                      detail.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
-                      detail.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
+                      detail.pr_mergeable === 'CONFLICTING' &&
+                        'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
+                      detail.pr_mergeable !== 'CONFLICTING' &&
+                        detail.pr_status === 'open' &&
+                        'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                      detail.pr_status === 'merged' &&
+                        'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                      detail.pr_status === 'closed' &&
+                        'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                      detail.pr_status === 'draft' &&
+                        'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                     )}
                   >
                     <span>PR #{detail.pr_number}</span>
@@ -887,7 +1027,9 @@ Focus on preserving the functionality from both sides where possible.`
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
               <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
-                <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">Error</p>
+                <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
+                  Error
+                </p>
                 <pre className="text-[0.75rem] text-[var(--color-vermillion)] whitespace-pre-wrap break-words font-mono">
                   {run.error_message}
                 </pre>
@@ -947,7 +1089,9 @@ Focus on preserving the functionality from both sides where possible.`
                     >
                       <Clock className="w-3 h-3" />
                       History
-                      <span className="text-[0.5rem] text-[var(--color-stone)]/50">({sessionHistory.length})</span>
+                      <span className="text-[0.5rem] text-[var(--color-stone)]/50">
+                        ({sessionHistory.length})
+                      </span>
                     </button>
                   )}
                   {detail?.branch_name && (
@@ -966,7 +1110,9 @@ Focus on preserving the functionality from both sides where possible.`
                         {(() => {
                           const count = commitsData?.commit_count ?? detail?.commit_count
                           return count && count > 0 ? (
-                            <span className="text-[0.5rem] text-[var(--color-stone)]/50">({count})</span>
+                            <span className="text-[0.5rem] text-[var(--color-stone)]/50">
+                              ({count})
+                            </span>
                           ) : null
                         })()}
                       </button>
@@ -984,7 +1130,9 @@ Focus on preserving the functionality from both sides where possible.`
                         {(() => {
                           const count = filesData?.file_count ?? detail?.file_count
                           return count && count > 0 ? (
-                            <span className="text-[0.5rem] text-[var(--color-stone)]/50">({count})</span>
+                            <span className="text-[0.5rem] text-[var(--color-stone)]/50">
+                              ({count})
+                            </span>
                           ) : null
                         })()}
                       </button>
@@ -1002,7 +1150,9 @@ Focus on preserving the functionality from both sides where possible.`
                     <ImageIcon className="w-3 h-3" />
                     Images
                     {attachments.length > 0 && (
-                      <span className="text-[0.5rem] text-[var(--color-stone)]/50">({attachments.length})</span>
+                      <span className="text-[0.5rem] text-[var(--color-stone)]/50">
+                        ({attachments.length})
+                      </span>
                     )}
                   </button>
                 </div>
@@ -1025,15 +1175,24 @@ Focus on preserving the functionality from both sides where possible.`
               {/* Log Content */}
               <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
-                  <pre ref={outputContainerRef} className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed h-full overflow-auto">
-                    {logs.stdout || <span className="text-[var(--color-stone)]/50 italic">No output</span>}
+                  <pre
+                    ref={outputContainerRef}
+                    className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed h-full overflow-auto"
+                  >
+                    {logs.stdout || (
+                      <span className="text-[var(--color-stone)]/50 italic">No output</span>
+                    )}
                   </pre>
                 )}
                 {activeTab === 'errors' && (
-                  <pre className={cn(
-                    'p-3 text-mono whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed',
-                    logs.stderr ? 'text-[var(--color-vermillion)]/90' : 'text-[var(--color-stone)]/50 italic'
-                  )}>
+                  <pre
+                    className={cn(
+                      'p-3 text-mono whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed',
+                      logs.stderr
+                        ? 'text-[var(--color-vermillion)]/90'
+                        : 'text-[var(--color-stone)]/50 italic'
+                    )}
+                  >
                     {logs.stderr || 'No errors'}
                   </pre>
                 )}
@@ -1053,7 +1212,10 @@ Focus on preserving the functionality from both sides where possible.`
                     </p>
                     <div className="space-y-2">
                       {sessionHistory.map((historyRun) => (
-                        <div key={historyRun.id} className="border border-[rgba(163,163,163,0.08)] rounded-sm">
+                        <div
+                          key={historyRun.id}
+                          className="border border-[rgba(163,163,163,0.08)] rounded-sm"
+                        >
                           <button
                             className="w-full p-3 flex items-center justify-between hover:bg-[var(--color-paper)]/5 transition-colors"
                             onClick={() => handleExpandHistoryRun(historyRun.id)}
@@ -1065,23 +1227,32 @@ Focus on preserving the functionality from both sides where possible.`
                                   {historyRun.prompt}
                                 </p>
                                 <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-0.5">
-                                  {formatDateWithContext(historyRun.created_at)} · {formatDuration(historyRun.duration_seconds)}
+                                  {formatDateWithContext(historyRun.created_at)} ·{' '}
+                                  {formatDuration(historyRun.duration_seconds)}
                                 </p>
                               </div>
                             </div>
-                            <ChevronDown className={cn(
-                              'w-4 h-4 text-[var(--color-stone)]/50 transition-transform',
-                              expandedHistoryRun === historyRun.id && 'rotate-180'
-                            )} />
+                            <ChevronDown
+                              className={cn(
+                                'w-4 h-4 text-[var(--color-stone)]/50 transition-transform',
+                                expandedHistoryRun === historyRun.id && 'rotate-180'
+                              )}
+                            />
                           </button>
                           {expandedHistoryRun === historyRun.id && (
                             <div className="border-t border-[rgba(163,163,163,0.08)] p-3">
                               {historyLogs[historyRun.id] ? (
                                 <pre className="text-mono text-[0.625rem] text-[var(--color-paper)]/60 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                                  {historyLogs[historyRun.id].stdout || <span className="text-[var(--color-stone)]/40 italic">No output</span>}
+                                  {historyLogs[historyRun.id].stdout || (
+                                    <span className="text-[var(--color-stone)]/40 italic">
+                                      No output
+                                    </span>
+                                  )}
                                 </pre>
                               ) : (
-                                <span className="text-[0.625rem] text-[var(--color-stone)]/50">Loading...</span>
+                                <span className="text-[0.625rem] text-[var(--color-stone)]/50">
+                                  Loading...
+                                </span>
                               )}
                             </div>
                           )}
@@ -1101,105 +1272,142 @@ Focus on preserving the functionality from both sides where possible.`
                         {/* Branch info header */}
                         <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
                           <GitBranch className="w-3.5 h-3.5 text-purple-400" />
-                          <span className="text-[0.6875rem] text-purple-300">{commitsData.branch_name}</span>
+                          <span className="text-[0.6875rem] text-purple-300">
+                            {commitsData.branch_name}
+                          </span>
                           <span className="text-[0.6875rem] text-[var(--color-stone)]/50">
-                            {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''} ahead of {commitsData.base_branch}
+                            {commitsData.commit_count} commit
+                            {commitsData.commit_count !== 1 ? 's' : ''} ahead of{' '}
+                            {commitsData.base_branch}
                           </span>
                         </div>
                         {/* Commits list - compact expandable (newest first) */}
-                        {commitsData.commits.slice().reverse().map((commit, idx) => {
-                          const isExpanded = expandedCommit === commit.sha
-                          const detail = commitDetails[commit.sha]
-                          const isLoading = loadingCommitDetail === commit.sha
+                        {commitsData.commits
+                          .slice()
+                          .reverse()
+                          .map((commit, idx) => {
+                            const isExpanded = expandedCommit === commit.sha
+                            const detail = commitDetails[commit.sha]
+                            const isLoading = loadingCommitDetail === commit.sha
 
-                          return (
-                            <div
-                              key={commit.sha}
-                              className={cn(
-                                'border-b border-[rgba(163,163,163,0.05)]',
-                                idx === commitsData.commits.length - 1 && 'border-b-0'
-                              )}
-                            >
-                              {/* Commit header - compact single line */}
-                              <button
-                                className="w-full flex items-center gap-2 py-1.5 text-left hover:bg-[var(--color-paper)]/5 transition-colors px-1 -mx-1 rounded"
-                                onClick={() => handleExpandCommit(commit.sha)}
+                            return (
+                              <div
+                                key={commit.sha}
+                                className={cn(
+                                  'border-b border-[rgba(163,163,163,0.05)]',
+                                  idx === commitsData.commits.length - 1 && 'border-b-0'
+                                )}
                               >
-                                {/* Expand chevron */}
-                                <ChevronRight className={cn(
-                                  'w-3 h-3 text-[var(--color-stone)]/40 transition-transform shrink-0',
-                                  isExpanded && 'rotate-90'
-                                )} />
-                                {/* Commit message */}
-                                <span className="text-[0.6875rem] text-[var(--color-paper)]/90 truncate flex-1 min-w-0">
-                                  {commit.message}
-                                </span>
-                                {/* Relative time */}
-                                <span className="text-[0.625rem] text-[var(--color-stone)]/50 shrink-0">
-                                  {formatRelativeTime(commit.date)}
-                                </span>
-                                {/* Short hash */}
-                                <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/40 shrink-0">
-                                  {commit.sha.slice(0, 7)}
-                                </span>
-                              </button>
-                              {/* Expanded content */}
-                              {isExpanded && (
-                                <div className="ml-5 pl-3 border-l border-[rgba(163,163,163,0.15)] mb-2">
-                                  {isLoading ? (
-                                    <div className="py-2 flex items-center gap-2">
-                                      <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
-                                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">Loading...</span>
-                                    </div>
-                                  ) : detail ? (
-                                    <div className="py-2 space-y-2">
-                                      {/* Full commit message */}
-                                      {detail.message && detail.message !== commit.message && (
-                                        <pre className="text-[0.6875rem] text-[var(--color-paper)]/70 whitespace-pre-wrap font-sans leading-relaxed">
-                                          {detail.message}
-                                        </pre>
-                                      )}
-                                      {/* Files changed in this commit */}
-                                      {detail.files && detail.files.length > 0 && (
-                                        <div className="space-y-1">
-                                          <p className="text-[0.625rem] text-[var(--color-stone)]/60 font-medium">
-                                            {detail.files.length} file{detail.files.length !== 1 ? 's' : ''} changed
-                                          </p>
-                                          <div className="space-y-0.5">
-                                            {detail.files.map((file) => (
-                                              <div key={file.file_path} className="flex items-center gap-2 text-[0.625rem]">
-                                                <span className={cn(
-                                                  'uppercase px-1 py-0.5 rounded font-medium text-[0.5rem]',
-                                                  file.change_type === 'added' && 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
-                                                  file.change_type === 'modified' && 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
-                                                  file.change_type === 'deleted' && 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
-                                                  file.change_type === 'renamed' && 'bg-[rgba(168,85,247,0.15)] text-purple-400'
-                                                )}>
-                                                  {file.change_type === 'added' ? 'A' : file.change_type === 'modified' ? 'M' : file.change_type === 'deleted' ? 'D' : 'R'}
-                                                </span>
-                                                <span className="text-[var(--color-paper)]/70 font-mono truncate">{file.file_path}</span>
-                                                <span className="text-[var(--color-jade)] shrink-0">+{file.additions}</span>
-                                                <span className="text-[var(--color-vermillion)] shrink-0">-{file.deletions}</span>
-                                              </div>
-                                            ))}
+                                {/* Commit header - compact single line */}
+                                <button
+                                  className="w-full flex items-center gap-2 py-1.5 text-left hover:bg-[var(--color-paper)]/5 transition-colors px-1 -mx-1 rounded"
+                                  onClick={() => handleExpandCommit(commit.sha)}
+                                >
+                                  {/* Expand chevron */}
+                                  <ChevronRight
+                                    className={cn(
+                                      'w-3 h-3 text-[var(--color-stone)]/40 transition-transform shrink-0',
+                                      isExpanded && 'rotate-90'
+                                    )}
+                                  />
+                                  {/* Commit message */}
+                                  <span className="text-[0.6875rem] text-[var(--color-paper)]/90 truncate flex-1 min-w-0">
+                                    {commit.message}
+                                  </span>
+                                  {/* Relative time */}
+                                  <span className="text-[0.625rem] text-[var(--color-stone)]/50 shrink-0">
+                                    {formatRelativeTime(commit.date)}
+                                  </span>
+                                  {/* Short hash */}
+                                  <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/40 shrink-0">
+                                    {commit.sha.slice(0, 7)}
+                                  </span>
+                                </button>
+                                {/* Expanded content */}
+                                {isExpanded && (
+                                  <div className="ml-5 pl-3 border-l border-[rgba(163,163,163,0.15)] mb-2">
+                                    {isLoading ? (
+                                      <div className="py-2 flex items-center gap-2">
+                                        <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
+                                        <span className="text-[0.625rem] text-[var(--color-stone)]/50">
+                                          Loading...
+                                        </span>
+                                      </div>
+                                    ) : detail ? (
+                                      <div className="py-2 space-y-2">
+                                        {/* Full commit message */}
+                                        {detail.message && detail.message !== commit.message && (
+                                          <pre className="text-[0.6875rem] text-[var(--color-paper)]/70 whitespace-pre-wrap font-sans leading-relaxed">
+                                            {detail.message}
+                                          </pre>
+                                        )}
+                                        {/* Files changed in this commit */}
+                                        {detail.files && detail.files.length > 0 && (
+                                          <div className="space-y-1">
+                                            <p className="text-[0.625rem] text-[var(--color-stone)]/60 font-medium">
+                                              {detail.files.length} file
+                                              {detail.files.length !== 1 ? 's' : ''} changed
+                                            </p>
+                                            <div className="space-y-0.5">
+                                              {detail.files.map((file) => (
+                                                <div
+                                                  key={file.file_path}
+                                                  className="flex items-center gap-2 text-[0.625rem]"
+                                                >
+                                                  <span
+                                                    className={cn(
+                                                      'uppercase px-1 py-0.5 rounded font-medium text-[0.5rem]',
+                                                      file.change_type === 'added' &&
+                                                        'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
+                                                      file.change_type === 'modified' &&
+                                                        'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
+                                                      file.change_type === 'deleted' &&
+                                                        'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                                      file.change_type === 'renamed' &&
+                                                        'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                                    )}
+                                                  >
+                                                    {file.change_type === 'added'
+                                                      ? 'A'
+                                                      : file.change_type === 'modified'
+                                                        ? 'M'
+                                                        : file.change_type === 'deleted'
+                                                          ? 'D'
+                                                          : 'R'}
+                                                  </span>
+                                                  <span className="text-[var(--color-paper)]/70 font-mono truncate">
+                                                    {file.file_path}
+                                                  </span>
+                                                  <span className="text-[var(--color-jade)] shrink-0">
+                                                    +{file.additions}
+                                                  </span>
+                                                  <span className="text-[var(--color-vermillion)] shrink-0">
+                                                    -{file.deletions}
+                                                  </span>
+                                                </div>
+                                              ))}
+                                            </div>
                                           </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
+                                        )}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
                         <GitCommit className="w-6 h-6 mb-2 opacity-50" />
                         {detail?.pr_status === 'merged' ? (
                           <>
-                            <span className="text-[0.6875rem]">Branch merged into {detail?.source_branch || 'main'}</span>
-                            <span className="text-[0.625rem] mt-1 opacity-70">Commit history no longer available</span>
+                            <span className="text-[0.6875rem]">
+                              Branch merged into {detail?.source_branch || 'main'}
+                            </span>
+                            <span className="text-[0.625rem] mt-1 opacity-70">
+                              Commit history no longer available
+                            </span>
                           </>
                         ) : (
                           <span className="text-[0.6875rem]">No commits on this branch</span>
@@ -1221,7 +1429,8 @@ Focus on preserving the functionality from both sides where possible.`
                           <div className="flex items-center gap-2">
                             <FileCode className="w-3.5 h-3.5 text-[var(--color-sky)]" />
                             <span className="text-[0.6875rem] text-[var(--color-paper)]/80">
-                              {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''} changed
+                              {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''}{' '}
+                              changed
                             </span>
                           </div>
                           <div className="flex items-center gap-3 text-[0.625rem]">
@@ -1239,8 +1448,20 @@ Focus on preserving the functionality from both sides where possible.`
                         {filesData.files.map((file, idx) => {
                           const totalChanges = file.additions + file.deletions
                           const maxBarWidth = 100
-                          const additionWidth = totalChanges > 0 ? Math.max((file.additions / totalChanges) * maxBarWidth, file.additions > 0 ? 4 : 0) : 0
-                          const deletionWidth = totalChanges > 0 ? Math.max((file.deletions / totalChanges) * maxBarWidth, file.deletions > 0 ? 4 : 0) : 0
+                          const additionWidth =
+                            totalChanges > 0
+                              ? Math.max(
+                                  (file.additions / totalChanges) * maxBarWidth,
+                                  file.additions > 0 ? 4 : 0
+                                )
+                              : 0
+                          const deletionWidth =
+                            totalChanges > 0
+                              ? Math.max(
+                                  (file.deletions / totalChanges) * maxBarWidth,
+                                  file.deletions > 0 ? 4 : 0
+                                )
+                              : 0
                           const isExpanded = expandedFile === file.file_path
                           const diff = fileDiffs[file.file_path]
                           const isLoading = loadingFileDiff === file.file_path
@@ -1260,18 +1481,32 @@ Focus on preserving the functionality from both sides where possible.`
                               >
                                 {/* File path with change type indicator */}
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  <ChevronRight className={cn(
-                                    'w-3 h-3 text-[var(--color-stone)]/50 transition-transform shrink-0',
-                                    isExpanded && 'rotate-90'
-                                  )} />
-                                  <span className={cn(
-                                    'text-[0.5rem] uppercase px-1 py-0.5 rounded font-medium shrink-0',
-                                    file.change_type === 'added' && 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
-                                    file.change_type === 'modified' && 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
-                                    file.change_type === 'deleted' && 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
-                                    file.change_type === 'renamed' && 'bg-[rgba(168,85,247,0.15)] text-purple-400'
-                                  )}>
-                                    {file.change_type === 'added' ? 'A' : file.change_type === 'modified' ? 'M' : file.change_type === 'deleted' ? 'D' : 'R'}
+                                  <ChevronRight
+                                    className={cn(
+                                      'w-3 h-3 text-[var(--color-stone)]/50 transition-transform shrink-0',
+                                      isExpanded && 'rotate-90'
+                                    )}
+                                  />
+                                  <span
+                                    className={cn(
+                                      'text-[0.5rem] uppercase px-1 py-0.5 rounded font-medium shrink-0',
+                                      file.change_type === 'added' &&
+                                        'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
+                                      file.change_type === 'modified' &&
+                                        'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
+                                      file.change_type === 'deleted' &&
+                                        'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                      file.change_type === 'renamed' &&
+                                        'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                    )}
+                                  >
+                                    {file.change_type === 'added'
+                                      ? 'A'
+                                      : file.change_type === 'modified'
+                                        ? 'M'
+                                        : file.change_type === 'deleted'
+                                          ? 'D'
+                                          : 'R'}
                                   </span>
                                   <span className="text-[0.6875rem] text-[var(--color-paper)]/80 truncate font-mono">
                                     {file.file_path}
@@ -1281,10 +1516,14 @@ Focus on preserving the functionality from both sides where possible.`
                                 <div className="flex items-center gap-3 shrink-0">
                                   <div className="flex items-center gap-1.5 text-[0.625rem] min-w-[60px] justify-end">
                                     {file.additions > 0 && (
-                                      <span className="text-[var(--color-jade)]">+{file.additions}</span>
+                                      <span className="text-[var(--color-jade)]">
+                                        +{file.additions}
+                                      </span>
                                     )}
                                     {file.deletions > 0 && (
-                                      <span className="text-[var(--color-vermillion)]">-{file.deletions}</span>
+                                      <span className="text-[var(--color-vermillion)]">
+                                        -{file.deletions}
+                                      </span>
                                     )}
                                   </div>
                                   {/* Visual diff bar */}
@@ -1306,23 +1545,38 @@ Focus on preserving the functionality from both sides where possible.`
                                   {isLoading ? (
                                     <div className="py-2 flex items-center gap-2">
                                       <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
-                                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">Loading diff...</span>
+                                      <span className="text-[0.625rem] text-[var(--color-stone)]/50">
+                                        Loading diff...
+                                      </span>
                                     </div>
-                                  ) : diff && diff.diff ? (
+                                  ) : diff?.diff ? (
                                     <pre className="text-mono text-[0.625rem] leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-80 overflow-y-auto bg-[var(--color-void)]/50 rounded p-2">
                                       {diff.diff.split('\n').map((line, lineIdx) => {
                                         let lineClass = 'text-[var(--color-paper)]/60'
                                         if (line.startsWith('+') && !line.startsWith('+++')) {
-                                          lineClass = 'text-[var(--color-jade)] bg-[rgba(45,212,191,0.08)]'
-                                        } else if (line.startsWith('-') && !line.startsWith('---')) {
-                                          lineClass = 'text-[var(--color-vermillion)] bg-[rgba(199,62,58,0.08)]'
+                                          lineClass =
+                                            'text-[var(--color-jade)] bg-[rgba(45,212,191,0.08)]'
+                                        } else if (
+                                          line.startsWith('-') &&
+                                          !line.startsWith('---')
+                                        ) {
+                                          lineClass =
+                                            'text-[var(--color-vermillion)] bg-[rgba(199,62,58,0.08)]'
                                         } else if (line.startsWith('@@')) {
                                           lineClass = 'text-purple-400'
-                                        } else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) {
+                                        } else if (
+                                          line.startsWith('diff ') ||
+                                          line.startsWith('index ') ||
+                                          line.startsWith('---') ||
+                                          line.startsWith('+++')
+                                        ) {
                                           lineClass = 'text-[var(--color-stone)]/50'
                                         }
                                         return (
-                                          <div key={lineIdx} className={cn('px-1 -mx-1', lineClass)}>
+                                          <div
+                                            key={lineIdx}
+                                            className={cn('px-1 -mx-1', lineClass)}
+                                          >
                                             {line || ' '}
                                           </div>
                                         )
@@ -1344,8 +1598,12 @@ Focus on preserving the functionality from both sides where possible.`
                         <FileCode className="w-6 h-6 mb-2 opacity-50" />
                         {detail?.pr_status === 'merged' ? (
                           <>
-                            <span className="text-[0.6875rem]">Branch merged into {detail?.source_branch || 'main'}</span>
-                            <span className="text-[0.625rem] mt-1 opacity-70">File changes no longer available</span>
+                            <span className="text-[0.6875rem]">
+                              Branch merged into {detail?.source_branch || 'main'}
+                            </span>
+                            <span className="text-[0.625rem] mt-1 opacity-70">
+                              File changes no longer available
+                            </span>
                           </>
                         ) : (
                           <span className="text-[0.6875rem]">No files changed on this branch</span>
@@ -1367,7 +1625,8 @@ Focus on preserving the functionality from both sides where possible.`
                           <div className="flex items-center gap-2">
                             <ImageIcon className="w-3.5 h-3.5 text-[var(--color-harvest)]" />
                             <span className="text-[0.6875rem] text-[var(--color-paper)]/80">
-                              {attachments.length} image{attachments.length !== 1 ? 's' : ''} attached
+                              {attachments.length} image{attachments.length !== 1 ? 's' : ''}{' '}
+                              attached
                             </span>
                           </div>
                         </div>
@@ -1464,7 +1723,7 @@ Focus on preserving the functionality from both sides where possible.`
                       // Auto-resize textarea
                       const target = e.target as HTMLTextAreaElement
                       target.style.height = 'auto'
-                      target.style.height = Math.min(target.scrollHeight, 128) + 'px'
+                      target.style.height = `${Math.min(target.scrollHeight, 128)}px`
                     }}
                   />
                   <button
@@ -1482,7 +1741,9 @@ Focus on preserving the functionality from both sides where possible.`
                   </button>
                 </div>
                 {resumeError && (
-                  <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2">{resumeError}</p>
+                  <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2">
+                    {resumeError}
+                  </p>
                 )}
               </div>
             )}
@@ -1496,7 +1757,8 @@ Focus on preserving the functionality from both sides where possible.`
                 <div className="flex items-center gap-4 text-mono text-[0.625rem] text-[var(--color-stone)]/50">
                   {(detail?.input_tokens || detail?.output_tokens) && (
                     <span>
-                      {formatTokens(detail.input_tokens)} input → {formatTokens(detail.output_tokens)} output
+                      {formatTokens(detail.input_tokens)} input →{' '}
+                      {formatTokens(detail.output_tokens)} output
                     </span>
                   )}
                   {detail?.model_used && (

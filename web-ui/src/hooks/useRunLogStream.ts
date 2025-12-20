@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   AgentMessageData,
-  WSMessage,
   AgentMessageWSMessage,
   ProgressMessage,
   TokenUpdateMessage,
+  WSMessage,
 } from '@/lib/types'
 
 /** Progress state for a run */
@@ -44,10 +44,7 @@ interface UseRunLogStreamOptions {
  * @param runId - The run ID to stream logs for
  * @param options - Configuration options
  */
-export function useRunLogStream(
-  runId: string | null,
-  options: UseRunLogStreamOptions = {}
-) {
+export function useRunLogStream(runId: string | null, options: UseRunLogStreamOptions = {}) {
   const { maxMessages = 1000 } = options
 
   const [state, setState] = useState<WebSocketState>({

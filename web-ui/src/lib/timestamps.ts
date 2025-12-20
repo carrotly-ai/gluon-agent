@@ -22,7 +22,7 @@ export function parseUtcTimestamp(isoString: string | null): Date | null {
   if (!isoString.includes('+') && !isoString.includes('Z') && !isoString.includes('-00:00')) {
     // No timezone info - ISO 8601 basic format without Z. Treat as UTC.
     // The backend now sends UTC timestamps, so we add Z to ensure correct parsing
-    const timestamp = new Date(isoString + 'Z')
+    const timestamp = new Date(`${isoString}Z`)
     return timestamp
   }
   return date
@@ -67,7 +67,7 @@ export function formatFullDateTime(dateStr: string | null): string {
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   })
 }
 
@@ -83,7 +83,7 @@ export function formatTime(dateStr: string | null): string {
 
   return date.toLocaleTimeString([], {
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   })
 }
 
@@ -99,7 +99,7 @@ export function formatDate(dateStr: string | null): string {
 
   return date.toLocaleDateString([], {
     month: 'short',
-    day: 'numeric'
+    day: 'numeric',
   })
 }
 
@@ -146,6 +146,6 @@ export function formatMessageTime(dateStr: string | null): string {
   return date.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
   })
 }

@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from 'react'
-import { ChevronDown, Folder, FolderOpen, Archive } from 'lucide-react'
+import { Archive, ChevronDown, Folder, FolderOpen } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import type { RouteFilter } from '@/hooks/useRouteSync'
 import { fetchProjects } from '@/lib/api'
 import { groupProjectsByWorkspace, type Project, type ProjectWithWorkspace } from '@/lib/types'
-import { type RouteFilter } from '@/hooks/useRouteSync'
 import { cn } from '@/lib/utils'
 
 interface ProjectFilterProps {
@@ -38,7 +38,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
     if (filter.type === 'archived') return 'Archived'
     if (filter.type === 'workspace') return filter.value || 'All Projects'
     if (filter.type === 'project') {
-      const project = projects.find(p => p.name === filter.value)
+      const project = projects.find((p) => p.name === filter.value)
       return project?.name || filter.value || 'All Projects'
     }
     return 'All Projects'
@@ -65,7 +65,9 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
           <button
             className={cn(
               'w-full px-3 py-2 text-left text-[0.6875rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors flex items-center gap-2',
-              filter.type === 'all' ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]' : 'text-[var(--color-stone)]'
+              filter.type === 'all'
+                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                : 'text-[var(--color-stone)]'
             )}
             onClick={() => handleSelect({ type: 'all', value: null })}
           >
@@ -77,7 +79,9 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
           <button
             className={cn(
               'w-full px-3 py-2 text-left text-[0.6875rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors flex items-center gap-2',
-              filter.type === 'archived' ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]' : 'text-[var(--color-stone)]'
+              filter.type === 'archived'
+                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                : 'text-[var(--color-stone)]'
             )}
             onClick={() => handleSelect({ type: 'archived', value: null })}
           >
@@ -102,7 +106,9 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
               >
                 <Folder className="w-3 h-3" />
                 {workspace}
-                <span className="ml-auto text-[var(--color-stone)]/55">({workspaceProjects.length})</span>
+                <span className="ml-auto text-[var(--color-stone)]/55">
+                  ({workspaceProjects.length})
+                </span>
               </button>
 
               {/* Projects in workspace */}

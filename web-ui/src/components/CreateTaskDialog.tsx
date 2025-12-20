@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { ChevronDown, GitBranch, Image as ImageIcon, Play, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Play, X, ChevronDown, GitBranch, Image as ImageIcon, Trash2 } from 'lucide-react'
-import { fetchProjects, createRun, uploadAndAttachImage } from '@/lib/api'
-import { groupProjectsByWorkspace } from '@/lib/types'
+import { createRun, fetchProjects, uploadAndAttachImage } from '@/lib/api'
 import type { Project, ProjectWithWorkspace } from '@/lib/types'
+import { groupProjectsByWorkspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 interface CreateTaskDialogProps {
@@ -42,7 +42,12 @@ interface PendingImage {
   preview: string
 }
 
-export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialProject }: CreateTaskDialogProps) {
+export function CreateTaskDialog({
+  open,
+  onOpenChange,
+  onTaskCreated,
+  initialProject,
+}: CreateTaskDialogProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [prompt, setPrompt] = useState('')
@@ -76,10 +81,15 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       setError(null)
       // Don't reset model and worktree - they persist via sessionStorage
       // Revoke preview URLs to prevent memory leaks
-      pendingImages.forEach(img => URL.revokeObjectURL(img.preview))
+      pendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setPendingImages([])
     }
-  }, [open, initialProject])
+  }, [
+    open,
+    initialProject, // Don't reset model and worktree - they persist via sessionStorage
+    // Revoke preview URLs to prevent memory leaks
+    pendingImages.forEach,
+  ])
 
   // Persist model selection to sessionStorage
   useEffect(() => {
@@ -114,7 +124,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
       })
     }
 
-    setPendingImages(prev => [...prev, ...newImages])
+    setPendingImages((prev) => [...prev, ...newImages])
   }, [])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -127,41 +137,49 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
     setIsDragging(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
-    handleFileSelect(e.dataTransfer.files)
-  }, [handleFileSelect])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragging(false)
+      handleFileSelect(e.dataTransfer.files)
+    },
+    [handleFileSelect]
+  )
 
   // Handle paste events (Ctrl/Cmd+V with images)
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items
-    if (!items) return
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
 
-    const imageFiles: File[] = []
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile()
-        if (file) {
-          // Generate a name for pasted images
-          const ext = file.type.split('/')[1] || 'png'
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-          const namedFile = new File([file], `pasted-image-${timestamp}.${ext}`, { type: file.type })
-          imageFiles.push(namedFile)
+      const imageFiles: File[] = []
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) {
+            // Generate a name for pasted images
+            const ext = file.type.split('/')[1] || 'png'
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+            const namedFile = new File([file], `pasted-image-${timestamp}.${ext}`, {
+              type: file.type,
+            })
+            imageFiles.push(namedFile)
+          }
         }
       }
-    }
 
-    if (imageFiles.length > 0) {
-      // Create a FileList-like object
-      const dataTransfer = new DataTransfer()
-      imageFiles.forEach(f => dataTransfer.items.add(f))
-      handleFileSelect(dataTransfer.files)
-    }
-  }, [handleFileSelect])
+      if (imageFiles.length > 0) {
+        // Create a FileList-like object
+        const dataTransfer = new DataTransfer()
+        imageFiles.forEach((f) => dataTransfer.items.add(f))
+        handleFileSelect(dataTransfer.files)
+      }
+    },
+    [handleFileSelect]
+  )
 
   const removeImage = useCallback((index: number) => {
-    setPendingImages(prev => {
+    setPendingImages((prev) => {
       const updated = [...prev]
       URL.revokeObjectURL(updated[index].preview)
       updated.splice(index, 1)
@@ -189,8 +207,8 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
 
       // Upload and attach images
       if (pendingImages.length > 0) {
-        const uploadPromises = pendingImages.map(img =>
-          uploadAndAttachImage(run.id, img.file).catch(err => {
+        const uploadPromises = pendingImages.map((img) =>
+          uploadAndAttachImage(run.id, img.file).catch((err) => {
             console.error(`Failed to upload image ${img.file.name}:`, err)
             return null
           })
@@ -208,7 +226,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
     }
   }
 
-  const selectedModelOption = MODEL_OPTIONS.find(m => m.value === model)
+  const selectedModelOption = MODEL_OPTIONS.find((m) => m.value === model)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -236,10 +254,19 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
                 className="w-full flex items-center justify-between px-3 py-2 text-[0.8125rem] text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
                 onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
               >
-                <span className={selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'}>
+                <span
+                  className={
+                    selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
+                  }
+                >
                   {selectedProject || 'Select a project...'}
                 </span>
-                <ChevronDown className={cn('w-4 h-4 text-[var(--color-stone)]/60 transition-transform', projectDropdownOpen && 'rotate-180')} />
+                <ChevronDown
+                  className={cn(
+                    'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                    projectDropdownOpen && 'rotate-180'
+                  )}
+                />
               </button>
 
               {projectDropdownOpen && (
@@ -322,7 +349,6 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               onDrop={handleDrop}
               onPaste={handlePaste}
               onClick={() => fileInputRef.current?.click()}
-              tabIndex={0}
             >
               {pendingImages.length === 0 ? (
                 <div className="flex flex-col items-center py-2 text-center">
@@ -388,9 +414,16 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               >
                 <span className="text-[var(--color-paper)]">
                   {selectedModelOption?.label}
-                  <span className="ml-2 text-[var(--color-stone)]/60">{selectedModelOption?.description}</span>
+                  <span className="ml-2 text-[var(--color-stone)]/60">
+                    {selectedModelOption?.description}
+                  </span>
                 </span>
-                <ChevronDown className={cn('w-4 h-4 text-[var(--color-stone)]/60 transition-transform', modelDropdownOpen && 'rotate-180')} />
+                <ChevronDown
+                  className={cn(
+                    'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                    modelDropdownOpen && 'rotate-180'
+                  )}
+                />
               </button>
 
               {modelDropdownOpen && (
@@ -411,7 +444,9 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
                       }}
                     >
                       {option.label}
-                      <span className="ml-2 text-[var(--color-stone)]/60">{option.description}</span>
+                      <span className="ml-2 text-[var(--color-stone)]/60">
+                        {option.description}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -425,7 +460,9 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
               <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
               <div>
                 <span className="text-[0.8125rem] text-[var(--color-paper)]">Use Git Worktree</span>
-                <p className="text-[0.6875rem] text-[var(--color-stone)]/60">Run in isolated branch</p>
+                <p className="text-[0.6875rem] text-[var(--color-stone)]/60">
+                  Run in isolated branch
+                </p>
               </div>
             </div>
             <button
@@ -449,9 +486,7 @@ export function CreateTaskDialog({ open, onOpenChange, onTaskCreated, initialPro
           </div>
 
           {/* Error */}
-          {error && (
-            <p className="text-[0.75rem] text-[var(--color-vermillion)]">{error}</p>
-          )}
+          {error && <p className="text-[0.75rem] text-[var(--color-vermillion)]">{error}</p>}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">

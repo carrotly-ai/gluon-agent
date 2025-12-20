@@ -1,17 +1,17 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
-import { Plus, Sun, Moon, LayoutGrid, BarChart3, Settings } from 'lucide-react'
-import { KanbanBoard } from './components/KanbanBoard'
-import { RunDetailDialog } from './components/RunDetailDialog'
-import { ProjectFilter } from './components/ProjectFilter'
+import { BarChart3, LayoutGrid, Moon, Plus, Settings, Sun } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
-import { UsagePage } from './components/UsagePage'
+import { KanbanBoard } from './components/KanbanBoard'
+import { ProjectFilter } from './components/ProjectFilter'
+import { RunDetailDialog } from './components/RunDetailDialog'
 import { SettingsPage } from './components/SettingsPage'
-import { useRunsWithWebSocket } from './hooks/useWebSocket'
-import { useRouteSync, type RunDetailTab } from './hooks/useRouteSync'
+import { UsagePage } from './components/UsagePage'
+import { type RunDetailTab, useRouteSync } from './hooks/useRouteSync'
 import { useTheme } from './hooks/useTheme'
-import { cancelRun, archiveRun, fetchProjects, fetchRuns, fetchRun } from './lib/api'
+import { useRunsWithWebSocket } from './hooks/useWebSocket'
+import { archiveRun, cancelRun, fetchProjects, fetchRun, fetchRuns } from './lib/api'
+import type { Project, Run } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
-import type { Run, Project } from './lib/types'
 import { cn } from './lib/utils'
 
 function App() {
@@ -54,7 +54,7 @@ function App() {
     }
 
     // First check if run is in current runs list
-    const runFromList = runs.find(r => r.id === selectedRunId || r.id.startsWith(selectedRunId))
+    const runFromList = runs.find((r) => r.id === selectedRunId || r.id.startsWith(selectedRunId))
     if (runFromList) {
       setSelectedRun(runFromList)
       return
@@ -99,11 +99,11 @@ function App() {
     if (filter.type === 'all') return runs
 
     if (filter.type === 'project') {
-      return runs.filter(run => run.project_name === filter.value)
+      return runs.filter((run) => run.project_name === filter.value)
     }
 
     if (filter.type === 'workspace') {
-      return runs.filter(run => {
+      return runs.filter((run) => {
         const workspace = projectWorkspaceMap.get(run.project_name)
         return workspace === filter.value
       })
@@ -112,54 +112,72 @@ function App() {
     return runs
   }, [runs, filter, projectWorkspaceMap, archivedRuns])
 
-  const handleRunClick = useCallback((run: Run) => {
-    openRunDetail(run.id)
-  }, [openRunDetail])
+  const handleRunClick = useCallback(
+    (run: Run) => {
+      openRunDetail(run.id)
+    },
+    [openRunDetail]
+  )
 
-  const handleCancelRun = useCallback(async (run: Run) => {
-    try {
-      const updated = await cancelRun(run.id)
-      setRuns(prev => prev.map(r => r.id === updated.id ? updated : r))
-    } catch (err) {
-      console.error('Failed to cancel run:', err)
-    }
-  }, [setRuns])
+  const handleCancelRun = useCallback(
+    async (run: Run) => {
+      try {
+        const updated = await cancelRun(run.id)
+        setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+      } catch (err) {
+        console.error('Failed to cancel run:', err)
+      }
+    },
+    [setRuns]
+  )
 
-  const handleArchiveRun = useCallback(async (run: Run) => {
-    try {
-      // Remove from UI immediately (archived runs filtered on backend via WebSocket)
-      setRuns(prev => prev.filter(r => r.id !== run.id))
-      await archiveRun(run.id)
-    } catch (err) {
-      console.error('Failed to archive run:', err)
-    }
-  }, [setRuns])
+  const handleArchiveRun = useCallback(
+    async (run: Run) => {
+      try {
+        // Remove from UI immediately (archived runs filtered on backend via WebSocket)
+        setRuns((prev) => prev.filter((r) => r.id !== run.id))
+        await archiveRun(run.id)
+      } catch (err) {
+        console.error('Failed to archive run:', err)
+      }
+    },
+    [setRuns]
+  )
 
-  const handleRunUpdated = useCallback((updatedRun: Run) => {
-    setRuns(prev => prev.map(r => r.id === updatedRun.id ? updatedRun : r))
-    if (selectedRun?.id === updatedRun.id) {
-      setSelectedRun(updatedRun)
-    }
-  }, [setRuns, selectedRun?.id])
+  const handleRunUpdated = useCallback(
+    (updatedRun: Run) => {
+      setRuns((prev) => prev.map((r) => (r.id === updatedRun.id ? updatedRun : r)))
+      if (selectedRun?.id === updatedRun.id) {
+        setSelectedRun(updatedRun)
+      }
+    },
+    [setRuns, selectedRun?.id]
+  )
 
-  const handleDialogOpenChange = useCallback((open: boolean) => {
-    if (!open) {
-      closeRunDetail()
-    }
-  }, [closeRunDetail])
+  const handleDialogOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        closeRunDetail()
+      }
+    },
+    [closeRunDetail]
+  )
 
-  const handleTabChange = useCallback((tab: string) => {
-    setRunDetailTab(tab as RunDetailTab)
-  }, [setRunDetailTab])
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      setRunDetailTab(tab as RunDetailTab)
+    },
+    [setRunDetailTab]
+  )
 
-  const activeRuns = filteredRuns.filter(r => r.status === 'running').length
+  const activeRuns = filteredRuns.filter((r) => r.status === 'running').length
 
   // Calculate today's total cost from all runs (not filtered)
   const todayCost = useMemo(() => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     return runs
-      .filter(run => new Date(run.created_at) >= today)
+      .filter((run) => new Date(run.created_at) >= today)
       .reduce((sum, run) => sum + (run.cost_usd ?? 0), 0)
   }, [runs])
 
@@ -182,9 +200,7 @@ function App() {
               <span className="hidden sm:inline">New</span>
             </button>
             {activeRuns > 0 && (
-              <span className="text-caption header-stats">
-                {activeRuns} active
-              </span>
+              <span className="text-caption header-stats">{activeRuns} active</span>
             )}
             <button
               className="text-caption text-[var(--color-harvest)] hover:underline"
@@ -251,7 +267,9 @@ function App() {
             <div
               className={cn(
                 'connection-indicator w-2 h-2 rounded-full transition-colors',
-                connected ? 'connected bg-[var(--color-jade)] text-[var(--color-jade)]' : 'bg-[var(--color-vermillion)] text-[var(--color-vermillion)]'
+                connected
+                  ? 'connected bg-[var(--color-jade)] text-[var(--color-jade)]'
+                  : 'bg-[var(--color-vermillion)] text-[var(--color-vermillion)]'
               )}
               title={connected ? 'WebSocket connected' : 'Connection lost'}
             />

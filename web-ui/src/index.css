@@ -1,11 +1,11 @@
 /* Sora - geometric, designed by Fontworks with Japanese sensibility */
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&display=swap");
 
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Sora', system-ui, sans-serif;
-  --font-mono: 'SF Mono', ui-monospace, monospace;
+  --font-sans: "Sora", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, monospace;
 
   /* Tokyo Minimal Palette */
   --color-void: #0c0c0c;
@@ -48,7 +48,9 @@ body {
   font-weight: 300;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 #root {
@@ -118,8 +120,13 @@ body {
 }
 
 @keyframes breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Connection indicator - sonar ping style */
@@ -129,7 +136,7 @@ body {
 
 .connection-indicator::before,
 .connection-indicator::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: 50%;
@@ -157,7 +164,8 @@ body {
 }
 
 @keyframes pulse-stripe {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {

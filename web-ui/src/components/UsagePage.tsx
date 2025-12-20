@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { fetchUsageSummary, fetchUsageByProject, fetchUsageRuns } from '@/lib/api'
-import type { UsageSummary, ProjectUsage, RunUsageItem } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { useEffect, useState } from 'react'
+import { fetchUsageByProject, fetchUsageRuns, fetchUsageSummary } from '@/lib/api'
 import { formatDateWithContext } from '@/lib/timestamps'
+import type { ProjectUsage, RunUsageItem, UsageSummary } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 function formatCost(cost: number | null): string {
   if (cost === null || cost === undefined) return '-'
@@ -54,7 +54,7 @@ export function UsagePage() {
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')
+      setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))
     } else {
       setSortField(field)
       setSortOrder('desc')
@@ -131,15 +131,17 @@ export function UsagePage() {
                   <div key={project.project_id}>
                     <button
                       className="w-full px-4 py-3 flex items-center justify-between hover:bg-[var(--color-paper)]/3 transition-colors"
-                      onClick={() => setExpandedProject(
-                        expandedProject === project.project_id ? null : project.project_id
-                      )}
+                      onClick={() =>
+                        setExpandedProject(
+                          expandedProject === project.project_id ? null : project.project_id
+                        )
+                      }
                     >
                       <div className="flex items-center gap-3">
                         <div
                           className="w-2 h-2 rounded-full"
                           style={{
-                            backgroundColor: `hsl(${(project.project_name.charCodeAt(0) * 137) % 360}, 50%, 50%)`
+                            backgroundColor: `hsl(${(project.project_name.charCodeAt(0) * 137) % 360}, 50%, 50%)`,
                           }}
                         />
                         <span className="text-[0.8125rem] text-[var(--color-paper)]">
@@ -150,10 +152,12 @@ export function UsagePage() {
                         <span className="text-mono text-[0.75rem] text-[var(--color-harvest)]">
                           {formatCost(project.cost_usd)}
                         </span>
-                        <ChevronDown className={cn(
-                          'w-3 h-3 text-[var(--color-stone)]/50 transition-transform',
-                          expandedProject === project.project_id && 'rotate-180'
-                        )} />
+                        <ChevronDown
+                          className={cn(
+                            'w-3 h-3 text-[var(--color-stone)]/50 transition-transform',
+                            expandedProject === project.project_id && 'rotate-180'
+                          )}
+                        />
                       </div>
                     </button>
                     {expandedProject === project.project_id && (
@@ -172,7 +176,9 @@ export function UsagePage() {
                         </div>
                         <div className="flex justify-between">
                           <span>Avg/run</span>
-                          <span className="text-mono">{formatCost(project.cost_usd / Math.max(project.run_count, 1))}</span>
+                          <span className="text-mono">
+                            {formatCost(project.cost_usd / Math.max(project.run_count, 1))}
+                          </span>
                         </div>
                       </div>
                     )}
@@ -218,7 +224,10 @@ export function UsagePage() {
                 </div>
               ) : (
                 runs.map((run) => (
-                  <div key={run.id} className="px-4 py-3 hover:bg-[var(--color-paper)]/3 transition-colors">
+                  <div
+                    key={run.id}
+                    className="px-4 py-3 hover:bg-[var(--color-paper)]/3 transition-colors"
+                  >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -242,10 +251,14 @@ export function UsagePage() {
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <span className={cn(
-                          'text-mono text-[0.8125rem]',
-                          run.cost_usd && run.cost_usd > 0 ? 'text-[var(--color-harvest)]' : 'text-[var(--color-stone)]/50'
-                        )}>
+                        <span
+                          className={cn(
+                            'text-mono text-[0.8125rem]',
+                            run.cost_usd && run.cost_usd > 0
+                              ? 'text-[var(--color-harvest)]'
+                              : 'text-[var(--color-stone)]/50'
+                          )}
+                        >
                           {formatCost(run.cost_usd)}
                         </span>
                       </div>
@@ -290,9 +303,7 @@ function SummaryCard({
       >
         {value}
       </p>
-      <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-1">
-        {subValue}
-      </p>
+      <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-1">{subValue}</p>
     </div>
   )
 }
@@ -319,9 +330,7 @@ function SortButton({
       onClick={onClick}
     >
       {label}
-      {active && (
-        <span className="text-[0.5rem]">{order === 'desc' ? '↓' : '↑'}</span>
-      )}
+      {active && <span className="text-[0.5rem]">{order === 'desc' ? '↓' : '↑'}</span>}
     </button>
   )
 }

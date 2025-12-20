@@ -1,38 +1,38 @@
 import type {
-  Run,
-  RunDetail,
-  RunStatus,
-  CreateRunRequest,
-  LogResponse,
-  Project,
-  ProjectDetail,
-  CreateProjectRequest,
-  Workspace,
-  CreateWorkspaceRequest,
-  ScanResultResponse,
-  SystemStatus,
-  ResumeRunResponse,
-  SessionHistoryResponse,
-  UpdateStatusResponse,
-  UsageSummary,
-  ProjectUsage,
-  DailyUsage,
-  RunUsageItem,
-  RunCommitsResponse,
-  RunFilesResponse,
+  BranchListResponse,
+  BranchOperationResponse,
   CommitDetail,
-  FileDiff,
-  ImageAttachment,
-  RunImagesResponse,
   // Advanced Git Operations types
   ConflictDetectionResponse,
   ConflictDiff,
-  ResolveConflictResponse,
-  RebaseResponse,
+  CreateProjectRequest,
+  CreateRunRequest,
+  CreateWorkspaceRequest,
+  DailyUsage,
+  FileDiff,
   ForcePushCheckResponse,
   ForcePushResponse,
-  BranchListResponse,
-  BranchOperationResponse,
+  ImageAttachment,
+  LogResponse,
+  Project,
+  ProjectDetail,
+  ProjectUsage,
+  RebaseResponse,
+  ResolveConflictResponse,
+  ResumeRunResponse,
+  Run,
+  RunCommitsResponse,
+  RunDetail,
+  RunFilesResponse,
+  RunImagesResponse,
+  RunStatus,
+  RunUsageItem,
+  ScanResultResponse,
+  SessionHistoryResponse,
+  SystemStatus,
+  UpdateStatusResponse,
+  UsageSummary,
+  Workspace,
 } from './types'
 
 const API_BASE = '/api'
@@ -63,7 +63,7 @@ export async function fetchRuns(params?: {
 }): Promise<Run[]> {
   const searchParams = new URLSearchParams()
   if (params?.project_id) searchParams.set('project_id', params.project_id)
-  if (params?.status) params.status.forEach(s => searchParams.append('status', s))
+  if (params?.status) params.status.forEach((s) => searchParams.append('status', s))
   if (params?.limit) searchParams.set('limit', String(params.limit))
   if (params?.archived !== undefined) searchParams.set('archived', String(params.archived))
 
@@ -99,7 +99,10 @@ export async function archiveRun(runId: string): Promise<Run> {
 }
 
 /** Update PR status (e.g., mark as merged to move from REVIEW to DONE) */
-export async function updatePrStatus(runId: string, prStatus: 'open' | 'merged' | 'closed' | 'draft'): Promise<Run> {
+export async function updatePrStatus(
+  runId: string,
+  prStatus: 'open' | 'merged' | 'closed' | 'draft'
+): Promise<Run> {
   const params = new URLSearchParams({ pr_status: prStatus })
   return fetchJson<Run>(`/runs/${runId}/pr-status?${params}`, {
     method: 'POST',
@@ -170,7 +173,9 @@ export async function createProject(request: CreateProjectRequest): Promise<Proj
 }
 
 /** Delete a project */
-export async function deleteProject(projectId: string): Promise<{ deleted: boolean; project_id: string }> {
+export async function deleteProject(
+  projectId: string
+): Promise<{ deleted: boolean; project_id: string }> {
   return fetchJson<{ deleted: boolean; project_id: string }>(`/projects/${projectId}`, {
     method: 'DELETE',
   })
@@ -192,7 +197,9 @@ export async function createWorkspace(request: CreateWorkspaceRequest): Promise<
 }
 
 /** Delete a workspace */
-export async function deleteWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
+export async function deleteWorkspace(
+  workspaceId: string
+): Promise<{ deleted: boolean; workspace_id: string }> {
   return fetchJson<{ deleted: boolean; workspace_id: string }>(`/workspaces/${workspaceId}`, {
     method: 'DELETE',
   })
@@ -267,7 +274,10 @@ export async function fetchSettings(): Promise<Settings> {
 }
 
 /** Update a single setting */
-export async function updateSetting(key: string, value: string): Promise<{ key: string; value: string }> {
+export async function updateSetting(
+  key: string,
+  value: string
+): Promise<{ key: string; value: string }> {
   return fetchJson<{ key: string; value: string }>(`/settings/${key}`, {
     method: 'PUT',
     body: JSON.stringify({ value }),
@@ -362,7 +372,9 @@ export function getImageFileUrl(imageId: string): string {
 }
 
 /** Delete an image (only if not attached to any runs) */
-export async function deleteImage(imageId: string): Promise<{ deleted: boolean; image_id: string }> {
+export async function deleteImage(
+  imageId: string
+): Promise<{ deleted: boolean; image_id: string }> {
   return fetchJson<{ deleted: boolean; image_id: string }>(`/images/${imageId}`, {
     method: 'DELETE',
   })
@@ -400,7 +412,10 @@ export async function attachImageToRun(runId: string, imageId: string): Promise<
 }
 
 /** Detach an image from a run */
-export async function detachImageFromRun(runId: string, imageId: string): Promise<{ detached: boolean }> {
+export async function detachImageFromRun(
+  runId: string,
+  imageId: string
+): Promise<{ detached: boolean }> {
   return fetchJson<{ detached: boolean }>(`/runs/${runId}/attachments/${imageId}`, {
     method: 'DELETE',
   })
@@ -460,7 +475,10 @@ export async function skipRebaseCommit(projectId: string): Promise<RebaseRespons
 }
 
 /** Check if a force push would be required */
-export async function checkForcePushNeeded(projectId: string, branch?: string): Promise<ForcePushCheckResponse> {
+export async function checkForcePushNeeded(
+  projectId: string,
+  branch?: string
+): Promise<ForcePushCheckResponse> {
   const params = branch ? `?branch=${encodeURIComponent(branch)}` : ''
   return fetchJson<ForcePushCheckResponse>(`/projects/${projectId}/force-push-check${params}`)
 }

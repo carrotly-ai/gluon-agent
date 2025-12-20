@@ -1,9 +1,27 @@
-import { useEffect, useCallback } from 'react'
-import { Plus, FolderOpen, RefreshCw, Trash2, GitBranch, AlertCircle, Check, X, Settings } from 'lucide-react'
-import { fetchWorkspaces, fetchProjects, createWorkspace, deleteWorkspace, scanWorkspace, deleteProject, fetchSettings, updateSetting } from '@/lib/api'
-import type { Workspace, Project, ScanResultResponse } from '@/lib/types'
+import {
+  AlertCircle,
+  Check,
+  FolderOpen,
+  GitBranch,
+  Plus,
+  RefreshCw,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import {
+  createWorkspace,
+  deleteProject,
+  deleteWorkspace,
+  fetchProjects,
+  fetchSettings,
+  fetchWorkspaces,
+  scanWorkspace,
+  updateSetting,
+} from '@/lib/api'
+import type { Project, ScanResultResponse, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
 
 type Tab = 'workspaces' | 'projects' | 'preferences'
 
@@ -33,7 +51,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [scanResult, setScanResult] = useState<ScanResultResponse | null>(null)
 
   // Delete confirmation
-  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'workspace' | 'project'; id: string; name: string } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    type: 'workspace' | 'project'
+    id: string
+    name: string
+  } | null>(null)
 
   // Settings state
   const [autoCreatePr, setAutoCreatePr] = useState(true)
@@ -43,7 +65,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
     setLoading(true)
     setError(null)
     try {
-      const [ws, prj, settings] = await Promise.all([fetchWorkspaces(), fetchProjects(), fetchSettings()])
+      const [ws, prj, settings] = await Promise.all([
+        fetchWorkspaces(),
+        fetchProjects(),
+        fetchSettings(),
+      ])
       setWorkspaces(ws)
       setProjects(prj)
       setAutoCreatePr(settings.auto_create_pr !== 'false')
@@ -69,7 +95,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
         path: newWorkspacePath.trim(),
         auto_scan: autoScan,
       })
-      setWorkspaces(prev => [...prev, ws])
+      setWorkspaces((prev) => [...prev, ws])
       setShowAddForm(false)
       setNewWorkspaceName('')
       setNewWorkspacePath('')
@@ -100,7 +126,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const handleDeleteWorkspace = async (workspaceId: string) => {
     try {
       await deleteWorkspace(workspaceId)
-      setWorkspaces(prev => prev.filter(w => w.id !== workspaceId))
+      setWorkspaces((prev) => prev.filter((w) => w.id !== workspaceId))
       setDeleteConfirm(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete workspace')
@@ -110,7 +136,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const handleDeleteProject = async (projectId: string) => {
     try {
       await deleteProject(projectId)
-      setProjects(prev => prev.filter(p => p.id !== projectId))
+      setProjects((prev) => prev.filter((p) => p.id !== projectId))
       setDeleteConfirm(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete project')
@@ -131,12 +157,15 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   }
 
   // Group projects by workspace
-  const projectsByWorkspace = projects.reduce((acc, project) => {
-    const wsId = project.workspace_id || 'standalone'
-    if (!acc[wsId]) acc[wsId] = []
-    acc[wsId].push(project)
-    return acc
-  }, {} as Record<string, Project[]>)
+  const projectsByWorkspace = projects.reduce(
+    (acc, project) => {
+      const wsId = project.workspace_id || 'standalone'
+      if (!acc[wsId]) acc[wsId] = []
+      acc[wsId].push(project)
+      return acc
+    },
+    {} as Record<string, Project[]>
+  )
 
   if (loading) {
     return (
@@ -211,8 +240,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               <Check className="w-4 h-4 text-[var(--color-jade)]" />
               <span className="text-[0.75rem] text-[var(--color-jade)]">
                 Found {scanResult.projects_found} projects
-                {scanResult.projects_added?.length > 0 && `, added ${scanResult.projects_added.length} new`}
-                {scanResult.projects_removed?.length > 0 && `, removed ${scanResult.projects_removed.length}`}
+                {scanResult.projects_added?.length > 0 &&
+                  `, added ${scanResult.projects_added.length} new`}
+                {scanResult.projects_removed?.length > 0 &&
+                  `, removed ${scanResult.projects_removed.length}`}
               </span>
               <button
                 className="ml-auto text-[var(--color-jade)] hover:opacity-80"
@@ -244,7 +275,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               </div>
             ) : (
               <div className="space-y-3">
-                {workspaces.map(ws => (
+                {workspaces.map((ws) => (
                   <div
                     key={ws.id}
                     className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm"
@@ -276,11 +307,15 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           disabled={scanningId === ws.id}
                           title="Rescan for new projects"
                         >
-                          <RefreshCw className={cn('w-3.5 h-3.5', scanningId === ws.id && 'animate-spin')} />
+                          <RefreshCw
+                            className={cn('w-3.5 h-3.5', scanningId === ws.id && 'animate-spin')}
+                          />
                         </button>
                         <button
                           className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
-                          onClick={() => setDeleteConfirm({ type: 'workspace', id: ws.id, name: ws.name })}
+                          onClick={() =>
+                            setDeleteConfirm({ type: 'workspace', id: ws.id, name: ws.name })
+                          }
                           title="Delete workspace"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -291,21 +326,27 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     {/* Projects in this workspace */}
                     {projectsByWorkspace[ws.id] && projectsByWorkspace[ws.id].length > 0 && (
                       <div className="mt-3 pt-3 border-t border-[rgba(163,163,163,0.08)] space-y-0.5">
-                        {projectsByWorkspace[ws.id].map(project => (
+                        {projectsByWorkspace[ws.id].map((project) => (
                           <div
                             key={project.id}
                             className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 text-[0.6875rem] px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors cursor-pointer"
-                            onClick={() => { window.location.hash = `project:${project.name}` }}
+                            onClick={() => {
+                              window.location.hash = `project:${project.name}`
+                            }}
                           >
                             <span className="text-[var(--color-stone)]/80 truncate pl-4">
                               {project.name}
                             </span>
                             <span className="flex items-center gap-1.5 text-[var(--color-stone)]/70 text-[0.625rem] min-w-[180px] justify-end">
                               <GitBranch className="w-3 h-3 text-[var(--color-stone)]/60 shrink-0" />
-                              <span className="truncate max-w-[140px]">{project.git_branch || 'no git'}</span>
+                              <span className="truncate max-w-[140px]">
+                                {project.git_branch || 'no git'}
+                              </span>
                             </span>
                             <span className="text-[0.5625rem] text-[var(--color-stone)]/60 font-mono w-[32px] text-right tabular-nums">
-                              {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
+                              {project.git_ahead ? `↑${project.git_ahead}` : ''}
+                              {project.git_ahead && project.git_behind ? ' ' : ''}
+                              {project.git_behind ? `↓${project.git_behind}` : ''}
                             </span>
                           </div>
                         ))}
@@ -318,7 +359,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
 
             {/* Add workspace form */}
             {showAddForm ? (
-              <form onSubmit={handleAddWorkspace} className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <form
+                onSubmit={handleAddWorkspace}
+                className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4"
+              >
                 <h3 className="text-[0.75rem] uppercase tracking-widest text-[var(--color-stone)]/70">
                   Add Workspace
                 </h3>
@@ -330,7 +374,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     <input
                       type="text"
                       value={newWorkspaceName}
-                      onChange={e => setNewWorkspaceName(e.target.value)}
+                      onChange={(e) => setNewWorkspaceName(e.target.value)}
                       placeholder="my-workspace"
                       className="w-full px-3 py-2 text-[0.75rem] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
                     />
@@ -342,7 +386,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     <input
                       type="text"
                       value={newWorkspacePath}
-                      onChange={e => setNewWorkspacePath(e.target.value)}
+                      onChange={(e) => setNewWorkspacePath(e.target.value)}
                       placeholder="/Users/you/workspaces"
                       className="w-full px-3 py-2 text-[0.75rem] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
                     />
@@ -351,7 +395,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     <input
                       type="checkbox"
                       checked={autoScan}
-                      onChange={e => setAutoScan(e.target.checked)}
+                      onChange={(e) => setAutoScan(e.target.checked)}
                       className="rounded border-[rgba(163,163,163,0.3)]"
                     />
                     <span className="text-[0.6875rem] text-[var(--color-stone)]/80">
@@ -362,7 +406,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 <div className="flex items-center gap-2 pt-2">
                   <button
                     type="submit"
-                    disabled={addingWorkspace || !newWorkspaceName.trim() || !newWorkspacePath.trim()}
+                    disabled={
+                      addingWorkspace || !newWorkspaceName.trim() || !newWorkspacePath.trim()
+                    }
                     className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-colors"
                   >
                     {addingWorkspace ? 'Adding...' : 'Add Workspace'}
@@ -401,13 +447,15 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               </div>
             ) : (
               <div className="space-y-2">
-                {projects.map(project => {
-                  const workspace = workspaces.find(w => w.id === project.workspace_id)
+                {projects.map((project) => {
+                  const workspace = workspaces.find((w) => w.id === project.workspace_id)
                   return (
                     <div
                       key={project.id}
                       className="flex items-center gap-4 p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors cursor-pointer"
-                      onClick={() => { window.location.hash = `project:${project.name}` }}
+                      onClick={() => {
+                        window.location.hash = `project:${project.name}`
+                      }}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -431,14 +479,23 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                             <span>{project.git_branch}</span>
                             {(project.git_ahead || project.git_behind) && (
                               <span className="text-[0.5625rem] text-[var(--color-stone)]/60 font-mono ml-1">
-                                {project.git_ahead ? `↑${project.git_ahead}` : ''}{project.git_ahead && project.git_behind ? ' ' : ''}{project.git_behind ? `↓${project.git_behind}` : ''}
+                                {project.git_ahead ? `↑${project.git_ahead}` : ''}
+                                {project.git_ahead && project.git_behind ? ' ' : ''}
+                                {project.git_behind ? `↓${project.git_behind}` : ''}
                               </span>
                             )}
                           </div>
                         )}
                         <button
                           className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
-                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ type: 'project', id: project.id, name: project.name }) }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteConfirm({
+                              type: 'project',
+                              id: project.id,
+                              name: project.name,
+                            })
+                          }}
                           title="Delete project"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -465,7 +522,8 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     Auto-create Pull Requests
                   </p>
                   <p className="text-[0.6875rem] text-[var(--color-stone)]/70 mt-1">
-                    Automatically create a PR when a worktree run completes successfully. When disabled, runs will wait in Review until you manually create a PR.
+                    Automatically create a PR when a worktree run completes successfully. When
+                    disabled, runs will wait in Review until you manually create a PR.
                   </p>
                 </div>
                 <button
@@ -473,9 +531,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   disabled={settingsLoading}
                   className={cn(
                     'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
-                    autoCreatePr
-                      ? 'bg-[var(--color-jade)]'
-                      : 'bg-[var(--color-stone)]/30',
+                    autoCreatePr ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
                     settingsLoading && 'opacity-50 cursor-wait'
                   )}
                 >
@@ -499,9 +555,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 Delete {deleteConfirm.type}?
               </h3>
               <p className="text-[0.75rem] text-[var(--color-stone)]/70">
-                Are you sure you want to delete <span className="text-[var(--color-paper)]">{deleteConfirm.name}</span>?
+                Are you sure you want to delete{' '}
+                <span className="text-[var(--color-paper)]">{deleteConfirm.name}</span>?
                 {deleteConfirm.type === 'workspace' && ' Projects will be kept but unlinked.'}
-                {deleteConfirm.type === 'project' && ' This will also delete associated runs and sessions.'}
+                {deleteConfirm.type === 'project' &&
+                  ' This will also delete associated runs and sessions.'}
               </p>
               <div className="flex items-center gap-2 pt-2">
                 <button

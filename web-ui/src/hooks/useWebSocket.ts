@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { WSMessage, Run } from '@/lib/types'
+import type { Run, WSMessage } from '@/lib/types'
 
 interface WebSocketState {
   connected: boolean
@@ -38,7 +38,7 @@ export function useWebSocket(onMessage: MessageHandler) {
     }
 
     ws.onerror = () => {
-      setState(prev => ({ ...prev, error: 'WebSocket error' }))
+      setState((prev) => ({ ...prev, error: 'WebSocket error' }))
     }
 
     ws.onmessage = (event) => {
@@ -67,13 +67,19 @@ export function useWebSocket(onMessage: MessageHandler) {
     }
   }, [])
 
-  const subscribeToLogs = useCallback((runId: string) => {
-    send({ type: 'subscribe_logs', run_id: runId })
-  }, [send])
+  const subscribeToLogs = useCallback(
+    (runId: string) => {
+      send({ type: 'subscribe_logs', run_id: runId })
+    },
+    [send]
+  )
 
-  const unsubscribeFromLogs = useCallback((runId: string) => {
-    send({ type: 'unsubscribe_logs', run_id: runId })
-  }, [send])
+  const unsubscribeFromLogs = useCallback(
+    (runId: string) => {
+      send({ type: 'unsubscribe_logs', run_id: runId })
+    },
+    [send]
+  )
 
   const ping = useCallback(() => {
     send({ type: 'ping' })
@@ -103,15 +109,15 @@ export function useRunsWithWebSocket() {
       const runMessage = message as { type: 'run_created'; run: Run }
       // Don't add archived runs
       if (!runMessage.run.archived) {
-        setRuns(prev => [runMessage.run, ...prev])
+        setRuns((prev) => [runMessage.run, ...prev])
       }
     } else if (message.type === 'run_updated') {
       const runMessage = message as { type: 'run_updated'; run: Run }
       // If run is archived, remove it from the list; otherwise update it
       if (runMessage.run.archived) {
-        setRuns(prev => prev.filter(r => r.id !== runMessage.run.id))
+        setRuns((prev) => prev.filter((r) => r.id !== runMessage.run.id))
       } else {
-        setRuns(prev => prev.map(r => r.id === runMessage.run.id ? runMessage.run : r))
+        setRuns((prev) => prev.map((r) => (r.id === runMessage.run.id ? runMessage.run : r)))
       }
     }
   }, [])

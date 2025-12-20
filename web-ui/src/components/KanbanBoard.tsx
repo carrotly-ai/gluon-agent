@@ -1,25 +1,25 @@
-import { useState, useCallback } from 'react'
 import {
-  DndContext,
-  DragOverlay,
   closestCorners,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragStartEvent,
+  DndContext,
   type DragEndEvent,
   type DragOverEvent,
+  DragOverlay,
+  type DragStartEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
-import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
+import { useCallback, useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { RunCard } from './RunCard'
-import type { Run, RunStatus, KanbanColumn } from '@/lib/types'
-import { isTransitionAllowed } from '@/lib/types'
 import { updateRunStatus } from '@/lib/api'
+import type { KanbanColumn, Run, RunStatus } from '@/lib/types'
+import { isTransitionAllowed } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { RunCard } from './RunCard'
 
 interface KanbanBoardProps {
   runs: Run[]
@@ -48,14 +48,14 @@ interface DraggableRunCardProps {
   isDragging?: boolean
 }
 
-function DraggableRunCard({ run, onClick, onCancel, onArchive, isDragging }: DraggableRunCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id: run.id })
+function DraggableRunCard({
+  run,
+  onClick,
+  onCancel,
+  onArchive,
+  isDragging,
+}: DraggableRunCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: run.id })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -64,12 +64,7 @@ function DraggableRunCard({ run, onClick, onCancel, onArchive, isDragging }: Dra
   }
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-    >
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} />
     </div>
   )
@@ -110,8 +105,12 @@ function DroppableColumn({
       ref={setNodeRef}
       className={cn(
         'column transition-all duration-200',
-        showDropIndicator && isValidDrop && 'ring-2 ring-[var(--color-jade)]/50 bg-[var(--color-jade)]/5',
-        showDropIndicator && !isValidDrop && 'ring-2 ring-[var(--color-vermillion)]/30 bg-[var(--color-vermillion)]/5'
+        showDropIndicator &&
+          isValidDrop &&
+          'ring-2 ring-[var(--color-jade)]/50 bg-[var(--color-jade)]/5',
+        showDropIndicator &&
+          !isValidDrop &&
+          'ring-2 ring-[var(--color-vermillion)]/30 bg-[var(--color-vermillion)]/5'
       )}
     >
       {/* Header - hidden on mobile */}
@@ -135,14 +134,10 @@ function DroppableColumn({
                 run={run}
                 onClick={() => onRunClick(run)}
                 onCancel={
-                  status === 'running' || status === 'pending'
-                    ? () => onCancelRun(run)
-                    : undefined
+                  status === 'running' || status === 'pending' ? () => onCancelRun(run) : undefined
                 }
                 onArchive={
-                  status !== 'running' && status !== 'pending'
-                    ? () => onArchiveRun(run)
-                    : undefined
+                  status !== 'running' && status !== 'pending' ? () => onArchiveRun(run) : undefined
                 }
               />
             ))
@@ -153,7 +148,13 @@ function DroppableColumn({
   )
 }
 
-export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRunUpdate }: KanbanBoardProps) {
+export function KanbanBoard({
+  runs,
+  onRunClick,
+  onCancelRun,
+  onArchiveRun,
+  onRunUpdate,
+}: KanbanBoardProps) {
   const [activeTab, setActiveTab] = useState<KanbanColumn>('running')
   const [activeRun, setActiveRun] = useState<Run | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -171,13 +172,14 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRun
     (acc, run) => {
       // "Review" column: completed worktree runs that haven't been merged yet
       // This includes: open PRs, local-only branches awaiting merge, draft PRs
-      const needsReview = run.status === 'completed' &&
+      const needsReview =
+        run.status === 'completed' &&
         run.use_worktree &&
         run.branch_name &&
         run.pr_status !== 'merged'
 
       if (needsReview) {
-        acc['review'].push(run)
+        acc.review.push(run)
       } else {
         // Use the actual status column
         const col = run.status as KanbanColumn
@@ -196,54 +198,63 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRun
   })
 
   // DnD handlers
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    const run = runs.find(r => r.id === event.active.id)
-    setActiveRun(run || null)
-  }, [runs])
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const run = runs.find((r) => r.id === event.active.id)
+      setActiveRun(run || null)
+    },
+    [runs]
+  )
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     setOverId(event.over?.id.toString() || null)
   }, [])
 
-  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
-    const { active, over } = event
-    setActiveRun(null)
-    setOverId(null)
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event
+      setActiveRun(null)
+      setOverId(null)
 
-    if (!over) return
+      if (!over) return
 
-    const runId = active.id as string
-    const targetColumn = over.id as KanbanColumn
-    const run = runs.find(r => r.id === runId)
+      const runId = active.id as string
+      const targetColumn = over.id as KanbanColumn
+      const run = runs.find((r) => r.id === runId)
 
-    if (!run) return
+      if (!run) return
 
-    // Review column is virtual - can't drop directly into it
-    if (targetColumn === 'review') return
+      // Review column is virtual - can't drop directly into it
+      if (targetColumn === 'review') return
 
-    // Check if the status is actually changing
-    if (run.status === targetColumn) return
+      // Check if the status is actually changing
+      if (run.status === targetColumn) return
 
-    // Validate transition
-    if (!isTransitionAllowed(run.status, targetColumn)) {
-      console.warn(`Transition from ${run.status} to ${targetColumn} not allowed`)
-      return
-    }
+      // Validate transition
+      if (!isTransitionAllowed(run.status, targetColumn)) {
+        console.warn(`Transition from ${run.status} to ${targetColumn} not allowed`)
+        return
+      }
 
-    try {
-      const response = await updateRunStatus(runId, targetColumn)
-      onRunUpdate?.(response.run)
-    } catch (err) {
-      console.error('Failed to update run status:', err)
-    }
-  }, [runs, onRunUpdate])
+      try {
+        const response = await updateRunStatus(runId, targetColumn)
+        onRunUpdate?.(response.run)
+      } catch (err) {
+        console.error('Failed to update run status:', err)
+      }
+    },
+    [runs, onRunUpdate]
+  )
 
   // Check if dropping on a column is valid
-  const canDropOnColumn = useCallback((column: KanbanColumn) => {
-    if (!activeRun) return false
-    if (column === 'review') return false // Virtual column
-    return isTransitionAllowed(activeRun.status, column as RunStatus)
-  }, [activeRun])
+  const canDropOnColumn = useCallback(
+    (column: KanbanColumn) => {
+      if (!activeRun) return false
+      if (column === 'review') return false // Virtual column
+      return isTransitionAllowed(activeRun.status, column as RunStatus)
+    },
+    [activeRun]
+  )
 
   return (
     <DndContext
@@ -262,7 +273,12 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRun
               className={cn('kanban-tab', activeTab === status && 'active')}
               onClick={() => setActiveTab(status)}
             >
-              <span className={cn('mark inline-block mr-2', status === 'review' ? 'mark-review' : `mark-${status}`)} />
+              <span
+                className={cn(
+                  'mark inline-block mr-2',
+                  status === 'review' ? 'mark-review' : `mark-${status}`
+                )}
+              />
               {label}
               <span className="ml-1 opacity-50">({runsByColumn[status].length})</span>
             </button>
@@ -274,7 +290,7 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRun
           <DroppableColumn
             status={activeTab}
             runs={runsByColumn[activeTab]}
-            label={COLUMNS.find(c => c.status === activeTab)?.label || ''}
+            label={COLUMNS.find((c) => c.status === activeTab)?.label || ''}
             onRunClick={onRunClick}
             onCancelRun={onCancelRun}
             onArchiveRun={onArchiveRun}
@@ -306,10 +322,7 @@ export function KanbanBoard({ runs, onRunClick, onCancelRun, onArchiveRun, onRun
       <DragOverlay>
         {activeRun && (
           <div className="opacity-90 shadow-lg rounded-lg">
-            <RunCard
-              run={activeRun}
-              onClick={() => {}}
-            />
+            <RunCard run={activeRun} onClick={() => {}} />
           </div>
         )}
       </DragOverlay>
