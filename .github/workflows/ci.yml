@@ -35,7 +35,7 @@ jobs:
       run: |
         uv run pytest tests/ -v --cov --cov-report=xml --cov-report=term-missing
 
-  lint:
+  lint-python:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -58,14 +58,32 @@ jobs:
     - name: Run ruff check
       run: |
         uv run ruff check src/ tests/
-      continue-on-error: true
 
     - name: Run ruff format check
       run: |
         uv run ruff format --check src/ tests/
-      continue-on-error: true
 
     - name: Run type checking
       run: |
         uv run mypy src/
-      continue-on-error: true
+
+  lint-web:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@v2
+
+    - name: Install dependencies
+      working-directory: web-ui
+      run: bun install --frozen-lockfile
+
+    - name: Run biome check
+      working-directory: web-ui
+      run: bun run check
+
+    - name: Build web-ui
+      working-directory: web-ui
+      run: bun run build
