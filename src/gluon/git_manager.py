@@ -608,9 +608,7 @@ Run ID: `{run_id}`
 
     # ========== Run Git Capture ==========
 
-    async def capture_run_git_info(
-        self, project_path: Path
-    ) -> dict[str, int | str | None]:
+    async def capture_run_git_info(self, project_path: Path) -> dict[str, int | str | None]:
         """
         Capture git info for a completed run.
         Returns dict with branch_name, git_commit_sha, pr_number, pr_url, pr_status.
@@ -1191,9 +1189,7 @@ Run ID: `{run_id}`
 
     # ========== Advanced Git Operations ==========
 
-    async def _detect_conflict_state(
-        self, path: Path
-    ) -> dict[str, bool | str | int | list[str] | None]:
+    async def _detect_conflict_state(self, path: Path) -> dict[str, bool | str | int | list[str] | None]:
         """
         Detect if there's a rebase or merge in progress with conflicts.
 
@@ -1529,9 +1525,7 @@ Run ID: `{run_id}`
 
     # ========== Branch Management ==========
 
-    async def list_branches(
-        self, path: Path, remote: bool = False
-    ) -> list[dict[str, str | bool | int | None]]:
+    async def list_branches(self, path: Path, remote: bool = False) -> list[dict[str, str | bool | int | None]]:
         """
         List branches in the repository.
 
