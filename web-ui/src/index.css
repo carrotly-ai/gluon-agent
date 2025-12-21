@@ -228,12 +228,11 @@ body {
   align-self: stretch;
 }
 
-/* Desktop: fixed width columns */
+/* Desktop: flexible columns that scale proportionately */
 @media (min-width: 768px) {
   .column {
     min-width: 260px;
-    max-width: 280px;
-    width: 280px;
+    flex: 1 1 0%;
   }
 }
 

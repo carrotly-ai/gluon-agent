@@ -300,7 +300,7 @@ export function KanbanBoard({
         {/* Desktop: Horizontal columns with DnD */}
         <div className="kanban-columns">
           {COLUMNS.map(({ status, label }, i) => (
-            <div key={status} className="flex self-stretch">
+            <div key={status} className="flex flex-1 self-stretch min-w-0">
               <DroppableColumn
                 status={status}
                 runs={runsByColumn[status]}
