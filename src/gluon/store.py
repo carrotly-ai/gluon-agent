@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from gluon.models import (
@@ -19,6 +19,21 @@ from gluon.models import (
 )
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    """Parse datetime from database, ensuring timezone awareness.
+
+    Older records may be stored without timezone info. This function
+    ensures all returned datetimes are UTC-aware.
+    """
+    if value is None:
+        return None
+    dt = datetime.fromisoformat(value)
+    # If naive (no timezone), assume UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 SCHEMA = """
 -- Workspaces table
@@ -355,8 +370,8 @@ class GluonStore:
             name=row["name"],
             path=Path(row["path"]),
             workspace_id=row["workspace_id"] if "workspace_id" in row.keys() else None,
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
             metadata=json.loads(row["metadata"]) if row["metadata"] else None,
         )
 
@@ -401,13 +416,9 @@ class GluonStore:
                     uncommitted_count=row["git_uncommitted_count"] or 0,
                     commits_ahead=row["git_commits_ahead"] or 0,
                     commits_behind=row["git_commits_behind"] or 0,
-                    last_fetch_at=(
-                        datetime.fromisoformat(row["git_last_fetch_at"]) if row["git_last_fetch_at"] else None
-                    ),
-                    last_push_at=(datetime.fromisoformat(row["git_last_push_at"]) if row["git_last_push_at"] else None),
-                    last_commit_at=(
-                        datetime.fromisoformat(row["git_last_commit_at"]) if row["git_last_commit_at"] else None
-                    ),
+                    last_fetch_at=_parse_datetime(row["git_last_fetch_at"]),
+                    last_push_at=_parse_datetime(row["git_last_push_at"]),
+                    last_commit_at=_parse_datetime(row["git_last_commit_at"]),
                 )
         return None
 
@@ -580,8 +591,8 @@ class GluonStore:
             project_id=row["project_id"],
             claude_session_id=row["claude_session_id"],
             status=SessionStatus(row["status"]),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
             last_prompt=row["last_prompt"],
             total_cost_usd=row["total_cost_usd"],
             total_turns=row["total_turns"],
@@ -667,8 +678,8 @@ class GluonStore:
             id=row["id"],
             name=row["name"],
             path=Path(row["path"]),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
             scan_depth=row["scan_depth"],
             auto_discover=bool(row["auto_discover"]),
             ignore_patterns=json.loads(row["ignore_patterns"]) if row["ignore_patterns"] else [],
@@ -924,9 +935,9 @@ class GluonStore:
             prompt=row["prompt"],
             initiator=row["initiator"] if "initiator" in keys else None,
             thread_id=row["thread_id"] if "thread_id" in keys else None,
-            created_at=datetime.fromisoformat(row["created_at"]),
-            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            started_at=_parse_datetime(row["started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
             exit_code=row["exit_code"],
             log_path=Path(row["log_path"]) if row["log_path"] else None,
             error_message=row["error_message"],
@@ -947,10 +958,10 @@ class GluonStore:
             pr_mergeable=row["pr_mergeable"] if "pr_mergeable" in keys else None,
             # Archive tracking
             archived=bool(row["archived"]) if "archived" in keys and row["archived"] is not None else False,
-            archived_at=datetime.fromisoformat(row["archived_at"]) if "archived_at" in keys and row["archived_at"] else None,
+            archived_at=_parse_datetime(row["archived_at"]) if "archived_at" in keys else None,
             # Resume tracking
             resume_count=row["resume_count"] if "resume_count" in keys and row["resume_count"] is not None else 0,
-            last_resumed_at=datetime.fromisoformat(row["last_resumed_at"]) if "last_resumed_at" in keys and row["last_resumed_at"] else None,
+            last_resumed_at=_parse_datetime(row["last_resumed_at"]) if "last_resumed_at" in keys else None,
             # Model selection
             model=row["model"] if "model" in keys else None,
         )
@@ -1052,7 +1063,7 @@ class GluonStore:
             channel_id=row["channel_id"],
             project_id=row["project_id"],
             project_name=row["project_name"],
-            created_at=datetime.fromisoformat(row["created_at"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
         )
 
     # ========== Usage Statistics ==========
@@ -1320,8 +1331,8 @@ class GluonStore:
             mime_type=row["mime_type"],
             size_bytes=row["size_bytes"],
             hash=row["hash"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
         )
 
     # ========== Run-Image Association ==========
