@@ -510,7 +510,7 @@ class GitManager:
         Returns:
             dict with pr_number, pr_url, pr_status (or None values if failed)
         """
-        result = {
+        result: dict[str, int | str | bool | None] = {
             "pr_number": None,
             "pr_url": None,
             "pr_status": None,
@@ -608,12 +608,14 @@ Run ID: `{run_id}`
 
     # ========== Run Git Capture ==========
 
-    async def capture_run_git_info(self, project_path: Path) -> dict:
+    async def capture_run_git_info(
+        self, project_path: Path
+    ) -> dict[str, int | str | None]:
         """
         Capture git info for a completed run.
         Returns dict with branch_name, git_commit_sha, pr_number, pr_url, pr_status.
         """
-        result = {
+        result: dict[str, int | str | None] = {
             "branch_name": None,
             "git_commit_sha": None,
             "pr_number": None,
@@ -1189,7 +1191,9 @@ Run ID: `{run_id}`
 
     # ========== Advanced Git Operations ==========
 
-    async def _detect_conflict_state(self, path: Path) -> dict:
+    async def _detect_conflict_state(
+        self, path: Path
+    ) -> dict[str, bool | str | int | list[str] | None]:
         """
         Detect if there's a rebase or merge in progress with conflicts.
 
@@ -1197,7 +1201,7 @@ Run ID: `{run_id}`
             is_rebase_in_progress, is_merge_in_progress, conflict_operation,
             conflicted_files, rebase_current_step, rebase_total_steps
         """
-        result = {
+        result: dict[str, bool | str | int | list[str] | None] = {
             "is_rebase_in_progress": False,
             "is_merge_in_progress": False,
             "conflict_operation": None,
@@ -1251,13 +1255,13 @@ Run ID: `{run_id}`
 
         return result
 
-    async def detect_conflicts(self, path: Path) -> list[dict]:
+    async def detect_conflicts(self, path: Path) -> list[dict[str, str | int]]:
         """
         Get detailed information about conflicted files.
 
         Returns list of dicts with: file_path, conflict_markers_count
         """
-        conflicts = []
+        conflicts: list[dict[str, str | int]] = []
 
         # Get list of conflicted files
         rc, stdout, _ = await self._run_git(path, "diff", "--name-only", "--diff-filter=U")
@@ -1525,7 +1529,9 @@ Run ID: `{run_id}`
 
     # ========== Branch Management ==========
 
-    async def list_branches(self, path: Path, remote: bool = False) -> list[dict]:
+    async def list_branches(
+        self, path: Path, remote: bool = False
+    ) -> list[dict[str, str | bool | int | None]]:
         """
         List branches in the repository.
 
@@ -1534,7 +1540,7 @@ Run ID: `{run_id}`
         if not await self._is_git_repo(path):
             return []
 
-        branches = []
+        branches: list[dict[str, str | bool | int | None]] = []
 
         # Get format for branch listing
         format_str = "%(refname:short)|%(HEAD)|%(upstream:short)|%(upstream:track)"

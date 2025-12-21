@@ -1,7 +1,7 @@
 """CLI interface for Gluon Agent."""
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import anyio
 import typer
@@ -973,7 +973,7 @@ def serve(
 
     # Create shared bot core
     bot_core = GluonBotCore()
-    transports_to_run: list[tuple[str, any]] = []
+    transports_to_run: list[tuple[str, Any]] = []
 
     # Configure Telegram
     if telegram:

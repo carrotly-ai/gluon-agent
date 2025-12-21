@@ -1084,7 +1084,7 @@ def create_app() -> FastAPI:
         # Use git manager to push branch and create PR
         from gluon.git_manager import GitManager
 
-        git_manager = GitManager()
+        git_manager = GitManager(store)
 
         # Determine working path (worktree if still exists, else project root)
         working_path = (
