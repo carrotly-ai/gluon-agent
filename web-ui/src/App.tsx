@@ -203,7 +203,7 @@ function App() {
               <span className="text-caption header-stats">{activeRuns} active</span>
             )}
             <button
-              className="text-caption text-[var(--color-harvest)] hover:underline"
+              className="hidden sm:block text-caption text-[var(--color-harvest)] hover:underline"
               onClick={() => setViewMode('usage')}
               title="View usage details"
             >
