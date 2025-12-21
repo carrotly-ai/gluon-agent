@@ -577,7 +577,7 @@ def mcp_status(
             except urllib.error.HTTPError as e:
                 if e.code in (400, 405, 406):
                     # Server responded, just doesn't like our request format
-                    status = f"[green]✓ Reachable[/green]"
+                    status = "[green]✓ Reachable[/green]"
                 else:
                     status = f"[yellow]HTTP {e.code}[/yellow]"
             except urllib.error.URLError as e:
@@ -601,7 +601,9 @@ def mcp_status(
 
     # Show tips for common issues
     console.print("\n[bold]Tips:[/bold]")
-    console.print("  • For services on your Mac, use [cyan]host.docker.internal[/cyan] instead of [cyan]localhost[/cyan]")
+    console.print(
+        "  • For services on your Mac, use [cyan]host.docker.internal[/cyan] instead of [cyan]localhost[/cyan]"
+    )
     console.print("  • Project-level [cyan].mcp.json[/cyan] overrides global config")
     console.print("  • Run [cyan]gluon mcp status <project>[/cyan] to check project-specific config")
 
@@ -1028,9 +1030,7 @@ def serve(
             from gluon.web import create_app
 
             web_app = create_app()
-            web_server = uvicorn.Server(
-                uvicorn.Config(web_app, host="0.0.0.0", port=web_port, log_level="warning")
-            )
+            web_server = uvicorn.Server(uvicorn.Config(web_app, host="0.0.0.0", port=web_port, log_level="warning"))
             console.print(f"[green]✓[/green] Web dashboard configured (port {web_port})")
         except ImportError:
             console.print("[red]Error:[/red] Web dashboard dependencies not installed.")

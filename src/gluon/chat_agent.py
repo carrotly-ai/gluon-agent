@@ -682,9 +682,13 @@ class GluonChatAgent:
             summary = orchestrator.store.get_usage_summary()
 
             result = "**Usage Summary**\n"
-            result += f"**Today:** ${summary.get('today_cost', 0):.4f} ({summary.get('today_runs', 0)} runs)\n"
-            result += f"**This Week:** ${summary.get('week_cost', 0):.4f} ({summary.get('week_runs', 0)} runs)\n"
-            result += f"**Tokens Today:** {summary.get('today_input_tokens', 0):,} in / {summary.get('today_output_tokens', 0):,} out\n"
+            result += f"**Today:** ${summary.get('today_cost', 0):.4f} "
+            result += f"({summary.get('today_runs', 0)} runs)\n"
+            result += f"**This Week:** ${summary.get('week_cost', 0):.4f} "
+            result += f"({summary.get('week_runs', 0)} runs)\n"
+            tokens_in = summary.get("today_input_tokens", 0)
+            tokens_out = summary.get("today_output_tokens", 0)
+            result += f"**Tokens Today:** {tokens_in:,} in / {tokens_out:,} out\n"
 
             return {"content": [{"type": "text", "text": result}]}
 
@@ -847,7 +851,9 @@ class GluonChatAgent:
                 total_additions = sum(f["additions"] for f in files_data)
                 total_deletions = sum(f["deletions"] for f in files_data)
 
-                result = f"**Files changed on `{run.branch_name}`** ({len(files_data)} files, +{total_additions}/-{total_deletions}):\n"
+                file_count = len(files_data)
+                result = f"**Files changed on `{run.branch_name}`** "
+                result += f"({file_count} files, +{total_additions}/-{total_deletions}):\n"
                 for f in files_data[:20]:  # Limit to 20 for readability
                     status_emoji = {"added": "🟢", "modified": "🟡", "deleted": "🔴"}.get(f["status"], "⚪")
                     result += f"{status_emoji} `{f['file_path']}` (+{f['additions']}/-{f['deletions']})\n"
@@ -914,7 +920,10 @@ class GluonChatAgent:
                 if len(diff_text) > 3000:
                     diff_text = diff_text[:3000] + "\n... (truncated)"
 
-                result = f"**Diff for `{file_path}`** (+{diff_data['additions']}/-{diff_data['deletions']}):\n```diff\n{diff_text}\n```"
+                additions = diff_data["additions"]
+                deletions = diff_data["deletions"]
+                result = f"**Diff for `{file_path}`** (+{additions}/-{deletions}):\n"
+                result += f"```diff\n{diff_text}\n```"
                 return {"content": [{"type": "text", "text": result}]}
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error getting diff: {e}"}]}
@@ -938,7 +947,9 @@ class GluonChatAgent:
                 return {"content": [{"type": "text", "text": f"Run not found: {run_id}"}]}
 
             if not run.use_worktree or not run.branch_name:
-                return {"content": [{"type": "text", "text": f"Run `{run_id[:8]}` is not a worktree run or has no branch"}]}
+                return {
+                    "content": [{"type": "text", "text": f"Run `{run_id[:8]}` is not a worktree run or has no branch"}]
+                }
 
             project = orchestrator.store.get_project(run.project_id)
             if not project:
@@ -971,7 +982,7 @@ class GluonChatAgent:
                     error = merge_result.get("error", "Merge failed")
                     if merge_result.get("has_conflicts"):
                         conflicting = merge_result.get("conflicting_files", [])
-                        result = f"❌ Merge conflict detected!\n**Conflicting files:**\n"
+                        result = "❌ Merge conflict detected!\n**Conflicting files:**\n"
                         for f in conflicting[:10]:
                             result += f"- `{f}`\n"
                         result += "\nUse `check_conflicts` to see details, or resume the agent to resolve."
@@ -1006,7 +1017,11 @@ class GluonChatAgent:
                 conflict_state = await git_manager._detect_conflict_state(project.expanded_path)
                 conflicts = await git_manager.detect_conflicts(project.expanded_path)
 
-                if not conflicts and not conflict_state.get("is_rebase_in_progress") and not conflict_state.get("is_merge_in_progress"):
+                if (
+                    not conflicts
+                    and not conflict_state.get("is_rebase_in_progress")
+                    and not conflict_state.get("is_merge_in_progress")
+                ):
                     return {"content": [{"type": "text", "text": f"✅ No conflicts in `{project_name}`"}]}
 
                 result = f"**Conflicts in `{project_name}`:**\n"
@@ -1142,9 +1157,7 @@ class GluonChatAgent:
             git_manager = GitManager(orchestrator.store)
 
             try:
-                result_data = await git_manager.delete_branch(
-                    project.expanded_path, branch, force=force, remote=remote
-                )
+                result_data = await git_manager.delete_branch(project.expanded_path, branch, force=force, remote=remote)
 
                 if result_data.get("success"):
                     return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Branch deleted')}"}]}
@@ -1162,7 +1175,7 @@ class GluonChatAgent:
             },
         )
         async def upload_image(args: dict[str, Any]) -> dict[str, Any]:
-            from gluon.image_storage import ImageStorageService, ImageStorageError
+            from gluon.image_storage import ImageStorageError, ImageStorageService
 
             run_id = args.get("run_id", "")
             image_path = args.get("image_path", "")
@@ -1283,6 +1296,7 @@ class GluonChatAgent:
         )
         async def get_usage_by_project(args: dict[str, Any]) -> dict[str, Any]:
             from datetime import timedelta
+
             from gluon.models import utc_now
 
             days = args.get("days", 7)
@@ -1385,11 +1399,13 @@ class GluonChatAgent:
                 result_data = await git_manager.rebase_branch(project.expanded_path, onto_branch)
 
                 if result_data.get("success"):
-                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase completed')}"}]}
+                    return {
+                        "content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase completed')}"}]
+                    }
                 else:
                     conflicts = result_data.get("conflicts", [])
                     if conflicts:
-                        result = f"❌ Rebase conflict!\n**Conflicting files:**\n"
+                        result = "❌ Rebase conflict!\n**Conflicting files:**\n"
                         for f in conflicts[:10]:
                             result += f"- `{f}`\n"
                         result += "\nUse `rebase_continue` after resolving, or `rebase_abort` to cancel."
@@ -1424,15 +1440,19 @@ class GluonChatAgent:
                 result_data = await git_manager.rebase_continue(project.expanded_path)
 
                 if result_data.get("success"):
-                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase continued')}"}]}
+                    return {
+                        "content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Rebase continued')}"}]
+                    }
                 else:
                     conflicts = result_data.get("conflicts", [])
                     if conflicts:
-                        result = f"❌ More conflicts!\n**Conflicting files:**\n"
+                        result = "❌ More conflicts!\n**Conflicting files:**\n"
                         for f in conflicts[:10]:
                             result += f"- `{f}`\n"
                         return {"content": [{"type": "text", "text": result}]}
-                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Continue failed')}"}]}
+                    return {
+                        "content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Continue failed')}"}]
+                    }
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error during rebase continue: {e}"}]}
 
@@ -1580,10 +1600,16 @@ class GluonChatAgent:
             if not file_path:
                 return {"content": [{"type": "text", "text": "Error: file_path is required"}]}
             if not resolution:
-                return {"content": [{"type": "text", "text": "Error: resolution is required ('ours', 'theirs', or 'resolved')"}]}
+                return {
+                    "content": [
+                        {"type": "text", "text": "Error: resolution is required ('ours', 'theirs', or 'resolved')"}
+                    ]
+                }
 
             if resolution not in ("ours", "theirs", "resolved"):
-                return {"content": [{"type": "text", "text": "Error: resolution must be 'ours', 'theirs', or 'resolved'"}]}
+                return {
+                    "content": [{"type": "text", "text": "Error: resolution must be 'ours', 'theirs', or 'resolved'"}]
+                }
 
             try:
                 project = orchestrator.get_project(project_name)
@@ -1593,14 +1619,16 @@ class GluonChatAgent:
             git_manager = GitManager(orchestrator.store)
 
             try:
-                result_data = await git_manager.resolve_conflict(
-                    project.expanded_path, file_path, resolution
-                )
+                result_data = await git_manager.resolve_conflict(project.expanded_path, file_path, resolution)
 
                 if result_data.get("success"):
-                    return {"content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Conflict resolved')}"}]}
+                    return {
+                        "content": [{"type": "text", "text": f"✅ {result_data.get('message', 'Conflict resolved')}"}]
+                    }
                 else:
-                    return {"content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Resolution failed')}"}]}
+                    return {
+                        "content": [{"type": "text", "text": f"❌ {result_data.get('message', 'Resolution failed')}"}]
+                    }
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error resolving conflict: {e}"}]}
 

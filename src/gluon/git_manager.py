@@ -141,7 +141,12 @@ class GitManager:
             # Use gh pr view to get PR info for this branch
             # Include mergeable and mergeStateStatus for conflict detection
             proc = await asyncio.create_subprocess_exec(
-                "gh", "pr", "view", branch, "--json", "number,url,state,isDraft,mergeable,mergeStateStatus",
+                "gh",
+                "pr",
+                "view",
+                branch,
+                "--json",
+                "number,url,state,isDraft,mergeable,mergeStateStatus",
                 cwd=path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -525,9 +530,7 @@ class GitManager:
             return result
 
         # Push branch to remote (set upstream)
-        rc, _, stderr = await self._run_git(
-            project_path, "push", "-u", remote, branch_name
-        )
+        rc, _, stderr = await self._run_git(project_path, "push", "-u", remote, branch_name)
         if rc != 0:
             result["error"] = f"Failed to push: {stderr}"
             logger.warning(f"Failed to push branch {branch_name}: {stderr}")
@@ -550,10 +553,15 @@ class GitManager:
 Run ID: `{run_id}`
 """
             proc = await asyncio.create_subprocess_exec(
-                "gh", "pr", "create",
-                "--title", pr_title,
-                "--body", pr_body,
-                "--head", branch_name,
+                "gh",
+                "pr",
+                "create",
+                "--title",
+                pr_title,
+                "--body",
+                pr_body,
+                "--head",
+                branch_name,
                 cwd=project_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -651,9 +659,7 @@ Run ID: `{run_id}`
             return 0
 
         # Count commits
-        rc, stdout, _ = await self._run_git(
-            path, "rev-list", "--count", f"{merge_base.strip()}..{branch_name}"
-        )
+        rc, stdout, _ = await self._run_git(path, "rev-list", "--count", f"{merge_base.strip()}..{branch_name}")
         if rc == 0:
             try:
                 return int(stdout.strip())
@@ -677,9 +683,7 @@ Run ID: `{run_id}`
             return 0
 
         # Count files changed (using --numstat and counting lines)
-        rc, stdout, _ = await self._run_git(
-            path, "diff", "--numstat", f"{merge_base.strip()}..{branch_name}"
-        )
+        rc, stdout, _ = await self._run_git(path, "diff", "--numstat", f"{merge_base.strip()}..{branch_name}")
         if rc == 0 and stdout.strip():
             return len([line for line in stdout.strip().split("\n") if line.strip()])
         return 0
@@ -710,9 +714,7 @@ Run ID: `{run_id}`
                 return []
 
         # Get merge base to find where branches diverged
-        rc, merge_base, _ = await self._run_git(
-            path, "merge-base", base_branch, branch_name
-        )
+        rc, merge_base, _ = await self._run_git(path, "merge-base", base_branch, branch_name)
         if rc != 0:
             # No common ancestor - get all commits on branch
             merge_base = ""
@@ -740,13 +742,15 @@ Run ID: `{run_id}`
                 continue
             parts = line.split("|", 4)
             if len(parts) >= 5:
-                commits.append({
-                    "sha": parts[0],
-                    "message": parts[1],
-                    "author": parts[2],
-                    "author_email": parts[3],
-                    "date": parts[4],
-                })
+                commits.append(
+                    {
+                        "sha": parts[0],
+                        "message": parts[1],
+                        "author": parts[2],
+                        "author_email": parts[3],
+                        "date": parts[4],
+                    }
+                )
         return commits
 
     async def get_changed_files(
@@ -775,9 +779,7 @@ Run ID: `{run_id}`
                 return []
 
         # Get merge base to find where branches diverged
-        rc, merge_base, _ = await self._run_git(
-            path, "merge-base", base_branch, branch_name
-        )
+        rc, merge_base, _ = await self._run_git(path, "merge-base", base_branch, branch_name)
         if rc != 0:
             # No common ancestor - compare to empty tree
             merge_base = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # empty tree sha
@@ -813,12 +815,14 @@ Run ID: `{run_id}`
                 else:
                     change_type = "modified"
 
-                files.append({
-                    "file_path": file_path,
-                    "additions": additions,
-                    "deletions": deletions,
-                    "change_type": change_type,
-                })
+                files.append(
+                    {
+                        "file_path": file_path,
+                        "additions": additions,
+                        "deletions": deletions,
+                        "change_type": change_type,
+                    }
+                )
         return files
 
     async def get_commit_detail(
@@ -893,12 +897,14 @@ Run ID: `{run_id}`
                     else:
                         change_type = "modified"
 
-                    files.append({
-                        "file_path": file_path,
-                        "additions": additions,
-                        "deletions": deletions,
-                        "change_type": change_type,
-                    })
+                    files.append(
+                        {
+                            "file_path": file_path,
+                            "additions": additions,
+                            "deletions": deletions,
+                            "change_type": change_type,
+                        }
+                    )
 
         return {
             "sha": header_parts[0],
@@ -937,9 +943,7 @@ Run ID: `{run_id}`
                 return {"file_path": file_path, "diff": "", "additions": 0, "deletions": 0}
 
         # Get merge base to find where branches diverged
-        rc, merge_base, _ = await self._run_git(
-            path, "merge-base", base_branch, branch_name
-        )
+        rc, merge_base, _ = await self._run_git(path, "merge-base", base_branch, branch_name)
         if rc != 0:
             # No common ancestor - compare to empty tree
             merge_base = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -1014,9 +1018,7 @@ Run ID: `{run_id}`
         stashed = False
         if uncommitted > 0:
             logger.info(f"Stashing {uncommitted} uncommitted changes before merge")
-            rc, _, stderr = await self._run_git(
-                project_path, "stash", "push", "-m", f"gluon-merge-{branch_name}"
-            )
+            rc, _, stderr = await self._run_git(project_path, "stash", "push", "-m", f"gluon-merge-{branch_name}")
             if rc != 0:
                 result["error"] = f"Failed to stash uncommitted changes: {stderr}"
                 return result
@@ -1036,9 +1038,7 @@ Run ID: `{run_id}`
 
         # Pull latest changes on base branch (only if tracking info exists)
         # Check if the base branch has an upstream configured
-        rc, upstream, _ = await self._run_git(
-            project_path, "rev-parse", "--abbrev-ref", f"{base_branch}@{{upstream}}"
-        )
+        rc, upstream, _ = await self._run_git(project_path, "rev-parse", "--abbrev-ref", f"{base_branch}@{{upstream}}")
         has_upstream = rc == 0 and upstream.strip()
 
         if has_upstream:
@@ -1056,9 +1056,7 @@ Run ID: `{run_id}`
             logger.debug(f"No upstream tracking for {base_branch}, skipping pull")
 
         # Merge the feature branch
-        rc, stdout, stderr = await self._run_git(
-            project_path, "merge", branch_name, "--no-edit"
-        )
+        rc, stdout, stderr = await self._run_git(project_path, "merge", branch_name, "--no-edit")
         if rc != 0:
             # Merge conflict - get list of conflicting files before aborting
             conflict_rc, conflict_stdout, _ = await self._run_git(
@@ -1068,7 +1066,9 @@ Run ID: `{run_id}`
                 conflicting_files = [f.strip() for f in conflict_stdout.strip().split("\n") if f.strip()]
                 result["has_conflicts"] = True
                 result["conflicting_files"] = conflicting_files
-                result["error"] = f"Merge conflicts in {len(conflicting_files)} file(s): {', '.join(conflicting_files[:5])}"
+                result["error"] = (
+                    f"Merge conflicts in {len(conflicting_files)} file(s): {', '.join(conflicting_files[:5])}"
+                )
                 if len(conflicting_files) > 5:
                     result["error"] += f" (and {len(conflicting_files) - 5} more)"
             else:
@@ -1278,10 +1278,12 @@ Run ID: `{run_id}`
                 except (OSError, UnicodeDecodeError):
                     pass
 
-            conflicts.append({
-                "file_path": file_path,
-                "conflict_markers_count": marker_count,
-            })
+            conflicts.append(
+                {
+                    "file_path": file_path,
+                    "conflict_markers_count": marker_count,
+                }
+            )
 
         return conflicts
 
@@ -1324,9 +1326,7 @@ Run ID: `{run_id}`
 
         return result
 
-    async def resolve_conflict(
-        self, path: Path, file_path: str, resolution: str
-    ) -> dict:
+    async def resolve_conflict(self, path: Path, file_path: str, resolution: str) -> dict:
         """
         Resolve a conflict by choosing ours, theirs, or marking as resolved.
 
@@ -1340,16 +1340,12 @@ Run ID: `{run_id}`
         result = {"success": False, "message": ""}
 
         if resolution == "ours":
-            rc, _, stderr = await self._run_git(
-                path, "checkout", "--ours", file_path
-            )
+            rc, _, stderr = await self._run_git(path, "checkout", "--ours", file_path)
             if rc != 0:
                 result["message"] = f"Failed to checkout ours: {stderr}"
                 return result
         elif resolution == "theirs":
-            rc, _, stderr = await self._run_git(
-                path, "checkout", "--theirs", file_path
-            )
+            rc, _, stderr = await self._run_git(path, "checkout", "--theirs", file_path)
             if rc != 0:
                 result["message"] = f"Failed to checkout theirs: {stderr}"
                 return result
@@ -1473,18 +1469,14 @@ Run ID: `{run_id}`
         await self._run_git(path, "fetch", remote, "--quiet")
 
         # Check if remote branch exists
-        rc, _, _ = await self._run_git(
-            path, "rev-parse", "--verify", f"{remote}/{branch}"
-        )
+        rc, _, _ = await self._run_git(path, "rev-parse", "--verify", f"{remote}/{branch}")
         if rc != 0:
             result["reason"] = "Remote branch doesn't exist (new branch)"
             return result
 
         # Get commits that would be deleted on remote
         # These are commits in remote that are not ancestors of local
-        rc, stdout, _ = await self._run_git(
-            path, "rev-list", f"HEAD..{remote}/{branch}", "--count"
-        )
+        rc, stdout, _ = await self._run_git(path, "rev-list", f"HEAD..{remote}/{branch}", "--count")
         if rc == 0 and stdout:
             try:
                 commits_to_delete = int(stdout.strip())
@@ -1497,9 +1489,7 @@ Run ID: `{run_id}`
 
         return result
 
-    async def force_push(
-        self, path: Path, branch: str | None = None, force_with_lease: bool = True
-    ) -> dict:
+    async def force_push(self, path: Path, branch: str | None = None, force_with_lease: bool = True) -> dict:
         """
         Force push to remote.
 
@@ -1573,6 +1563,7 @@ Run ID: `{run_id}`
                 behind = 0
                 if track_info:
                     import re
+
                     ahead_match = re.search(r"ahead (\d+)", track_info)
                     behind_match = re.search(r"behind (\d+)", track_info)
                     if ahead_match:
@@ -1580,13 +1571,15 @@ Run ID: `{run_id}`
                     if behind_match:
                         behind = int(behind_match.group(1))
 
-                branches.append({
-                    "name": name,
-                    "is_current": is_current,
-                    "upstream": upstream if upstream else None,
-                    "ahead": ahead,
-                    "behind": behind,
-                })
+                branches.append(
+                    {
+                        "name": name,
+                        "is_current": is_current,
+                        "upstream": upstream if upstream else None,
+                        "ahead": ahead,
+                        "behind": behind,
+                    }
+                )
 
         return branches
 
@@ -1603,9 +1596,7 @@ Run ID: `{run_id}`
         result["message"] = f"Renamed {old_name} to {new_name}"
         return result
 
-    async def delete_branch(
-        self, path: Path, branch: str, force: bool = False, remote: bool = False
-    ) -> dict:
+    async def delete_branch(self, path: Path, branch: str, force: bool = False, remote: bool = False) -> dict:
         """Delete a branch (local or remote)."""
         result = {"success": False, "message": ""}
 
@@ -1614,9 +1605,7 @@ Run ID: `{run_id}`
             if not remote_name:
                 result["message"] = "No remote configured"
                 return result
-            rc, _, stderr = await self._run_git(
-                path, "push", remote_name, "--delete", branch
-            )
+            rc, _, stderr = await self._run_git(path, "push", remote_name, "--delete", branch)
         else:
             flag = "-D" if force else "-d"
             rc, _, stderr = await self._run_git(path, "branch", flag, branch)
@@ -1630,9 +1619,7 @@ Run ID: `{run_id}`
         result["message"] = f"Deleted {location} branch {branch}"
         return result
 
-    async def change_base_branch(
-        self, path: Path, feature_branch: str, new_base: str
-    ) -> dict:
+    async def change_base_branch(self, path: Path, feature_branch: str, new_base: str) -> dict:
         """
         Change the base of a feature branch by rebasing onto a new base.
 
@@ -1650,9 +1637,7 @@ Run ID: `{run_id}`
             return result
 
         # Find merge base (old base)
-        rc, old_base, _ = await self._run_git(
-            path, "merge-base", feature_branch, new_base
-        )
+        rc, old_base, _ = await self._run_git(path, "merge-base", feature_branch, new_base)
         if rc != 0:
             result["message"] = "Could not find common ancestor"
             # Restore original branch
@@ -1661,9 +1646,7 @@ Run ID: `{run_id}`
             return result
 
         # Rebase onto new base
-        rc, _, stderr = await self._run_git(
-            path, "rebase", "--onto", new_base, old_base.strip(), feature_branch
-        )
+        rc, _, stderr = await self._run_git(path, "rebase", "--onto", new_base, old_base.strip(), feature_branch)
         if rc != 0:
             if "conflict" in stderr.lower():
                 conflict_state = await self._detect_conflict_state(path)

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def _broadcast_run_event(event_type: str, run: "ExecutionRun", project_name: str) -> None:
+async def _broadcast_run_event(event_type: str, run: ExecutionRun, project_name: str) -> None:
     """Broadcast run event to WebSocket clients (if web module available).
 
     Uses lazy import to avoid circular dependencies and gracefully handles
@@ -80,7 +80,7 @@ class GitOperationError(Exception):
     pass
 
 
-class GitMergeConflict(GitOperationError):
+class GitMergeConflictError(GitOperationError):
     """Raised when a merge or rebase results in conflicts."""
 
     def __init__(self, files: list[str], operation: str = "merge"):
@@ -92,7 +92,7 @@ class GitMergeConflict(GitOperationError):
         )
 
 
-class GitRebaseInProgress(GitOperationError):
+class GitRebaseInProgressError(GitOperationError):
     """Raised when a rebase is already in progress."""
 
     def __init__(self, current_step: int | None = None, total_steps: int | None = None):
@@ -104,18 +104,16 @@ class GitRebaseInProgress(GitOperationError):
         super().__init__(msg)
 
 
-class GitForcePushRequired(GitOperationError):
+class GitForcePushRequiredError(GitOperationError):
     """Raised when a force push would be required."""
 
     def __init__(self, branch: str, commits_to_delete: int):
         self.branch = branch
         self.commits_to_delete = commits_to_delete
-        super().__init__(
-            f"Force push required on {branch}: would delete {commits_to_delete} remote commit(s)"
-        )
+        super().__init__(f"Force push required on {branch}: would delete {commits_to_delete} remote commit(s)")
 
 
-class GitBranchNotFound(GitOperationError):
+class GitBranchNotFoundError(GitOperationError):
     """Raised when a branch is not found."""
 
     def __init__(self, branch: str):

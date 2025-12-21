@@ -44,7 +44,11 @@ def get_model_id(tier: ModelTier | str) -> str:
     """
     if isinstance(tier, str):
         # Check if it's already a full Bedrock model ID
-        if tier.startswith("global.anthropic.") or tier.startswith("us.anthropic.") or tier.startswith("apac.anthropic."):
+        if (
+            tier.startswith("global.anthropic.")
+            or tier.startswith("us.anthropic.")
+            or tier.startswith("apac.anthropic.")
+        ):
             return tier
 
         tier_lower = tier.lower()

@@ -1,7 +1,6 @@
 """Tests for Discord transport helper functions."""
 
-import pytest
-from gluon.transport.discord import parse_project_specifier, parse_model_flag
+from gluon.transport.discord import parse_model_flag, parse_project_specifier
 
 
 class TestParseProjectSpecifier:

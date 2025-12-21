@@ -67,9 +67,7 @@ def create_test_run(
 class TestLogCleanupService:
     """Tests for LogCleanupService."""
 
-    def test_cleanup_orphan_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_cleanup_orphan_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that orphan log directories (no DB record) are deleted immediately."""
         # Create an orphan log directory (no matching run in DB)
         orphan_id = "orphan-run-12345"
@@ -83,9 +81,7 @@ class TestLogCleanupService:
         assert stats["orphan_deleted"] == 1
         assert not orphan_dir.exists()
 
-    def test_cleanup_archived_run_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_cleanup_archived_run_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that archived run logs are deleted after 30 days."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -110,9 +106,7 @@ class TestLogCleanupService:
         assert stats["archived_deleted"] == 1
         assert not log_dir.exists()
 
-    def test_keep_recent_archived_run_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_keep_recent_archived_run_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that archived run logs less than 30 days old are kept."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -137,9 +131,7 @@ class TestLogCleanupService:
         assert stats["archived_deleted"] == 0
         assert log_dir.exists()
 
-    def test_cleanup_failed_run_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_cleanup_failed_run_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that failed run logs are deleted after 7 days."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -164,9 +156,7 @@ class TestLogCleanupService:
         assert stats["failed_deleted"] == 1
         assert not log_dir.exists()
 
-    def test_keep_recent_failed_run_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_keep_recent_failed_run_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that failed run logs less than 7 days old are kept."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -191,9 +181,7 @@ class TestLogCleanupService:
         assert stats["failed_deleted"] == 0
         assert log_dir.exists()
 
-    def test_keep_active_run_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_keep_active_run_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that active (running/pending) run logs are never deleted."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -218,9 +206,7 @@ class TestLogCleanupService:
         assert stats["failed_deleted"] == 0
         assert log_dir.exists()
 
-    def test_keep_completed_not_archived_logs(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_keep_completed_not_archived_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test that completed but not archived run logs are kept."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -255,9 +241,7 @@ class TestLogCleanupService:
         assert stats["failed_deleted"] == 0
         assert stats["errors"] == 0
 
-    def test_custom_retention_periods(
-        self, store: GluonStore, temp_log_dir: Path
-    ) -> None:
+    def test_custom_retention_periods(self, store: GluonStore, temp_log_dir: Path) -> None:
         """Test cleanup with custom retention periods."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
@@ -283,9 +267,7 @@ class TestLogCleanupService:
         assert log_dir.exists()
 
         # With custom 3-day retention, logs should be deleted
-        service_custom = LogCleanupService(
-            store=store, log_dir=temp_log_dir, archived_retention_days=3
-        )
+        service_custom = LogCleanupService(store=store, log_dir=temp_log_dir, archived_retention_days=3)
         stats = service_custom.cleanup()
         assert stats["archived_deleted"] == 1
         assert not log_dir.exists()

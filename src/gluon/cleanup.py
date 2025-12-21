@@ -98,28 +98,20 @@ class LogCleanupService:
                     if run.completed_at < archived_cutoff:
                         self._delete_log_dir(run_id)
                         stats["archived_deleted"] += 1
-                        logger.info(
-                            f"Deleted archived run logs: {run_id} "
-                            f"(completed {run.completed_at.date()})"
-                        )
+                        logger.info(f"Deleted archived run logs: {run_id} (completed {run.completed_at.date()})")
 
                 elif run.status == RunStatus.FAILED and run.completed_at:
                     # Failed run: check if past retention period
                     if run.completed_at < failed_cutoff:
                         self._delete_log_dir(run_id)
                         stats["failed_deleted"] += 1
-                        logger.info(
-                            f"Deleted failed run logs: {run_id} "
-                            f"(failed {run.completed_at.date()})"
-                        )
+                        logger.info(f"Deleted failed run logs: {run_id} (failed {run.completed_at.date()})")
 
             except Exception as e:
                 logger.error(f"Error processing run {run_id}: {e}")
                 stats["errors"] += 1
 
-        total_deleted = (
-            stats["orphan_deleted"] + stats["archived_deleted"] + stats["failed_deleted"]
-        )
+        total_deleted = stats["orphan_deleted"] + stats["archived_deleted"] + stats["failed_deleted"]
         if total_deleted > 0:
             logger.info(
                 f"Cleanup complete: {stats['orphan_deleted']} orphan, "

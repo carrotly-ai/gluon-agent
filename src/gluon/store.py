@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gluon.models import (
@@ -32,8 +32,9 @@ def _parse_datetime(value: str | None) -> datetime | None:
     dt = datetime.fromisoformat(value)
     # If naive (no timezone), assume UTC
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
+
 
 SCHEMA = """
 -- Workspaces table
@@ -950,7 +951,9 @@ class GluonStore:
             branch_name=row["branch_name"] if "branch_name" in keys else None,
             source_branch=row["source_branch"] if "source_branch" in keys else None,
             worktree_path=row["worktree_path"] if "worktree_path" in keys else None,
-            use_worktree=bool(row["use_worktree"]) if "use_worktree" in keys and row["use_worktree"] is not None else False,
+            use_worktree=bool(row["use_worktree"])
+            if "use_worktree" in keys and row["use_worktree"] is not None
+            else False,
             git_commit_sha=row["git_commit_sha"] if "git_commit_sha" in keys else None,
             pr_number=row["pr_number"] if "pr_number" in keys else None,
             pr_url=row["pr_url"] if "pr_url" in keys else None,
@@ -1209,7 +1212,7 @@ class GluonStore:
         }.get(sort_by, "r.cost_usd")
         order_dir = "DESC" if sort_order == "desc" else "ASC"
 
-        query = f"""
+        query = """
             SELECT
                 r.id,
                 p.name as project_name,

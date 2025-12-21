@@ -188,9 +188,7 @@ class WebSocketManager:
         }
         await self._send_to_subscribers(run_id, message)
 
-    async def stream_progress(
-        self, run_id: str, turns: int, tool_calls: int, elapsed_seconds: float
-    ) -> None:
+    async def stream_progress(self, run_id: str, turns: int, tool_calls: int, elapsed_seconds: float) -> None:
         """Stream progress update to subscribed clients.
 
         Args:

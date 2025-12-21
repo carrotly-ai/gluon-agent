@@ -23,10 +23,10 @@ class WorktreeConfig:
     copy_env_files: bool = True  # Copy .env* files to worktree
     copy_patterns: list[str] = field(
         default_factory=lambda: [
-            ".env*",           # Root level env files
-            "**/.env*",        # Env files in subdirectories
-            ".npmrc",          # npm config
-            "**/.npmrc",       # npm config in subdirectories
+            ".env*",  # Root level env files
+            "**/.env*",  # Env files in subdirectories
+            ".npmrc",  # npm config
+            "**/.npmrc",  # npm config in subdirectories
             "local.settings.json",  # Azure Functions config
         ]
     )

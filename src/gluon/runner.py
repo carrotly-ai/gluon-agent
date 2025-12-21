@@ -189,11 +189,11 @@ class TaskRunner:
             return
 
         marker = (
-            f"\n\n{'='*60}\n"
+            f"\n\n{'=' * 60}\n"
             f"RESUMED - Attempt #{run.resume_count}\n"
             f"Prompt: {run.prompt[:100]}{'...' if len(run.prompt) > 100 else ''}\n"
             f"Time: {run.last_resumed_at.isoformat() if run.last_resumed_at else 'N/A'}\n"
-            f"{'='*60}\n\n"
+            f"{'=' * 60}\n\n"
         )
 
         # Append to stdout.log
@@ -206,6 +206,7 @@ class TaskRunner:
         messages_path = log_dir / "messages.jsonl"
         if messages_path.exists():
             import json
+
             resume_msg = {
                 "type": "system",
                 "subtype": "resume",
@@ -418,9 +419,7 @@ but explicit commits with good messages are preferred.
                         progress_path.write_text(json.dumps(progress_data))
 
                         # Determine working path (worktree or project)
-                        working_path = (
-                            Path(run.worktree_path) if run.worktree_path else project.expanded_path
-                        )
+                        working_path = Path(run.worktree_path) if run.worktree_path else project.expanded_path
 
                         # Capture git info (branch, commit, PR) after task completion
                         try:

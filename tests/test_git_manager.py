@@ -1,9 +1,8 @@
 """Tests for GitManager."""
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -144,9 +143,7 @@ class TestPreTaskSync:
         with patch.object(git_manager, "_is_git_repo", new_callable=AsyncMock) as mock_is_git:
             mock_is_git.return_value = True
 
-            with patch.object(
-                git_manager, "_get_uncommitted_count", new_callable=AsyncMock
-            ) as mock_uncommitted:
+            with patch.object(git_manager, "_get_uncommitted_count", new_callable=AsyncMock) as mock_uncommitted:
                 mock_uncommitted.return_value = 0
 
                 with patch.object(git_manager, "_get_remote", new_callable=AsyncMock) as mock_remote:
@@ -160,9 +157,7 @@ class TestPreTaskSync:
                         ) as mock_ahead_behind:
                             mock_ahead_behind.return_value = (0, 0)
 
-                            with patch.object(
-                                git_manager, "refresh_status", new_callable=AsyncMock
-                            ):
+                            with patch.object(git_manager, "refresh_status", new_callable=AsyncMock):
                                 result = await git_manager.pre_task_sync(project)
                                 assert result.success is True
                                 assert result.action == "none"
@@ -173,9 +168,7 @@ class TestPreTaskSync:
         with patch.object(git_manager, "_is_git_repo", new_callable=AsyncMock) as mock_is_git:
             mock_is_git.return_value = True
 
-            with patch.object(
-                git_manager, "_get_uncommitted_count", new_callable=AsyncMock
-            ) as mock_uncommitted:
+            with patch.object(git_manager, "_get_uncommitted_count", new_callable=AsyncMock) as mock_uncommitted:
                 mock_uncommitted.return_value = 0
 
                 with patch.object(git_manager, "_get_remote", new_callable=AsyncMock) as mock_remote:
@@ -212,9 +205,7 @@ class TestPostTaskSync:
         with patch.object(git_manager, "_is_git_repo", new_callable=AsyncMock) as mock_is_git:
             mock_is_git.return_value = True
 
-            with patch.object(
-                git_manager, "_get_uncommitted_count", new_callable=AsyncMock
-            ) as mock_uncommitted:
+            with patch.object(git_manager, "_get_uncommitted_count", new_callable=AsyncMock) as mock_uncommitted:
                 mock_uncommitted.return_value = 0
 
                 result = await git_manager.post_task_sync(project, "test commit")

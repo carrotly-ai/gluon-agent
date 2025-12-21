@@ -1,7 +1,7 @@
 """Pydantic models for Gluon Agent."""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 def utc_now() -> datetime:
     """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def expand_path(path_str: str | Path) -> Path:
@@ -307,10 +307,7 @@ class ExecutionRun(BaseModel):
     @property
     def is_resumable(self) -> bool:
         """Check if run can be resumed (completed or failed with session)."""
-        return (
-            self.status in (RunStatus.COMPLETED, RunStatus.FAILED)
-            and self.claude_session_id is not None
-        )
+        return self.status in (RunStatus.COMPLETED, RunStatus.FAILED) and self.claude_session_id is not None
 
     @property
     def is_active(self) -> bool:
@@ -367,10 +364,7 @@ class GitStatus(BaseModel):
     def is_clean(self) -> bool:
         """True if working tree is clean and in sync with remote."""
         return (
-            not self.has_uncommitted
-            and self.commits_ahead == 0
-            and self.commits_behind == 0
-            and not self.has_conflicts
+            not self.has_uncommitted and self.commits_ahead == 0 and self.commits_behind == 0 and not self.has_conflicts
         )
 
     @property

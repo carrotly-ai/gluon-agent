@@ -641,8 +641,7 @@ class TelegramTransport(Transport):
 
                             if self.bot_core.is_at_capacity():
                                 await update.message.reply_text(
-                                    "Max concurrent runs reached.\n"
-                                    "Use /runs to see active runs or /cancel to stop one."
+                                    "Max concurrent runs reached.\nUse /runs to see active runs or /cancel to stop one."
                                 )
                                 return
 

@@ -237,8 +237,13 @@ def create_app() -> FastAPI:
         file_count = None
         if run.branch_name and project:
             from gluon.git_manager import GitManager
+
             git_manager_temp = GitManager(store)
-            working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+            working_path = (
+                Path(run.worktree_path)
+                if run.worktree_path and Path(run.worktree_path).exists()
+                else project.expanded_path
+            )
             base_branch = run.source_branch or "main"
             try:
                 commit_count = await git_manager_temp.get_commit_count(working_path, run.branch_name, base_branch)
@@ -441,7 +446,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        working_path = (
+            Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        )
 
         # Get base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -491,7 +498,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        working_path = (
+            Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        )
 
         # Get base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -539,7 +548,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        working_path = (
+            Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        )
 
         # Fetch commit details
         git_manager = GitManager(store)
@@ -578,7 +589,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Project not found: {run.project_id}")
 
         # Determine working path (worktree or project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        working_path = (
+            Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        )
 
         # Get base branch (source_branch or default to main)
         base_branch = run.source_branch or "main"
@@ -667,7 +680,7 @@ def create_app() -> FastAPI:
     # ========== Phase 7.2: Status Transitions (Drag-and-Drop) ==========
 
     # Allowed status transitions for drag-and-drop
-    ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    allowed_transitions: dict[str, set[str]] = {
         "pending": {"cancelled"},
         "running": {"cancelled"},
         "completed": {"pending"},  # Re-queue for retry
@@ -700,7 +713,7 @@ def create_app() -> FastAPI:
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
 
-        if new_status not in ALLOWED_TRANSITIONS.get(current_status, set()):
+        if new_status not in allowed_transitions.get(current_status, set()):
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot transition from {current_status} to {new_status}",
@@ -1059,16 +1072,10 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
 
         if not run.use_worktree or not run.branch_name:
-            raise HTTPException(
-                status_code=400,
-                detail="Run is not a worktree run or has no branch"
-            )
+            raise HTTPException(status_code=400, detail="Run is not a worktree run or has no branch")
 
         if run.pr_url:
-            raise HTTPException(
-                status_code=400,
-                detail=f"PR already exists: {run.pr_url}"
-            )
+            raise HTTPException(status_code=400, detail=f"PR already exists: {run.pr_url}")
 
         project = store.get_project(run.project_id)
         if not project:
@@ -1076,10 +1083,13 @@ def create_app() -> FastAPI:
 
         # Use git manager to push branch and create PR
         from gluon.git_manager import GitManager
+
         git_manager = GitManager()
 
         # Determine working path (worktree if still exists, else project root)
-        working_path = Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        working_path = (
+            Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
+        )
 
         try:
             pr_result = await git_manager.push_branch_and_create_pr(
@@ -1133,10 +1143,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
 
         if not run.use_worktree or not run.branch_name:
-            raise HTTPException(
-                status_code=400,
-                detail="Run is not a worktree run or has no branch"
-            )
+            raise HTTPException(status_code=400, detail="Run is not a worktree run or has no branch")
 
         project = store.get_project(run.project_id)
         if not project:
@@ -1144,6 +1151,7 @@ def create_app() -> FastAPI:
 
         # Use git manager to merge branch locally and push
         from gluon.git_manager import GitManager
+
         git_manager = GitManager(store)
 
         # Use main project path (not worktree) for merging
@@ -1190,8 +1198,8 @@ def create_app() -> FastAPI:
     # ========== Image Attachments API (Phase 10.1) ==========
 
     from gluon.image_storage import (
-        ImageStorageService,
         ImageNotFoundError,
+        ImageStorageService,
         ImageTooLargeError,
         InvalidImageFormatError,
     )
@@ -1297,7 +1305,9 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/api/runs/{run_id}/attachments", response_model=ImageResponse)
-    async def attach_image_to_run(run_id: str, file: UploadFile | None = None, body: AttachImageRequest | None = None) -> ImageResponse:
+    async def attach_image_to_run(
+        run_id: str, file: UploadFile | None = None, body: AttachImageRequest | None = None
+    ) -> ImageResponse:
         """
         Attach an image to a run.
 
@@ -1676,14 +1686,15 @@ def create_app() -> FastAPI:
                             # State changed - broadcast update
                             project_name = project_lookup.get(run.project_id, run.project_id[:8])
                             await ws_manager.broadcast_run_update(run, project_name)
-                            logger.debug(f"Broadcast run update: {run.id[:8]} {_last_run_states[run_key]} -> {current_state}")
+                            logger.debug(
+                                f"Broadcast run update: {run.id[:8]} {_last_run_states[run_key]} -> {current_state}"
+                            )
 
                     _last_run_states[run_key] = current_state
 
                 # Clean up old run states (keep last 200)
                 if len(_last_run_states) > 200:
                     # Keep only runs we just saw
-                    current_ids = {r.id for r in runs}
                     _last_run_states.clear()
                     for run in runs:
                         _last_run_states[run.id] = f"{run.status.value}:{run.pr_status or 'none'}"
@@ -1722,7 +1733,7 @@ def create_app() -> FastAPI:
 
                         if current_size > last_pos:
                             try:
-                                with open(messages_path, "r") as f:
+                                with open(messages_path) as f:
                                     f.seek(last_pos)
                                     for line in f:
                                         if line.strip():
@@ -1808,11 +1819,7 @@ def create_app() -> FastAPI:
             try:
                 logger.info("Starting log cleanup...")
                 stats = cleanup_service.cleanup()
-                total = (
-                    stats["orphan_deleted"]
-                    + stats["archived_deleted"]
-                    + stats["failed_deleted"]
-                )
+                total = stats["orphan_deleted"] + stats["archived_deleted"] + stats["failed_deleted"]
                 if total > 0 or stats["errors"] > 0:
                     logger.info(
                         f"Log cleanup complete: {stats['orphan_deleted']} orphan, "

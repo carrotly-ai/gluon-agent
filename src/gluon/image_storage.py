@@ -6,7 +6,6 @@ for run tasks, with automatic copy to worktree for AI visibility.
 
 import hashlib
 import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
@@ -37,10 +36,7 @@ class InvalidImageFormatError(ImageStorageError):
     def __init__(self, mime_type: str | None, allowed_types: set[str]):
         self.mime_type = mime_type
         self.allowed_types = allowed_types
-        super().__init__(
-            f"Invalid image format: {mime_type}. "
-            f"Supported formats: {', '.join(sorted(allowed_types))}"
-        )
+        super().__init__(f"Invalid image format: {mime_type}. Supported formats: {', '.join(sorted(allowed_types))}")
 
 
 class ImageNotFoundError(ImageStorageError):

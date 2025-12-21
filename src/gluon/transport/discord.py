@@ -92,7 +92,7 @@ def parse_project_specifier(text: str) -> tuple[str, str | None]:
     prefix_match = re.match(prefix_pattern, text, re.IGNORECASE)
     if prefix_match:
         project = prefix_match.group(1)
-        cleaned = text[prefix_match.end():].strip()
+        cleaned = text[prefix_match.end() :].strip()
         return cleaned, project
 
     # Pattern 2: --project name or -p name anywhere
@@ -687,6 +687,7 @@ class DiscordTransport(Transport):
 
         # Show typing indicator
         async with message.channel.typing():
+
             async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
                 msg = await message.reply(response.text[:2000])
                 return str(msg.id)
@@ -721,9 +722,7 @@ class DiscordTransport(Transport):
             names = ", ".join(f"`{p.name}`" for p in projects[:10])
             more = f"... and {len(projects) - 10} more" if len(projects) > 10 else ""
             await message.reply(
-                f"Project `{project_name}` not found.\n\n"
-                f"Available: {names}{more}\n"
-                f"Use `projects` to see all."
+                f"Project `{project_name}` not found.\n\nAvailable: {names}{more}\nUse `projects` to see all."
             )
             return
 
@@ -760,8 +759,7 @@ class DiscordTransport(Transport):
 
         # Send initial status message
         status_msg = await message.reply(
-            f"🚀 **Starting task** on `{project.name}` ({model_short})\n"
-            f"Run: `{run.id[:8]}`\nStatus: Running..."
+            f"🚀 **Starting task** on `{project.name}` ({model_short})\nRun: `{run.id[:8]}`\nStatus: Running..."
         )
 
         ctx = self._make_context(message, project_hint=project.name)
