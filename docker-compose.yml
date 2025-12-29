@@ -22,6 +22,9 @@ services:
       # AWS credentials (read-only)
       - ${HOME}/.aws:/home/gluon/.aws:ro
 
+      # GitHub CLI config (read-only) - for PR creation
+      - ${HOME}/.config/gh:/home/gluon/.config/gh:ro
+
       # Cache
       - ${HOME}/.cache/gluon:/home/gluon/.cache/gluon
 
@@ -39,6 +42,11 @@ services:
       - CLAUDE_API_KEY
       - CLAUDE_LOG_LEVEL=info
       - CLAUDE_CODE_USE_BEDROCK=1
+
+      # Note: These are loaded from .env.local via env_file directive above:
+      # - GH_TOKEN (GitHub personal access token for PR operations)
+      # - GIT_USER_EMAIL (git config user.email)
+      # - GIT_USER_NAME (git config user.name)
 
       # Node.js memory tuning for Claude Code CLI
       # Limit heap to 6GB to leave room for subprocesses within 12GB container

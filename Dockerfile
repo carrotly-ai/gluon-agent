@@ -12,6 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gnupg \
     unzip \
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI for PR operations
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js v24 LTS from NodeSource
@@ -36,8 +45,14 @@ RUN groupadd -g 1000 gluon && \
 RUN mkdir -p /home/gluon/.claude \
              /home/gluon/workspaces \
              /home/gluon/.cache/gluon \
+             /home/gluon/.ssh \
              /app && \
     chown -R gluon:gluon /home/gluon /app
+
+# Pre-populate GitHub's SSH host keys to avoid verification prompts
+RUN ssh-keyscan -t ed25519,rsa github.com >> /home/gluon/.ssh/known_hosts && \
+    chown gluon:gluon /home/gluon/.ssh/known_hosts && \
+    chmod 644 /home/gluon/.ssh/known_hosts
 
 WORKDIR /app
 

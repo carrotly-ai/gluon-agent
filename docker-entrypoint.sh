@@ -4,6 +4,30 @@
 
 set -e
 
+# Configure git to use HTTPS with GH_TOKEN instead of SSH
+configure_git_auth() {
+    # Configure user identity if provided
+    if [ -n "$GIT_USER_EMAIL" ]; then
+        git config --global user.email "$GIT_USER_EMAIL"
+        echo "Git user.email: $GIT_USER_EMAIL"
+    fi
+    if [ -n "$GIT_USER_NAME" ]; then
+        git config --global user.name "$GIT_USER_NAME"
+        echo "Git user.name: $GIT_USER_NAME"
+    fi
+
+    if [ -n "$GH_TOKEN" ]; then
+        # Rewrite SSH URLs to HTTPS (need separate sections for each pattern)
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+
+        # Configure credential helper to use GH_TOKEN
+        git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
+
+        echo "Git configured to use HTTPS with GH_TOKEN"
+    fi
+}
+
 # Function to register MCP servers from .mcp.json
 register_mcp_servers() {
     local MCP_CONFIG="${HOME}/.claude/.mcp.json"
@@ -87,6 +111,9 @@ for name, server_config in servers.items():
 print("MCP registration complete")
 EOF
 }
+
+# Configure git authentication
+configure_git_auth
 
 # Register MCP servers on first run
 if [ -f "${HOME}/.claude/.mcp.json" ]; then
