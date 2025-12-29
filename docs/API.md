@@ -683,18 +683,92 @@ class GluonChatAgent:
 
 ### MCP Tools
 
-Available tools for natural language processing:
+The chat agent exposes 40+ MCP tools for comprehensive Gluon operations:
+
+#### Project & Session Management
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `list_projects` | List all projects | None |
-| `list_sessions` | List sessions | `project_name?` |
-| `get_status` | Get overall status | None |
-| `run_task` | Run task on project | `project_name`, `prompt` |
-| `resume_session` | Resume last session | `project_name`, `prompt?` |
-| `add_workspace` | Add workspace directory | `name`, `path` |
+| `list_projects` | List all registered projects | None |
+| `add_project` | Register a new project | `name`, `path` |
+| `remove_project` | Unregister a project | `name` |
+| `list_sessions` | List sessions for a project | `project_name?` |
+| `get_status` | Get overall Gluon status | None |
+
+#### Workspace Management
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `add_workspace` | Register a workspace directory | `name`, `path` |
 | `list_workspaces` | List all workspaces | None |
-| `scan_workspace` | Scan workspace for projects | `name` |
+| `scan_workspace` | Scan workspace for new projects | `name` |
+| `remove_workspace` | Unregister a workspace | `name` |
+| `list_workspace_projects` | List projects in a workspace | `name` |
+
+#### Task Execution
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `run_task` | Run a coding task on a project | `project_name`, `prompt`, `model?`, `use_worktree?` |
+| `resume_session` | Resume the last session | `project_name`, `prompt?`, `model?` |
+
+#### Run Management
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_runs` | List execution runs | `project_name?`, `active_only?` |
+| `get_run` | Get run details | `run_id` |
+| `get_logs` | Get logs for a run | `run_id`, `stream?`, `lines?` |
+| `cancel_run` | Cancel a running task | `run_id` |
+| `archive_run` | Archive a completed run | `run_id` |
+
+#### Git Operations
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_git_status` | Get git status for a project | `project_name` |
+| `git_sync` | Auto-commit, fetch, and fast-forward | `project_name` |
+| `git_push` | Commit and push changes | `project_name`, `commit_message` |
+| `git_fetch` | Fetch from remote | `project_name` |
+
+#### Branch & PR Operations
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_branches` | List all branches | `project_name` |
+| `delete_branch` | Delete a branch | `project_name`, `branch_name` |
+| `create_pr` | Create a pull request | `run_id`, `title?`, `body?` |
+| `merge_branch` | Merge a run's branch | `run_id` |
+| `get_run_commits` | Get commits on a run's branch | `run_id` |
+| `get_run_files` | Get files changed on branch | `run_id` |
+| `get_file_diff` | Get diff for a specific file | `run_id`, `file_path` |
+
+#### Conflict Resolution
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `check_conflicts` | Check for merge conflicts | `project_name` |
+| `get_conflict_diff` | Get 3-way diff for a conflict | `project_name`, `file_path` |
+| `resolve_conflict` | Resolve a conflict (ours/theirs) | `project_name`, `file_path`, `resolution` |
+| `rebase_branch` | Start a rebase operation | `run_id` |
+| `rebase_continue` | Continue after resolving | `run_id` |
+| `rebase_abort` | Abort a rebase | `run_id` |
+
+#### Images & Attachments
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `upload_image` | Upload an image | `run_id`, `url` or `base64` |
+| `list_run_images` | List images attached to a run | `run_id` |
+
+#### Usage & Settings
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_usage` | Get usage summary | None |
+| `get_usage_by_project` | Get usage broken down by project | None |
+| `get_setting` | Get a configuration setting | `key` |
+| `set_setting` | Set a configuration setting | `key`, `value` |
 
 ---
 

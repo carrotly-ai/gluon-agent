@@ -483,26 +483,27 @@ status() -> dict
 
 ### 8. Chat Agent (`chat_agent.py`)
 
-Natural language interface using Claude to interpret commands.
+Natural language interface using Claude to interpret commands. Exposes 40+ MCP tools organized by category:
 
 **MCP Tools Exposed:**
-- `list_projects` - List all projects
-- `list_sessions` - List sessions for a project
-- `get_status` - Get overall status
-- `run_task` - Run a task on a project
-- `resume_session` - Resume last session
-- `add_workspace` - Register a workspace
-- `list_workspaces` - List workspaces
-- `scan_workspace` - Scan for new projects
-- `list_runs` - List execution runs
-- `cancel_run` - Cancel a running task
-- `get_git_status` - Get git status for a project
+
+| Category | Tools |
+|----------|-------|
+| **Project/Session** | `list_projects`, `add_project`, `remove_project`, `list_sessions`, `get_status` |
+| **Workspace** | `add_workspace`, `list_workspaces`, `scan_workspace`, `remove_workspace`, `list_workspace_projects` |
+| **Task Execution** | `run_task`, `resume_session` |
+| **Run Management** | `list_runs`, `get_run`, `get_logs`, `cancel_run`, `archive_run` |
+| **Git Operations** | `get_git_status`, `git_sync`, `git_push`, `git_fetch` |
+| **Branch/PR** | `list_branches`, `delete_branch`, `create_pr`, `merge_branch`, `get_run_commits`, `get_run_files`, `get_file_diff` |
+| **Conflict Resolution** | `check_conflicts`, `get_conflict_diff`, `resolve_conflict`, `rebase_branch`, `rebase_continue`, `rebase_abort` |
+| **Images** | `upload_image`, `list_run_images` |
+| **Usage/Settings** | `get_usage`, `get_usage_by_project`, `get_setting`, `set_setting` |
 
 **Usage Flow:**
 
 ```mermaid
 flowchart LR
-    USER[User Message] --> CLAUDE[Claude<br/>with MCP tools]
+    USER[User Message] --> CLAUDE[Claude<br/>with 40+ MCP tools]
     CLAUDE --> TOOLS[Tool Calls]
     TOOLS --> RESP[Response]
     CLAUDE --> TASK[Sets _pending_task<br/>for caller execution]
@@ -604,7 +605,20 @@ class WebSocketManager:
     async def broadcast_run_created(run, project_name)
     async def broadcast_run_update(run, project_name)
     async def stream_log_line(run_id, stream, line)
+    async def subscribe_to_run(websocket, run_id)     # Real-time log streaming
+    async def unsubscribe_from_run(websocket, run_id)
 ```
+
+**Real-Time Log Streaming:**
+
+The web dashboard supports live log streaming for running tasks:
+
+1. Client sends `{"type": "subscribe_run", "run_id": "..."}`
+2. Server starts tailing the run's log files
+3. New lines are broadcast via `{"type": "log_line", "run_id": "...", "stream": "stdout", "line": "..."}`
+4. Client unsubscribes when leaving the run detail view
+
+This enables live visibility into agent execution including tool calls, outputs, and errors.
 
 **API Endpoint Categories:**
 - Runs: CRUD, cancel, resume, archive, logs

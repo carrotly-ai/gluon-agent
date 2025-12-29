@@ -243,6 +243,25 @@ gluon web
 gluon web --port 8080
 ```
 
+## MCP Server Management
+
+```bash
+gluon mcp status               # Show registered MCP servers and their status
+```
+
+### Examples
+
+```bash
+# Check MCP server status
+gluon mcp status
+# Output:
+# MCP Servers:
+#   perplexity: http (http://localhost:8080/sse) - connected
+#   context7: sse (http://localhost:8081/sse) - connected
+```
+
+MCP servers are automatically registered from `~/.claude/.mcp.json` when running in Docker. See [DOCKER.md](DOCKER.md#mcp-server-auto-registration) for details.
+
 ## Global Options
 
 ```bash

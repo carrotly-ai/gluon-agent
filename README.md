@@ -24,7 +24,7 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 ### Web Dashboard
 - **Kanban Board** - Drag-and-drop task management with Queue, Running, Review, and Done columns
-- **Real-Time Updates** - WebSocket-powered live status changes
+- **Real-Time Log Streaming** - WebSocket-powered live log output with tool call visualization
 - **Run Details Modal** - View messages, tool calls, commits, file diffs, and attachments
 - **Full-Screen Mode** - Expanded view for detailed run analysis
 - **Message Filtering** - Filter by tools, text, or errors with counts
@@ -37,10 +37,20 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - **AI Conflict Resolution** - One-click to have Claude rebase and resolve merge conflicts
 - **Local & Remote Support** - Works with both GitHub repos and local-only repositories
 
+### Chat Bot Features
+- **Natural Language Interface** - Chat with Gluon using natural language commands
+- **40+ MCP Tools** - Comprehensive tools for project, git, branch, and conflict management
+- **Discord DM Support** - Run tasks via direct messages with project specifiers (`project:myapp`)
+- **Model Selection via Flags** - Use `--model opus` in Discord/Telegram to specify models
+- **Channel Topic Config** - Configure default project and model via Discord channel topics
+- **Tool Call Visualization** - See agent tool calls in real-time during execution
+
 ### Additional Features
 - **Image Attachments** - Paste screenshots/diagrams for AI context (Cmd+V in resume prompt)
 - **Usage Tracking** - Monitor costs, tokens, and usage per project
 - **Docker Deployment** - Full containerized deployment with docker-compose
+- **MCP Server Auto-Registration** - Docker automatically registers MCP servers from `.mcp.json`
+- **CI/CD Workflows** - GitHub Actions for CI and Docker image publishing
 - **Log Persistence** - Stdout, stderr, and structured message logs for every run
 
 ## Requirements
@@ -183,9 +193,15 @@ graph TB
     end
 
     subgraph Core
-        ORCH[Orchestrator]
+        BOTCORE[Bot Core]
         RUNNER[Task Runner]
+        CHAT[Chat Agent<br/>40+ MCP Tools]
+    end
+
+    subgraph Services
+        STORE[(SQLite)]
         GIT[Git Manager]
+        WS[WebSocket<br/>Live Streaming]
     end
 
     subgraph Execution
@@ -194,14 +210,17 @@ graph TB
         CLAUDE[Claude CLI]
     end
 
-    CLI --> ORCH
+    CLI --> RUNNER
     WEB --> RUNNER
-    TG --> ORCH
-    DC --> ORCH
+    WEB <--> WS
+    TG --> BOTCORE
+    DC --> BOTCORE
 
-    ORCH --> AGENT
-    RUNNER --> AGENT
+    BOTCORE --> CHAT
+    BOTCORE --> RUNNER
+    RUNNER --> STORE
     RUNNER --> GIT
+    RUNNER --> AGENT
 
     AGENT --> SDK
     SDK --> CLAUDE

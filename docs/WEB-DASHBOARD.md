@@ -19,7 +19,7 @@ Open http://localhost:45866 to access the dashboard.
 
 - **Unified Task Visibility** - See all tasks from all interfaces (CLI, Telegram, Discord) in one place
 - **Kanban Board** - Drag-and-drop task management across columns (Queued, Running, Review, Completed, Failed)
-- **Real-time Updates** - WebSocket-powered live status updates
+- **Real-Time Log Streaming** - WebSocket-powered live log output with tool call visualization
 - **Project Filtering** - Filter tasks by project or workspace
 - **Run Details Modal** - Comprehensive task viewer with multiple tabs
 - **Image Attachments** - Upload screenshots for AI context (paste with ⌘V)
@@ -244,3 +244,59 @@ Connect to `/api/ws` for real-time updates:
 {"type": "run_updated", "run": {...}}
 {"type": "log_line", "run_id": "...", "stream": "stdout", "line": "..."}
 ```
+
+## Real-Time Log Streaming
+
+The dashboard supports live log streaming for running tasks via WebSocket subscriptions.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant WebSocket
+    participant Server
+    participant LogFiles
+
+    Browser->>WebSocket: Connect to /api/ws
+    Browser->>WebSocket: {"type": "subscribe_run", "run_id": "abc123"}
+    WebSocket->>Server: Start tailing logs
+
+    loop While subscribed
+        LogFiles-->>Server: New log line
+        Server-->>WebSocket: {"type": "log_line", "run_id": "abc123", "line": "..."}
+        WebSocket-->>Browser: Display in StreamingLogViewer
+    end
+
+    Browser->>WebSocket: {"type": "unsubscribe_run", "run_id": "abc123"}
+    WebSocket->>Server: Stop tailing
+```
+
+### StreamingLogViewer Component
+
+The `StreamingLogViewer` component provides:
+
+- **Live Output** - New log lines appear in real-time as the agent executes
+- **Tool Call Visualization** - Tool calls are parsed and displayed with expandable details
+- **Auto-Scroll** - Automatically scrolls to show latest output (with manual override)
+- **Message Filtering** - Filter by message type (All, Tools, Text, Errors)
+- **Search** - Full-text search within logs
+
+### Message Types
+
+| Type | Display | Description |
+|------|---------|-------------|
+| `assistant` | 💬 | Text output from the agent |
+| `tool_use` | 🔧 | Tool invocation with parameters (expandable) |
+| `tool_result` | ✅/❌ | Tool execution result |
+| `system` | ⚙️ | System messages |
+| `error` | 🔴 | Error messages |
+
+### Subscribing to Logs
+
+When viewing the Run Details modal for a running task, the client automatically:
+
+1. Sends a subscription request for that run's logs
+2. Receives historical log lines (last 100)
+3. Receives new log lines as they're written
+4. Unsubscribes when closing the modal or navigating away

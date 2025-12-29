@@ -1,6 +1,6 @@
 # Discord Bot
 
-Run Gluon as a Discord bot with channel-based project mapping and threaded task output.
+Run Gluon as a Discord bot with channel-based project mapping, DM support, and real-time task streaming.
 
 ## Installation
 
@@ -43,7 +43,7 @@ gluon discord --token "token" --guild 123456789
 
 ## Commands
 
-Mention the bot (`@GluonBot`) with a command:
+Mention the bot (`@GluonBot`) in channels or send direct messages:
 
 | Command | Description |
 |---------|-------------|
@@ -54,12 +54,59 @@ Mention the bot (`@GluonBot`) with a command:
 | `@GluonBot cancel [run_id]` | Cancel a run |
 | `@GluonBot <any task>` | Execute task on the linked project |
 
+## Direct Messages (DM Support)
+
+You can interact with Gluon via direct messages. Since DMs aren't associated with a channel, use project specifiers:
+
+```
+# Project prefix syntax
+project:myapp Fix the login bug
+p:myapp Add user authentication
+
+# Flag syntax
+Fix the login bug --project myapp
+Fix the login bug -p myapp
+```
+
+DM conversations maintain chat mode context, allowing natural follow-up questions without repeating the project name.
+
+## Model Selection
+
+Specify model tier using the `--model` or `-m` flag in your prompt:
+
+```
+@GluonBot Fix the bug --model opus
+@GluonBot Quick fix --model haiku
+@GluonBot Implement feature -m sonnet
+```
+
+| Model | Best For |
+|-------|----------|
+| `haiku` | Quick fixes, simple tasks |
+| `sonnet` | Most coding tasks (default) |
+| `opus` | Complex refactoring, architecture |
+
+## Channel Topic Configuration
+
+Configure default project and model by adding markers to your channel topic:
+
+```
+Project: myapp | Model: opus
+```
+
+Supported formats:
+- `Project: myapp` or `project:myapp`
+- `Model: opus` or `model:opus`
+
+This allows the channel to auto-link to a project and use a specific model without explicit flags.
+
 ## Channel-Project Mapping
 
-Discord channels map to projects in two ways:
+Discord channels map to projects in multiple ways:
 
-1. **Auto-match** - Channel name matches project name (e.g., `#myapp` → `myapp` project)
-2. **Explicit link** - Use `@GluonBot link <project>` to bind any channel
+1. **Channel topic** - Set `project:myapp` in the channel topic (see above)
+2. **Auto-match** - Channel name matches project name (e.g., `#myapp` → `myapp` project)
+3. **Explicit link** - Use `@GluonBot link <project>` to bind any channel
 
 Once linked, all @mentions execute tasks on that project automatically.
 
@@ -67,9 +114,12 @@ Once linked, all @mentions execute tasks on that project automatically.
 flowchart TD
     subgraph "Channel Resolution"
         MSG[Incoming Message<br/>#myapp channel]
-        MSG --> CHECK1{Explicit mapping<br/>in DB?}
+        MSG --> CHECK0{Channel topic<br/>has project?}
 
-        CHECK1 -->|Yes| FOUND[Use mapped project]
+        CHECK0 -->|Yes| FOUND[Use mapped project]
+        CHECK0 -->|No| CHECK1{Explicit mapping<br/>in DB?}
+
+        CHECK1 -->|Yes| FOUND
         CHECK1 -->|No| CHECK2{Channel name<br/>matches project?}
 
         CHECK2 -->|Yes| FOUND
@@ -169,6 +219,20 @@ sequenceDiagram
 | `GLUON_DISCORD_TOKEN` | Discord bot token (required) |
 | `GLUON_DISCORD_GUILD` | Discord guild (server) ID (required) |
 | `GLUON_DISCORD_USERS` | Comma-separated list of allowed user IDs |
+
+## Real-Time Tool Call Display
+
+During task execution, the bot displays agent tool calls in real-time:
+
+```
+🔄 Running task on myapp...
+🔧 Bash: Running tests
+🔧 Edit: Fixing test file
+🔧 Bash: Running tests again
+✅ Task completed!
+```
+
+This provides visibility into what the agent is doing without overwhelming the chat with full output.
 
 ## Multi-Transport Mode
 

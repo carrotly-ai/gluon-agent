@@ -138,6 +138,24 @@ graph TB
 -e GLUON_GIT_ENABLED=true
 ```
 
+### GitHub / Git Authentication
+
+The container uses HTTPS with GitHub Personal Access Token for git operations (PR creation, push, pull):
+
+```bash
+# GitHub Personal Access Token (for HTTPS authentication)
+-e GH_TOKEN=ghp_xxxxxxxxxxxxx
+
+# Git user identity (for commits)
+-e GIT_USER_EMAIL=your-email@example.com
+-e GIT_USER_NAME="Your Name"
+```
+
+The entrypoint script automatically:
+- Rewrites SSH URLs to HTTPS (`git@github.com:` → `https://github.com/`)
+- Configures credential helper to use `GH_TOKEN`
+- Sets git user identity from environment variables
+
 ## Usage Examples
 
 ### 1. CLI Mode (one-off commands)
@@ -308,6 +326,71 @@ Scan for vulnerabilities:
 
 ```bash
 docker scan gluon-agent:latest
+```
+
+## MCP Server Auto-Registration
+
+The Docker entrypoint automatically registers MCP servers from a mounted `.mcp.json` configuration file:
+
+```bash
+# Mount your MCP config
+-v "$HOME/.claude/.mcp.json:/home/gluon/.claude/.mcp.json:ro"
+```
+
+### Example `.mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "perplexity": {
+      "type": "http",
+      "url": "http://host.docker.internal:8080/sse",
+      "headers": {
+        "Authorization": "Bearer ${PERPLEXITY_API_KEY}"
+      }
+    },
+    "context7": {
+      "type": "sse",
+      "url": "http://host.docker.internal:8081/sse"
+    }
+  }
+}
+```
+
+On startup, the entrypoint:
+1. Reads `~/.claude/.mcp.json`
+2. Registers each HTTP/SSE server with `claude mcp add`
+3. Skips servers already registered
+4. Skips stdio servers (these require local process spawning)
+
+### Check MCP Status
+
+```bash
+docker exec gluon-agent gluon mcp status
+```
+
+## CI/CD Integration
+
+The repository includes GitHub Actions workflows:
+
+### CI Workflow (`.github/workflows/ci.yml`)
+
+Runs on every push and PR:
+- Lints Python code with `ruff`
+- Lints web-ui with `biome`
+- Runs `mypy` type checking
+- Runs `pytest` test suite
+
+### Docker Publish (`.github/workflows/docker-publish.yml`)
+
+Builds and publishes Docker images:
+- Triggers on pushes to `main` and version tags
+- Publishes to GitHub Container Registry (`ghcr.io`)
+- Supports multi-architecture builds (amd64, arm64)
+
+```bash
+# Pull pre-built image
+docker pull ghcr.io/carrotly-ai/gluon-agent:latest
 ```
 
 ## Troubleshooting
