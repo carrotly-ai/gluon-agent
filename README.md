@@ -203,10 +203,16 @@ graph TB
         GIT[Git Manager]
     end
 
-    subgraph Execution
-        AGENT[Gluon Agent]
-        SDK[Claude Agent SDK]
-        CLAUDE[Claude CLI]
+    subgraph Worker1 [Worker 1 - Local]
+        AGENT1[Gluon Agent]
+        SDK1[Claude Agent SDK]
+        CLAUDE1[Claude CLI]
+    end
+
+    subgraph WorkerN [Worker n - Remote]
+        AGENTN[Gluon Agent]
+        SDKN[Claude Agent SDK]
+        CLAUDEN[Claude CLI]
     end
 
     CLI --> ORCH
@@ -219,10 +225,14 @@ graph TB
     ORCH --> GIT
     RUNNER --> STORE
     RUNNER --> GIT
-    RUNNER --> AGENT
+    RUNNER --> AGENT1
+    RUNNER -.-> AGENTN
 
-    AGENT --> SDK
-    SDK --> CLAUDE
+    AGENT1 --> SDK1
+    SDK1 --> CLAUDE1
+
+    AGENTN --> SDKN
+    SDKN --> CLAUDEN
 ```
 
 ## Model Selection
