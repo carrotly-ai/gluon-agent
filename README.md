@@ -190,18 +190,17 @@ graph TB
         WEB[Web Dashboard]
         TG[Telegram Bot]
         DC[Discord Bot]
+        WH[Webhooks]
     end
 
     subgraph Core
-        BOTCORE[Bot Core]
+        ORCH[Orchestrator]
         RUNNER[Task Runner]
-        CHAT[Chat Agent<br/>40+ MCP Tools]
     end
 
     subgraph Services
         STORE[(SQLite)]
         GIT[Git Manager]
-        WS[WebSocket<br/>Live Streaming]
     end
 
     subgraph Execution
@@ -210,14 +209,14 @@ graph TB
         CLAUDE[Claude CLI]
     end
 
-    CLI --> RUNNER
-    WEB --> RUNNER
-    WEB <--> WS
-    TG --> BOTCORE
-    DC --> BOTCORE
+    CLI --> ORCH
+    WEB --> ORCH
+    TG --> ORCH
+    DC --> ORCH
+    WH --> ORCH
 
-    BOTCORE --> CHAT
-    BOTCORE --> RUNNER
+    ORCH --> RUNNER
+    ORCH --> GIT
     RUNNER --> STORE
     RUNNER --> GIT
     RUNNER --> AGENT
