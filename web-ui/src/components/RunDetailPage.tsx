@@ -39,6 +39,7 @@ import {
   resumeRun,
   uploadAndAttachImage,
 } from '@/lib/api'
+import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDateWithContext, formatRelativeTime } from '@/lib/timestamps'
 import type {
   CommitDetail,
@@ -49,6 +50,7 @@ import type {
   RunDetail,
   RunFilesResponse,
   RunStatus,
+  WSMessage,
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -155,6 +157,61 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   const prevMessagesRef = useRef<string>('')
   const prevOutputRef = useRef<string>('')
 
+  // Track previous status to detect completion
+  const prevStatusRef = useRef<RunStatus | null>(null)
+
+  // Helper to refetch commits and files data
+  const refetchCommitsAndFiles = useCallback(async () => {
+    if (!runId) return
+    try {
+      const [newCommitsData, newFilesData] = await Promise.all([
+        fetchRunCommits(runId).catch(() => null),
+        fetchRunFiles(runId).catch(() => null),
+      ])
+      if (newCommitsData) {
+        setCommitsData(newCommitsData)
+        setCommitDetails({})
+        setExpandedCommit(null)
+      }
+      if (newFilesData) {
+        setFilesData(newFilesData)
+        setFileDiffs({})
+        setExpandedFile(null)
+      }
+    } catch (err) {
+      console.error('Failed to refetch commits/files:', err)
+    }
+  }, [runId])
+
+  // WebSocket handler for run_updated broadcasts
+  const handleWebSocketMessage = useCallback(
+    (message: WSMessage) => {
+      if (message.type === 'run_updated') {
+        const updatedRun = (message as { type: 'run_updated'; run: Run }).run
+        // Only process updates for this run
+        if (updatedRun.id === runId) {
+          const wasActive = prevStatusRef.current === 'running' || prevStatusRef.current === 'pending'
+          const isNowComplete = updatedRun.status === 'completed' || updatedRun.status === 'failed'
+
+          // Update local state with the new run data
+          setRun(updatedRun)
+          onRunUpdated?.(updatedRun)
+
+          // If run just completed, refetch commits and files to get final state
+          if (wasActive && isNowComplete) {
+            refetchCommitsAndFiles()
+          }
+
+          prevStatusRef.current = updatedRun.status
+        }
+      }
+    },
+    [runId, onRunUpdated, refetchCommitsAndFiles]
+  )
+
+  // Connect to WebSocket for real-time run updates
+  useWebSocket(handleWebSocketMessage)
+
   // Update URL when tab changes
   const handleTabChange = useCallback(
     (newTab: TabType) => {
@@ -179,6 +236,8 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
         ])
         setRun(runDetail)
         setDetail(runDetail)
+        // Initialize status ref for WebSocket completion detection
+        prevStatusRef.current = runDetail.status
         setLogs({
           stdout: stdoutLogs.content || '',
           stderr: stderrLogs.content || '',
@@ -254,6 +313,31 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       }
     }
   }, [logs.messages, logs.stdout, activeTab])
+
+  // Poll PR status every 30s when run has an open PR
+  // This catches when user merges PR on GitHub website
+  useEffect(() => {
+    if (!runId || !run) return
+    // Only poll if run has an open PR
+    if (run.pr_status !== 'open' || !run.pr_number) return
+
+    const intervalId = setInterval(async () => {
+      try {
+        // fetchRun calls backend with refresh_pr=True which checks GitHub
+        const runDetail = await fetchRun(runId)
+        // Only update if PR status actually changed
+        if (runDetail.pr_status !== run.pr_status) {
+          setRun(runDetail)
+          setDetail(runDetail)
+          onRunUpdated?.(runDetail)
+        }
+      } catch (err) {
+        console.error('PR status polling failed:', err)
+      }
+    }, 30000) // 30 seconds
+
+    return () => clearInterval(intervalId)
+  }, [runId, run?.pr_status, run?.pr_number, run, onRunUpdated])
 
   const handleCancel = async () => {
     if (!run) return

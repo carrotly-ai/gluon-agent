@@ -436,3 +436,13 @@ body {
 .light .kanban-divider {
   background: rgba(0, 0, 0, 0.08);
 }
+
+/* Prevent iOS Safari from zooming on input focus */
+/* iOS zooms when font-size < 16px */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

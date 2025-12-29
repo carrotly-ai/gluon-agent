@@ -149,10 +149,12 @@ function TodoWriteMessage({
   msg,
   isExpanded,
   onToggle,
+  showTimestamp = true,
 }: {
   msg: AgentMessage
   isExpanded: boolean
   onToggle: () => void
+  showTimestamp?: boolean
 }) {
   const time = formatMessageTime(msg.timestamp)
   const input = msg.metadata?.input as { todos?: TodoItem[] } | undefined
@@ -196,7 +198,12 @@ function TodoWriteMessage({
             <span className="text-[var(--color-stone)]/50">cleared</span>
           )}
         </span>
-        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+        <span
+          className={cn(
+            'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+            !showTimestamp && 'hidden sm:inline'
+          )}
+        >
           {time}
         </span>
       </div>
@@ -235,15 +242,24 @@ function ToolCallMessage({
   msg,
   isExpanded,
   onToggle,
+  showTimestamp = true,
 }: {
   msg: AgentMessage
   isExpanded: boolean
   onToggle: () => void
+  showTimestamp?: boolean
 }) {
   const toolName = msg.metadata?.tool || 'Unknown'
 
   if (toolName === 'TodoWrite') {
-    return <TodoWriteMessage msg={msg} isExpanded={isExpanded} onToggle={onToggle} />
+    return (
+      <TodoWriteMessage
+        msg={msg}
+        isExpanded={isExpanded}
+        onToggle={onToggle}
+        showTimestamp={showTimestamp}
+      />
+    )
   }
 
   const primaryParam = getToolPrimaryParam(msg.metadata?.input)
@@ -281,7 +297,12 @@ function ToolCallMessage({
             <span className="text-[var(--color-paper)]/70">"{primaryParam.value}"</span>
           </span>
         )}
-        <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+        <span
+          className={cn(
+            'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+            !showTimestamp && 'hidden sm:inline'
+          )}
+        >
           {time}
         </span>
       </div>
@@ -306,7 +327,7 @@ function ToolCallMessage({
   )
 }
 
-function TextMessage({ msg }: { msg: AgentMessage }) {
+function TextMessage({ msg, showTimestamp = true }: { msg: AgentMessage; showTimestamp?: boolean }) {
   const time = formatMessageTime(msg.timestamp)
   const isLong = msg.content.length > 200
   const [isExpanded, setIsExpanded] = useState(!isLong)
@@ -343,14 +364,19 @@ function TextMessage({ msg }: { msg: AgentMessage }) {
           </button>
         )}
       </div>
-      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+      <span
+        className={cn(
+          'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+          !showTimestamp && 'hidden sm:inline'
+        )}
+      >
         {time}
       </span>
     </div>
   )
 }
 
-function SystemMessage({ msg }: { msg: AgentMessage }) {
+function SystemMessage({ msg, showTimestamp = true }: { msg: AgentMessage; showTimestamp?: boolean }) {
   const time = formatMessageTime(msg.timestamp)
   const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
   const Icon = config.icon
@@ -359,7 +385,12 @@ function SystemMessage({ msg }: { msg: AgentMessage }) {
     <div className={cn('flex items-center gap-2 py-1.5 px-3', config.bg, config.border)}>
       <Icon className={cn('w-2.5 h-2.5 shrink-0', config.color)} />
       <span className={cn('text-[0.6875rem] flex-1', config.color)}>{msg.content}</span>
-      <span className="text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0">
+      <span
+        className={cn(
+          'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+          !showTimestamp && 'hidden sm:inline'
+        )}
+      >
         {time}
       </span>
     </div>
@@ -598,6 +629,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
             </div>
           ) : (
             filteredMessages.map((msg, idx) => {
+              const isFirstOrLast = idx === 0 || idx === filteredMessages.length - 1
               if (msg.type === 'tool_use') {
                 return (
                   <ToolCallMessage
@@ -605,13 +637,14 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
                     msg={msg}
                     isExpanded={expandedTools.has(idx)}
                     onToggle={() => toggleToolExpanded(idx)}
+                    showTimestamp={isFirstOrLast}
                   />
                 )
               }
               if (msg.type === 'text') {
-                return <TextMessage key={idx} msg={msg} />
+                return <TextMessage key={idx} msg={msg} showTimestamp={isFirstOrLast} />
               }
-              return <SystemMessage key={idx} msg={msg} />
+              return <SystemMessage key={idx} msg={msg} showTimestamp={isFirstOrLast} />
             })
           )}
         </div>
