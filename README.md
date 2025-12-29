@@ -198,21 +198,23 @@ graph TB
         RUNNER[Task Runner Agent]
     end
 
+    subgraph Workers [Execution Workers]
+        subgraph Worker1 [Worker 1 - Local]
+            AGENT1[Gluon Agent]
+            SDK1[Claude Agent SDK]
+            CLAUDE1[Claude CLI]
+        end
+
+        subgraph WorkerN [Worker n - Remote]
+            AGENTN[Gluon Agent]
+            SDKN[Claude Agent SDK]
+            CLAUDEN[Claude CLI]
+        end
+    end
+
     subgraph Services
         STORE[(SQLite)]
         GIT[Git Manager Agent]
-    end
-
-    subgraph Worker1 [Worker 1 - Local]
-        AGENT1[Gluon Agent]
-        SDK1[Claude Agent SDK]
-        CLAUDE1[Claude CLI]
-    end
-
-    subgraph WorkerN [Worker n - Remote]
-        AGENTN[Gluon Agent]
-        SDKN[Claude Agent SDK]
-        CLAUDEN[Claude CLI]
     end
 
     CLI --> ORCH
