@@ -194,13 +194,13 @@ graph TB
     end
 
     subgraph Core
-        ORCH[Orchestrator]
-        RUNNER[Task Runner]
+        ORCH[Orchestrator Agent]
+        RUNNER[Task Runner Agent]
     end
 
     subgraph Services
         STORE[(SQLite)]
-        GIT[Git Manager]
+        GIT[Git Manager Agent]
     end
 
     subgraph Worker1 [Worker 1 - Local]
