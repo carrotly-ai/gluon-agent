@@ -438,11 +438,12 @@ body {
 }
 
 /* Prevent iOS Safari from zooming on input focus */
-/* iOS zooms when font-size < 16px */
-@media (max-width: 767px) {
+/* iOS zooms when font-size < 16px - apply to all touch devices */
+@media (pointer: coarse) {
   input,
   textarea,
-  select {
-    font-size: 16px !important;
+  select,
+  [contenteditable="true"] {
+    font-size: 1rem !important; /* 16px */
   }
 }
