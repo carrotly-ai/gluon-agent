@@ -327,7 +327,13 @@ function ToolCallMessage({
   )
 }
 
-function TextMessage({ msg, showTimestamp = true }: { msg: AgentMessage; showTimestamp?: boolean }) {
+function TextMessage({
+  msg,
+  showTimestamp = true,
+}: {
+  msg: AgentMessage
+  showTimestamp?: boolean
+}) {
   const time = formatMessageTime(msg.timestamp)
   const isLong = msg.content.length > 200
   const [isExpanded, setIsExpanded] = useState(!isLong)
@@ -376,7 +382,13 @@ function TextMessage({ msg, showTimestamp = true }: { msg: AgentMessage; showTim
   )
 }
 
-function SystemMessage({ msg, showTimestamp = true }: { msg: AgentMessage; showTimestamp?: boolean }) {
+function SystemMessage({
+  msg,
+  showTimestamp = true,
+}: {
+  msg: AgentMessage
+  showTimestamp?: boolean
+}) {
   const time = formatMessageTime(msg.timestamp)
   const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
   const Icon = config.icon

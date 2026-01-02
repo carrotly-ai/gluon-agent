@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { useWebSocket } from '@/hooks/useWebSocket'
 import {
   cancelRun,
   createPrForRun,
@@ -39,7 +40,6 @@ import {
   resumeRun,
   uploadAndAttachImage,
 } from '@/lib/api'
-import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDateWithContext, formatRelativeTime } from '@/lib/timestamps'
 import type {
   CommitDetail,
@@ -190,7 +190,8 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
         const updatedRun = (message as { type: 'run_updated'; run: Run }).run
         // Only process updates for this run
         if (updatedRun.id === runId) {
-          const wasActive = prevStatusRef.current === 'running' || prevStatusRef.current === 'pending'
+          const wasActive =
+            prevStatusRef.current === 'running' || prevStatusRef.current === 'pending'
           const isNowComplete = updatedRun.status === 'completed' || updatedRun.status === 'failed'
 
           // Update local state with the new run data

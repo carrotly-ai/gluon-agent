@@ -1,4 +1,4 @@
-import { BarChart3, LayoutGrid, Moon, Plus, Settings, Sun } from 'lucide-react'
+import { BarChart3, LayoutGrid, Moon, Plus, Settings, Sun, WifiOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
@@ -6,6 +6,7 @@ import { ProjectFilter } from './components/ProjectFilter'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { SettingsPage } from './components/SettingsPage'
 import { UsagePage } from './components/UsagePage'
+import { useOnline } from './hooks/useOnline'
 import { type RunDetailTab, useRouteSync } from './hooks/useRouteSync'
 import { useTheme } from './hooks/useTheme'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
@@ -19,6 +20,7 @@ function App() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const { theme, toggleTheme } = useTheme()
+  const online = useOnline()
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
 
@@ -276,6 +278,14 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Offline Banner */}
+      {!online && (
+        <div className="bg-[var(--color-vermillion)]/10 border-b border-[var(--color-vermillion)]/20 px-4 py-2 flex items-center justify-center gap-2 text-[0.6875rem] text-[var(--color-vermillion)]">
+          <WifiOff className="w-3.5 h-3.5" />
+          <span>You're offline. Some features may be limited.</span>
+        </div>
+      )}
 
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden min-h-0">
