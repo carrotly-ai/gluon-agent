@@ -4,18 +4,17 @@
 # ========== Stage 1: Build web-ui ==========
 FROM oven/bun:1 AS web-builder
 
-# Install git for version detection
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# Copy .git directory for version detection
-COPY .git/ .git/
+# Accept version info as build arguments (passed from build script)
+ARG VITE_APP_VERSION=dev
+ARG VITE_APP_FULL_VERSION=development
+ARG VITE_APP_BUILD_TIME
 
-# Get version info from git
-RUN echo "VITE_APP_VERSION=$(git rev-parse --short HEAD)" > /tmp/version.env && \
-    echo "VITE_APP_FULL_VERSION=$(git rev-parse HEAD)" >> /tmp/version.env && \
-    echo "VITE_APP_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/version.env && \
+# Create version.env file from build arguments
+RUN echo "VITE_APP_VERSION=${VITE_APP_VERSION}" > /tmp/version.env && \
+    echo "VITE_APP_FULL_VERSION=${VITE_APP_FULL_VERSION}" >> /tmp/version.env && \
+    echo "VITE_APP_BUILD_TIME=${VITE_APP_BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" >> /tmp/version.env && \
     cat /tmp/version.env
 
 # Copy web-ui source and create target directory structure
