@@ -496,12 +496,22 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
   const [showScrollButton, setShowScrollButton] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Track if we should auto-scroll (user hasn't scrolled up manually)
+  const shouldAutoScrollRef = useRef(true)
+  const prevMessageCountRef = useRef(0)
+
   // Clear streamed messages when run changes or completes
   useEffect(() => {
     if (!isActive) {
       clear()
     }
   }, [isActive, clear])
+
+  // Reset scroll state when runId changes (new run opened)
+  useEffect(() => {
+    shouldAutoScrollRef.current = true
+    prevMessageCountRef.current = 0
+  }, [runId])
 
   // Combine initial messages with streamed messages
   // For active runs, we start streaming from where we are, so don't duplicate
@@ -525,18 +535,38 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     setShowScrollButton(!isNearBottom)
   }, [])
 
-  const scrollToBottom = useCallback(() => {
-    containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' })
-  }, [])
-
-  // Auto-scroll when new messages arrive (if already at bottom)
+  // Auto-scroll when new messages arrive (if user hasn't scrolled up)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150
-    if (isNearBottom) {
+
+    // Check if this is the initial load or new messages arrived
+    const isInitialLoad = prevMessageCountRef.current === 0 && allMessages.length > 0
+    const hasNewMessages = allMessages.length > prevMessageCountRef.current
+
+    if (isInitialLoad) {
+      // Always scroll to bottom on initial load
       container.scrollTo({ top: container.scrollHeight })
+      shouldAutoScrollRef.current = true
+    } else if (hasNewMessages && shouldAutoScrollRef.current) {
+      // Check if still near bottom before auto-scrolling
+      const isNearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 150
+      if (isNearBottom) {
+        container.scrollTo({ top: container.scrollHeight })
+      } else {
+        // User scrolled up, stop auto-scrolling
+        shouldAutoScrollRef.current = false
+      }
     }
+
+    prevMessageCountRef.current = allMessages.length
+  }, [allMessages.length])
+
+  // Reset auto-scroll when user clicks scroll-to-bottom button
+  const scrollToBottomAndReset = useCallback(() => {
+    containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' })
+    shouldAutoScrollRef.current = true
   }, [])
 
   const toggleToolExpanded = (idx: number) => {
@@ -664,7 +694,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         {/* Scroll to bottom button */}
         {showScrollButton && (
           <button
-            onClick={scrollToBottom}
+            onClick={scrollToBottomAndReset}
             className="absolute bottom-3 right-3 p-1.5 rounded-full bg-[var(--color-ink)] border border-[var(--color-stone)]/20 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:border-[var(--color-stone)]/40 transition-all shadow-lg"
             title="Scroll to bottom"
           >
