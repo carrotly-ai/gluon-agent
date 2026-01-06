@@ -224,6 +224,9 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN recovery_count INTEGER DEFAULT 0;",
     "ALTER TABLE execution_runs ADD COLUMN last_recovery_at TEXT;",
     "ALTER TABLE execution_runs ADD COLUMN recovery_from_run_id TEXT;",
+    # Recovery progress UI (Phase: Recovery Progress)
+    "ALTER TABLE execution_runs ADD COLUMN is_recovering INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN recovery_item_count INTEGER DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -909,7 +912,8 @@ class GluonStore:
                     branch_name = ?, source_branch = ?, worktree_path = ?, use_worktree = ?,
                     git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?, pr_mergeable = ?,
                     archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?,
-                    recovery_count = ?, last_recovery_at = ?, recovery_from_run_id = ?
+                    recovery_count = ?, last_recovery_at = ?, recovery_from_run_id = ?,
+                    is_recovering = ?, recovery_item_count = ?
                 WHERE id = ?
                 """,
                 (
@@ -944,6 +948,8 @@ class GluonStore:
                     run.recovery_count,
                     run.last_recovery_at.isoformat() if run.last_recovery_at else None,
                     run.recovery_from_run_id,
+                    1 if run.is_recovering else 0,
+                    run.recovery_item_count,
                     run.id,
                 ),
             )
@@ -1047,6 +1053,13 @@ class GluonStore:
             else 0,
             last_recovery_at=_parse_datetime(row["last_recovery_at"]) if "last_recovery_at" in keys else None,
             recovery_from_run_id=row["recovery_from_run_id"] if "recovery_from_run_id" in keys else None,
+            # Recovery progress UI
+            is_recovering=bool(row["is_recovering"])
+            if "is_recovering" in keys and row["is_recovering"] is not None
+            else False,
+            recovery_item_count=row["recovery_item_count"]
+            if "recovery_item_count" in keys and row["recovery_item_count"] is not None
+            else 0,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:

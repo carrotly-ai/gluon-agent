@@ -264,6 +264,8 @@ class ExecutionRun(BaseModel):
     recovery_count: int = 0  # Number of times recovered from context overflow
     last_recovery_at: datetime | None = None  # When last recovery happened
     recovery_from_run_id: str | None = None  # Parent run ID if this is a recovery run
+    is_recovering: bool = False  # Currently in recovery process
+    recovery_item_count: int = 0  # Progress counter during recovery
 
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""

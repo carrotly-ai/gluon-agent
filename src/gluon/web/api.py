@@ -154,6 +154,9 @@ def create_app() -> FastAPI:
             pr_mergeable=run.pr_mergeable,
             # Archive tracking
             archived=run.archived,
+            # Recovery progress UI
+            is_recovering=run.is_recovering,
+            recovery_item_count=run.recovery_item_count,
         )
 
     # ========== REST API Routes ==========
@@ -472,11 +475,23 @@ def create_app() -> FastAPI:
             try:
                 print(f"[RECOVERY] Starting recovery for run {target_run.id} in {working_dir}", flush=True)
                 logger.info(f"Starting recovery for run {target_run.id} in {working_dir}")
+
+                # Set recovering flag at start
+                target_run.is_recovering = True
+                target_run.status = RunStatus.RUNNING
+                target_run.recovery_item_count = 0
+                store.update_run(target_run)
+
+                # Broadcast initial recovery state
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
+                await ws_manager.broadcast_run_update(target_run, project_name)
+
                 agent = GluonAgent(model=run.model) if run.model else GluonAgent()
                 result = None
                 item_count = 0
 
-                print(f"[RECOVERY] About to iterate agent.resume_with_fresh_context", flush=True)
+                print("[RECOVERY] About to iterate agent.resume_with_fresh_context", flush=True)
                 async for item in agent.resume_with_fresh_context(
                     recovery_state=recovery_state,
                     working_dir=working_dir,
@@ -488,8 +503,18 @@ def create_app() -> FastAPI:
                     if isinstance(item, AgentResult):
                         print(f"[RECOVERY] Got AgentResult: success={item.success}", flush=True)
                         result = item
+                    else:
+                        # Broadcast progress every 5 items
+                        if item_count % 5 == 0:
+                            target_run.recovery_item_count = item_count
+                            store.update_run(target_run)
+                            await ws_manager.broadcast_run_update(target_run, project_name)
 
                 print(f"[RECOVERY] Finished iteration, got {item_count} items", flush=True)
+
+                # Clear recovering flag at end
+                target_run.is_recovering = False
+                target_run.recovery_item_count = 0
 
                 # Update run with result
                 if result:
@@ -516,16 +541,17 @@ def create_app() -> FastAPI:
 
                 store.update_run(target_run)
 
-                # Broadcast update
-                project_lookup = get_project_lookup()
-                project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
+                # Broadcast final update
                 await ws_manager.broadcast_run_update(target_run, project_name)
 
             except Exception as e:
                 print(f"[RECOVERY] Exception for run {target_run.id}: {e}", flush=True)
                 import traceback
+
                 traceback.print_exc()
                 logger.exception(f"Recovery failed for run {target_run.id}: {e}")
+                target_run.is_recovering = False
+                target_run.recovery_item_count = 0
                 target_run.status = RunStatus.FAILED
                 target_run.error_message = f"Recovery failed: {e}"
                 store.update_run(target_run)
@@ -2070,6 +2096,7 @@ def create_app() -> FastAPI:
     _polling_task: asyncio.Task | None = None
     _cleanup_task: asyncio.Task | None = None
     _log_polling_task: asyncio.Task | None = None
+    _pr_polling_task: asyncio.Task | None = None
 
     # Track file positions for incremental log reading
     _log_file_positions: dict[str, int] = {}  # run_id -> last byte position
@@ -2216,6 +2243,70 @@ def create_app() -> FastAPI:
             # Poll every 100ms for responsive streaming
             await asyncio.sleep(0.1)
 
+    async def _poll_pr_status_changes() -> None:
+        """Background task to poll GitHub PR status and auto-transition merged PRs.
+
+        Checks runs in REVIEW status with open PRs every 60 seconds.
+        When a PR is merged, automatically transitions the run to COMPLETED.
+        """
+        from gluon.git_manager import GitManager
+        from gluon.models import RunStatus
+
+        pr_git_manager = GitManager(store)
+        project_lookup = get_project_lookup()
+
+        while True:
+            try:
+                # Find runs in REVIEW with open PRs
+                runs = store.list_runs(limit=100, include_archived=False)
+                review_runs_with_open_prs = [
+                    r
+                    for r in runs
+                    if r.status == RunStatus.REVIEW and r.pr_status == "open" and r.branch_name and not r.archived
+                ]
+
+                for run in review_runs_with_open_prs:
+                    try:
+                        project = store.get_project(run.project_id)
+                        if not project:
+                            continue
+
+                        # Check current PR status via GitHub CLI
+                        pr_info = await pr_git_manager._get_pr_info(project.expanded_path, run.branch_name)
+
+                        if pr_info and pr_info.get("status") == "merged":
+                            # PR was merged - transition to COMPLETED
+                            logger.info(
+                                f"PR #{run.pr_number} merged - transitioning run {run.id[:8]} from REVIEW to COMPLETED"
+                            )
+                            run.pr_status = "merged"
+                            run.status = RunStatus.COMPLETED
+                            store.update_run(run)
+
+                            # Broadcast update to WebSocket clients
+                            project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                            await ws_manager.broadcast_run_update(run, project_name)
+
+                        elif pr_info and pr_info.get("status") == "closed":
+                            # PR was closed without merge - just update pr_status
+                            if run.pr_status != "closed":
+                                run.pr_status = "closed"
+                                store.update_run(run)
+                                project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                                await ws_manager.broadcast_run_update(run, project_name)
+
+                    except Exception as e:
+                        logger.debug(f"Error checking PR status for run {run.id[:8]}: {e}")
+
+                # Refresh project lookup occasionally
+                project_lookup = get_project_lookup()
+
+            except Exception as e:
+                logger.error(f"Error in PR status polling: {e}")
+
+            # Poll every 60 seconds (GitHub API rate limiting consideration)
+            await asyncio.sleep(60)
+
     async def _cleanup_old_logs() -> None:
         """Background task to cleanup old log files based on retention policies.
 
@@ -2256,11 +2347,12 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
-        nonlocal _polling_task, _cleanup_task, _log_polling_task
+        nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task
         _polling_task = asyncio.create_task(_poll_run_status_changes())
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
         _log_polling_task = asyncio.create_task(_poll_log_updates())
-        logger.info("Started background tasks: run status polling, log streaming, log cleanup")
+        _pr_polling_task = asyncio.create_task(_poll_pr_status_changes())
+        logger.info("Started background tasks: run status polling, log streaming, log cleanup, PR status polling")
 
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
@@ -2272,6 +2364,8 @@ def create_app() -> FastAPI:
             tasks_to_cancel.append(("log streaming", _log_polling_task))
         if _cleanup_task:
             tasks_to_cancel.append(("log cleanup", _cleanup_task))
+        if _pr_polling_task:
+            tasks_to_cancel.append(("PR status polling", _pr_polling_task))
 
         for name, task in tasks_to_cancel:
             task.cancel()

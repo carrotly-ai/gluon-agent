@@ -31,6 +31,9 @@ class RunResponse(BaseModel):
     pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
     # Archive tracking
     archived: bool = Field(default=False, description="Whether run is archived")
+    # Recovery progress UI
+    is_recovering: bool = Field(default=False, description="Whether recovery is in progress")
+    recovery_item_count: int = Field(default=0, description="Number of items processed during recovery")
 
     class Config:
         from_attributes = True

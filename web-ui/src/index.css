@@ -182,6 +182,31 @@ body {
   animation: pulse-stripe 2s ease-in-out infinite;
 }
 
+/* Recovery state - amber shimmer */
+@keyframes shimmer-stripe {
+  0% {
+    opacity: 0.4;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.02);
+  }
+  100% {
+    opacity: 0.4;
+    transform: scaleY(1);
+  }
+}
+
+.card-recovering {
+  border-left-color: transparent !important;
+  overflow: visible !important;
+}
+
+.card-recovering .stripe-shimmer {
+  animation: shimmer-stripe 1.5s ease-in-out infinite;
+}
+
 /* Subtle hover - just a whisper */
 .hover-whisper {
   transition: background-color 0.3s ease;

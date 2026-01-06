@@ -235,7 +235,10 @@ export function KanbanBoard({
       if (run.status === targetColumn) return
 
       // Validate transition
-      if (!isTransitionAllowed(run.status, targetColumn)) {
+      console.log(`[DnD] Checking transition: ${run.status} -> ${targetColumn}`)
+      const allowed = isTransitionAllowed(run.status, targetColumn)
+      console.log(`[DnD] isTransitionAllowed result: ${allowed}`)
+      if (!allowed) {
         console.warn(`Transition from ${run.status} to ${targetColumn} not allowed`)
         return
       }
@@ -255,7 +258,9 @@ export function KanbanBoard({
     (column: KanbanColumn) => {
       if (!activeRun) return false
       if (column === 'review') return false // Review is entered automatically, not via drag-drop
-      return isTransitionAllowed(activeRun.status, column as RunStatus)
+      const allowed = isTransitionAllowed(activeRun.status, column as RunStatus)
+      console.log(`[DnD] canDropOnColumn(${column}): activeRun.status=${activeRun.status}, allowed=${allowed}`)
+      return allowed
     },
     [activeRun]
   )

@@ -26,6 +26,9 @@ export interface Run {
   pr_mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
   // Archive tracking
   archived?: boolean
+  // Recovery progress UI
+  is_recovering?: boolean
+  recovery_item_count?: number
 }
 
 /** Detailed run response (includes additional fields) */
