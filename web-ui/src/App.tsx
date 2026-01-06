@@ -13,8 +13,8 @@ import { useOnline } from './hooks/useOnline'
 import { type RunDetailTab, useRouteSync } from './hooks/useRouteSync'
 import { useTheme } from './hooks/useTheme'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
-import { archiveRun, cancelRun, fetchProjects, fetchRun, fetchRuns } from './lib/api'
-import type { Project, Run } from './lib/types'
+import { archiveRun, cancelRun, fetchProjects, fetchRun, fetchRuns, fetchUsageSummary } from './lib/api'
+import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
 import { cn } from './lib/utils'
 
@@ -26,6 +26,7 @@ function App() {
   const online = useOnline()
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
 
   // Enhanced connectivity detection for offline overlay
   const { status: connectivityStatus, retryIn, lastChecked, checkNow } = useConnectivity()
@@ -52,6 +53,16 @@ function App() {
   // Fetch projects for workspace mapping
   useEffect(() => {
     fetchProjects().then(setProjects).catch(console.error)
+  }, [])
+
+  // Fetch usage summary for header display (includes archived runs)
+  useEffect(() => {
+    fetchUsageSummary().then(setUsageSummary).catch(console.error)
+    // Refresh every 30 seconds to keep header updated
+    const interval = setInterval(() => {
+      fetchUsageSummary().then(setUsageSummary).catch(console.error)
+    }, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   // Fetch run when URL changes to include a runId
@@ -180,14 +191,8 @@ function App() {
 
   const activeRuns = filteredRuns.filter((r) => r.status === 'running').length
 
-  // Calculate today's total cost from all runs (not filtered)
-  const todayCost = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return runs
-      .filter((run) => new Date(run.created_at) >= today)
-      .reduce((sum, run) => sum + (run.cost_usd ?? 0), 0)
-  }, [runs])
+  // Get today's cost from usage summary API (includes archived runs)
+  const todayCost = usageSummary?.today_cost_usd ?? 0
 
   return (
     <div className="min-h-screen flex flex-col">
