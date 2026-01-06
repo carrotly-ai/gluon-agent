@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from gluon import __version__
-from gluon.agent import AgentMessage, AgentResult
+from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.core import (
     Orchestrator,
     ProjectExistsError,
@@ -48,6 +48,9 @@ app.add_typer(git_app, name="git")
 
 mcp_app = typer.Typer(help="MCP server diagnostics")
 app.add_typer(mcp_app, name="mcp")
+
+webhook_app = typer.Typer(help="Webhook configuration")
+app.add_typer(webhook_app, name="webhook")
 
 console = Console()
 
@@ -608,6 +611,197 @@ def mcp_status(
     console.print("  • Run [cyan]gluon mcp status <project>[/cyan] to check project-specific config")
 
 
+# ========== Webhook Commands ==========
+
+
+@webhook_app.command("list")
+def webhook_list():
+    """List all configured webhooks."""
+    store = GluonStore()
+    configs = store.list_webhook_configs(enabled_only=False)
+
+    if not configs:
+        console.print("[dim]No webhooks configured.[/dim]")
+        console.print("Use 'gluon webhook add' to configure a webhook.")
+        return
+
+    # Build project lookup
+    project_lookup: dict[str, str] = {}
+    for p in store.list_projects():
+        project_lookup[p.id] = p.name
+
+    table = Table(title="Webhooks")
+    table.add_column("ID", style="dim")
+    table.add_column("Handler", style="cyan")
+    table.add_column("Project")
+    table.add_column("Events")
+    table.add_column("Enabled")
+
+    for config in configs:
+        project_name = project_lookup.get(config.project_id, "All") if config.project_id else "All"
+        events_str = ", ".join(config.events) if config.events else "All"
+        enabled = "[green]Yes[/green]" if config.enabled else "[red]No[/red]"
+
+        table.add_row(
+            config.id[:8],
+            config.handler,
+            project_name,
+            events_str,
+            enabled,
+        )
+
+    console.print(table)
+
+
+@webhook_app.command("add")
+def webhook_add(
+    handler: Annotated[str, typer.Option("--handler", "-h", help="Webhook handler")] = "github",
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Project name")] = None,
+    events: Annotated[str | None, typer.Option("--events", "-e", help="Event types")] = None,
+    branches: Annotated[str | None, typer.Option("--branches", "-b", help="Branch filter")] = None,
+    ignore_branches: Annotated[str | None, typer.Option("--ignore-branches", help="Branches to ignore")] = None,
+    secret: Annotated[str | None, typer.Option("--secret", "-s", help="Webhook secret")] = None,
+):
+    """
+    Add a new webhook configuration.
+
+    Example:
+        gluon webhook add --handler github --project myapp --events push,pull_request
+    """
+    import secrets as secrets_module
+
+    from gluon.models import WebhookConfig
+
+    store = GluonStore()
+
+    # Resolve project if provided
+    project_id = None
+    if project:
+        proj = store.get_project_by_name(project)
+        if not proj:
+            console.print(f"[red]Error:[/red] Project not found: {project}")
+            raise typer.Exit(1)
+        project_id = proj.id
+
+    # Parse event list
+    events_list = [e.strip() for e in events.split(",")] if events else []
+
+    # Parse branch filters
+    branches_list = [b.strip() for b in branches.split(",")] if branches else None
+    ignore_branches_list = [b.strip() for b in ignore_branches.split(",")] if ignore_branches else None
+
+    # Generate secret if not provided
+    secret_key = secret or secrets_module.token_hex(32)
+
+    config = WebhookConfig(
+        handler=handler,
+        project_id=project_id,
+        secret_key=secret_key,
+        events=events_list,
+        branches=branches_list,
+        ignore_branches=ignore_branches_list,
+    )
+
+    store.create_webhook_config(config)
+
+    console.print("[green]✓[/green] Webhook created")
+    console.print(f"  ID: {config.id[:8]}")
+    console.print(f"  Handler: {handler}")
+    console.print(f"  Project: {project or 'All'}")
+    console.print(f"  Events: {', '.join(events_list) if events_list else 'All'}")
+    console.print()
+    console.print("[bold]Configure in GitHub:[/bold]")
+    console.print("  Webhook URL: https://your-gluon-server/api/webhooks/github")
+    console.print(f"  Secret: {secret_key}")
+    console.print()
+    console.print("[dim]Tip: Set GITHUB_WEBHOOK_SECRET env var if using a single secret for all webhooks.[/dim]")
+
+
+@webhook_app.command("remove")
+def webhook_remove(
+    webhook_id: Annotated[str, typer.Argument(help="Webhook ID (use 'gluon webhook list' to see IDs)")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
+):
+    """Remove a webhook configuration."""
+    store = GluonStore()
+
+    # Find webhook by ID prefix
+    config = store.get_webhook_config(webhook_id)
+    if not config:
+        # Try partial ID match
+        configs = store.list_webhook_configs(enabled_only=False)
+        for c in configs:
+            if c.id.startswith(webhook_id):
+                config = c
+                break
+
+    if not config:
+        console.print(f"[red]Error:[/red] Webhook not found: {webhook_id}")
+        raise typer.Exit(1)
+
+    if not force:
+        confirm = typer.confirm(f"Remove webhook {config.id[:8]} ({config.handler})?")
+        if not confirm:
+            console.print("Cancelled.")
+            raise typer.Exit(0)
+
+    if store.delete_webhook_config(config.id):
+        console.print(f"[green]✓[/green] Webhook {config.id[:8]} removed")
+    else:
+        console.print("[red]Error:[/red] Failed to remove webhook")
+        raise typer.Exit(1)
+
+
+@webhook_app.command("enable")
+def webhook_enable(
+    webhook_id: Annotated[str, typer.Argument(help="Webhook ID")],
+):
+    """Enable a webhook."""
+    store = GluonStore()
+
+    config = store.get_webhook_config(webhook_id)
+    if not config:
+        # Try partial ID match
+        configs = store.list_webhook_configs(enabled_only=False)
+        for c in configs:
+            if c.id.startswith(webhook_id):
+                config = c
+                break
+
+    if not config:
+        console.print(f"[red]Error:[/red] Webhook not found: {webhook_id}")
+        raise typer.Exit(1)
+
+    config.enabled = True
+    store.update_webhook_config(config)
+    console.print(f"[green]✓[/green] Webhook {config.id[:8]} enabled")
+
+
+@webhook_app.command("disable")
+def webhook_disable(
+    webhook_id: Annotated[str, typer.Argument(help="Webhook ID")],
+):
+    """Disable a webhook."""
+    store = GluonStore()
+
+    config = store.get_webhook_config(webhook_id)
+    if not config:
+        # Try partial ID match
+        configs = store.list_webhook_configs(enabled_only=False)
+        for c in configs:
+            if c.id.startswith(webhook_id):
+                config = c
+                break
+
+    if not config:
+        console.print(f"[red]Error:[/red] Webhook not found: {webhook_id}")
+        raise typer.Exit(1)
+
+    config.enabled = False
+    store.update_webhook_config(config)
+    console.print(f"[yellow]✓[/yellow] Webhook {config.id[:8]} disabled")
+
+
 # ========== Execution Commands ==========
 
 
@@ -743,6 +937,137 @@ def resume(
             raise typer.Exit(1)
 
     anyio.run(_resume)
+
+
+@app.command("recover")
+def recover(
+    run_id: Annotated[str, typer.Argument(help="Run ID to recover (full or short ID)")],
+    fresh: Annotated[bool, typer.Option("--fresh", help="Start completely fresh session")] = False,
+    wait: Annotated[bool, typer.Option("--wait", "-w", help="Wait for completion")] = True,
+):
+    """
+    Recover a run that failed due to context overflow.
+
+    Extracts progress from the failed run's logs and starts a fresh session
+    with a summary of completed work.
+
+    Example:
+        gluon recover 424b9a8e
+        gluon recover abc12345 --fresh
+    """
+    orchestrator = get_orchestrator()
+    runner = TaskRunner(store=orchestrator.store)
+
+    # Find the run
+    run = orchestrator.store.get_run_by_short_id(run_id)
+    if not run:
+        run = orchestrator.store.get_run(run_id)
+
+    if not run:
+        console.print(f"[red]Error:[/red] Run not found: {run_id}")
+        raise typer.Exit(1)
+
+    # Check if it looks like a context overflow failure
+    error_msg = (run.error_message or "").lower()
+    is_context_overflow = "context" in error_msg or "too long" in error_msg or "overflow" in error_msg
+
+    if not is_context_overflow and run.status != RunStatus.FAILED:
+        console.print(f"[yellow]Warning:[/yellow] Run {run.id[:8]} doesn't appear to have failed from context overflow")
+        console.print(f"[dim]Status: {run.status.value}, Error: {run.error_message or 'None'}[/dim]")
+
+    # Get project
+    project = orchestrator.store.get_project(run.project_id)
+    if not project:
+        console.print(f"[red]Error:[/red] Project not found for run: {run.project_id}")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]Recovering run:[/bold] {run.id[:8]}")
+    console.print(f"[bold]Project:[/bold] {project.name}")
+    console.print(f"[bold]Original prompt:[/bold] {run.prompt[:80]}{'...' if len(run.prompt) > 80 else ''}")
+
+    if run.cost_usd:
+        console.print(f"[dim]Previous cost: ${run.cost_usd:.4f}[/dim]")
+
+    # Extract recovery state
+    recovery_state = runner._extract_recovery_state(run)
+    completed = recovery_state.get("completed_work", [])
+    console.print(f"[dim]Completed tasks found: {len(completed)}[/dim]")
+    if completed:
+        for task in completed[:5]:  # Show first 5
+            console.print(f"  [green]✓[/green] {task[:60]}{'...' if len(task) > 60 else ''}")
+        if len(completed) > 5:
+            console.print(f"  [dim]... and {len(completed) - 5} more[/dim]")
+
+    console.print()
+
+    async def _recover():
+        from gluon.models import utc_now
+
+        # Determine working directory
+        if run.worktree_path and Path(run.worktree_path).exists():
+            working_dir = Path(run.worktree_path)
+            console.print(f"[dim]Using worktree: {working_dir}[/dim]")
+        else:
+            working_dir = project.expanded_path
+
+        # Create recovery run or update existing
+        if fresh:
+            # Create new run linked to the failed one
+            new_run = orchestrator.store.create_run(
+                project_id=run.project_id,
+                prompt=f"[Recovery from {run.id[:8]}] {run.prompt}",
+                initiator="cli:recover",
+                use_worktree=run.use_worktree,
+                model=run.model,
+            )
+            new_run.recovery_from_run_id = run.id
+            new_run.recovery_count = 1
+            new_run.last_recovery_at = utc_now()
+            orchestrator.store.update_run(new_run)
+            console.print(f"[bold]New recovery run:[/bold] {new_run.id[:8]}")
+        else:
+            # Update existing run for in-place recovery
+            run.recovery_count += 1
+            run.last_recovery_at = utc_now()
+            run.status = RunStatus.RUNNING
+            orchestrator.store.update_run(run)
+
+        # Execute recovery
+        agent = GluonAgent(model=run.model) if run.model else orchestrator.agent
+
+        console.print("[bold]Starting recovery...[/bold]\n")
+
+        result: AgentResult | None = None
+        async for item in agent.resume_with_fresh_context(
+            recovery_state=recovery_state,
+            working_dir=working_dir,
+        ):
+            if isinstance(item, AgentMessage):
+                _print_message(item)
+            elif isinstance(item, AgentResult):
+                result = item
+
+        if result:
+            console.print()
+            _print_result(result)
+
+            # Update run with result
+            target_run = orchestrator.store.get_run(new_run.id if fresh else run.id)
+            if target_run:
+                target_run.claude_session_id = result.claude_session_id
+                target_run.cost_usd = (target_run.cost_usd or 0) + (result.total_cost_usd or 0)
+                target_run.input_tokens = (target_run.input_tokens or 0) + (result.input_tokens or 0)
+                target_run.output_tokens = (target_run.output_tokens or 0) + (result.output_tokens or 0)
+                target_run.model_used = result.model_used
+
+                if result.success:
+                    target_run.status = RunStatus.REVIEW
+                else:
+                    target_run.mark_failed(result.error or "Recovery failed")
+
+                orchestrator.store.update_run(target_run)
+
+    anyio.run(_recover)
 
 
 # ========== Session Commands ==========

@@ -1,6 +1,40 @@
 # Dockerfile for gluon-agent
-# Single-stage build using python:3.12-slim with Claude Code CLI support
+# Multi-stage build: Stage 1 builds web-ui, Stage 2 sets up Python runtime
 
+# ========== Stage 1: Build web-ui ==========
+FROM oven/bun:1 AS web-builder
+
+# Install git for version detection
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy .git directory for version detection
+COPY .git/ .git/
+
+# Get version info from git
+RUN echo "VITE_APP_VERSION=$(git rev-parse --short HEAD)" > /tmp/version.env && \
+    echo "VITE_APP_FULL_VERSION=$(git rev-parse HEAD)" >> /tmp/version.env && \
+    echo "VITE_APP_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/version.env && \
+    cat /tmp/version.env
+
+# Copy web-ui source and create target directory structure
+COPY web-ui/package.json web-ui/bun.lock* web-ui/
+RUN cd web-ui && bun install --frozen-lockfile
+
+# Copy rest of web-ui source
+COPY web-ui/ web-ui/
+
+# Create the output directory (vite outputs to ../src/gluon/web/dist relative to web-ui)
+RUN mkdir -p src/gluon/web/dist
+
+# Build the frontend with version info
+RUN set -a && . /tmp/version.env && set +a && cd web-ui && bun run build
+
+# Export version for next stage
+RUN cp /tmp/version.env /app/version.env
+
+# ========== Stage 2: Python runtime ==========
 FROM python:3.12-slim-bookworm
 
 # Install system dependencies
@@ -56,10 +90,22 @@ RUN ssh-keyscan -t ed25519,rsa github.com >> /home/gluon/.ssh/known_hosts && \
 
 WORKDIR /app
 
+# Copy version info from builder stage
+COPY --from=web-builder /app/version.env /tmp/version.env
+
+# Set version environment variables
+RUN . /tmp/version.env && \
+    echo "GLUON_VERSION=${VITE_APP_VERSION}" >> /etc/environment && \
+    echo "GLUON_FULL_VERSION=${VITE_APP_FULL_VERSION}" >> /etc/environment && \
+    echo "GLUON_BUILD_TIME=${VITE_APP_BUILD_TIME}" >> /etc/environment
+
 # Copy gluon-agent source (as root first for proper permissions)
 COPY --chown=gluon:gluon pyproject.toml README.md LICENSE* ./
 COPY --chown=gluon:gluon src/ src/
 COPY --chown=gluon:gluon docker-entrypoint.sh /usr/local/bin/
+
+# Copy built web-ui from stage 1 (overwrites any pre-built dist)
+COPY --from=web-builder --chown=gluon:gluon /app/src/gluon/web/dist/ src/gluon/web/dist/
 
 # Install Python dependencies as root first
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
@@ -73,7 +119,13 @@ USER gluon
 # Install gluon-agent package with all features (web, telegram, discord)
 RUN pip install --no-cache-dir -e '.[all]'
 
-# Add to PATH
+# Set version env vars for runtime (using shell form to expand)
+# These get set from /tmp/version.env
+ARG GLUON_VERSION_ARG
+ARG GLUON_FULL_VERSION_ARG
+ARG GLUON_BUILD_TIME_ARG
+
+# Add to PATH and set version env vars
 ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon

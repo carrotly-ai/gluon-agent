@@ -56,6 +56,11 @@ export default defineConfig({
         // Runtime caching for API calls
         runtimeCaching: [
           {
+            // Version endpoint - NEVER cache, always hit network for update detection
+            urlPattern: /^.*\/api\/version/,
+            handler: 'NetworkOnly',
+          },
+          {
             // Cache API GET requests (projects, runs, etc.)
             urlPattern: /^.*\/api\/(projects|runs|workspaces|usage)/,
             handler: 'NetworkFirst',

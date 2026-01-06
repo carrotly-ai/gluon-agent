@@ -1,5 +1,5 @@
 /** Run status enum matching backend RunStatus */
-export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type RunStatus = 'pending' | 'running' | 'review' | 'completed' | 'failed' | 'cancelled'
 
 /** API response for execution runs */
 export interface Run {
@@ -146,6 +146,20 @@ export interface ResumeRunResponse {
   new_run_id?: string
 }
 
+/** Request body for recovering a run from context overflow */
+export interface RecoverRunRequest {
+  fresh?: boolean
+}
+
+/** Response from recover operation */
+export interface RecoverRunResponse {
+  run_id: string
+  status: string
+  recovery_count: number
+  is_fresh: boolean
+  completed_work: string[]
+}
+
 /** Response from session history */
 export interface SessionHistoryResponse {
   session_id: string
@@ -264,6 +278,7 @@ export interface UpdateStatusResponse {
 export const ALLOWED_TRANSITIONS: Record<RunStatus, Set<RunStatus>> = {
   pending: new Set(['cancelled']),
   running: new Set(['cancelled']),
+  review: new Set(['completed', 'pending', 'failed', 'cancelled']),
   completed: new Set(['pending']),
   failed: new Set(['pending']),
   cancelled: new Set(['pending']),

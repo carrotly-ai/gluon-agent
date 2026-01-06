@@ -13,7 +13,7 @@ import {
 } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useCallback, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { updateRunStatus } from '@/lib/api'
 import type { KanbanColumn, Run, RunStatus } from '@/lib/types'
@@ -29,14 +29,15 @@ interface KanbanBoardProps {
   onRunUpdate?: (run: Run) => void
 }
 
-// Column configuration with "review" as virtual column
-const COLUMNS: { status: KanbanColumn; label: string }[] = [
-  { status: 'pending', label: 'Queue' },
-  { status: 'running', label: 'Active' },
-  { status: 'review', label: 'Review' },
-  { status: 'completed', label: 'Done' },
-  { status: 'failed', label: 'Failed' },
-  { status: 'cancelled', label: 'Cancelled' },
+// Column configuration
+// alwaysVisible: true = always show, false = only show if has cards
+const COLUMNS: { status: KanbanColumn; label: string; alwaysVisible: boolean }[] = [
+  { status: 'pending', label: 'Queue', alwaysVisible: false },
+  { status: 'running', label: 'Active', alwaysVisible: true },
+  { status: 'review', label: 'Review', alwaysVisible: true },
+  { status: 'completed', label: 'Done', alwaysVisible: true },
+  { status: 'failed', label: 'Failed', alwaysVisible: false },
+  { status: 'cancelled', label: 'Cancelled', alwaysVisible: false },
 ]
 
 // Draggable RunCard wrapper
@@ -125,7 +126,7 @@ function DroppableColumn({
         <div className="p-2 sm:p-3 space-y-2">
           {runs.length === 0 ? (
             <p className="text-caption text-center py-8 opacity-40">
-              {status === 'review' ? 'No branches awaiting merge' : 'Empty'}
+              {status === 'review' ? 'No tasks awaiting review' : 'Empty'}
             </p>
           ) : (
             runs.map((run) => (
@@ -134,7 +135,9 @@ function DroppableColumn({
                 run={run}
                 onClick={() => onRunClick(run)}
                 onCancel={
-                  status === 'running' || status === 'pending' ? () => onCancelRun(run) : undefined
+                  status === 'running' || status === 'pending' || status === 'review'
+                    ? () => onCancelRun(run)
+                    : undefined
                 }
                 onArchive={
                   status !== 'running' && status !== 'pending' ? () => onArchiveRun(run) : undefined
@@ -167,25 +170,12 @@ export function KanbanBoard({
     useSensor(KeyboardSensor)
   )
 
-  // Group runs by column status (review is a virtual column)
+  // Group runs by column status (review is now a real backend state)
   const runsByColumn = runs.reduce<Record<KanbanColumn, Run[]>>(
     (acc, run) => {
-      // "Review" column: completed worktree runs that haven't been merged yet
-      // This includes: open PRs, local-only branches awaiting merge, draft PRs
-      const needsReview =
-        run.status === 'completed' &&
-        run.use_worktree &&
-        run.branch_name &&
-        run.pr_status !== 'merged'
-
-      if (needsReview) {
-        acc.review.push(run)
-      } else {
-        // Use the actual status column
-        const col = run.status as KanbanColumn
-        if (col in acc) {
-          acc[col].push(run)
-        }
+      const col = run.status as KanbanColumn
+      if (col in acc) {
+        acc[col].push(run)
       }
       return acc
     },
@@ -219,12 +209,26 @@ export function KanbanBoard({
       if (!over) return
 
       const runId = active.id as string
-      const targetColumn = over.id as KanbanColumn
       const run = runs.find((r) => r.id === runId)
 
       if (!run) return
 
-      // Review column is virtual - can't drop directly into it
+      // Determine target column - over.id could be a column status OR a run ID
+      // (when dropping on a card, dnd-kit returns that card's ID)
+      const validColumns: KanbanColumn[] = ['pending', 'running', 'review', 'completed', 'failed', 'cancelled']
+      let targetColumn: KanbanColumn
+
+      if (validColumns.includes(over.id as KanbanColumn)) {
+        // Dropped directly on a column
+        targetColumn = over.id as KanbanColumn
+      } else {
+        // Dropped on a card - find which column that card belongs to
+        const targetRun = runs.find((r) => r.id === over.id)
+        if (!targetRun) return
+        targetColumn = targetRun.status as KanbanColumn
+      }
+
+      // Review state is entered automatically - no manual transitions TO review allowed
       if (targetColumn === 'review') return
 
       // Check if the status is actually changing
@@ -250,7 +254,7 @@ export function KanbanBoard({
   const canDropOnColumn = useCallback(
     (column: KanbanColumn) => {
       if (!activeRun) return false
-      if (column === 'review') return false // Virtual column
+      if (column === 'review') return false // Review is entered automatically, not via drag-drop
       return isTransitionAllowed(activeRun.status, column as RunStatus)
     },
     [activeRun]
@@ -267,7 +271,9 @@ export function KanbanBoard({
       <div className="kanban-container">
         {/* Mobile: Tab navigation */}
         <div className="kanban-tabs md:hidden">
-          {COLUMNS.map(({ status, label }) => (
+          {COLUMNS.filter(
+            ({ status, alwaysVisible }) => alwaysVisible || runsByColumn[status].length > 0
+          ).map(({ status, label }) => (
             <button
               key={status}
               className={cn('kanban-tab', activeTab === status && 'active')}
@@ -299,8 +305,10 @@ export function KanbanBoard({
 
         {/* Desktop: Horizontal columns with DnD */}
         <div className="kanban-columns">
-          {COLUMNS.map(({ status, label }, i) => (
-            <div key={status} className="flex flex-1 self-stretch min-w-0">
+          {COLUMNS.filter(
+            ({ status, alwaysVisible }) => alwaysVisible || runsByColumn[status].length > 0
+          ).map(({ status, label }, i, filteredCols) => (
+            <React.Fragment key={status}>
               <DroppableColumn
                 status={status}
                 runs={runsByColumn[status]}
@@ -312,8 +320,8 @@ export function KanbanBoard({
                 canDrop={canDropOnColumn(status)}
                 activeRun={activeRun}
               />
-              {i < COLUMNS.length - 1 && <div className="kanban-divider" />}
-            </div>
+              {i < filteredCols.length - 1 && <div className="kanban-divider" />}
+            </React.Fragment>
           ))}
         </div>
       </div>

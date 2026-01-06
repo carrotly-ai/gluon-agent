@@ -1,6 +1,7 @@
 """Claude Agent SDK wrapper for Gluon."""
 
 import base64
+import logging
 import mimetypes
 import os
 import uuid
@@ -20,6 +21,45 @@ from claude_agent_sdk import (
 )
 
 from gluon.models_config import get_model_id
+
+logger = logging.getLogger(__name__)
+
+
+class ContextOverflowError(Exception):
+    """Raised when API returns 400 due to input/context being too long."""
+
+    pass
+
+
+def _classify_api_error(error: Exception) -> Exception:
+    """
+    Classify API errors for appropriate handling.
+
+    Detects context overflow errors (400 "input too long") to enable
+    graceful recovery via fresh session.
+
+    Args:
+        error: The original exception
+
+    Returns:
+        ContextOverflowError if it's a context overflow, otherwise original error
+    """
+    error_str = str(error).lower()
+
+    # Check for various forms of context overflow error messages
+    is_context_overflow = (
+        ("400" in error_str and "too long" in error_str)
+        or ("400" in error_str and "input" in error_str and "long" in error_str)
+        or ("input is too long" in error_str)
+        or ("context" in error_str and "exceeded" in error_str)
+        or ("token" in error_str and "limit" in error_str and "exceeded" in error_str)
+    )
+
+    if is_context_overflow:
+        return ContextOverflowError(str(error))
+
+    return error
+
 
 # Default tools available to Claude Code agents
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "TodoWrite"]
@@ -418,11 +458,27 @@ class GluonAgent:
         except Exception as e:
             success = False
             error_msg = str(e)
-            yield AgentMessage(
-                type="error",
-                content=f"Error: {error_msg}",
-                metadata={"exception": type(e).__name__},
-            )
+
+            # Classify the error for appropriate handling
+            classified_error = _classify_api_error(e)
+
+            if isinstance(classified_error, ContextOverflowError):
+                # Context overflow is recoverable - emit special message
+                yield AgentMessage(
+                    type="error",
+                    content=f"Context overflow: {error_msg}",
+                    metadata={
+                        "exception": "ContextOverflowError",
+                        "recoverable": True,
+                        "session_id": claude_session_id,
+                    },
+                )
+            else:
+                yield AgentMessage(
+                    type="error",
+                    content=f"Error: {error_msg}",
+                    metadata={"exception": type(e).__name__},
+                )
 
         # Yield final result
         yield AgentResult(
@@ -465,3 +521,90 @@ class GluonAgent:
             )
 
         return result
+
+    async def resume_with_fresh_context(
+        self,
+        recovery_state: dict[str, Any],
+        working_dir: Path,
+    ) -> AsyncIterator[AgentMessage | AgentResult]:
+        """
+        Resume work in a fresh session with summarized context.
+
+        This method creates a new Claude session (no resume) with a summary
+        of the previous session's progress, allowing recovery from context
+        overflow errors.
+
+        Args:
+            recovery_state: Dict with recovery info from _extract_recovery_state:
+                - original_prompt: The original task prompt
+                - completed_work: List of completed task descriptions
+                - branch_name: Git branch (if using worktree)
+                - worktree_path: Worktree path (if using worktree)
+            working_dir: Path to project directory
+
+        Yields:
+            AgentMessage during execution
+            AgentResult as final yield
+        """
+        # Build completed work summary
+        completed_work = recovery_state.get("completed_work", [])
+        if completed_work:
+            completed_list = "\n".join(f"- {task}" for task in completed_work)
+        else:
+            completed_list = "(No specific completed tasks recorded)"
+
+        # Build branch context
+        branch_context = ""
+        if recovery_state.get("branch_name"):
+            branch_context = f"- Working on branch: {recovery_state['branch_name']}"
+        if recovery_state.get("worktree_path"):
+            branch_context += f"\n- Worktree: {recovery_state['worktree_path']}"
+
+        # Truncate long prompts
+        original_prompt = recovery_state.get("original_prompt", "")
+        if len(original_prompt) > 500:
+            original_prompt = original_prompt[:500] + "..."
+
+        # Build summary prompt
+        summary_prompt = f"""## RECOVERY CONTEXT
+
+You are resuming work that was interrupted due to context overflow.
+The previous session ran out of context space and needs to continue in a fresh session.
+
+**Original Task:**
+{original_prompt}
+
+**Completed Work:**
+{completed_list}
+
+**Current State:**
+{branch_context if branch_context else "- Working in main project directory"}
+
+## INSTRUCTIONS
+1. Review the current state of the codebase to understand where work left off
+2. Identify remaining work from the original task
+3. Continue implementation from where it left off
+4. Do NOT repeat already completed work listed above
+
+## RESUME TASK
+Continue the original task, picking up where the previous session left off.
+Focus on what still needs to be done.
+"""
+
+        logger.info("Starting fresh session for context overflow recovery")
+
+        # Yield a system message indicating recovery
+        yield AgentMessage(
+            type="system",
+            content="Context overflow recovery - starting fresh session with progress summary",
+            metadata={"recovery": True, "parent_run_id": recovery_state.get("run_id")},
+        )
+
+        # Start fresh session (no resume)
+        async for item in self.execute(
+            working_dir=working_dir,
+            prompt=summary_prompt,
+            resume_session_id=None,  # Fresh session - no resume
+            fork_session=True,
+        ):
+            yield item

@@ -15,7 +15,6 @@ The script will:
 3. Update the database
 """
 
-import os
 import re
 import sqlite3
 from pathlib import Path
@@ -42,9 +41,9 @@ def migrate_paths():
     total_updated = 0
 
     for table in tables_to_migrate:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Migrating {table}")
-        print('='*60)
+        print("=" * 60)
 
         # Get all rows with paths
         cursor.execute(f"SELECT id, name, path FROM {table}")
@@ -85,9 +84,9 @@ def migrate_paths():
     # Commit changes
     if total_updated > 0:
         conn.commit()
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"✓ Successfully updated {total_updated} paths")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print("\nYour paths are now portable across environments!")
         print("- macOS: ${HOME} → /Users/mcutler")
         print("- Docker: ${HOME} → /home/gluon")

@@ -4,6 +4,17 @@
 
 set -e
 
+# Source version info if available (set during Docker build)
+if [ -f /tmp/version.env ]; then
+    set -a
+    . /tmp/version.env
+    # Convert VITE_ prefixed vars to GLUON_ prefixed for backend
+    export GLUON_VERSION="${VITE_APP_VERSION:-}"
+    export GLUON_FULL_VERSION="${VITE_APP_FULL_VERSION:-}"
+    export GLUON_BUILD_TIME="${VITE_APP_BUILD_TIME:-}"
+    set +a
+fi
+
 # Configure git to use HTTPS with GH_TOKEN instead of SSH
 configure_git_auth() {
     # Configure user identity if provided

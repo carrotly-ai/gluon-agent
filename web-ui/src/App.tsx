@@ -6,6 +6,7 @@ import { OfflineOverlay } from './components/OfflineOverlay'
 import { ProjectFilter } from './components/ProjectFilter'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { SettingsPage } from './components/SettingsPage'
+import { UpdateBanner } from './components/UpdateBanner'
 import { UsagePage } from './components/UsagePage'
 import { useConnectivity } from './hooks/useConnectivity'
 import { useOnline } from './hooks/useOnline'
@@ -291,6 +292,9 @@ function App() {
           <span>You're offline. Some features may be limited.</span>
         </div>
       )}
+
+      {/* Update Available Banner */}
+      {online && <UpdateBanner />}
 
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden min-h-0">

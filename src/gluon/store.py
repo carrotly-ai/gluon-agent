@@ -10,10 +10,16 @@ from gluon.models import (
     ExecutionRun,
     GitStatus,
     ImageAttachment,
+    Job,
+    JobStatus,
     Project,
     RunStatus,
     Session,
     SessionStatus,
+    WebhookConfig,
+    Worker,
+    WorkerStatus,
+    WorkerType,
     Workspace,
     utc_now,
 )
@@ -154,6 +160,70 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN last_resumed_at TEXT;",
     # Model selection (Phase: Model Parameter)
     "ALTER TABLE execution_runs ADD COLUMN model TEXT;",
+    # Workers table (Distributed Workers)
+    """
+    CREATE TABLE IF NOT EXISTS workers (
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        type TEXT NOT NULL DEFAULT 'local',
+        base_url TEXT,
+        api_key TEXT NOT NULL,
+        max_concurrent INTEGER DEFAULT 4,
+        status TEXT DEFAULT 'healthy',
+        last_heartbeat TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_workers_name ON workers(name);",
+    "CREATE INDEX IF NOT EXISTS idx_workers_status ON workers(status);",
+    # Jobs table (Distributed Queue)
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        prompt TEXT NOT NULL,
+        priority INTEGER DEFAULT 5,
+        status TEXT NOT NULL DEFAULT 'queued',
+        worker_id TEXT REFERENCES workers(id) ON DELETE SET NULL,
+        model TEXT,
+        use_worktree INTEGER DEFAULT 0,
+        session_id TEXT,
+        created_at TEXT NOT NULL,
+        assigned_at TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        error_message TEXT,
+        lease_expires_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_jobs_run ON jobs(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_worker ON jobs(worker_id);",
+    # Webhook configs table
+    """
+    CREATE TABLE IF NOT EXISTS webhook_configs (
+        id TEXT PRIMARY KEY,
+        handler TEXT NOT NULL,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        secret_key TEXT NOT NULL,
+        events TEXT,
+        prompt_template TEXT,
+        enabled INTEGER DEFAULT 1,
+        branches TEXT,
+        ignore_branches TEXT,
+        labels TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_webhooks_handler ON webhook_configs(handler);",
+    "CREATE INDEX IF NOT EXISTS idx_webhooks_project ON webhook_configs(project_id);",
+    # Context overflow recovery tracking
+    "ALTER TABLE execution_runs ADD COLUMN recovery_count INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN last_recovery_at TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN recovery_from_run_id TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -838,7 +908,8 @@ class GluonStore:
                     thread_id = ?, cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?,
                     branch_name = ?, source_branch = ?, worktree_path = ?, use_worktree = ?,
                     git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?, pr_mergeable = ?,
-                    archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?
+                    archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?,
+                    recovery_count = ?, last_recovery_at = ?, recovery_from_run_id = ?
                 WHERE id = ?
                 """,
                 (
@@ -870,6 +941,9 @@ class GluonStore:
                     run.archived_at.isoformat() if run.archived_at else None,
                     run.resume_count,
                     run.last_resumed_at.isoformat() if run.last_resumed_at else None,
+                    run.recovery_count,
+                    run.last_recovery_at.isoformat() if run.last_recovery_at else None,
+                    run.recovery_from_run_id,
                     run.id,
                 ),
             )
@@ -967,6 +1041,12 @@ class GluonStore:
             last_resumed_at=_parse_datetime(row["last_resumed_at"]) if "last_resumed_at" in keys else None,
             # Model selection
             model=row["model"] if "model" in keys else None,
+            # Context overflow recovery tracking
+            recovery_count=row["recovery_count"]
+            if "recovery_count" in keys and row["recovery_count"] is not None
+            else 0,
+            last_recovery_at=_parse_datetime(row["last_recovery_at"]) if "last_recovery_at" in keys else None,
+            recovery_from_run_id=row["recovery_from_run_id"] if "recovery_from_run_id" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
@@ -1394,3 +1474,382 @@ class GluonStore:
                 """,
             ).fetchall()
             return [self._row_to_image(row) for row in rows]
+
+    # ========== Worker CRUD (Distributed Workers) ==========
+
+    def create_worker(self, worker: Worker) -> Worker:
+        """Create a new worker."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO workers (id, name, type, base_url, api_key, max_concurrent,
+                                    status, last_heartbeat, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    worker.id,
+                    worker.name,
+                    worker.type.value,
+                    worker.base_url,
+                    worker.api_key,
+                    worker.max_concurrent,
+                    worker.status.value,
+                    worker.last_heartbeat.isoformat() if worker.last_heartbeat else None,
+                    worker.created_at.isoformat(),
+                    worker.updated_at.isoformat(),
+                ),
+            )
+        return worker
+
+    def get_worker(self, worker_id: str) -> Worker | None:
+        """Get worker by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM workers WHERE id = ?", (worker_id,)).fetchone()
+            if row:
+                return self._row_to_worker(row)
+        return None
+
+    def get_worker_by_name(self, name: str) -> Worker | None:
+        """Get worker by name."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM workers WHERE name = ?", (name,)).fetchone()
+            if row:
+                return self._row_to_worker(row)
+        return None
+
+    def list_workers(self, status: WorkerStatus | None = None) -> list[Worker]:
+        """List all workers, optionally filtered by status."""
+        with self._get_conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM workers WHERE status = ? ORDER BY name",
+                    (status.value,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM workers ORDER BY name").fetchall()
+            return [self._row_to_worker(row) for row in rows]
+
+    def get_healthy_workers(self) -> list[Worker]:
+        """Get all healthy workers."""
+        return self.list_workers(status=WorkerStatus.HEALTHY)
+
+    def update_worker(self, worker: Worker) -> Worker | None:
+        """Update an existing worker."""
+        worker.updated_at = utc_now()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE workers
+                SET name = ?, type = ?, base_url = ?, api_key = ?, max_concurrent = ?,
+                    status = ?, last_heartbeat = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    worker.name,
+                    worker.type.value,
+                    worker.base_url,
+                    worker.api_key,
+                    worker.max_concurrent,
+                    worker.status.value,
+                    worker.last_heartbeat.isoformat() if worker.last_heartbeat else None,
+                    worker.updated_at.isoformat(),
+                    worker.id,
+                ),
+            )
+            if cursor.rowcount > 0:
+                return worker
+            return None
+
+    def delete_worker(self, worker_id: str) -> bool:
+        """Delete a worker."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM workers WHERE id = ?", (worker_id,))
+            return cursor.rowcount > 0
+
+    def update_worker_heartbeat(self, worker_id: str) -> Worker | None:
+        """Update worker heartbeat timestamp and mark healthy."""
+        worker = self.get_worker(worker_id)
+        if not worker:
+            return None
+        worker.mark_healthy()
+        self.update_worker(worker)
+        return worker
+
+    def _row_to_worker(self, row: sqlite3.Row) -> Worker:
+        """Convert database row to Worker model."""
+        return Worker(
+            id=row["id"],
+            name=row["name"],
+            type=WorkerType(row["type"]),
+            base_url=row["base_url"],
+            api_key=row["api_key"],
+            max_concurrent=row["max_concurrent"],
+            status=WorkerStatus(row["status"]),
+            last_heartbeat=_parse_datetime(row["last_heartbeat"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Job CRUD (Distributed Queue) ==========
+
+    def create_job(self, job: Job) -> Job:
+        """Create a new job."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, run_id, project_id, prompt, priority, status,
+                                 worker_id, model, use_worktree, session_id,
+                                 created_at, assigned_at, started_at, completed_at,
+                                 error_message, lease_expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job.id,
+                    job.run_id,
+                    job.project_id,
+                    job.prompt,
+                    job.priority,
+                    job.status.value,
+                    job.worker_id,
+                    job.model,
+                    1 if job.use_worktree else 0,
+                    job.session_id,
+                    job.created_at.isoformat(),
+                    job.assigned_at.isoformat() if job.assigned_at else None,
+                    job.started_at.isoformat() if job.started_at else None,
+                    job.completed_at.isoformat() if job.completed_at else None,
+                    job.error_message,
+                    job.lease_expires_at.isoformat() if job.lease_expires_at else None,
+                ),
+            )
+        return job
+
+    def get_job(self, job_id: str) -> Job | None:
+        """Get job by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if row:
+                return self._row_to_job(row)
+        return None
+
+    def get_job_by_run_id(self, run_id: str) -> Job | None:
+        """Get job by run ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE run_id = ?", (run_id,)).fetchone()
+            if row:
+                return self._row_to_job(row)
+        return None
+
+    def list_jobs(
+        self,
+        status: JobStatus | None = None,
+        worker_id: str | None = None,
+        limit: int = 100,
+    ) -> list[Job]:
+        """List jobs with optional filters."""
+        with self._get_conn() as conn:
+            query = "SELECT * FROM jobs WHERE 1=1"
+            params: list[str | int] = []
+
+            if status:
+                query += " AND status = ?"
+                params.append(status.value)
+
+            if worker_id:
+                query += " AND worker_id = ?"
+                params.append(worker_id)
+
+            query += " ORDER BY priority ASC, created_at ASC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_job(row) for row in rows]
+
+    def list_queued_jobs(self, limit: int = 100) -> list[Job]:
+        """List jobs waiting in queue."""
+        return self.list_jobs(status=JobStatus.QUEUED, limit=limit)
+
+    def update_job(self, job: Job) -> None:
+        """Update an existing job."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = ?, worker_id = ?, assigned_at = ?, started_at = ?,
+                    completed_at = ?, error_message = ?, lease_expires_at = ?
+                WHERE id = ?
+                """,
+                (
+                    job.status.value,
+                    job.worker_id,
+                    job.assigned_at.isoformat() if job.assigned_at else None,
+                    job.started_at.isoformat() if job.started_at else None,
+                    job.completed_at.isoformat() if job.completed_at else None,
+                    job.error_message,
+                    job.lease_expires_at.isoformat() if job.lease_expires_at else None,
+                    job.id,
+                ),
+            )
+
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            return cursor.rowcount > 0
+
+    def get_expired_lease_jobs(self) -> list[Job]:
+        """Get jobs with expired leases (for recovery)."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM jobs
+                WHERE lease_expires_at IS NOT NULL
+                  AND lease_expires_at < ?
+                  AND status IN (?, ?)
+                """,
+                (now, JobStatus.ASSIGNED.value, JobStatus.RUNNING.value),
+            ).fetchall()
+            return [self._row_to_job(row) for row in rows]
+
+    def _row_to_job(self, row: sqlite3.Row) -> Job:
+        """Convert database row to Job model."""
+        return Job(
+            id=row["id"],
+            run_id=row["run_id"],
+            project_id=row["project_id"],
+            prompt=row["prompt"],
+            priority=row["priority"],
+            status=JobStatus(row["status"]),
+            worker_id=row["worker_id"],
+            model=row["model"],
+            use_worktree=bool(row["use_worktree"]),
+            session_id=row["session_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            assigned_at=_parse_datetime(row["assigned_at"]),
+            started_at=_parse_datetime(row["started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
+            error_message=row["error_message"],
+            lease_expires_at=_parse_datetime(row["lease_expires_at"]),
+        )
+
+    # ========== Webhook Config CRUD ==========
+
+    def create_webhook_config(self, config: WebhookConfig) -> WebhookConfig:
+        """Create a new webhook configuration."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO webhook_configs (id, handler, project_id, secret_key, events,
+                                            prompt_template, enabled, branches,
+                                            ignore_branches, labels, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    config.id,
+                    config.handler,
+                    config.project_id,
+                    config.secret_key,
+                    json.dumps(config.events) if config.events else None,
+                    config.prompt_template,
+                    1 if config.enabled else 0,
+                    json.dumps(config.branches) if config.branches else None,
+                    json.dumps(config.ignore_branches) if config.ignore_branches else None,
+                    json.dumps(config.labels) if config.labels else None,
+                    config.created_at.isoformat(),
+                    config.updated_at.isoformat(),
+                ),
+            )
+        return config
+
+    def get_webhook_config(self, config_id: str) -> WebhookConfig | None:
+        """Get webhook config by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM webhook_configs WHERE id = ?", (config_id,)).fetchone()
+            if row:
+                return self._row_to_webhook_config(row)
+        return None
+
+    def list_webhook_configs(
+        self,
+        handler: str | None = None,
+        project_id: str | None = None,
+        enabled_only: bool = True,
+    ) -> list[WebhookConfig]:
+        """List webhook configs with optional filters."""
+        with self._get_conn() as conn:
+            query = "SELECT * FROM webhook_configs WHERE 1=1"
+            params: list[str | int] = []
+
+            if handler:
+                query += " AND handler = ?"
+                params.append(handler)
+
+            if project_id:
+                query += " AND project_id = ?"
+                params.append(project_id)
+
+            if enabled_only:
+                query += " AND enabled = 1"
+
+            query += " ORDER BY created_at DESC"
+
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_webhook_config(row) for row in rows]
+
+    def get_webhook_configs_for_handler(self, handler: str) -> list[WebhookConfig]:
+        """Get all enabled webhook configs for a handler (e.g., 'github')."""
+        return self.list_webhook_configs(handler=handler, enabled_only=True)
+
+    def update_webhook_config(self, config: WebhookConfig) -> WebhookConfig | None:
+        """Update an existing webhook config."""
+        config.updated_at = utc_now()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE webhook_configs
+                SET handler = ?, project_id = ?, secret_key = ?, events = ?,
+                    prompt_template = ?, enabled = ?, branches = ?,
+                    ignore_branches = ?, labels = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    config.handler,
+                    config.project_id,
+                    config.secret_key,
+                    json.dumps(config.events) if config.events else None,
+                    config.prompt_template,
+                    1 if config.enabled else 0,
+                    json.dumps(config.branches) if config.branches else None,
+                    json.dumps(config.ignore_branches) if config.ignore_branches else None,
+                    json.dumps(config.labels) if config.labels else None,
+                    config.updated_at.isoformat(),
+                    config.id,
+                ),
+            )
+            if cursor.rowcount > 0:
+                return config
+            return None
+
+    def delete_webhook_config(self, config_id: str) -> bool:
+        """Delete a webhook config."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM webhook_configs WHERE id = ?", (config_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_webhook_config(self, row: sqlite3.Row) -> WebhookConfig:
+        """Convert database row to WebhookConfig model."""
+        return WebhookConfig(
+            id=row["id"],
+            handler=row["handler"],
+            project_id=row["project_id"],
+            secret_key=row["secret_key"],
+            events=json.loads(row["events"]) if row["events"] else [],
+            prompt_template=row["prompt_template"],
+            enabled=bool(row["enabled"]),
+            branches=json.loads(row["branches"]) if row["branches"] else None,
+            ignore_branches=json.loads(row["ignore_branches"]) if row["ignore_branches"] else None,
+            labels=json.loads(row["labels"]) if row["labels"] else None,
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
