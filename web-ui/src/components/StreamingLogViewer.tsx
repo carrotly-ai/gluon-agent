@@ -550,12 +550,13 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       shouldAutoScrollRef.current = true
     } else if (hasNewMessages && shouldAutoScrollRef.current) {
       // Check if still near bottom before auto-scrolling
+      // Use generous threshold (400px ~15-20 lines) to tolerate accidental trackpad gestures
       const isNearBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 150
+        container.scrollHeight - container.scrollTop - container.clientHeight < 400
       if (isNearBottom) {
         container.scrollTo({ top: container.scrollHeight })
       } else {
-        // User scrolled up, stop auto-scrolling
+        // User intentionally scrolled up, stop auto-scrolling
         shouldAutoScrollRef.current = false
       }
     }
