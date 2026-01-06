@@ -460,37 +460,77 @@ def create_app() -> FastAPI:
         else:
             working_dir = project.expanded_path
 
+        # Verify working directory exists
+        if not working_dir.exists():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Working directory does not exist: {working_dir}. The worktree may have been deleted.",
+            )
+
         # Start recovery in background
         async def _run_recovery():
-            agent = GluonAgent(model=run.model) if run.model else GluonAgent()
-            result = None
+            try:
+                print(f"[RECOVERY] Starting recovery for run {target_run.id} in {working_dir}", flush=True)
+                logger.info(f"Starting recovery for run {target_run.id} in {working_dir}")
+                agent = GluonAgent(model=run.model) if run.model else GluonAgent()
+                result = None
+                item_count = 0
 
-            async for item in agent.resume_with_fresh_context(
-                recovery_state=recovery_state,
-                working_dir=working_dir,
-            ):
-                from gluon.agent import AgentResult
+                print(f"[RECOVERY] About to iterate agent.resume_with_fresh_context", flush=True)
+                async for item in agent.resume_with_fresh_context(
+                    recovery_state=recovery_state,
+                    working_dir=working_dir,
+                ):
+                    item_count += 1
+                    print(f"[RECOVERY] Item {item_count}: {type(item).__name__}", flush=True)
+                    from gluon.agent import AgentResult
 
-                if isinstance(item, AgentResult):
-                    result = item
+                    if isinstance(item, AgentResult):
+                        print(f"[RECOVERY] Got AgentResult: success={item.success}", flush=True)
+                        result = item
 
-            # Update run with result
-            if result:
-                target_run.claude_session_id = result.claude_session_id
-                target_run.cost_usd = (target_run.cost_usd or 0) + (result.total_cost_usd or 0)
-                target_run.input_tokens = (target_run.input_tokens or 0) + (result.input_tokens or 0)
-                target_run.output_tokens = (target_run.output_tokens or 0) + (result.output_tokens or 0)
-                target_run.model_used = result.model_used
+                print(f"[RECOVERY] Finished iteration, got {item_count} items", flush=True)
 
-                if result.success:
-                    target_run.status = RunStatus.REVIEW
+                # Update run with result
+                if result:
+                    target_run.claude_session_id = result.claude_session_id
+                    target_run.cost_usd = (target_run.cost_usd or 0) + (result.total_cost_usd or 0)
+                    target_run.input_tokens = (target_run.input_tokens or 0) + (result.input_tokens or 0)
+                    target_run.output_tokens = (target_run.output_tokens or 0) + (result.output_tokens or 0)
+                    target_run.model_used = result.model_used
+
+                    if result.success:
+                        target_run.status = RunStatus.REVIEW
+                        print(f"[RECOVERY] Completed successfully for run {target_run.id}", flush=True)
+                        logger.info(f"Recovery completed successfully for run {target_run.id}")
+                    else:
+                        target_run.status = RunStatus.FAILED
+                        target_run.error_message = result.error
+                        print(f"[RECOVERY] Failed for run {target_run.id}: {result.error}", flush=True)
+                        logger.warning(f"Recovery failed for run {target_run.id}: {result.error}")
                 else:
                     target_run.status = RunStatus.FAILED
-                    target_run.error_message = result.error
+                    target_run.error_message = "Recovery produced no result"
+                    print(f"[RECOVERY] No result for run {target_run.id}", flush=True)
+                    logger.error(f"Recovery for run {target_run.id} produced no AgentResult")
 
                 store.update_run(target_run)
 
                 # Broadcast update
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
+                await ws_manager.broadcast_run_update(target_run, project_name)
+
+            except Exception as e:
+                print(f"[RECOVERY] Exception for run {target_run.id}: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+                logger.exception(f"Recovery failed for run {target_run.id}: {e}")
+                target_run.status = RunStatus.FAILED
+                target_run.error_message = f"Recovery failed: {e}"
+                store.update_run(target_run)
+
+                # Broadcast failure
                 project_lookup = get_project_lookup()
                 project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
                 await ws_manager.broadcast_run_update(target_run, project_name)
@@ -870,7 +910,7 @@ def create_app() -> FastAPI:
         "pending": {"cancelled"},
         "running": {"cancelled"},
         "review": {"completed", "pending", "failed", "cancelled"},  # Approve, retry, reject, or cancel
-        "completed": {"pending"},  # Re-queue for retry
+        "completed": {"pending", "review"},  # Re-queue for retry, or back to review if PR still open
         "failed": {"pending"},  # Retry
         "cancelled": {"pending"},  # Retry
     }

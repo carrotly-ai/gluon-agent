@@ -279,7 +279,7 @@ export const ALLOWED_TRANSITIONS: Record<RunStatus, Set<RunStatus>> = {
   pending: new Set(['cancelled']),
   running: new Set(['cancelled']),
   review: new Set(['completed', 'pending', 'failed', 'cancelled']),
-  completed: new Set(['pending']),
+  completed: new Set(['pending', 'review']), // Back to review if PR still open
   failed: new Set(['pending']),
   cancelled: new Set(['pending']),
 }
