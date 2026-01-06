@@ -2,10 +2,12 @@ import { BarChart3, LayoutGrid, Moon, Plus, Settings, Sun, WifiOff } from 'lucid
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
+import { OfflineOverlay } from './components/OfflineOverlay'
 import { ProjectFilter } from './components/ProjectFilter'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { SettingsPage } from './components/SettingsPage'
 import { UsagePage } from './components/UsagePage'
+import { useConnectivity } from './hooks/useConnectivity'
 import { useOnline } from './hooks/useOnline'
 import { type RunDetailTab, useRouteSync } from './hooks/useRouteSync'
 import { useTheme } from './hooks/useTheme'
@@ -23,6 +25,9 @@ function App() {
   const online = useOnline()
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
+
+  // Enhanced connectivity detection for offline overlay
+  const { status: connectivityStatus, retryIn, lastChecked, checkNow } = useConnectivity()
 
   // URL-based routing
   const {
@@ -327,6 +332,16 @@ function App() {
         onTaskCreated={() => {}}
         initialProject={filter.type === 'project' ? filter.value || undefined : undefined}
       />
+
+      {/* Offline overlay - shows when backend is unreachable */}
+      {(connectivityStatus === 'offline' || connectivityStatus === 'backend-unreachable') && (
+        <OfflineOverlay
+          status={connectivityStatus}
+          retryIn={retryIn}
+          onRetry={checkNow}
+          lastConnected={lastChecked}
+        />
+      )}
     </div>
   )
 }

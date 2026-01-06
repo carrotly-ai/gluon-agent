@@ -48,6 +48,11 @@ export default defineConfig({
       workbox: {
         // Cache static assets with cache-first strategy
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // SPA navigation fallback - serve index.html for all navigation requests
+        // This ensures the app shell loads even when offline
+        navigateFallback: '/index.html',
+        // Don't use fallback for API routes - let them fail so the app can show offline state
+        navigateFallbackDenylist: [/^\/api/],
         // Runtime caching for API calls
         runtimeCaching: [
           {
@@ -67,6 +72,23 @@ export default defineConfig({
             },
           },
           {
+            // Status endpoint for connectivity checks - always hit the network, never cache
+            urlPattern: /^.*\/api\/status/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-status',
+              networkTimeoutSeconds: 5,
+              // Only cache successful responses (never cache errors)
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 1,
+                maxAgeSeconds: 1, // Effectively don't cache
+              },
+            },
+          },
+          {
             // Cache fonts
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
@@ -81,7 +103,25 @@ export default defineConfig({
               },
             },
           },
+          {
+            // Cache Google font files
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-webfonts',
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
         ],
+        // Skip waiting and claim clients immediately for faster updates
+        skipWaiting: true,
+        clientsClaim: true,
       },
       devOptions: {
         enabled: false, // Disable in dev to avoid caching issues

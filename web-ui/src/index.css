@@ -447,3 +447,331 @@ body {
     font-size: 1rem !important; /* 16px */
   }
 }
+
+/* ============================================
+   Offline Robot & Overlay Animations
+   ============================================ */
+
+/* Robot floating animation */
+@keyframes robot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+/* Eye blinking animation */
+@keyframes robot-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* Antenna pulse */
+@keyframes antenna-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* Signal search rings emanating from antenna */
+@keyframes signal-search {
+  0% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.5);
+  }
+}
+
+/* Arm wave animation */
+@keyframes arm-wave {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-20deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+/* Chest indicator pulse */
+@keyframes chest-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+/* Loading dots animation */
+@keyframes dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+/* Robot component styles */
+.offline-robot {
+  /* Base floating animation for all states */
+  .robot-body {
+    animation: robot-float 3s ease-in-out infinite;
+    transform-origin: center center;
+  }
+
+  /* Eye blinking */
+  .eye {
+    transform-origin: center center;
+    animation: robot-blink 4s ease-in-out infinite;
+  }
+
+  .eye--right {
+    animation-delay: 0.2s;
+  }
+
+  /* Antenna pulse */
+  .antenna-ball {
+    animation: antenna-pulse 2s ease-in-out infinite;
+  }
+
+  /* Chest indicator */
+  .chest-indicator {
+    animation: chest-pulse 2s ease-in-out infinite;
+  }
+}
+
+/* Searching state - active signal search */
+.offline-robot--searching {
+  .signal-ring {
+    animation: signal-search 2s ease-out infinite;
+  }
+
+  .signal-ring--1 {
+    animation-delay: 0s;
+  }
+
+  .signal-ring--2 {
+    animation-delay: 0.4s;
+  }
+
+  .signal-ring--3 {
+    animation-delay: 0.8s;
+  }
+
+  .arm--left {
+    transform-origin: 31px 105px;
+    animation: arm-wave 1.5s ease-in-out infinite;
+  }
+}
+
+/* Reconnecting state - hopeful, faster animations */
+.offline-robot--reconnecting {
+  .robot-body {
+    animation-duration: 2s;
+  }
+
+  .antenna-ball {
+    animation-duration: 1s;
+  }
+
+  .signal-ring {
+    animation: signal-search 1.5s ease-out infinite;
+  }
+
+  .signal-ring--1 {
+    animation-delay: 0s;
+  }
+
+  .signal-ring--2 {
+    animation-delay: 0.3s;
+  }
+
+  .signal-ring--3 {
+    animation-delay: 0.6s;
+  }
+}
+
+/* Waiting state - calm, minimal animation */
+.offline-robot--waiting {
+  .robot-body {
+    animation-duration: 4s;
+  }
+
+  .antenna-ball {
+    animation: antenna-pulse 3s ease-in-out infinite;
+  }
+
+  /* No signal rings in waiting state */
+  .signal-ring {
+    display: none;
+  }
+}
+
+/* Offline Overlay styles */
+.offline-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-void);
+  padding: 1.5rem;
+}
+
+.offline-overlay__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 400px;
+  gap: 1.5rem;
+}
+
+.offline-overlay__robot {
+  /* Robot already has animations, just contain it */
+}
+
+.offline-overlay__message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.offline-overlay__title {
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--color-paper);
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.offline-overlay__subtitle {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--color-stone);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Loading dots */
+.offline-overlay__dots {
+  display: flex;
+  gap: 0.5rem;
+  height: 24px;
+  align-items: center;
+}
+
+.offline-overlay__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-stone);
+  animation: dot-bounce 1.4s ease-in-out infinite;
+}
+
+.offline-overlay__dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.offline-overlay__dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Actions */
+.offline-overlay__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.offline-overlay__countdown {
+  font-size: 0.6875rem;
+  color: var(--color-stone);
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.offline-overlay__retry-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-paper);
+  background: transparent;
+  border: 1px solid rgba(163, 163, 163, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.offline-overlay__retry-btn:hover:not(:disabled) {
+  border-color: rgba(163, 163, 163, 0.4);
+  background: rgba(163, 163, 163, 0.05);
+}
+
+.offline-overlay__retry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.offline-overlay__retry-btn--loading {
+  border-color: var(--color-indigo);
+}
+
+/* Last connected */
+.offline-overlay__last-connected {
+  font-size: 0.625rem;
+  color: var(--color-stone);
+  opacity: 0.6;
+  margin: 0;
+}
+
+/* Light mode adjustments */
+.light .offline-overlay {
+  background: var(--color-void);
+}
+
+.light .offline-overlay__retry-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.light .offline-overlay__retry-btn:hover:not(:disabled) {
+  border-color: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.03);
+}
