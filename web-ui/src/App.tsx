@@ -19,7 +19,7 @@ import { getWorkspaceFromPath } from './lib/types'
 import { cn } from './lib/utils'
 
 function App() {
-  const { runs, loading, error, connected, setRuns } = useRunsWithWebSocket()
+  const { runs, loading, error, connected, setRuns, refresh } = useRunsWithWebSocket()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const { theme, toggleTheme } = useTheme()
@@ -322,6 +322,7 @@ function App() {
             onCancelRun={handleCancelRun}
             onArchiveRun={handleArchiveRun}
             onRunUpdate={handleRunUpdated}
+            onRefresh={refresh}
           />
         )}
       </main>

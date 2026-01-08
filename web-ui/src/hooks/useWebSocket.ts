@@ -124,22 +124,32 @@ export function useRunsWithWebSocket() {
 
   const { connected } = useWebSocket(handleMessage)
 
+  // Fetch runs from API
+  const fetchRunsData = useCallback(async () => {
+    try {
+      const response = await fetch('/api/runs?limit=100')
+      if (!response.ok) throw new Error('Failed to fetch runs')
+      const data = await response.json()
+      setRuns(data)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    }
+  }, [])
+
   // Initial fetch
   useEffect(() => {
     async function load() {
-      try {
-        const response = await fetch('/api/runs?limit=100')
-        if (!response.ok) throw new Error('Failed to fetch runs')
-        const data = await response.json()
-        setRuns(data)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error')
-      } finally {
-        setLoading(false)
-      }
+      await fetchRunsData()
+      setLoading(false)
     }
     load()
-  }, [])
+  }, [fetchRunsData])
 
-  return { runs, loading, error, connected, setRuns }
+  // Manual refresh function for pull-to-refresh
+  const refresh = useCallback(async () => {
+    await fetchRunsData()
+  }, [fetchRunsData])
+
+  return { runs, loading, error, connected, setRuns, refresh }
 }

@@ -14,6 +14,7 @@ import {
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import React, { useCallback, useState } from 'react'
+import { PullToRefresh } from '@/components/PullToRefresh'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { updateRunStatus } from '@/lib/api'
 import type { KanbanColumn, Run, RunStatus } from '@/lib/types'
@@ -27,6 +28,7 @@ interface KanbanBoardProps {
   onCancelRun: (run: Run) => void
   onArchiveRun: (run: Run) => void
   onRunUpdate?: (run: Run) => void
+  onRefresh?: () => Promise<void>
 }
 
 // Column configuration
@@ -157,6 +159,7 @@ export function KanbanBoard({
   onCancelRun,
   onArchiveRun,
   onRunUpdate,
+  onRefresh,
 }: KanbanBoardProps) {
   const [activeTab, setActiveTab] = useState<KanbanColumn>('running')
   const [activeRun, setActiveRun] = useState<Run | null>(null)
@@ -291,16 +294,21 @@ export function KanbanBoard({
           ))}
         </div>
 
-        {/* Mobile: Single column view (no DnD on mobile) */}
+        {/* Mobile: Single column view with pull-to-refresh (no DnD on mobile) */}
         <div className="kanban-column-mobile md:hidden">
-          <DroppableColumn
-            status={activeTab}
-            runs={runsByColumn[activeTab]}
-            label={COLUMNS.find((c) => c.status === activeTab)?.label || ''}
-            onRunClick={onRunClick}
-            onCancelRun={onCancelRun}
-            onArchiveRun={onArchiveRun}
-          />
+          <PullToRefresh
+            onRefresh={onRefresh || (async () => {})}
+            disabled={!onRefresh || !!activeRun}
+          >
+            <DroppableColumn
+              status={activeTab}
+              runs={runsByColumn[activeTab]}
+              label={COLUMNS.find((c) => c.status === activeTab)?.label || ''}
+              onRunClick={onRunClick}
+              onCancelRun={onCancelRun}
+              onArchiveRun={onArchiveRun}
+            />
+          </PullToRefresh>
         </div>
 
         {/* Desktop: Horizontal columns with DnD */}

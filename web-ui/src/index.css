@@ -800,3 +800,89 @@ body {
   border-color: rgba(0, 0, 0, 0.3);
   background: rgba(0, 0, 0, 0.03);
 }
+
+/* ============================================
+   Pull-to-Refresh (Mobile PWA)
+   ============================================ */
+
+.pull-to-refresh-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pull-to-refresh-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 10;
+  transition: opacity 0.15s ease;
+}
+
+.pull-to-refresh-indicator--visible {
+  opacity: 1;
+}
+
+.pull-to-refresh-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-paper);
+  transition: transform 0.1s ease;
+}
+
+.pull-to-refresh-spinner--active {
+  animation: ptr-spin 1s linear infinite;
+}
+
+@keyframes ptr-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pull-to-refresh-text {
+  font-size: 0.625rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--color-stone);
+}
+
+.pull-to-refresh-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  transition: transform 0.2s ease;
+  /* Prevent overscroll on iOS for pull-to-refresh to work */
+  overscroll-behavior-y: contain;
+}
+
+/* Only show pull-to-refresh on touch devices */
+@media (pointer: fine) {
+  .pull-to-refresh-indicator {
+    display: none;
+  }
+
+  .pull-to-refresh-content {
+    overscroll-behavior-y: auto;
+  }
+}
