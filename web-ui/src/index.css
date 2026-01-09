@@ -477,14 +477,14 @@ body {
    Offline Robot & Overlay Animations
    ============================================ */
 
-/* Robot floating animation */
+/* Robot floating animation - subtle and refined */
 @keyframes robot-float {
   0%,
   100% {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-12px);
+    transform: translateY(-6px);
   }
 }
 
@@ -500,16 +500,14 @@ body {
   }
 }
 
-/* Antenna pulse */
+/* Antenna pulse - subtle glow */
 @keyframes antenna-pulse {
   0%,
   100% {
-    opacity: 0.6;
-    transform: scale(1);
+    opacity: 0.7;
   }
   50% {
     opacity: 1;
-    transform: scale(1.2);
   }
 }
 
@@ -525,30 +523,25 @@ body {
   }
 }
 
-/* Arm wave animation */
+/* Arm wave animation - subtle sway */
 @keyframes arm-wave {
   0%,
   100% {
     transform: rotate(0deg);
   }
-  25% {
-    transform: rotate(-20deg);
-  }
-  75% {
-    transform: rotate(10deg);
+  50% {
+    transform: rotate(-8deg);
   }
 }
 
-/* Chest indicator pulse */
+/* Chest indicator pulse - gentle breathing */
 @keyframes chest-pulse {
   0%,
   100% {
-    opacity: 0.6;
-    transform: scale(1);
+    opacity: 0.5;
   }
   50% {
     opacity: 1;
-    transform: scale(1.1);
   }
 }
 
@@ -614,7 +607,7 @@ body {
   }
 
   .arm--left {
-    transform-origin: 31px 105px;
+    transform-origin: 15px 66px;
     animation: arm-wave 1.5s ease-in-out infinite;
   }
 }

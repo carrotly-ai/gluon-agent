@@ -9,7 +9,7 @@ Gluon includes a full-featured web dashboard built with FastAPI + React, providi
 gluon web
 
 # Or run in development mode
-cd web-ui && npm run dev  # Terminal 1: Vite dev server
+cd web-ui && bun dev  # Terminal 1: Vite dev server
 uvicorn gluon.web.api:app --reload --port 45866  # Terminal 2: FastAPI
 ```
 

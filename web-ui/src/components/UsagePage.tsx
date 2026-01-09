@@ -86,9 +86,9 @@ export function UsagePage() {
           accent="sky"
         />
         <SummaryCard
-          label="All Time"
-          value={formatCost(summary?.total_cost_usd ?? 0)}
-          subValue={`${summary?.total_runs ?? 0} runs`}
+          label="This Month"
+          value={formatCost(summary?.month_cost_usd ?? 0)}
+          subValue={`${summary?.month_runs ?? 0} runs`}
           accent="jade"
         />
         <SummaryCard

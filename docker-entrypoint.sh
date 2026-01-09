@@ -28,6 +28,9 @@ configure_git_auth() {
     fi
 
     if [ -n "$GH_TOKEN" ]; then
+        # Clear any existing URL rewrite rules first (prevents duplicates on restart)
+        git config --global --unset-all url."https://github.com/".insteadOf 2>/dev/null || true
+
         # Rewrite SSH URLs to HTTPS (need separate sections for each pattern)
         git config --global url."https://github.com/".insteadOf "git@github.com:"
         git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"

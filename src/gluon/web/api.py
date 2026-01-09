@@ -2392,7 +2392,7 @@ def create_app() -> FastAPI:
             if index_path.exists():
                 return FileResponse(index_path)
             return HTMLResponse(
-                content="<h1>Gluon Web Dashboard</h1><p>Frontend not built. Run: cd web-ui && npm run build</p>",
+                content="<h1>Gluon Web Dashboard</h1><p>Frontend not built. Run: cd web-ui && bun run build</p>",
                 status_code=200,
             )
 
@@ -2440,7 +2440,7 @@ def create_app() -> FastAPI:
 uvicorn gluon.web.api:create_app --factory --reload --port 45866
 
 # Terminal 2: Vite dev server
-cd web-ui && npm run dev
+cd web-ui && bun dev
                     </pre>
                     <h2>API Documentation</h2>
                     <ul>

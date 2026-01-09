@@ -295,6 +295,8 @@ class UsageSummaryResponse(BaseModel):
     today_runs: int = Field(description="Number of runs today")
     week_cost_usd: float = Field(description="Cost in USD for past 7 days")
     week_runs: int = Field(description="Number of runs past 7 days")
+    month_cost_usd: float = Field(description="Cost in USD for current calendar month")
+    month_runs: int = Field(description="Number of runs this calendar month")
     total_cost_usd: float = Field(description="All-time cost in USD")
     total_runs: int = Field(description="All-time run count")
 

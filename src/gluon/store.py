@@ -1171,6 +1171,8 @@ class GluonStore:
         now = utc_now()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_ago = today - timedelta(days=7)
+        # First day of current month (for billing alignment)
+        month_start = today.replace(day=1)
 
         with self._get_conn() as conn:
             # Today's stats
@@ -1193,6 +1195,16 @@ class GluonStore:
                 (week_ago.isoformat(),),
             ).fetchone()
 
+            # This month stats (for API billing alignment)
+            month_row = conn.execute(
+                """
+                SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as runs
+                FROM execution_runs
+                WHERE created_at >= ?
+                """,
+                (month_start.isoformat(),),
+            ).fetchone()
+
             # All time
             total_row = conn.execute(
                 """
@@ -1206,6 +1218,8 @@ class GluonStore:
             "today_runs": today_row["runs"],
             "week_cost_usd": week_row["cost"],
             "week_runs": week_row["runs"],
+            "month_cost_usd": month_row["cost"],
+            "month_runs": month_row["runs"],
             "total_cost_usd": total_row["cost"],
             "total_runs": total_row["runs"],
         }

@@ -341,6 +341,8 @@ export interface UsageSummary {
   today_runs: number
   week_cost_usd: number
   week_runs: number
+  month_cost_usd: number
+  month_runs: number
   total_cost_usd: number
   total_runs: number
 }
