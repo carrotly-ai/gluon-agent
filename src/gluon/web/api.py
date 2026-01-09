@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -45,6 +47,8 @@ from gluon.web.models import (
     ProjectUsageResponse,
     RebaseRequest,
     RebaseResponse,
+    RecoverRunRequest,
+    RecoverRunResponse,
     RenameBranchRequest,
     ResolveConflictRequest,
     ResolveConflictResponse,
@@ -62,6 +66,7 @@ from gluon.web.models import (
     UpdateStatusRequest,
     UpdateStatusResponse,
     UsageSummaryResponse,
+    VersionResponse,
     WorkspaceResponse,
 )
 from gluon.web.websocket import ws_manager
@@ -149,6 +154,9 @@ def create_app() -> FastAPI:
             pr_mergeable=run.pr_mergeable,
             # Archive tracking
             archived=run.archived,
+            # Recovery progress UI
+            is_recovering=run.is_recovering,
+            recovery_item_count=run.recovery_item_count,
         )
 
     # ========== REST API Routes ==========
@@ -388,6 +396,188 @@ def create_app() -> FastAPI:
             # Backward compatibility
             original_run_id=resumed_run.id,
             new_run_id=resumed_run.id,
+        )
+
+    @app.post("/api/runs/{run_id}/recover", response_model=RecoverRunResponse)
+    async def recover_run(run_id: str, body: RecoverRunRequest | None = None) -> RecoverRunResponse:
+        """
+        Recover a failed run (typically from context overflow).
+
+        This extracts recovery state from the failed run and starts a fresh
+        session with a summary of completed work. Unlike resume, this does not
+        reuse the Claude session - it starts fresh with context about what was
+        already done.
+
+        Args:
+            run_id: ID of the run to recover (supports short IDs)
+            body: Optional request body with recovery options
+        """
+        from gluon.agent import GluonAgent
+        from gluon.models import utc_now
+
+        # Get the run to recover
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Get the project for this run
+        project = store.get_project(run.project_id)
+        if not project:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not find project for this run",
+            )
+
+        # Extract recovery state
+        recovery_state = runner._extract_recovery_state(run)
+        completed_work = recovery_state.get("completed_work", [])
+
+        # Determine whether to create fresh run or recover in-place
+        fresh = body.fresh if body else False
+
+        if fresh:
+            # Create a new run linked to the failed one
+            new_run = store.create_run(
+                project_id=run.project_id,
+                prompt=f"[Recovery from {run.id[:8]}] {run.prompt}",
+                initiator="web:recover",
+                use_worktree=run.use_worktree,
+                model=run.model,
+            )
+            new_run.recovery_from_run_id = run.id
+            new_run.recovery_count = 1
+            new_run.last_recovery_at = utc_now()
+            store.update_run(new_run)
+            target_run = new_run
+        else:
+            # Recover in-place
+            run.recovery_count += 1
+            run.last_recovery_at = utc_now()
+            run.status = RunStatus.RUNNING
+            store.update_run(run)
+            target_run = run
+
+        # Determine working directory
+        if run.worktree_path and Path(run.worktree_path).exists():
+            working_dir = Path(run.worktree_path)
+        else:
+            working_dir = project.expanded_path
+
+        # Verify working directory exists
+        if not working_dir.exists():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Working directory does not exist: {working_dir}. The worktree may have been deleted.",
+            )
+
+        # Start recovery in background
+        async def _run_recovery():
+            try:
+                print(f"[RECOVERY] Starting recovery for run {target_run.id} in {working_dir}", flush=True)
+                logger.info(f"Starting recovery for run {target_run.id} in {working_dir}")
+
+                # Set recovering flag at start
+                target_run.is_recovering = True
+                target_run.status = RunStatus.RUNNING
+                target_run.recovery_item_count = 0
+                store.update_run(target_run)
+
+                # Broadcast initial recovery state
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
+                await ws_manager.broadcast_run_update(target_run, project_name)
+
+                agent = GluonAgent(model=run.model) if run.model else GluonAgent()
+                result = None
+                item_count = 0
+
+                print("[RECOVERY] About to iterate agent.resume_with_fresh_context", flush=True)
+                async for item in agent.resume_with_fresh_context(
+                    recovery_state=recovery_state,
+                    working_dir=working_dir,
+                ):
+                    item_count += 1
+                    print(f"[RECOVERY] Item {item_count}: {type(item).__name__}", flush=True)
+                    from gluon.agent import AgentResult
+
+                    if isinstance(item, AgentResult):
+                        print(f"[RECOVERY] Got AgentResult: success={item.success}", flush=True)
+                        result = item
+                    else:
+                        # Broadcast progress every 5 items
+                        if item_count % 5 == 0:
+                            target_run.recovery_item_count = item_count
+                            store.update_run(target_run)
+                            await ws_manager.broadcast_run_update(target_run, project_name)
+
+                print(f"[RECOVERY] Finished iteration, got {item_count} items", flush=True)
+
+                # Clear recovering flag at end
+                target_run.is_recovering = False
+                target_run.recovery_item_count = 0
+
+                # Update run with result
+                if result:
+                    target_run.claude_session_id = result.claude_session_id
+                    target_run.cost_usd = (target_run.cost_usd or 0) + (result.total_cost_usd or 0)
+                    target_run.input_tokens = (target_run.input_tokens or 0) + (result.input_tokens or 0)
+                    target_run.output_tokens = (target_run.output_tokens or 0) + (result.output_tokens or 0)
+                    target_run.model_used = result.model_used
+
+                    if result.success:
+                        target_run.status = RunStatus.REVIEW
+                        print(f"[RECOVERY] Completed successfully for run {target_run.id}", flush=True)
+                        logger.info(f"Recovery completed successfully for run {target_run.id}")
+                    else:
+                        target_run.status = RunStatus.FAILED
+                        target_run.error_message = result.error
+                        print(f"[RECOVERY] Failed for run {target_run.id}: {result.error}", flush=True)
+                        logger.warning(f"Recovery failed for run {target_run.id}: {result.error}")
+                else:
+                    target_run.status = RunStatus.FAILED
+                    target_run.error_message = "Recovery produced no result"
+                    print(f"[RECOVERY] No result for run {target_run.id}", flush=True)
+                    logger.error(f"Recovery for run {target_run.id} produced no AgentResult")
+
+                store.update_run(target_run)
+
+                # Broadcast final update
+                await ws_manager.broadcast_run_update(target_run, project_name)
+
+            except Exception as e:
+                print(f"[RECOVERY] Exception for run {target_run.id}: {e}", flush=True)
+                import traceback
+
+                traceback.print_exc()
+                logger.exception(f"Recovery failed for run {target_run.id}: {e}")
+                target_run.is_recovering = False
+                target_run.recovery_item_count = 0
+                target_run.status = RunStatus.FAILED
+                target_run.error_message = f"Recovery failed: {e}"
+                store.update_run(target_run)
+
+                # Broadcast failure
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
+                await ws_manager.broadcast_run_update(target_run, project_name)
+
+        # Schedule recovery to run in background
+        asyncio.create_task(_run_recovery())
+
+        # Broadcast initial update
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(target_run.project_id, target_run.project_id[:8])
+        if fresh:
+            await ws_manager.broadcast_run_created(target_run, project_name)
+        else:
+            await ws_manager.broadcast_run_update(target_run, project_name)
+
+        return RecoverRunResponse(
+            run_id=target_run.id,
+            status=target_run.status.value,
+            recovery_count=target_run.recovery_count,
+            is_fresh=fresh,
+            completed_work=completed_work,
         )
 
     @app.get("/api/runs/{run_id}/session-history", response_model=SessionHistoryResponse)
@@ -677,13 +867,76 @@ def create_app() -> FastAPI:
             total_runs=len(all_runs),
         )
 
+    # ========== Version Info ==========
+
+    # Cache version info at startup (computed once)
+    _version_info: dict[str, str] | None = None
+
+    def _get_version_info() -> dict[str, str]:
+        """Get version info from environment or git."""
+        nonlocal _version_info
+        if _version_info is not None:
+            return _version_info
+
+        # Try environment variables first (set during Docker build)
+        version = os.environ.get("GLUON_VERSION", "")
+        full_version = os.environ.get("GLUON_FULL_VERSION", "")
+        build_time = os.environ.get("GLUON_BUILD_TIME", "")
+
+        # Fallback to git for development mode
+        if not version:
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    version = result.stdout.strip()
+            except Exception:
+                version = "dev"
+
+        if not full_version:
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    full_version = result.stdout.strip()
+            except Exception:
+                full_version = "development"
+
+        if not build_time:
+            build_time = datetime.now().isoformat()
+
+        environment = "production" if os.environ.get("GLUON_VERSION") else "development"
+
+        _version_info = {
+            "version": version,
+            "full_version": full_version,
+            "build_time": build_time,
+            "environment": environment,
+        }
+        return _version_info
+
+    @app.get("/api/version", response_model=VersionResponse)
+    async def get_version() -> VersionResponse:
+        """Get application version info for update checking."""
+        info = _get_version_info()
+        return VersionResponse(**info)
+
     # ========== Phase 7.2: Status Transitions (Drag-and-Drop) ==========
 
     # Allowed status transitions for drag-and-drop
     allowed_transitions: dict[str, set[str]] = {
         "pending": {"cancelled"},
         "running": {"cancelled"},
-        "completed": {"pending"},  # Re-queue for retry
+        "review": {"completed", "pending", "failed", "cancelled"},  # Approve, retry, reject, or cancel
+        "completed": {"pending", "review"},  # Re-queue for retry, or back to review if PR still open
         "failed": {"pending"},  # Retry
         "cancelled": {"pending"},  # Retry
     }
@@ -1063,6 +1316,197 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="Missing 'value' in request body")
         store.set_setting(key, str(value))
         return {"key": key, "value": str(value)}
+
+    # ========== Webhooks API (Phase: Distributed Workers) ==========
+
+    @app.post("/api/webhooks/github")
+    async def handle_github_webhook(request: Request) -> dict:
+        """
+        Handle GitHub webhook events.
+
+        Validates webhook signature and creates runs for supported events:
+        - push: Review pushed commits
+        - pull_request: Review PR (opened, synchronize, reopened)
+        - issues: Analyze new issues
+        - issue_comment: Handle /gluon commands in comments
+        - pull_request_review: Address requested changes
+
+        Requires X-Hub-Signature-256 header for signature validation.
+        """
+        import os
+
+        from gluon.webhooks.github import GitHubWebhookHandler
+
+        # Get webhook secret from environment or database
+        webhook_secret = os.environ.get("GITHUB_WEBHOOK_SECRET")
+        if not webhook_secret:
+            # Try to get from settings
+            webhook_secret = store.get_setting("github_webhook_secret")
+
+        if not webhook_secret:
+            raise HTTPException(
+                status_code=500,
+                detail="GitHub webhook secret not configured. Set GITHUB_WEBHOOK_SECRET env var.",
+            )
+
+        # Get signature and event type from headers
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        event_type = request.headers.get("X-GitHub-Event", "")
+
+        if not signature:
+            raise HTTPException(status_code=401, detail="Missing X-Hub-Signature-256 header")
+
+        if not event_type:
+            raise HTTPException(status_code=400, detail="Missing X-GitHub-Event header")
+
+        # Read raw body for signature validation
+        payload_bytes = await request.body()
+
+        # Validate signature
+        handler = GitHubWebhookHandler(secret=webhook_secret)
+        is_valid = await handler.validate_signature(payload_bytes, signature)
+
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+        # Parse payload
+        try:
+            payload = json.loads(payload_bytes)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+        # Parse event into WebhookEvent
+        event = await handler.parse_event(event_type, payload)
+
+        if event is None:
+            # Event type not supported or filtered out
+            return {
+                "status": "ignored",
+                "reason": f"Event type '{event_type}' not processed or filtered",
+            }
+
+        # Resolve project by repository name
+        project = store.get_project_by_name(event.project_hint)
+        if not project:
+            # Try to find by partial match (e.g., 'my-app' matches 'my-app-backend')
+            projects = store.list_projects()
+            for p in projects:
+                if event.project_hint.lower() in p.name.lower():
+                    project = p
+                    break
+
+        if not project:
+            return {
+                "status": "skipped",
+                "reason": f"No project found matching '{event.project_hint}'",
+            }
+
+        # Check webhook config for this project
+        configs = store.get_webhook_configs_for_handler("github")
+        matching_config = None
+        for config in configs:
+            if config.project_id == project.id or config.project_id is None:
+                # Check event type filter
+                if config.matches_event(event.event_type):
+                    # Check branch filter
+                    if event.source_ref and not config.matches_branch(event.source_ref):
+                        continue
+                    matching_config = config
+                    break
+
+        if not matching_config:
+            return {
+                "status": "skipped",
+                "reason": f"No webhook config matches event for project '{project.name}'",
+            }
+
+        # Use custom prompt template if configured
+        prompt = event.prompt
+        if matching_config.prompt_template:
+            prompt = handler.generate_prompt(event_type, payload, matching_config.prompt_template)
+
+        # Create and queue the run
+        run = await runner.submit(
+            project_id=project.id,
+            prompt=prompt,
+            wait=False,
+            use_worktree=True,  # Webhooks default to worktree isolation
+            initiator=f"webhook:github:{event.event_type}",
+            model=None,  # Use default model
+        )
+
+        # Broadcast to WebSocket clients
+        await ws_manager.broadcast_run_created(run, project.name)
+
+        return {
+            "status": "queued",
+            "run_id": run.id,
+            "project": project.name,
+            "event_type": event.event_type,
+            "prompt": prompt[:200] + "..." if len(prompt) > 200 else prompt,
+        }
+
+    @app.get("/api/webhooks")
+    async def list_webhooks() -> list[dict]:
+        """List all configured webhooks."""
+        configs = store.list_webhook_configs(enabled_only=False)
+        return [
+            {
+                "id": c.id,
+                "handler": c.handler,
+                "project_id": c.project_id,
+                "events": c.events,
+                "enabled": c.enabled,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in configs
+        ]
+
+    @app.post("/api/webhooks")
+    async def create_webhook(body: dict) -> dict:
+        """Create a new webhook configuration."""
+        import secrets
+
+        from gluon.models import WebhookConfig
+
+        handler = body.get("handler", "github")
+        project_id = body.get("project_id")
+        events = body.get("events", [])
+        prompt_template = body.get("prompt_template")
+        branches = body.get("branches")
+        ignore_branches = body.get("ignore_branches")
+
+        # Generate a secret if not provided
+        secret_key = body.get("secret_key") or secrets.token_hex(32)
+
+        config = WebhookConfig(
+            handler=handler,
+            project_id=project_id,
+            secret_key=secret_key,
+            events=events,
+            prompt_template=prompt_template,
+            branches=branches,
+            ignore_branches=ignore_branches,
+        )
+
+        store.create_webhook_config(config)
+
+        return {
+            "id": config.id,
+            "handler": config.handler,
+            "secret_key": secret_key,  # Return so user can configure in GitHub
+            "message": "Webhook created. Configure this secret in GitHub webhook settings.",
+        }
+
+    @app.delete("/api/webhooks/{webhook_id}")
+    async def delete_webhook(webhook_id: str) -> dict:
+        """Delete a webhook configuration."""
+        config = store.get_webhook_config(webhook_id)
+        if not config:
+            raise HTTPException(status_code=404, detail=f"Webhook not found: {webhook_id}")
+
+        success = store.delete_webhook_config(webhook_id)
+        return {"deleted": success, "webhook_id": webhook_id}
 
     @app.post("/api/runs/{run_id}/create-pr")
     async def create_pr_for_run(run_id: str) -> dict:
@@ -1652,6 +2096,7 @@ def create_app() -> FastAPI:
     _polling_task: asyncio.Task | None = None
     _cleanup_task: asyncio.Task | None = None
     _log_polling_task: asyncio.Task | None = None
+    _pr_polling_task: asyncio.Task | None = None
 
     # Track file positions for incremental log reading
     _log_file_positions: dict[str, int] = {}  # run_id -> last byte position
@@ -1798,6 +2243,70 @@ def create_app() -> FastAPI:
             # Poll every 100ms for responsive streaming
             await asyncio.sleep(0.1)
 
+    async def _poll_pr_status_changes() -> None:
+        """Background task to poll GitHub PR status and auto-transition merged PRs.
+
+        Checks runs in REVIEW status with open PRs every 60 seconds.
+        When a PR is merged, automatically transitions the run to COMPLETED.
+        """
+        from gluon.git_manager import GitManager
+        from gluon.models import RunStatus
+
+        pr_git_manager = GitManager(store)
+        project_lookup = get_project_lookup()
+
+        while True:
+            try:
+                # Find runs in REVIEW with open PRs
+                runs = store.list_runs(limit=100, include_archived=False)
+                review_runs_with_open_prs = [
+                    r
+                    for r in runs
+                    if r.status == RunStatus.REVIEW and r.pr_status == "open" and r.branch_name and not r.archived
+                ]
+
+                for run in review_runs_with_open_prs:
+                    try:
+                        project = store.get_project(run.project_id)
+                        if not project:
+                            continue
+
+                        # Check current PR status via GitHub CLI
+                        pr_info = await pr_git_manager._get_pr_info(project.expanded_path, run.branch_name)
+
+                        if pr_info and pr_info.get("status") == "merged":
+                            # PR was merged - transition to COMPLETED
+                            logger.info(
+                                f"PR #{run.pr_number} merged - transitioning run {run.id[:8]} from REVIEW to COMPLETED"
+                            )
+                            run.pr_status = "merged"
+                            run.status = RunStatus.COMPLETED
+                            store.update_run(run)
+
+                            # Broadcast update to WebSocket clients
+                            project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                            await ws_manager.broadcast_run_update(run, project_name)
+
+                        elif pr_info and pr_info.get("status") == "closed":
+                            # PR was closed without merge - just update pr_status
+                            if run.pr_status != "closed":
+                                run.pr_status = "closed"
+                                store.update_run(run)
+                                project_name = project_lookup.get(run.project_id, run.project_id[:8])
+                                await ws_manager.broadcast_run_update(run, project_name)
+
+                    except Exception as e:
+                        logger.debug(f"Error checking PR status for run {run.id[:8]}: {e}")
+
+                # Refresh project lookup occasionally
+                project_lookup = get_project_lookup()
+
+            except Exception as e:
+                logger.error(f"Error in PR status polling: {e}")
+
+            # Poll every 60 seconds (GitHub API rate limiting consideration)
+            await asyncio.sleep(60)
+
     async def _cleanup_old_logs() -> None:
         """Background task to cleanup old log files based on retention policies.
 
@@ -1838,11 +2347,12 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
-        nonlocal _polling_task, _cleanup_task, _log_polling_task
+        nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task
         _polling_task = asyncio.create_task(_poll_run_status_changes())
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
         _log_polling_task = asyncio.create_task(_poll_log_updates())
-        logger.info("Started background tasks: run status polling, log streaming, log cleanup")
+        _pr_polling_task = asyncio.create_task(_poll_pr_status_changes())
+        logger.info("Started background tasks: run status polling, log streaming, log cleanup, PR status polling")
 
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
@@ -1854,6 +2364,8 @@ def create_app() -> FastAPI:
             tasks_to_cancel.append(("log streaming", _log_polling_task))
         if _cleanup_task:
             tasks_to_cancel.append(("log cleanup", _cleanup_task))
+        if _pr_polling_task:
+            tasks_to_cancel.append(("PR status polling", _pr_polling_task))
 
         for name, task in tasks_to_cancel:
             task.cancel()

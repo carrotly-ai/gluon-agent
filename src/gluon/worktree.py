@@ -367,3 +367,120 @@ async def is_git_repository(path: Path) -> bool:
         return proc.returncode == 0
     except Exception:
         return False
+
+
+async def branch_exists(repo_path: Path, branch_name: str) -> bool:
+    """
+    Check if a branch exists in the repository.
+
+    Args:
+        repo_path: Path to the git repository
+        branch_name: Name of the branch to check
+
+    Returns:
+        True if branch exists
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "rev-parse",
+            "--verify",
+            f"refs/heads/{branch_name}",
+            cwd=repo_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+async def recreate_worktree(
+    repo_path: Path,
+    worktree_path: Path,
+    branch_name: str,
+    copy_patterns: list[str] | None = None,
+) -> bool:
+    """
+    Recreate a worktree from an existing branch.
+
+    This is used when a worktree directory was lost (e.g., container restart)
+    but the branch still exists in the repository.
+
+    Args:
+        repo_path: Path to the main git repository
+        worktree_path: Path where the worktree should be created
+        branch_name: Name of the existing branch to attach
+        copy_patterns: Optional patterns for config files to copy
+
+    Returns:
+        True if worktree was successfully recreated
+
+    Raises:
+        WorktreeError: If recreation fails
+    """
+    logger.info(f"Recreating worktree at {worktree_path} from branch {branch_name}")
+
+    # Verify branch exists
+    if not await branch_exists(repo_path, branch_name):
+        raise WorktreeError(f"Branch {branch_name} does not exist in repository")
+
+    # Clean up any stale worktree references
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "worktree",
+            "prune",
+            cwd=repo_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+    except Exception:
+        pass  # Non-fatal
+
+    # Ensure parent directory exists
+    worktree_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Remove if somehow exists (shouldn't, but be safe)
+    if worktree_path.exists():
+        shutil.rmtree(worktree_path, ignore_errors=True)
+
+    # Create worktree from existing branch (no -b flag)
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "worktree",
+        "add",
+        str(worktree_path),
+        branch_name,
+        cwd=repo_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        error_msg = stderr.decode().strip() or "Unknown error"
+        raise WorktreeError(f"Failed to recreate worktree: {error_msg}")
+
+    logger.info(f"Successfully recreated worktree at {worktree_path}")
+
+    # Copy config files if patterns provided
+    if copy_patterns:
+        for pattern in copy_patterns:
+            if "*" in pattern:
+                for src_file in repo_path.glob(pattern):
+                    if src_file.is_file():
+                        rel_path = src_file.relative_to(repo_path)
+                        dest = worktree_path / rel_path
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src_file, dest)
+            else:
+                src_file = repo_path / pattern
+                if src_file.is_file():
+                    dest = worktree_path / pattern
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_file, dest)
+
+    return True

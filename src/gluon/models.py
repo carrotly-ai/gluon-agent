@@ -60,6 +60,7 @@ class RunStatus(str, Enum):
 
     PENDING = "pending"  # Queued but not started
     RUNNING = "running"  # Currently executing
+    REVIEW = "review"  # Awaiting action/approval
     COMPLETED = "completed"  # Finished successfully
     FAILED = "failed"  # Error occurred
     CANCELLED = "cancelled"  # Manually cancelled
@@ -259,6 +260,13 @@ class ExecutionRun(BaseModel):
     resume_count: int = 0  # Number of times this run has been resumed
     last_resumed_at: datetime | None = None  # When last resumed
 
+    # Context overflow recovery tracking
+    recovery_count: int = 0  # Number of times recovered from context overflow
+    last_recovery_at: datetime | None = None  # When last recovery happened
+    recovery_from_run_id: str | None = None  # Parent run ID if this is a recovery run
+    is_recovering: bool = False  # Currently in recovery process
+    recovery_item_count: int = 0  # Progress counter during recovery
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
@@ -284,6 +292,10 @@ class ExecutionRun(BaseModel):
         self.status = RunStatus.CANCELLED
         self.completed_at = utc_now()
 
+    def mark_review(self) -> None:
+        """Mark run as in review (awaiting action/approval)."""
+        self.status = RunStatus.REVIEW
+
     def prepare_for_resume(self, new_prompt: str) -> None:
         """
         Prepare run for in-place resume.
@@ -306,13 +318,14 @@ class ExecutionRun(BaseModel):
 
     @property
     def is_resumable(self) -> bool:
-        """Check if run can be resumed (completed or failed with session)."""
-        return self.status in (RunStatus.COMPLETED, RunStatus.FAILED) and self.claude_session_id is not None
+        """Check if run can be resumed (review, completed, or failed with session)."""
+        resumable_statuses = (RunStatus.REVIEW, RunStatus.COMPLETED, RunStatus.FAILED)
+        return self.status in resumable_statuses and self.claude_session_id is not None
 
     @property
     def is_active(self) -> bool:
-        """Check if run is still active (pending or running)."""
-        return self.status in (RunStatus.PENDING, RunStatus.RUNNING)
+        """Check if run is still active (pending, running, or in review)."""
+        return self.status in (RunStatus.PENDING, RunStatus.RUNNING, RunStatus.REVIEW)
 
     @property
     def duration_seconds(self) -> float | None:
@@ -451,3 +464,177 @@ class ImageAttachment(BaseModel):
     def to_markdown(self) -> str:
         """Return markdown image reference."""
         return f"![{self.original_name}]({self.file_path})"
+
+
+# ========== Distributed Worker Models ==========
+
+
+class JobStatus(str, Enum):
+    """Status of a job in the queue."""
+
+    QUEUED = "queued"  # Waiting in queue
+    ASSIGNED = "assigned"  # Assigned to worker, pending execution
+    RUNNING = "running"  # Currently executing
+    COMPLETED = "completed"  # Finished successfully
+    FAILED = "failed"  # Error occurred
+
+
+class WorkerType(str, Enum):
+    """Type of worker for task execution."""
+
+    LOCAL = "local"  # Local subprocess execution
+    REMOTE = "remote"  # Remote worker via HTTP API
+
+
+class WorkerStatus(str, Enum):
+    """Health status of a worker."""
+
+    HEALTHY = "healthy"  # Worker responding normally
+    UNHEALTHY = "unhealthy"  # Worker missed heartbeats
+    OFFLINE = "offline"  # Worker explicitly offline
+
+
+class Worker(BaseModel):
+    """A worker that can execute jobs."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str  # Human-readable name (unique)
+    type: WorkerType = WorkerType.LOCAL
+    base_url: str | None = None  # For remote workers (e.g., "http://worker1:8080")
+    api_key: str  # API key for authentication
+    max_concurrent: int = 4  # Maximum concurrent jobs
+    status: WorkerStatus = WorkerStatus.HEALTHY
+    last_heartbeat: datetime | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+    # Runtime tracking (not persisted)
+    active_jobs: int = 0  # Current number of running jobs
+
+    @property
+    def is_available(self) -> bool:
+        """Check if worker can accept more jobs."""
+        return self.status == WorkerStatus.HEALTHY and self.active_jobs < self.max_concurrent
+
+    @property
+    def available_slots(self) -> int:
+        """Number of available job slots."""
+        if self.status != WorkerStatus.HEALTHY:
+            return 0
+        return max(0, self.max_concurrent - self.active_jobs)
+
+    def mark_healthy(self) -> None:
+        """Mark worker as healthy with updated heartbeat."""
+        self.status = WorkerStatus.HEALTHY
+        self.last_heartbeat = utc_now()
+        self.updated_at = utc_now()
+
+    def mark_unhealthy(self) -> None:
+        """Mark worker as unhealthy (missed heartbeats)."""
+        self.status = WorkerStatus.UNHEALTHY
+        self.updated_at = utc_now()
+
+    def mark_offline(self) -> None:
+        """Mark worker as explicitly offline."""
+        self.status = WorkerStatus.OFFLINE
+        self.updated_at = utc_now()
+
+
+class Job(BaseModel):
+    """A job in the execution queue."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    project_id: str  # FK to Project (denormalized for quick filtering)
+    prompt: str  # Task prompt
+    priority: int = 5  # 1 (highest) to 10 (lowest), default 5
+    status: JobStatus = JobStatus.QUEUED
+    worker_id: str | None = None  # FK to Worker (assigned worker)
+    created_at: datetime = Field(default_factory=utc_now)
+    assigned_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+
+    # Job configuration
+    model: str | None = None  # Requested model tier
+    use_worktree: bool = False  # Whether to use git worktree
+    session_id: str | None = None  # Session ID to resume (optional)
+
+    # Lease tracking for fault tolerance
+    lease_expires_at: datetime | None = None  # Worker lease expiration
+
+    def assign_to_worker(self, worker_id: str, lease_seconds: int = 300) -> None:
+        """Assign job to a worker with a lease."""
+        self.worker_id = worker_id
+        self.status = JobStatus.ASSIGNED
+        self.assigned_at = utc_now()
+        self.lease_expires_at = datetime.fromtimestamp(utc_now().timestamp() + lease_seconds, tz=UTC)
+
+    def mark_running(self) -> None:
+        """Mark job as running."""
+        self.status = JobStatus.RUNNING
+        self.started_at = utc_now()
+
+    def mark_completed(self) -> None:
+        """Mark job as completed."""
+        self.status = JobStatus.COMPLETED
+        self.completed_at = utc_now()
+        self.lease_expires_at = None
+
+    def mark_failed(self, error: str) -> None:
+        """Mark job as failed."""
+        self.status = JobStatus.FAILED
+        self.error_message = error
+        self.completed_at = utc_now()
+        self.lease_expires_at = None
+
+    def release_lease(self) -> None:
+        """Release job back to queue (e.g., worker died)."""
+        self.worker_id = None
+        self.status = JobStatus.QUEUED
+        self.assigned_at = None
+        self.lease_expires_at = None
+
+    @property
+    def is_lease_expired(self) -> bool:
+        """Check if worker lease has expired."""
+        if not self.lease_expires_at:
+            return False
+        return utc_now() > self.lease_expires_at
+
+
+# ========== Webhook Models ==========
+
+
+class WebhookConfig(BaseModel):
+    """Configuration for a webhook integration."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    handler: str  # "github", "gitlab", "bitbucket"
+    project_id: str | None = None  # FK to Project (None = match by repo name)
+    secret_key: str  # Webhook secret for signature verification
+    events: list[str] = Field(default_factory=list)  # ["push", "pull_request", "issues"]
+    prompt_template: str | None = None  # Custom prompt template (uses default if None)
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+    # Filtering options
+    branches: list[str] | None = None  # Only trigger for these branches (None = all)
+    ignore_branches: list[str] | None = None  # Ignore these branches
+    labels: list[str] | None = None  # Only issues/PRs with these labels
+
+    def matches_branch(self, branch: str) -> bool:
+        """Check if webhook should trigger for this branch."""
+        if self.ignore_branches and branch in self.ignore_branches:
+            return False
+        if self.branches is None:
+            return True
+        return branch in self.branches
+
+    def matches_event(self, event_type: str) -> bool:
+        """Check if webhook handles this event type."""
+        if not self.events:
+            return True  # Empty = all events
+        return event_type in self.events

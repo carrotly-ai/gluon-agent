@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Version args - pass via: docker compose build --build-arg VITE_APP_VERSION=$(git rev-parse --short HEAD)
+      args:
+        - VITE_APP_VERSION=${VITE_APP_VERSION:-dev}
+        - VITE_APP_FULL_VERSION=${VITE_APP_FULL_VERSION:-development}
+        - VITE_APP_BUILD_TIME=${VITE_APP_BUILD_TIME:-}
     image: gluon-agent:latest
     container_name: gluon-agent-dev
 

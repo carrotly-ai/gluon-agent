@@ -31,6 +31,9 @@ class RunResponse(BaseModel):
     pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
     # Archive tracking
     archived: bool = Field(default=False, description="Whether run is archived")
+    # Recovery progress UI
+    is_recovering: bool = Field(default=False, description="Whether recovery is in progress")
+    recovery_item_count: int = Field(default=0, description="Number of items processed during recovery")
 
     class Config:
         from_attributes = True
@@ -107,6 +110,15 @@ class StatusResponse(BaseModel):
     total_runs: int
 
 
+class VersionResponse(BaseModel):
+    """Response model for application version info."""
+
+    version: str  # Git commit SHA (short)
+    full_version: str  # Git commit SHA (full)
+    build_time: str  # ISO timestamp of build
+    environment: str  # "development" or "production"
+
+
 # WebSocket message types
 
 
@@ -171,6 +183,28 @@ class ResumeRunResponse(BaseModel):
     # Backward compatibility fields (deprecated, same as run_id)
     original_run_id: str | None = Field(default=None, description="Deprecated: Same as run_id")
     new_run_id: str | None = Field(default=None, description="Deprecated: Same as run_id")
+
+
+class RecoverRunRequest(BaseModel):
+    """Request model for recovering a run from context overflow."""
+
+    fresh: bool = Field(
+        default=False,
+        description="If true, create a new run. If false, recover in-place.",
+    )
+
+
+class RecoverRunResponse(BaseModel):
+    """Response model for recover operation."""
+
+    run_id: str = Field(description="ID of the recovery run")
+    status: str = Field(description="Current status (should be 'running')")
+    recovery_count: int = Field(description="Number of recovery attempts")
+    is_fresh: bool = Field(description="Whether this is a fresh run or in-place recovery")
+    completed_work: list[str] = Field(
+        default_factory=list,
+        description="List of completed tasks from the original run",
+    )
 
 
 class SessionHistoryResponse(BaseModel):

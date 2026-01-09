@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from gluon.models import Project, Session, SessionStatus
+from gluon.models import ExecutionRun, Project, RunStatus, Session, SessionStatus
 
 
 class TestProject:
@@ -105,3 +105,102 @@ class TestSessionStatus:
         """Test creating status from string."""
         assert SessionStatus("active") == SessionStatus.ACTIVE
         assert SessionStatus("paused") == SessionStatus.PAUSED
+
+
+class TestRunStatus:
+    """Tests for RunStatus enum."""
+
+    def test_status_values(self):
+        """Test all status values exist including REVIEW."""
+        assert RunStatus.PENDING.value == "pending"
+        assert RunStatus.RUNNING.value == "running"
+        assert RunStatus.REVIEW.value == "review"
+        assert RunStatus.COMPLETED.value == "completed"
+        assert RunStatus.FAILED.value == "failed"
+        assert RunStatus.CANCELLED.value == "cancelled"
+
+    def test_status_from_string(self):
+        """Test creating status from string."""
+        assert RunStatus("pending") == RunStatus.PENDING
+        assert RunStatus("running") == RunStatus.RUNNING
+        assert RunStatus("review") == RunStatus.REVIEW
+        assert RunStatus("completed") == RunStatus.COMPLETED
+
+
+class TestExecutionRun:
+    """Tests for ExecutionRun model."""
+
+    def test_create_run(self):
+        """Test creating an execution run."""
+        run = ExecutionRun(project_id="test-project", prompt="Fix the bug")
+
+        assert run.project_id == "test-project"
+        assert run.prompt == "Fix the bug"
+        assert run.status == RunStatus.PENDING
+        assert run.id is not None
+
+    def test_mark_review(self):
+        """Test marking run as in review."""
+        run = ExecutionRun(project_id="test", prompt="test")
+        run.status = RunStatus.RUNNING
+
+        run.mark_review()
+
+        assert run.status == RunStatus.REVIEW
+
+    def test_is_active_includes_review(self):
+        """Test that is_active includes REVIEW state."""
+        run = ExecutionRun(project_id="test", prompt="test")
+
+        # Test pending
+        run.status = RunStatus.PENDING
+        assert run.is_active is True
+
+        # Test running
+        run.status = RunStatus.RUNNING
+        assert run.is_active is True
+
+        # Test review - should be active
+        run.status = RunStatus.REVIEW
+        assert run.is_active is True
+
+        # Test completed - not active
+        run.status = RunStatus.COMPLETED
+        assert run.is_active is False
+
+        # Test failed - not active
+        run.status = RunStatus.FAILED
+        assert run.is_active is False
+
+    def test_is_resumable_includes_review(self):
+        """Test that is_resumable includes REVIEW state."""
+        run = ExecutionRun(project_id="test", prompt="test")
+        run.claude_session_id = "session-123"  # Required for resumability
+
+        # Test review - should be resumable
+        run.status = RunStatus.REVIEW
+        assert run.is_resumable is True
+
+        # Test completed - should be resumable
+        run.status = RunStatus.COMPLETED
+        assert run.is_resumable is True
+
+        # Test failed - should be resumable
+        run.status = RunStatus.FAILED
+        assert run.is_resumable is True
+
+        # Test running - not resumable
+        run.status = RunStatus.RUNNING
+        assert run.is_resumable is False
+
+    def test_is_resumable_requires_session(self):
+        """Test that is_resumable requires claude_session_id."""
+        run = ExecutionRun(project_id="test", prompt="test")
+        run.status = RunStatus.REVIEW
+
+        # Without session ID - not resumable
+        assert run.is_resumable is False
+
+        # With session ID - resumable
+        run.claude_session_id = "session-123"
+        assert run.is_resumable is True

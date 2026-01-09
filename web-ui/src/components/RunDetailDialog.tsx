@@ -37,6 +37,7 @@ import {
   fetchSessionHistory,
   getImageFileUrl,
   mergeRunBranch,
+  recoverRun,
   resumeRun,
   uploadAndAttachImage,
 } from '@/lib/api'
@@ -176,6 +177,8 @@ export function RunDetailDialog({
   const [prError, setPrError] = useState<string | null>(null)
   const [merging, setMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
+  const [recovering, setRecovering] = useState(false)
+  const [recoverError, setRecoverError] = useState<string | null>(null)
 
   // Resume image paste support
   const [resumePendingImages, setResumePendingImages] = useState<ResumePendingImage[]>([])
@@ -201,6 +204,7 @@ export function RunDetailDialog({
       setHistoryLogs({})
       setPrError(null)
       setMergeError(null)
+      setRecoverError(null)
       setCommitsData(null)
       setFilesData(null)
       setExpandedCommit(null)
@@ -633,6 +637,40 @@ Focus on preserving functionality from both sides where possible.`
     }
   }
 
+  // Helper to detect context overflow errors
+  const isContextOverflowError = (errorMessage: string | null | undefined): boolean => {
+    if (!errorMessage) return false
+    const msg = errorMessage.toLowerCase()
+    return (
+      (msg.includes('400') && msg.includes('too long')) ||
+      (msg.includes('400') && msg.includes('input') && msg.includes('long')) ||
+      msg.includes('input is too long') ||
+      (msg.includes('context') && msg.includes('overflow')) ||
+      (msg.includes('context') && msg.includes('exceeded')) ||
+      (msg.includes('token') && msg.includes('limit') && msg.includes('exceeded'))
+    )
+  }
+
+  const handleRecover = async () => {
+    if (!run) return
+    setRecovering(true)
+    setRecoverError(null)
+    try {
+      const result = await recoverRun(run.id, false) // In-place recovery
+      if (result.run_id) {
+        toast.success('Recovery started', {
+          description: `Found ${result.completed_work.length} completed task(s) to preserve`,
+        })
+        // Refresh the run data to show new status
+        handleRefresh()
+      }
+    } catch (err) {
+      setRecoverError(err instanceof Error ? err.message : 'Failed to recover run')
+    } finally {
+      setRecovering(false)
+    }
+  }
+
   // Lazy load commits when switching to commits tab
   const loadCommits = async () => {
     if (!run || commitsData || loadingCommits) return
@@ -700,7 +738,8 @@ Focus on preserving functionality from both sides where possible.`
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
   const isResumable =
-    (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
+    (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review') &&
+    detail?.session_id
   const hasHistory = sessionHistory.length > 0
 
   return (
@@ -1027,12 +1066,45 @@ Focus on preserving the functionality from both sides where possible.`
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
               <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
-                <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
-                  Error
-                </p>
-                <pre className="text-[0.75rem] text-[var(--color-vermillion)] whitespace-pre-wrap break-words font-mono">
-                  {run.error_message}
-                </pre>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
+                      Error
+                    </p>
+                    <pre className="text-[0.75rem] text-[var(--color-vermillion)] whitespace-pre-wrap break-words font-mono">
+                      {run.error_message}
+                    </pre>
+                  </div>
+                  {/* Recover button for context overflow errors - show for failed or review status */}
+                  {(run.status === 'failed' || run.status === 'review') && isContextOverflowError(run.error_message) && (
+                    <button
+                      onClick={handleRecover}
+                      disabled={recovering}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors shrink-0',
+                        recovering
+                          ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                          : 'bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]'
+                      )}
+                      title="Recover from context overflow - starts fresh session with progress summary"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>{recovering ? 'Recovering...' : 'Recover'}</span>
+                    </button>
+                  )}
+                </div>
+                {/* Recovery error message */}
+                {recoverError && (
+                  <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2 border-t border-[rgba(199,62,58,0.2)] pt-2">
+                    Recovery failed: {recoverError}
+                  </p>
+                )}
+                {/* Context overflow help text */}
+                {(run.status === 'failed' || run.status === 'review') && isContextOverflowError(run.error_message) && (
+                  <p className="text-[0.625rem] text-[var(--color-stone)]/60 mt-2 border-t border-[rgba(199,62,58,0.15)] pt-2">
+                    This run exceeded the context limit. Click Recover to start a fresh session that preserves progress from completed tasks.
+                  </p>
+                )}
               </div>
             )}
 

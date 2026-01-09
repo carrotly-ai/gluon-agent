@@ -21,7 +21,14 @@ from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
 from gluon.models import ExecutionRun, RunStatus
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
-from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
+from gluon.worktree import (
+    WorktreeConfig,
+    WorktreeError,
+    WorktreeManager,
+    branch_exists,
+    is_git_repository,
+    recreate_worktree,
+)
 
 
 @dataclass
@@ -153,10 +160,41 @@ class TaskRunner:
         if run.use_worktree and run.worktree_path:
             wt_path = Path(run.worktree_path)
             if not wt_path.exists():
-                raise ValueError(
-                    f"Worktree for run {run_id[:8]} no longer exists at {wt_path}. "
-                    "Cannot resume - the branch may have been merged or deleted."
-                )
+                # Worktree path is missing - try to recreate from branch if it exists
+                if run.branch_name:
+                    project = self.store.get_project(run.project_id)
+                    if project:
+                        repo_path = project.expanded_path
+                        # Check if branch still exists
+                        if await branch_exists(repo_path, run.branch_name):
+                            # Branch exists - recreate the worktree
+                            try:
+                                await recreate_worktree(
+                                    repo_path=repo_path,
+                                    worktree_path=wt_path,
+                                    branch_name=run.branch_name,
+                                    copy_patterns=WorktreeConfig().copy_patterns,
+                                )
+                                # Worktree successfully recreated, continue with resume
+                            except WorktreeError as e:
+                                raise ValueError(
+                                    f"Failed to recreate worktree for run {run_id[:8]}: {e}"
+                                ) from e
+                        else:
+                            raise ValueError(
+                                f"Worktree for run {run_id[:8]} no longer exists at {wt_path}. "
+                                f"Branch '{run.branch_name}' has been deleted or merged."
+                            )
+                    else:
+                        raise ValueError(
+                            f"Worktree for run {run_id[:8]} no longer exists at {wt_path}. "
+                            f"Project {run.project_id} not found."
+                        )
+                else:
+                    raise ValueError(
+                        f"Worktree for run {run_id[:8]} no longer exists at {wt_path}. "
+                        "Cannot resume - no branch name recorded."
+                    )
 
         # Prepare run for resume (resets status, increments resume_count)
         run.prepare_for_resume(new_prompt)
@@ -377,6 +415,30 @@ but explicit commits with good messages are preferred.
                             stderr_file.write(item.content + "\n")
                             stderr_file.flush()
 
+                            # Check for context overflow - trigger auto-recovery
+                            metadata = item.metadata or {}
+                            if metadata.get("exception") == "ContextOverflowError":
+                                stdout_file.write("\n⚠️ Context overflow detected - initiating auto-recovery...\n")
+                                stdout_file.flush()
+
+                                # Extract recovery state and attempt recovery
+                                recovery_result = await self._handle_context_overflow_recovery(
+                                    run=run,
+                                    working_dir=working_dir,
+                                    stdout_file=stdout_file,
+                                    stderr_file=stderr_file,
+                                    messages_file=messages_file,
+                                    progress_path=progress_path,
+                                    tokens_path=tokens_path,
+                                    start_time=start_time,
+                                )
+
+                                if recovery_result:
+                                    # Recovery succeeded - mark as review (not failed)
+                                    run.mark_review()
+                                    self.store.update_run(run)
+                                    return  # Exit without marking as failed
+
                         # Update progress.json for WebSocket streaming
                         progress_data = {
                             "turns": turn_count,
@@ -480,7 +542,7 @@ but explicit commits with good messages are preferred.
                                     stderr_file.flush()
 
                         if item.success:
-                            run.mark_completed(exit_code=0)
+                            run.mark_review()  # All tasks go to REVIEW first
                         else:
                             run.mark_failed(item.error or "Unknown error", exit_code=1)
 
@@ -652,6 +714,254 @@ but explicit commits with good messages are preferred.
         for run in active_runs:
             self.refresh_run_status(run)
         return self.store.list_active_runs()
+
+    def _extract_recovery_state(self, run: ExecutionRun) -> dict:
+        """
+        Extract recoverable state from a failed run.
+
+        Parses the run's messages.jsonl log to find:
+        - Completed TODO items
+        - Last successful operations
+        - Any progress markers
+
+        Args:
+            run: The failed run to extract state from
+
+        Returns:
+            Dict with recovery information including:
+            - run_id: Original run ID
+            - project_id: Project ID
+            - original_prompt: Original prompt
+            - branch_name: Git branch (if using worktree)
+            - worktree_path: Worktree path (if using worktree)
+            - source_branch: Source branch (if using worktree)
+            - completed_work: List of completed task descriptions
+            - last_tool_used: Name of last tool that was called
+            - total_cost_usd: Cost accumulated so far
+        """
+        recovery = {
+            "run_id": run.id,
+            "project_id": run.project_id,
+            "original_prompt": run.prompt,
+            "branch_name": run.branch_name,
+            "worktree_path": run.worktree_path,
+            "source_branch": run.source_branch,
+            "completed_work": [],
+            "last_tool_used": None,
+            "total_cost_usd": run.cost_usd or 0,
+        }
+
+        # Parse messages.jsonl for progress
+        if run.log_path:
+            messages_file = Path(run.log_path) / "messages.jsonl"
+            if messages_file.exists():
+                recovery["completed_work"] = self._parse_completed_tasks(messages_file)
+                recovery["last_tool_used"] = self._get_last_tool_used(messages_file)
+
+        return recovery
+
+    def _parse_completed_tasks(self, messages_path: Path) -> list[str]:
+        """
+        Parse messages.jsonl to extract completed TODO items.
+
+        Args:
+            messages_path: Path to messages.jsonl file
+
+        Returns:
+            List of completed task descriptions
+        """
+        completed = []
+
+        try:
+            with open(messages_path) as f:
+                for line in f:
+                    try:
+                        msg = json.loads(line)
+                        # Look for TodoWrite tool results with completed tasks
+                        if msg.get("type") == "tool_use":
+                            metadata = msg.get("metadata", {})
+                            tool = metadata.get("tool", "")
+                            if tool == "TodoWrite":
+                                input_data = metadata.get("input", {})
+                                todos = input_data.get("todos", [])
+                                for todo in todos:
+                                    if todo.get("status") == "completed":
+                                        completed.append(todo.get("content", ""))
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass  # Return empty list if parsing fails
+
+        return completed
+
+    def _get_last_tool_used(self, messages_path: Path) -> str | None:
+        """
+        Get the name of the last tool that was called.
+
+        Args:
+            messages_path: Path to messages.jsonl file
+
+        Returns:
+            Tool name or None
+        """
+        last_tool = None
+
+        try:
+            with open(messages_path) as f:
+                for line in f:
+                    try:
+                        msg = json.loads(line)
+                        if msg.get("type") == "tool_use":
+                            metadata = msg.get("metadata", {})
+                            last_tool = metadata.get("tool")
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+
+        return last_tool
+
+    async def _handle_context_overflow_recovery(
+        self,
+        run: ExecutionRun,
+        working_dir: Path,
+        stdout_file,
+        stderr_file,
+        messages_file,
+        progress_path: Path,
+        tokens_path: Path,
+        start_time: float,
+    ) -> bool:
+        """
+        Handle context overflow by initiating auto-recovery.
+
+        Args:
+            run: The execution run that hit context overflow
+            working_dir: Working directory for the run
+            stdout_file: Open file handle for stdout logging
+            stderr_file: Open file handle for stderr logging
+            messages_file: Open file handle for messages.jsonl
+            progress_path: Path to progress.json
+            tokens_path: Path to tokens.json
+            start_time: Start time for elapsed calculation
+
+        Returns:
+            True if recovery succeeded, False otherwise
+        """
+        from gluon.models import utc_now
+
+        try:
+            # Update recovery tracking on the run
+            run.recovery_count += 1
+            run.last_recovery_at = utc_now()
+            self.store.update_run(run)
+
+            # Extract recovery state
+            recovery_state = self._extract_recovery_state(run)
+
+            # Write recovery marker to logs
+            recovery_marker = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "type": "system",
+                "subtype": "recovery",
+                "content": f"=== Context Overflow Recovery #{run.recovery_count} ===",
+                "recovery_attempt": run.recovery_count,
+                "completed_work": recovery_state.get("completed_work", []),
+            }
+            messages_file.write(json.dumps(recovery_marker) + "\n")
+            messages_file.flush()
+
+            stdout_file.write(f"\n{'=' * 50}\n")
+            stdout_file.write(f"CONTEXT OVERFLOW RECOVERY - Attempt #{run.recovery_count}\n")
+            stdout_file.write(f"Completed tasks found: {len(recovery_state.get('completed_work', []))}\n")
+            stdout_file.write(f"{'=' * 50}\n\n")
+            stdout_file.flush()
+
+            # Create agent for recovery (use same model as original run)
+            recovery_agent = GluonAgent(model=run.model) if run.model else self.agent
+
+            # Execute recovery with fresh context
+            turn_count = 0
+            tool_count = 0
+
+            async for item in recovery_agent.resume_with_fresh_context(
+                recovery_state=recovery_state,
+                working_dir=working_dir,
+            ):
+                if isinstance(item, AgentMessage):
+                    # Log message
+                    msg_dict = {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "type": item.type,
+                        "content": item.content,
+                        "metadata": item.metadata,
+                        "recovery_session": True,
+                    }
+                    messages_file.write(json.dumps(msg_dict) + "\n")
+                    messages_file.flush()
+
+                    # Also write text to stdout
+                    if item.type == "text":
+                        stdout_file.write(item.content + "\n")
+                        stdout_file.flush()
+                        turn_count += 1
+                    elif item.type == "tool_use":
+                        tool_count += 1
+                    elif item.type == "error":
+                        stderr_file.write(item.content + "\n")
+                        stderr_file.flush()
+
+                        # Check for another context overflow (don't recursively recover)
+                        metadata = item.metadata or {}
+                        if metadata.get("exception") == "ContextOverflowError":
+                            stderr_file.write("\n❌ Context overflow during recovery - manual intervention required\n")
+                            stderr_file.flush()
+                            return False
+
+                    # Update progress.json
+                    progress_data = {
+                        "turns": turn_count,
+                        "tool_calls": tool_count,
+                        "elapsed_seconds": round(time.time() - start_time, 1),
+                        "recovery_attempt": run.recovery_count,
+                    }
+                    progress_path.write_text(json.dumps(progress_data))
+
+                elif isinstance(item, AgentResult):
+                    # Update run with new session ID from recovery
+                    run.claude_session_id = item.claude_session_id
+
+                    # Accumulate cost from recovery session
+                    run.cost_usd = (run.cost_usd or 0) + (item.total_cost_usd or 0)
+                    run.input_tokens = (run.input_tokens or 0) + (item.input_tokens or 0)
+                    run.output_tokens = (run.output_tokens or 0) + (item.output_tokens or 0)
+                    run.model_used = item.model_used
+
+                    # Update tokens.json
+                    tokens_data = {
+                        "input_tokens": run.input_tokens or 0,
+                        "output_tokens": run.output_tokens or 0,
+                        "estimated_cost_usd": run.cost_usd or 0,
+                    }
+                    tokens_path.write_text(json.dumps(tokens_data))
+
+                    self.store.update_run(run)
+
+                    if item.success:
+                        stdout_file.write("\n✅ Recovery completed successfully\n")
+                        stdout_file.flush()
+                        return True
+                    else:
+                        stderr_file.write(f"\n❌ Recovery failed: {item.error}\n")
+                        stderr_file.flush()
+                        return False
+
+            return False  # No result received
+
+        except Exception as e:
+            stderr_file.write(f"\n❌ Recovery error: {e}\n")
+            stderr_file.flush()
+            return False
 
 
 # Utility functions for CLI

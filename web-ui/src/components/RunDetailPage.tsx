@@ -680,7 +680,8 @@ Focus on preserving functionality from both sides where possible.`
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
   const isResumable =
-    (run?.status === 'completed' || run?.status === 'failed') && detail?.session_id
+    (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review') &&
+    detail?.session_id
   const hasHistory = sessionHistory.length > 0
 
   if (loading) {

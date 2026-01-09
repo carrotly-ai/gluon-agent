@@ -18,6 +18,7 @@ import type {
   ProjectDetail,
   ProjectUsage,
   RebaseResponse,
+  RecoverRunResponse,
   ResolveConflictResponse,
   ResumeRunResponse,
   Run,
@@ -114,6 +115,14 @@ export async function resumeRun(runId: string, prompt: string): Promise<ResumeRu
   return fetchJson<ResumeRunResponse>(`/runs/${runId}/resume`, {
     method: 'POST',
     body: JSON.stringify({ prompt }),
+  })
+}
+
+/** Recover a failed run (typically from context overflow) */
+export async function recoverRun(runId: string, fresh: boolean = false): Promise<RecoverRunResponse> {
+  return fetchJson<RecoverRunResponse>(`/runs/${runId}/recover`, {
+    method: 'POST',
+    body: JSON.stringify({ fresh }),
   })
 }
 

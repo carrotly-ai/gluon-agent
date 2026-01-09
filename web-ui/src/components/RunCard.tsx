@@ -1,4 +1,4 @@
-import { Archive, ExternalLink, GitBranch, X } from 'lucide-react'
+import { Archive, ExternalLink, GitBranch, RefreshCw, X } from 'lucide-react'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -11,7 +11,10 @@ interface RunCardProps {
 }
 
 // Map status to CSS variable for border color
-function getStatusBorderColor(status: string): string {
+function getStatusBorderColor(status: string, isRecovering?: boolean): string {
+  // Amber for recovery state (distinct from running)
+  if (isRecovering) return '#f59e0b'
+
   switch (status) {
     case 'running':
       return 'var(--color-sky)'
@@ -32,28 +35,36 @@ function getStatusBorderColor(status: string): string {
 
 export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
+  const isRecovering = run.is_recovering
+
+  // Determine status for border color
+  const effectiveStatus =
+    run.status === 'completed' && run.use_worktree && run.branch_name && run.pr_status !== 'merged'
+      ? 'review'
+      : run.status
 
   return (
     <div
       className={cn(
         'card hover-whisper cursor-grab active:cursor-grabbing group relative',
-        run.status === 'running' && 'card-running overflow-visible'
+        run.status === 'running' && !isRecovering && 'card-running overflow-visible',
+        isRecovering && 'card-recovering overflow-visible'
       )}
       style={{
-        borderLeft: `3px solid ${getStatusBorderColor(
-          // Use 'review' for completed worktree runs that haven't been merged (virtual REVIEW column)
-          run.status === 'completed' &&
-            run.use_worktree &&
-            run.branch_name &&
-            run.pr_status !== 'merged'
-            ? 'review'
-            : run.status
-        )}`,
+        borderLeft: `3px solid ${getStatusBorderColor(effectiveStatus, isRecovering)}`,
       }}
       onClick={onClick}
     >
-      {/* Pulsing stripe overlay for running cards */}
-      {run.status === 'running' && (
+      {/* Shimmer stripe overlay for recovering cards */}
+      {isRecovering && (
+        <div
+          className="stripe-shimmer absolute top-0 bottom-0 w-[3px]"
+          style={{ backgroundColor: '#f59e0b', left: '-3px' }}
+        />
+      )}
+
+      {/* Pulsing stripe overlay for running cards (non-recovery) */}
+      {run.status === 'running' && !isRecovering && (
         <div
           className="stripe-pulse absolute top-0 bottom-0 w-[3px]"
           style={{ backgroundColor: getStatusBorderColor(run.status), left: '-3px' }}
@@ -108,6 +119,13 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
       {/* Bottom row: metadata */}
       <div className="flex items-center justify-between mt-2 sm:mt-3 gap-2">
         <div className="flex items-center gap-2 sm:gap-4 flex-wrap min-w-0">
+          {/* Recovering badge */}
+          {isRecovering && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+              Recovering
+            </span>
+          )}
           <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
             {run.project_name}
           </span>
@@ -170,19 +188,29 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
         )}
       </div>
 
-      {/* Error - vermillion accent */}
-      {run.error_message && (
-        <p
-          className="text-caption accent-vermillion mt-2 sm:mt-3 pl-4 sm:pl-[18px] break-words"
-          style={{
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {run.error_message}
+      {/* Recovery progress OR Error message */}
+      {isRecovering ? (
+        <p className="text-caption text-amber-400/80 mt-2 sm:mt-3 pl-4 sm:pl-[18px]">
+          <RefreshCw className="w-3 h-3 inline mr-1 animate-spin" />
+          Processing item {run.recovery_item_count || 0}...
+          {run.cost_usd != null && run.cost_usd > 0 && (
+            <span className="ml-2 text-[var(--color-stone)]/55">${run.cost_usd.toFixed(2)}</span>
+          )}
         </p>
+      ) : (
+        run.error_message && (
+          <p
+            className="text-caption accent-vermillion mt-2 sm:mt-3 pl-4 sm:pl-[18px] break-words"
+            style={{
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {run.error_message}
+          </p>
+        )
       )}
     </div>
   )

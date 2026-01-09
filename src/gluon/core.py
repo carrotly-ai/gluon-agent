@@ -556,7 +556,7 @@ class Orchestrator:
                 run.claude_session_id = result.claude_session_id
 
                 if result.success:
-                    run.mark_completed(exit_code=0)
+                    run.mark_review()  # All tasks go to REVIEW first
                 else:
                     run.mark_failed(result.error or "Unknown error", exit_code=1)
 
