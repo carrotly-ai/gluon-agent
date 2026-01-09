@@ -1,6 +1,6 @@
 # Bug: Duplicate Messages During Resume
 
-**Status**: Identified - Fix Pending
+**Status**: Fixed
 **Severity**: Medium (UI/UX issue, no data loss)
 **Affected Version**: Current
 **Reported**: Mobile UI when resuming tasks
@@ -183,6 +183,38 @@ Frontend only keeps highest sequence number for each `seq`.
 
 1. **Phase 1 (Immediate)**: Implement Solution 1 (frontend deduplication) to fix the user-facing issue quickly
 2. **Phase 2 (Follow-up)**: Implement Solution 2 (backend position tracking) for efficiency and correctness
+
+## Implementation (Completed)
+
+Both Phase 1 and Phase 2 fixes were implemented:
+
+### Frontend Fix (StreamingLogViewer.tsx)
+Added message deduplication using `useMemo` with a unique key based on `timestamp + type + content preview`:
+
+```typescript
+const allMessages = useMemo((): AgentMessage[] => {
+    const seen = new Set<string>()
+    const combined: AgentMessage[] = [...initialMessages, ...streamedMessages...]
+    return combined.filter((msg) => {
+        const contentPreview = msg.content?.slice(0, 100) || ''
+        const key = `${msg.timestamp}-${msg.type}-${contentPreview}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+    })
+}, [initialMessages, streamedMessages])
+```
+
+### Backend Fix (api.py)
+Modified `_poll_log_updates()` to initialize file position to current size for new subscriptions:
+
+```python
+if run_id not in _log_file_positions:
+    _log_file_positions[run_id] = current_size
+    logger.debug(f"Initialized log position for {run_id[:8]} at {current_size} bytes")
+```
+
+This prevents re-streaming messages that were already fetched via HTTP.
 
 ## Testing
 

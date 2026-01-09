@@ -18,7 +18,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
 import { formatMessageTime } from '@/lib/timestamps'
@@ -513,19 +513,31 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     prevMessageCountRef.current = 0
   }, [runId])
 
-  // Combine initial messages with streamed messages
-  // For active runs, we start streaming from where we are, so don't duplicate
-  const allMessages: AgentMessage[] = [
-    ...initialMessages,
-    ...streamedMessages.map(
-      (msg): AgentMessage => ({
-        timestamp: msg.timestamp || new Date().toISOString(),
-        type: msg.type,
-        content: msg.content,
-        metadata: msg.metadata as AgentMessage['metadata'],
-      })
-    ),
-  ]
+  // Combine initial messages with streamed messages, deduplicating by unique key
+  // This prevents duplicate messages when resuming runs (HTTP fetch + WebSocket stream overlap)
+  const allMessages = useMemo((): AgentMessage[] => {
+    const seen = new Set<string>()
+    const combined: AgentMessage[] = [
+      ...initialMessages,
+      ...streamedMessages.map(
+        (msg): AgentMessage => ({
+          timestamp: msg.timestamp || new Date().toISOString(),
+          type: msg.type,
+          content: msg.content,
+          metadata: msg.metadata as AgentMessage['metadata'],
+        })
+      ),
+    ]
+    return combined.filter((msg) => {
+      // Create unique key from timestamp + type + content preview
+      // This handles the race condition between HTTP fetch and WebSocket streaming
+      const contentPreview = msg.content?.slice(0, 100) || ''
+      const key = `${msg.timestamp}-${msg.type}-${contentPreview}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [initialMessages, streamedMessages])
 
   // Handle scroll position tracking
   const handleScroll = useCallback(() => {
