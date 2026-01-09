@@ -1,6 +1,18 @@
 import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
+
+// Extend tailwind-merge to recognize our custom typography classes
+// This prevents text-body from being removed when combined with text-[color]
+const customTwMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      // Add our custom typography classes to their own group
+      // so they don't conflict with text color classes
+      'font-size': ['text-body', 'text-caption', 'text-title', 'text-mono'],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return customTwMerge(clsx(inputs))
 }

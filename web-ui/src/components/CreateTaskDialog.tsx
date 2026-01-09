@@ -233,7 +233,7 @@ export function CreateTaskDialog({
       <DialogContent className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
-          <span className="text-[0.75rem] text-[var(--color-paper)] font-normal">New Task</span>
+          <span className="text-body text-[var(--color-paper)] font-normal">New Task</span>
           <button
             className="p-1 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
             onClick={() => onOpenChange(false)}
@@ -245,13 +245,13 @@ export function CreateTaskDialog({
         <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
           {/* Project Select */}
           <div>
-            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Project
             </label>
             <div className="relative">
               <button
                 type="button"
-                className="w-full flex items-center justify-between px-3 py-2 text-[0.8125rem] text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
                 onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
               >
                 <span
@@ -273,7 +273,7 @@ export function CreateTaskDialog({
                 <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
                   {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
                     <div key={workspace}>
-                      <div className="px-3 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
+                      <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
                         {workspace}
                       </div>
                       {workspaceProjects.map((project: ProjectWithWorkspace) => (
@@ -281,7 +281,7 @@ export function CreateTaskDialog({
                           key={project.id}
                           type="button"
                           className={cn(
-                            'w-full px-3 py-2 text-left text-[0.8125rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                            'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
                             selectedProject === project.name
                               ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                               : 'text-[var(--color-stone)]'
@@ -303,7 +303,7 @@ export function CreateTaskDialog({
 
           {/* Prompt */}
           <div>
-            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Prompt
             </label>
             <textarea
@@ -319,14 +319,14 @@ export function CreateTaskDialog({
               }}
               onPaste={handlePaste}
               placeholder="What would you like the agent to do? (Paste images with ⌘V)"
-              className="w-full px-3 py-2.5 text-[0.8125rem] text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
+              className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
             />
           </div>
 
           {/* Image Attachments */}
           <div>
-            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Attachments (optional)
             </label>
             <input
@@ -353,10 +353,10 @@ export function CreateTaskDialog({
               {pendingImages.length === 0 ? (
                 <div className="flex flex-col items-center py-2 text-center">
                   <ImageIcon className="w-6 h-6 text-[var(--color-stone)]/40 mb-1" />
-                  <span className="text-[0.75rem] text-[var(--color-stone)]/60">
+                  <span className="text-body text-[var(--color-stone)]/60">
                     Drop images here or click to upload
                   </span>
-                  <span className="text-[0.625rem] text-[var(--color-stone)]/40 mt-0.5">
+                  <span className="text-caption text-[var(--color-stone)]/40 mt-0.5">
                     PNG, JPEG, GIF, WebP • Max 50MB
                   </span>
                 </div>
@@ -395,7 +395,7 @@ export function CreateTaskDialog({
               )}
             </div>
             {pendingImages.length > 0 && (
-              <p className="text-[0.625rem] text-[var(--color-stone)]/60 mt-1">
+              <p className="text-caption text-[var(--color-stone)]/60 mt-1">
                 {pendingImages.length} image{pendingImages.length !== 1 ? 's' : ''} selected
               </p>
             )}
@@ -403,13 +403,13 @@ export function CreateTaskDialog({
 
           {/* Model Select */}
           <div>
-            <label className="block text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Model
             </label>
             <div className="relative">
               <button
                 type="button"
-                className="w-full flex items-center justify-between px-3 py-2 text-[0.8125rem] text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
                 onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
               >
                 <span className="text-[var(--color-paper)]">
@@ -433,7 +433,7 @@ export function CreateTaskDialog({
                       key={option.value}
                       type="button"
                       className={cn(
-                        'w-full px-3 py-2 text-left text-[0.8125rem] hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                        'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
                         model === option.value
                           ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                           : 'text-[var(--color-stone)]'
@@ -459,8 +459,8 @@ export function CreateTaskDialog({
             <div className="flex items-center gap-2">
               <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
               <div>
-                <span className="text-[0.8125rem] text-[var(--color-paper)]">Use Git Worktree</span>
-                <p className="text-[0.6875rem] text-[var(--color-stone)]/60">
+                <span className="text-title text-[var(--color-paper)]">Use Git Worktree</span>
+                <p className="text-caption text-[var(--color-stone)]/60">
                   Run in isolated branch
                 </p>
               </div>
@@ -486,13 +486,13 @@ export function CreateTaskDialog({
           </div>
 
           {/* Error */}
-          {error && <p className="text-[0.75rem] text-[var(--color-vermillion)]">{error}</p>}
+          {error && <p className="text-body text-[var(--color-vermillion)]">{error}</p>}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
               type="button"
-              className="px-4 py-2 text-[0.6875rem] uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
+              className="px-4 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
               onClick={() => onOpenChange(false)}
             >
               Cancel
@@ -501,7 +501,7 @@ export function CreateTaskDialog({
               type="submit"
               disabled={!selectedProject || !prompt.trim() || submitting}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 text-[0.6875rem] uppercase tracking-widest rounded-sm transition-colors',
+                'flex items-center gap-2 px-4 py-2 text-caption uppercase tracking-widest rounded-sm transition-colors',
                 selectedProject && prompt.trim() && !submitting
                   ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                   : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'

@@ -201,12 +201,12 @@ function App() {
         <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
           {/* Left - wordmark + filter + new + stats */}
           <div className="flex items-center gap-3 sm:gap-5">
-            <span className="text-[0.75rem] sm:text-[0.8125rem] font-normal tracking-[0.1em] text-[var(--color-paper)]">
+            <span className="text-body sm:text-title font-normal tracking-[0.1em] text-[var(--color-paper)]">
               GLUON
             </span>
             <ProjectFilter filter={filter} onFilterChange={setFilter} />
             <button
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[0.625rem] uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 transition-colors rounded-sm"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-caption uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 transition-colors rounded-sm"
               onClick={() => setCreateDialogOpen(true)}
             >
               <Plus className="w-3 h-3" />
@@ -292,7 +292,7 @@ function App() {
 
       {/* Offline Banner */}
       {!online && (
-        <div className="bg-[var(--color-vermillion)]/10 border-b border-[var(--color-vermillion)]/20 px-4 py-2 flex items-center justify-center gap-2 text-[0.6875rem] text-[var(--color-vermillion)]">
+        <div className="bg-[var(--color-vermillion)]/10 border-b border-[var(--color-vermillion)]/20 px-4 py-2 flex items-center justify-center gap-2 text-caption text-[var(--color-vermillion)]">
           <WifiOff className="w-3.5 h-3.5" />
           <span>You're offline. Some features may be limited.</span>
         </div>

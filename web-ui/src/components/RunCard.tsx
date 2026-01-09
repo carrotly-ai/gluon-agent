@@ -136,7 +136,7 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
             >
               <GitBranch className="w-3 h-3" />
               {run.branch_name && (
-                <span className="text-[0.625rem] truncate max-w-[80px]">{run.branch_name}</span>
+                <span className="text-caption truncate max-w-[80px]">{run.branch_name}</span>
               )}
             </span>
           )}

@@ -7,10 +7,12 @@
 
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
+  Copy,
   DollarSign,
   Filter,
   MessageSquare,
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
 import { formatMessageTime } from '@/lib/timestamps'
 import type { RunStatus } from '@/lib/types'
@@ -181,10 +184,10 @@ function TodoWriteMessage({
           )}
         />
         <CheckCircle2 className="w-2.5 h-2.5 shrink-0 text-[var(--color-jade)]/80" />
-        <span className="text-[0.6875rem] font-medium font-mono text-[var(--color-jade)]/90">
+        <span className="text-body font-medium font-mono text-[var(--color-jade)]/90">
           TodoWrite
         </span>
-        <span className="text-[0.6875rem] text-[var(--color-paper)]/60 truncate flex-1 min-w-0">
+        <span className="text-body text-[var(--color-paper)]/60 truncate flex-1 min-w-0">
           {currentTask ? (
             <span className="text-[var(--color-sky)]">{currentTask.content}</span>
           ) : todos.length > 0 ? (
@@ -200,7 +203,7 @@ function TodoWriteMessage({
         </span>
         <span
           className={cn(
-            'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+            'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
             !showTimestamp && 'hidden sm:inline'
           )}
         >
@@ -212,7 +215,7 @@ function TodoWriteMessage({
         <div className="border-l-2 border-l-[var(--color-jade)]/70 ml-0 pl-4 py-2 bg-[var(--color-paper)]/[0.02]">
           <div className="space-y-1">
             {todos.map((todo, idx) => (
-              <div key={idx} className="flex items-start gap-2 text-[0.6875rem]">
+              <div key={idx} className="flex items-start gap-2 text-body">
                 {todo.status === 'completed' ? (
                   <span className="text-[var(--color-jade)] shrink-0">done</span>
                 ) : todo.status === 'in_progress' ? (
@@ -288,18 +291,18 @@ function ToolCallMessage({
           <div className="w-3" />
         )}
         <Wrench className="w-2.5 h-2.5 text-[var(--color-stone)]/50 shrink-0" />
-        <span className="text-[0.6875rem] font-medium text-[var(--color-stone)]/80 font-mono">
+        <span className="text-body font-medium text-[var(--color-stone)]/80 font-mono">
           {toolName}
         </span>
         {primaryParam && (
-          <span className="text-[0.6875rem] text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
+          <span className="text-body text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
             <span className="text-[var(--color-stone)]/50">{primaryParam.key}=</span>
             <span className="text-[var(--color-paper)]/70">"{primaryParam.value}"</span>
           </span>
         )}
         <span
           className={cn(
-            'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+            'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
             !showTimestamp && 'hidden sm:inline'
           )}
         >
@@ -311,7 +314,7 @@ function ToolCallMessage({
         <div className="border-l-2 border-l-[var(--color-stone)]/40 ml-0 pl-6 py-1.5 bg-[var(--color-paper)]/[0.02]">
           <div className="space-y-1">
             {fullParams.map((param, idx) => (
-              <div key={idx} className="flex gap-2 text-[0.625rem] font-mono">
+              <div key={idx} className="flex gap-2 text-body font-mono">
                 <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">
                   {param.key}
                 </span>
@@ -337,6 +340,13 @@ function TextMessage({
   const time = formatMessageTime(msg.timestamp)
   const isLong = msg.content.length > 200
   const [isExpanded, setIsExpanded] = useState(!isLong)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(msg.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <div className="flex items-start gap-2 py-1.5 px-3">
@@ -344,17 +354,111 @@ function TextMessage({
       <div className="flex-1 min-w-0">
         <div
           className={cn(
-            'text-[0.75rem] text-[var(--color-paper)]/90 leading-relaxed',
+            'text-body text-[var(--color-paper)]/90 leading-relaxed',
             !isExpanded && 'line-clamp-2'
           )}
         >
           <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
             components={{
-              p: ({ children }) => <span>{children} </span>,
+              p: ({ children }) => (
+                <p className="mb-2 last:mb-0">{children}</p>
+              ),
               code: ({ children }) => (
-                <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-[0.6875rem]">
+                <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-body font-mono">
                   {children}
                 </code>
+              ),
+              ul: ({ children }) => (
+                <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
+              ),
+              ol: ({ children }) => (
+                <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>
+              ),
+              li: ({ children }) => <li>{children}</li>,
+              strong: ({ children }) => (
+                <strong className="font-medium">{children}</strong>
+              ),
+              em: ({ children }) => <em>{children}</em>,
+              blockquote: ({ children }) => (
+                <blockquote className="border-l-2 border-[var(--color-stone)]/30 pl-3 my-2 text-[var(--color-stone)]/80">
+                  {children}
+                </blockquote>
+              ),
+              table: ({ children }) => (
+                <div className="overflow-x-auto mb-2">
+                  <table className="min-w-full border-collapse text-body">
+                    {children}
+                  </table>
+                </div>
+              ),
+              thead: ({ children }) => (
+                <thead className="border-b border-[var(--color-stone)]/30">{children}</thead>
+              ),
+              tbody: ({ children }) => <tbody>{children}</tbody>,
+              tr: ({ children }) => (
+                <tr className="border-b border-[var(--color-stone)]/10">{children}</tr>
+              ),
+              th: ({ children }) => (
+                <th className="px-2 py-1 text-left font-medium text-[var(--color-paper)]/80">
+                  {children}
+                </th>
+              ),
+              td: ({ children }) => (
+                <td className="px-2 py-1 text-[var(--color-paper)]/70">{children}</td>
+              ),
+              h1: ({ children }) => (
+                <h1 className="font-semibold text-[var(--color-paper)] mt-3 mb-2 first:mt-0">
+                  {children}
+                </h1>
+              ),
+              h2: ({ children }) => (
+                <h2 className="font-semibold text-[var(--color-paper)] mt-3 mb-2 first:mt-0">
+                  {children}
+                </h2>
+              ),
+              h3: ({ children }) => (
+                <h3 className="font-medium text-[var(--color-paper)] mt-2 mb-1 first:mt-0">
+                  {children}
+                </h3>
+              ),
+              h4: ({ children }) => (
+                <h4 className="font-medium text-[var(--color-paper)]/90 mt-2 mb-1 first:mt-0">
+                  {children}
+                </h4>
+              ),
+              h5: ({ children }) => (
+                <h5 className="font-medium text-[var(--color-paper)]/80 mt-1 mb-1 first:mt-0">
+                  {children}
+                </h5>
+              ),
+              h6: ({ children }) => (
+                <h6 className="font-medium text-[var(--color-paper)]/70 mt-1 mb-1 first:mt-0">
+                  {children}
+                </h6>
+              ),
+              a: ({ href, children }) => (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--color-sky)] hover:text-[var(--color-sky)]/80 underline underline-offset-2"
+                >
+                  {children}
+                </a>
+              ),
+              pre: ({ children }) => (
+                <pre className="bg-[var(--color-void)] border border-[var(--color-stone)]/15 rounded-sm p-3 my-2 overflow-x-auto text-body font-mono">
+                  {children}
+                </pre>
+              ),
+              hr: () => (
+                <hr className="border-0 border-t border-[var(--color-stone)]/20 my-3" />
+              ),
+              del: ({ children }) => (
+                <del className="text-[var(--color-stone)]/60 line-through">
+                  {children}
+                </del>
               ),
             }}
           >
@@ -362,17 +466,27 @@ function TextMessage({
           </ReactMarkdown>
         </div>
         {isLong && (
-          <button
-            className="text-[0.625rem] text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] mt-1"
-            onClick={() => setIsExpanded(!isExpanded)}
-          >
-            {isExpanded ? 'Show less' : 'Show more'}
-          </button>
+          <div className="flex items-center gap-3 mt-1">
+            <button
+              className="text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+              onClick={() => setIsExpanded(!isExpanded)}
+            >
+              {isExpanded ? 'Show less' : 'Show more'}
+            </button>
+            <button
+              className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+              onClick={handleCopy}
+              title="Copy markdown to clipboard"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
         )}
       </div>
       <span
         className={cn(
-          'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+          'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
           !showTimestamp && 'hidden sm:inline'
         )}
       >
@@ -396,10 +510,10 @@ function SystemMessage({
   return (
     <div className={cn('flex items-center gap-2 py-1.5 px-3', config.bg, config.border)}>
       <Icon className={cn('w-2.5 h-2.5 shrink-0', config.color)} />
-      <span className={cn('text-[0.6875rem] flex-1', config.color)}>{msg.content}</span>
+      <span className={cn('text-body flex-1', config.color)}>{msg.content}</span>
       <span
         className={cn(
-          'text-[0.625rem] text-[var(--color-stone)]/40 font-mono shrink-0',
+          'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
           !showTimestamp && 'hidden sm:inline'
         )}
       >
@@ -420,7 +534,7 @@ function ProgressIndicator({
   if (!progress && !tokens) return null
 
   return (
-    <div className="flex items-center gap-4 px-3 py-2 border-b border-[rgba(163,163,163,0.08)] bg-[var(--color-void)] text-[0.625rem]">
+    <div className="flex items-center gap-4 px-3 py-2 border-b border-[rgba(163,163,163,0.08)] bg-[var(--color-void)] text-body">
       {progress && (
         <>
           <div className="flex items-center gap-1.5 text-[var(--color-paper)]/70">
@@ -462,7 +576,7 @@ function StreamingIndicator({
   if (!connected) return null
 
   return (
-    <div className="flex items-center gap-1.5 text-[0.5rem] text-[var(--color-jade)]/70 uppercase tracking-wider">
+    <div className="flex items-center gap-1.5 text-body text-[var(--color-jade)]/70 uppercase tracking-wider">
       <Zap className="w-2.5 h-2.5" />
       {subscribed ? 'Live' : 'Connecting...'}
     </div>
@@ -602,7 +716,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         <Filter className="w-3 h-3 text-[var(--color-stone)]/40 mr-1" />
         <button
           className={cn(
-            'px-2 py-1 text-[0.625rem] rounded-sm transition-colors',
+            'px-2 py-1 text-body rounded-sm transition-colors',
             filter === 'all'
               ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
               : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
@@ -613,7 +727,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         </button>
         <button
           className={cn(
-            'px-2 py-1 text-[0.625rem] rounded-sm transition-colors flex items-center gap-1',
+            'px-2 py-1 text-body rounded-sm transition-colors flex items-center gap-1',
             filter === 'tool_use'
               ? 'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]'
               : 'text-[var(--color-stone)]/60 hover:text-[var(--color-sky)]'
@@ -622,11 +736,11 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         >
           <Wrench className="w-3 h-3" />
           Tools
-          <span className="text-[0.5rem] opacity-60">{counts.tool_use}</span>
+          <span className="text-body opacity-60">{counts.tool_use}</span>
         </button>
         <button
           className={cn(
-            'px-2 py-1 text-[0.625rem] rounded-sm transition-colors flex items-center gap-1',
+            'px-2 py-1 text-body rounded-sm transition-colors flex items-center gap-1',
             filter === 'text'
               ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
               : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
@@ -635,12 +749,12 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         >
           <MessageSquare className="w-3 h-3" />
           Text
-          <span className="text-[0.5rem] opacity-60">{counts.text}</span>
+          <span className="text-body opacity-60">{counts.text}</span>
         </button>
         {counts.error > 0 && (
           <button
             className={cn(
-              'px-2 py-1 text-[0.625rem] rounded-sm transition-colors flex items-center gap-1',
+              'px-2 py-1 text-body rounded-sm transition-colors flex items-center gap-1',
               filter === 'error'
                 ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
                 : 'text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)]'
@@ -649,7 +763,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
           >
             <AlertCircle className="w-3 h-3" />
             Errors
-            <span className="text-[0.5rem] opacity-60">{counts.error}</span>
+            <span className="text-body opacity-60">{counts.error}</span>
           </button>
         )}
 
@@ -667,7 +781,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
           onScroll={handleScroll}
         >
           {filteredMessages.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-[var(--color-stone)]/50 text-[0.75rem]">
+            <div className="flex items-center justify-center h-32 text-[var(--color-stone)]/50 text-body">
               {isActive ? 'Waiting for messages...' : 'No messages'}
             </div>
           ) : (

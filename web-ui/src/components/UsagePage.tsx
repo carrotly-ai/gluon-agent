@@ -117,13 +117,13 @@ export function UsagePage() {
         <div className="lg:col-span-1">
           <div className="border border-[rgba(163,163,163,0.1)] rounded-sm">
             <div className="px-4 py-3 border-b border-[rgba(163,163,163,0.08)]">
-              <h2 className="text-[0.6875rem] uppercase tracking-widest text-[var(--color-stone)]">
+              <h2 className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
                 Cost by Project
               </h2>
             </div>
             <div className="divide-y divide-[rgba(163,163,163,0.06)]">
               {projectUsage.length === 0 ? (
-                <div className="p-4 text-center text-[0.75rem] text-[var(--color-stone)]/50">
+                <div className="p-4 text-center text-body text-[var(--color-stone)]/50">
                   No usage data yet
                 </div>
               ) : (
@@ -144,12 +144,12 @@ export function UsagePage() {
                             backgroundColor: `hsl(${(project.project_name.charCodeAt(0) * 137) % 360}, 50%, 50%)`,
                           }}
                         />
-                        <span className="text-[0.8125rem] text-[var(--color-paper)]">
+                        <span className="text-title text-[var(--color-paper)]">
                           {project.project_name}
                         </span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-mono text-[0.75rem] text-[var(--color-harvest)]">
+                        <span className="text-mono text-body text-[var(--color-harvest)]">
                           {formatCost(project.cost_usd)}
                         </span>
                         <ChevronDown
@@ -161,7 +161,7 @@ export function UsagePage() {
                       </div>
                     </button>
                     {expandedProject === project.project_id && (
-                      <div className="px-4 pb-3 pt-0 ml-5 text-[0.6875rem] text-[var(--color-stone)]/70 space-y-1">
+                      <div className="px-4 pb-3 pt-0 ml-5 text-caption text-[var(--color-stone)]/70 space-y-1">
                         <div className="flex justify-between">
                           <span>Runs</span>
                           <span className="text-mono">{project.run_count}</span>
@@ -193,7 +193,7 @@ export function UsagePage() {
         <div className="lg:col-span-2">
           <div className="border border-[rgba(163,163,163,0.1)] rounded-sm">
             <div className="px-4 py-3 border-b border-[rgba(163,163,163,0.08)] flex items-center justify-between">
-              <h2 className="text-[0.6875rem] uppercase tracking-widest text-[var(--color-stone)]">
+              <h2 className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
                 Recent Runs
               </h2>
               <div className="flex items-center gap-2">
@@ -219,7 +219,7 @@ export function UsagePage() {
             </div>
             <div className="divide-y divide-[rgba(163,163,163,0.06)] max-h-[600px] overflow-y-auto">
               {runs.length === 0 ? (
-                <div className="p-4 text-center text-[0.75rem] text-[var(--color-stone)]/50">
+                <div className="p-4 text-center text-body text-[var(--color-stone)]/50">
                   No runs yet
                 </div>
               ) : (
@@ -232,17 +232,17 @@ export function UsagePage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <div className={cn('mark', `mark-${run.status}`)} />
-                          <span className="text-[0.75rem] text-[var(--color-paper)]/70">
+                          <span className="text-body text-[var(--color-paper)]/70">
                             {run.project_name}
                           </span>
-                          <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/50">
+                          <span className="text-mono text-caption text-[var(--color-stone)]/50">
                             {run.id.slice(0, 8)}
                           </span>
                         </div>
-                        <p className="text-[0.75rem] text-[var(--color-paper)] line-clamp-1">
+                        <p className="text-body text-[var(--color-paper)] line-clamp-1">
                           {run.prompt}
                         </p>
-                        <div className="flex items-center gap-3 mt-1.5 text-[0.625rem] text-[var(--color-stone)]/60">
+                        <div className="flex items-center gap-3 mt-1.5 text-caption text-[var(--color-stone)]/60">
                           <span>{formatDateWithContext(run.created_at)}</span>
                           {run.model_used && <span className="text-mono">{run.model_used}</span>}
                           <span className="text-mono">
@@ -253,7 +253,7 @@ export function UsagePage() {
                       <div className="shrink-0 text-right">
                         <span
                           className={cn(
-                            'text-mono text-[0.8125rem]',
+                            'text-mono text-title',
                             run.cost_usd && run.cost_usd > 0
                               ? 'text-[var(--color-harvest)]'
                               : 'text-[var(--color-stone)]/50'
@@ -294,7 +294,7 @@ function SummaryCard({
 
   return (
     <div className="p-4 border border-[rgba(163,163,163,0.1)] rounded-sm">
-      <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+      <p className="text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
         {label}
       </p>
       <p
@@ -303,7 +303,7 @@ function SummaryCard({
       >
         {value}
       </p>
-      <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-1">{subValue}</p>
+      <p className="text-caption text-[var(--color-stone)]/50 mt-1">{subValue}</p>
     </div>
   )
 }
@@ -322,7 +322,7 @@ function SortButton({
   return (
     <button
       className={cn(
-        'px-2 py-1 text-[0.5625rem] uppercase tracking-widest rounded-sm transition-colors flex items-center gap-1',
+        'px-2 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors flex items-center gap-1',
         active
           ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
           : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'

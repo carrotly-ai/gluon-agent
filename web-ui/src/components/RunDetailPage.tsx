@@ -715,22 +715,22 @@ Focus on preserving functionality from both sides where possible.`
               className="flex items-center gap-1.5 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
-              <span className="text-[0.625rem] uppercase tracking-widest hidden sm:inline">
+              <span className="text-caption uppercase tracking-widest hidden sm:inline">
                 Board
               </span>
             </Link>
             <div className="w-px h-4 bg-[var(--color-stone)]/20" />
             <div className="flex items-center gap-2 shrink-0">
               <div className={cn('mark', `mark-${run?.status}`)} />
-              <span className="text-mono text-[var(--color-stone)]/60 text-[0.625rem]">
+              <span className="text-mono text-[var(--color-stone)]/60 text-caption">
                 {run?.id.slice(0, 8)}
               </span>
-              <span className="text-[0.625rem] uppercase tracking-widest text-[var(--color-stone)]/55">
+              <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/55">
                 {run?.status}
               </span>
             </div>
             {detail?.branch_name && (
-              <div className="hidden sm:flex items-center gap-1.5 ml-1 text-[0.625rem] text-[var(--color-stone)]/50">
+              <div className="hidden sm:flex items-center gap-1.5 ml-1 text-caption text-[var(--color-stone)]/50">
                 <span className="text-[var(--color-stone)]/30">on</span>
                 <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
                 <span className="text-purple-300/80 truncate max-w-[100px]">
@@ -757,7 +757,7 @@ Focus on preserving functionality from both sides where possible.`
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
-                  'hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm text-[0.625rem] transition-colors',
+                  'hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm text-caption transition-colors',
                   detail.pr_mergeable === 'CONFLICTING' &&
                     'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-red-400 hover:bg-[rgba(239,68,68,0.2)]',
                   detail.pr_mergeable !== 'CONFLICTING' &&
@@ -802,7 +802,7 @@ Focus on preserving functionality from both sides where possible.`
                     onClick={handleMerge}
                     disabled={merging}
                     className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                      'flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
                       merging
                         ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
                         : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
@@ -826,7 +826,7 @@ Focus on preserving functionality from both sides where possible.`
 Focus on preserving the functionality from both sides where possible.`
                     setResumePrompt(conflictPrompt)
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>Resolve</span>
@@ -842,7 +842,7 @@ Focus on preserving the functionality from both sides where possible.`
                     onClick={handleCreatePr}
                     disabled={creatingPr}
                     className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                      'flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
                       creatingPr
                         ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
                         : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
@@ -862,7 +862,7 @@ Focus on preserving the functionality from both sides where possible.`
                     onClick={handleMerge}
                     disabled={merging}
                     className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest rounded-sm transition-colors',
+                      'flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
                       merging
                         ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
                         : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
@@ -875,7 +875,7 @@ Focus on preserving the functionality from both sides where possible.`
               {/* Cancel */}
               {isActive && (
                 <button
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgba(199,62,58,0.1)] rounded-sm transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgba(199,62,58,0.1)] rounded-sm transition-colors"
                   onClick={handleCancel}
                   disabled={cancelling}
                 >
@@ -908,7 +908,7 @@ Focus on preserving the functionality from both sides where possible.`
       <main className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
           {/* Project + Meta Row */}
-          <div className="flex items-center gap-4 text-[0.6875rem] text-[var(--color-stone)]/60 mb-4 flex-wrap">
+          <div className="flex items-center gap-4 text-caption text-[var(--color-stone)]/60 mb-4 flex-wrap">
             <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
             <span className="hidden sm:inline">
               {formatDateWithContext(run?.created_at ?? null)}
@@ -937,18 +937,18 @@ Focus on preserving the functionality from both sides where possible.`
           {/* PR/Merge errors */}
           {prError && (
             <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
-              <p className="text-[0.625rem] text-[var(--color-vermillion)]">{prError}</p>
+              <p className="text-caption text-[var(--color-vermillion)]">{prError}</p>
             </div>
           )}
           {mergeError && (
             <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
-              <p className="text-[0.625rem] text-[var(--color-vermillion)]">{mergeError}</p>
+              <p className="text-caption text-[var(--color-vermillion)]">{mergeError}</p>
             </div>
           )}
 
           {/* Prompt */}
           <div className="mb-6">
-            <p className="text-[0.875rem] text-[var(--color-paper)] leading-relaxed font-light">
+            <p className="text-title text-[var(--color-paper)] leading-relaxed font-light">
               {run?.prompt}
             </p>
           </div>
@@ -956,10 +956,10 @@ Focus on preserving the functionality from both sides where possible.`
           {/* Error Message */}
           {run?.error_message && (
             <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
-              <p className="text-[0.625rem] uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
+              <p className="text-caption uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
                 Error
               </p>
-              <pre className="text-[0.75rem] text-[var(--color-vermillion)] whitespace-pre-wrap break-words font-mono">
+              <pre className="text-body text-[var(--color-vermillion)] whitespace-pre-wrap break-words font-mono">
                 {run.error_message}
               </pre>
             </div>
@@ -970,7 +970,7 @@ Focus on preserving the functionality from both sides where possible.`
             <div className="flex items-center gap-1">
               <button
                 className={cn(
-                  'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                  'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm',
                   activeTab === 'messages'
                     ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                     : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -981,7 +981,7 @@ Focus on preserving the functionality from both sides where possible.`
               </button>
               <button
                 className={cn(
-                  'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                  'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm',
                   activeTab === 'output'
                     ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                     : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -992,7 +992,7 @@ Focus on preserving the functionality from both sides where possible.`
               </button>
               <button
                 className={cn(
-                  'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                  'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
                   activeTab === 'errors'
                     ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                     : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1007,7 +1007,7 @@ Focus on preserving the functionality from both sides where possible.`
               {hasHistory && (
                 <button
                   className={cn(
-                    'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                    'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
                     activeTab === 'history'
                       ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                       : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1025,7 +1025,7 @@ Focus on preserving the functionality from both sides where possible.`
                 <>
                   <button
                     className={cn(
-                      'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                      'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
                       activeTab === 'commits'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1045,7 +1045,7 @@ Focus on preserving the functionality from both sides where possible.`
                   </button>
                   <button
                     className={cn(
-                      'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                      'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
                       activeTab === 'files'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1067,7 +1067,7 @@ Focus on preserving the functionality from both sides where possible.`
               )}
               <button
                 className={cn(
-                  'px-3 py-1.5 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                  'px-3 py-1.5 text-caption uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
                   activeTab === 'attachments'
                     ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                     : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1085,7 +1085,7 @@ Focus on preserving the functionality from both sides where possible.`
             </div>
             <button
               className={cn(
-                'flex items-center gap-1.5 px-2 py-1 text-[0.625rem] uppercase tracking-widest transition-colors rounded-sm',
+                'flex items-center gap-1.5 px-2 py-1 text-caption uppercase tracking-widest transition-colors rounded-sm',
                 (activeTab === 'output' ? logs.stdout : logs.stderr)
                   ? 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
                   : 'text-[var(--color-stone)]/40 cursor-not-allowed'
@@ -1104,7 +1104,7 @@ Focus on preserving the functionality from both sides where possible.`
             {activeTab === 'output' && (
               <pre
                 ref={outputContainerRef}
-                className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed h-full overflow-auto"
+                className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-caption leading-relaxed h-full overflow-auto"
               >
                 {logs.stdout || (
                   <span className="text-[var(--color-stone)]/50 italic">No output</span>
@@ -1114,7 +1114,7 @@ Focus on preserving the functionality from both sides where possible.`
             {activeTab === 'errors' && (
               <pre
                 className={cn(
-                  'p-3 text-mono whitespace-pre-wrap break-words text-[0.6875rem] leading-relaxed',
+                  'p-3 text-mono whitespace-pre-wrap break-words text-caption leading-relaxed',
                   logs.stderr
                     ? 'text-[var(--color-vermillion)]/90'
                     : 'text-[var(--color-stone)]/50 italic'
@@ -1134,7 +1134,7 @@ Focus on preserving the functionality from both sides where possible.`
             )}
             {activeTab === 'history' && (
               <div className="p-3 overflow-y-auto h-full">
-                <p className="text-[0.6875rem] text-[var(--color-stone)]/70 mb-3">
+                <p className="text-caption text-[var(--color-stone)]/70 mb-3">
                   Previous runs in this session (oldest first):
                 </p>
                 <div className="space-y-2">
@@ -1150,10 +1150,10 @@ Focus on preserving the functionality from both sides where possible.`
                         <div className="flex items-center gap-3 text-left">
                           <div className={cn('mark', `mark-${historyRun.status}`)} />
                           <div>
-                            <p className="text-[0.75rem] text-[var(--color-paper)]/80 line-clamp-1">
+                            <p className="text-body text-[var(--color-paper)]/80 line-clamp-1">
                               {historyRun.prompt}
                             </p>
-                            <p className="text-[0.625rem] text-[var(--color-stone)]/50 mt-0.5">
+                            <p className="text-caption text-[var(--color-stone)]/50 mt-0.5">
                               {formatDateWithContext(historyRun.created_at)} ·{' '}
                               {formatDuration(historyRun.duration_seconds)}
                             </p>
@@ -1169,7 +1169,7 @@ Focus on preserving the functionality from both sides where possible.`
                       {expandedHistoryRun === historyRun.id && (
                         <div className="border-t border-[rgba(163,163,163,0.08)] p-3">
                           {historyLogs[historyRun.id] ? (
-                            <pre className="text-mono text-[0.625rem] text-[var(--color-paper)]/60 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                            <pre className="text-mono text-caption text-[var(--color-paper)]/60 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
                               {historyLogs[historyRun.id].stdout || (
                                 <span className="text-[var(--color-stone)]/40 italic">
                                   No output
@@ -1177,7 +1177,7 @@ Focus on preserving the functionality from both sides where possible.`
                               )}
                             </pre>
                           ) : (
-                            <span className="text-[0.625rem] text-[var(--color-stone)]/50">
+                            <span className="text-caption text-[var(--color-stone)]/50">
                               Loading...
                             </span>
                           )}
@@ -1198,10 +1198,10 @@ Focus on preserving the functionality from both sides where possible.`
                   <div className="space-y-0">
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
                       <GitBranch className="w-3.5 h-3.5 text-purple-400" />
-                      <span className="text-[0.6875rem] text-purple-300">
+                      <span className="text-caption text-purple-300">
                         {commitsData.branch_name}
                       </span>
-                      <span className="text-[0.6875rem] text-[var(--color-stone)]/50">
+                      <span className="text-caption text-[var(--color-stone)]/50">
                         {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''}{' '}
                         ahead of {commitsData.base_branch}
                       </span>
@@ -1232,13 +1232,13 @@ Focus on preserving the functionality from both sides where possible.`
                                   isExpanded && 'rotate-90'
                                 )}
                               />
-                              <span className="text-[0.6875rem] text-[var(--color-paper)]/90 truncate flex-1 min-w-0">
+                              <span className="text-caption text-[var(--color-paper)]/90 truncate flex-1 min-w-0">
                                 {commit.message}
                               </span>
-                              <span className="text-[0.625rem] text-[var(--color-stone)]/50 shrink-0">
+                              <span className="text-caption text-[var(--color-stone)]/50 shrink-0">
                                 {formatRelativeTime(commit.date)}
                               </span>
-                              <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/40 shrink-0">
+                              <span className="text-mono text-caption text-[var(--color-stone)]/40 shrink-0">
                                 {commit.sha.slice(0, 7)}
                               </span>
                             </button>
@@ -1247,7 +1247,7 @@ Focus on preserving the functionality from both sides where possible.`
                                 {isLoading ? (
                                   <div className="py-2 flex items-center gap-2">
                                     <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
-                                    <span className="text-[0.625rem] text-[var(--color-stone)]/50">
+                                    <span className="text-caption text-[var(--color-stone)]/50">
                                       Loading...
                                     </span>
                                   </div>
@@ -1255,13 +1255,13 @@ Focus on preserving the functionality from both sides where possible.`
                                   <div className="py-2 space-y-2">
                                     {commitDetail.message &&
                                       commitDetail.message !== commit.message && (
-                                        <pre className="text-[0.6875rem] text-[var(--color-paper)]/70 whitespace-pre-wrap font-sans leading-relaxed">
+                                        <pre className="text-caption text-[var(--color-paper)]/70 whitespace-pre-wrap font-sans leading-relaxed">
                                           {commitDetail.message}
                                         </pre>
                                       )}
                                     {commitDetail.files && commitDetail.files.length > 0 && (
                                       <div className="space-y-1">
-                                        <p className="text-[0.625rem] text-[var(--color-stone)]/60 font-medium">
+                                        <p className="text-caption text-[var(--color-stone)]/60 font-medium">
                                           {commitDetail.files.length} file
                                           {commitDetail.files.length !== 1 ? 's' : ''} changed
                                         </p>
@@ -1269,7 +1269,7 @@ Focus on preserving the functionality from both sides where possible.`
                                           {commitDetail.files.map((file) => (
                                             <div
                                               key={file.file_path}
-                                              className="flex items-center gap-2 text-[0.625rem]"
+                                              className="flex items-center gap-2 text-caption"
                                             >
                                               <span
                                                 className={cn(
@@ -1319,15 +1319,15 @@ Focus on preserving the functionality from both sides where possible.`
                     <GitCommit className="w-6 h-6 mb-2 opacity-50" />
                     {detail?.pr_status === 'merged' ? (
                       <>
-                        <span className="text-[0.6875rem]">
+                        <span className="text-caption">
                           Branch merged into {detail?.source_branch || 'main'}
                         </span>
-                        <span className="text-[0.625rem] mt-1 opacity-70">
+                        <span className="text-caption mt-1 opacity-70">
                           Commit history no longer available
                         </span>
                       </>
                     ) : (
-                      <span className="text-[0.6875rem]">No commits on this branch</span>
+                      <span className="text-caption">No commits on this branch</span>
                     )}
                   </div>
                 )}
@@ -1344,11 +1344,11 @@ Focus on preserving the functionality from both sides where possible.`
                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
                       <div className="flex items-center gap-2">
                         <FileCode className="w-3.5 h-3.5 text-[var(--color-sky)]" />
-                        <span className="text-[0.6875rem] text-[var(--color-paper)]/80">
+                        <span className="text-caption text-[var(--color-paper)]/80">
                           {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''} changed
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 text-[0.625rem]">
+                      <div className="flex items-center gap-3 text-caption">
                         <span className="flex items-center gap-1 text-[var(--color-jade)]">
                           <Plus className="w-3 h-3" />
                           {filesData.total_additions}
@@ -1420,12 +1420,12 @@ Focus on preserving the functionality from both sides where possible.`
                                       ? 'D'
                                       : 'R'}
                               </span>
-                              <span className="text-[0.6875rem] text-[var(--color-paper)]/80 truncate font-mono">
+                              <span className="text-caption text-[var(--color-paper)]/80 truncate font-mono">
                                 {file.file_path}
                               </span>
                             </div>
                             <div className="flex items-center gap-3 shrink-0">
-                              <div className="flex items-center gap-1.5 text-[0.625rem] min-w-[60px] justify-end">
+                              <div className="flex items-center gap-1.5 text-caption min-w-[60px] justify-end">
                                 {file.additions > 0 && (
                                   <span className="text-[var(--color-jade)]">
                                     +{file.additions}
@@ -1454,12 +1454,12 @@ Focus on preserving the functionality from both sides where possible.`
                               {isLoading ? (
                                 <div className="py-2 flex items-center gap-2">
                                   <RotateCw className="w-3 h-3 animate-spin text-[var(--color-stone)]/50" />
-                                  <span className="text-[0.625rem] text-[var(--color-stone)]/50">
+                                  <span className="text-caption text-[var(--color-stone)]/50">
                                     Loading diff...
                                   </span>
                                 </div>
                               ) : diff?.diff ? (
-                                <pre className="text-mono text-[0.625rem] leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-80 overflow-y-auto bg-[var(--color-void)]/50 rounded p-2">
+                                <pre className="text-mono text-caption leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-80 overflow-y-auto bg-[var(--color-void)]/50 rounded p-2">
                                   {diff.diff.split('\n').map((line, lineIdx) => {
                                     let lineClass = 'text-[var(--color-paper)]/60'
                                     if (line.startsWith('+') && !line.startsWith('+++')) {
@@ -1486,7 +1486,7 @@ Focus on preserving the functionality from both sides where possible.`
                                   })}
                                 </pre>
                               ) : (
-                                <div className="py-2 text-[0.625rem] text-[var(--color-stone)]/50 italic">
+                                <div className="py-2 text-caption text-[var(--color-stone)]/50 italic">
                                   No diff available
                                 </div>
                               )}
@@ -1501,15 +1501,15 @@ Focus on preserving the functionality from both sides where possible.`
                     <FileCode className="w-6 h-6 mb-2 opacity-50" />
                     {detail?.pr_status === 'merged' ? (
                       <>
-                        <span className="text-[0.6875rem]">
+                        <span className="text-caption">
                           Branch merged into {detail?.source_branch || 'main'}
                         </span>
-                        <span className="text-[0.625rem] mt-1 opacity-70">
+                        <span className="text-caption mt-1 opacity-70">
                           File changes no longer available
                         </span>
                       </>
                     ) : (
-                      <span className="text-[0.6875rem]">No files changed on this branch</span>
+                      <span className="text-caption">No files changed on this branch</span>
                     )}
                   </div>
                 )}
@@ -1526,7 +1526,7 @@ Focus on preserving the functionality from both sides where possible.`
                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
                       <div className="flex items-center gap-2">
                         <ImageIcon className="w-3.5 h-3.5 text-[var(--color-harvest)]" />
-                        <span className="text-[0.6875rem] text-[var(--color-paper)]/80">
+                        <span className="text-caption text-[var(--color-paper)]/80">
                           {attachments.length} image{attachments.length !== 1 ? 's' : ''} attached
                         </span>
                       </div>
@@ -1568,7 +1568,7 @@ Focus on preserving the functionality from both sides where possible.`
                 ) : (
                   <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
                     <ImageIcon className="w-6 h-6 mb-2 opacity-50" />
-                    <span className="text-[0.6875rem]">No images attached</span>
+                    <span className="text-caption">No images attached</span>
                   </div>
                 )}
               </div>
@@ -1600,7 +1600,7 @@ Focus on preserving the functionality from both sides where possible.`
               )}
               <div className="flex gap-2">
                 <textarea
-                  className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-[0.8125rem] text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
+                  className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-title text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
                   placeholder="Continue with follow-up... (⌘V to paste images)"
                   value={resumePrompt}
                   onChange={(e) => setResumePrompt(e.target.value)}
@@ -1623,7 +1623,7 @@ Focus on preserving the functionality from both sides where possible.`
                 />
                 <button
                   className={cn(
-                    'flex items-center gap-2 px-4 py-2 rounded-sm text-[0.6875rem] uppercase tracking-widest transition-colors shrink-0 self-start',
+                    'flex items-center gap-2 px-4 py-2 rounded-sm text-caption uppercase tracking-widest transition-colors shrink-0 self-start',
                     resumePrompt.trim() && !resuming
                       ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                       : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
@@ -1636,7 +1636,7 @@ Focus on preserving the functionality from both sides where possible.`
                 </button>
               </div>
               {resumeError && (
-                <p className="text-[0.625rem] text-[var(--color-vermillion)] mt-2">{resumeError}</p>
+                <p className="text-caption text-[var(--color-vermillion)] mt-2">{resumeError}</p>
               )}
             </div>
           )}
@@ -1644,10 +1644,10 @@ Focus on preserving the functionality from both sides where possible.`
           {/* Footer Meta */}
           {(detail?.session_id || detail?.input_tokens || detail?.model_used) && (
             <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] flex items-center justify-between">
-              <span className="text-mono text-[0.625rem] text-[var(--color-stone)]/50">
+              <span className="text-mono text-caption text-[var(--color-stone)]/50">
                 {detail?.session_id ? `session ${detail.session_id.slice(0, 12)}` : ''}
               </span>
-              <div className="flex items-center gap-4 text-mono text-[0.625rem] text-[var(--color-stone)]/50">
+              <div className="flex items-center gap-4 text-mono text-caption text-[var(--color-stone)]/50">
                 {(detail?.input_tokens || detail?.output_tokens) && (
                   <span>
                     {formatTokens(detail.input_tokens)} input → {formatTokens(detail.output_tokens)}{' '}
