@@ -2173,8 +2173,16 @@ def create_app() -> FastAPI:
                     # 1. Poll messages.jsonl for new agent messages
                     messages_path = log_dir / "messages.jsonl"
                     if messages_path.exists():
-                        last_pos = _log_file_positions.get(run_id, 0)
                         current_size = messages_path.stat().st_size
+
+                        # Initialize position to current size for NEW subscriptions
+                        # This prevents re-streaming messages that were already fetched via HTTP
+                        # (fixes duplicate messages bug when resuming runs)
+                        if run_id not in _log_file_positions:
+                            _log_file_positions[run_id] = current_size
+                            logger.debug(f"Initialized log position for {run_id[:8]} at {current_size} bytes")
+
+                        last_pos = _log_file_positions[run_id]
 
                         if current_size > last_pos:
                             try:
