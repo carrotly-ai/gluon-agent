@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { usePullToRefresh, type PullToRefreshOptions } from '@/hooks/usePullToRefresh'
+import { type PullToRefreshOptions, usePullToRefresh } from '@/hooks/usePullToRefresh'
 import { cn } from '@/lib/utils'
 
 interface PullToRefreshProps extends PullToRefreshOptions {
@@ -46,7 +46,10 @@ export function PullToRefresh({
         }}
       >
         <div
-          className={cn('pull-to-refresh-spinner', isRefreshing && 'pull-to-refresh-spinner--active')}
+          className={cn(
+            'pull-to-refresh-spinner',
+            isRefreshing && 'pull-to-refresh-spinner--active'
+          )}
           style={{
             transform: isRefreshing ? undefined : `scale(${indicatorScale}) rotate(${rotation}deg)`,
           }}

@@ -13,7 +13,14 @@ import { useOnline } from './hooks/useOnline'
 import { type RunDetailTab, useRouteSync } from './hooks/useRouteSync'
 import { useTheme } from './hooks/useTheme'
 import { useRunsWithWebSocket } from './hooks/useWebSocket'
-import { archiveRun, cancelRun, fetchProjects, fetchRun, fetchRuns, fetchUsageSummary } from './lib/api'
+import {
+  archiveRun,
+  cancelRun,
+  fetchProjects,
+  fetchRun,
+  fetchRuns,
+  fetchUsageSummary,
+} from './lib/api'
 import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
 import { cn } from './lib/utils'

@@ -363,7 +363,7 @@ export function CreateTaskDialog({
               ) : (
                 <div className="grid grid-cols-4 gap-2" onClick={(e) => e.stopPropagation()}>
                   {pendingImages.map((img, index) => (
-                    <div key={index} className="relative group">
+                    <div key={img.preview} className="relative group">
                       <img
                         src={img.preview}
                         alt={img.file.name}
@@ -460,9 +460,7 @@ export function CreateTaskDialog({
               <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
               <div>
                 <span className="text-title text-[var(--color-paper)]">Use Git Worktree</span>
-                <p className="text-caption text-[var(--color-stone)]/60">
-                  Run in isolated branch
-                </p>
+                <p className="text-caption text-[var(--color-stone)]/60">Run in isolated branch</p>
               </div>
             </div>
             <button

@@ -59,6 +59,8 @@ export function useConnectivity(options?: UseConnectivityOptions): ConnectivityS
   const countdownIntervalRef = useRef<number | undefined>(undefined)
   const failureCountRef = useRef(0)
   const isMountedRef = useRef(true)
+  // Ref to break circular dependency between performCheck and startRetryCountdown
+  const performCheckRef = useRef<() => Promise<void>>(async () => {})
 
   // Check backend reachability
   const checkBackend = useCallback(async (): Promise<boolean> => {
@@ -78,6 +80,30 @@ export function useConnectivity(options?: UseConnectivityOptions): ConnectivityS
       return false
     }
   }, [opts.healthCheckUrl, opts.timeout])
+
+  // Start countdown for retry - defined first, uses ref for performCheck to avoid circular dep
+  const startRetryCountdown = useCallback(() => {
+    // Clear existing timers
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+
+    const retrySeconds = Math.ceil(opts.retryInterval / 1000)
+    let countdown = retrySeconds
+
+    // Update countdown every second
+    countdownIntervalRef.current = window.setInterval(() => {
+      countdown -= 1
+      if (countdown > 0 && isMountedRef.current) {
+        setState((prev) => ({ ...prev, retryIn: countdown }))
+      }
+    }, 1000)
+
+    // Schedule actual retry using ref to avoid circular dependency
+    retryTimeoutRef.current = window.setTimeout(() => {
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+      performCheckRef.current()
+    }, opts.retryInterval)
+  }, [opts.retryInterval])
 
   // Perform connectivity check
   const performCheck = useCallback(async () => {
@@ -129,31 +155,10 @@ export function useConnectivity(options?: UseConnectivityOptions): ConnectivityS
       // Schedule retry with countdown
       startRetryCountdown()
     }
-  }, [checkBackend, opts.retryInterval])
+  }, [checkBackend, opts.retryInterval, startRetryCountdown])
 
-  // Start countdown for retry
-  const startRetryCountdown = useCallback(() => {
-    // Clear existing timers
-    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
-    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
-
-    const retrySeconds = Math.ceil(opts.retryInterval / 1000)
-    let countdown = retrySeconds
-
-    // Update countdown every second
-    countdownIntervalRef.current = window.setInterval(() => {
-      countdown -= 1
-      if (countdown > 0 && isMountedRef.current) {
-        setState((prev) => ({ ...prev, retryIn: countdown }))
-      }
-    }, 1000)
-
-    // Schedule actual retry
-    retryTimeoutRef.current = window.setTimeout(() => {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
-      performCheck()
-    }, opts.retryInterval)
-  }, [opts.retryInterval, performCheck])
+  // Keep ref updated for startRetryCountdown to use
+  performCheckRef.current = performCheck
 
   // Manual check function
   const checkNow = useCallback(async () => {

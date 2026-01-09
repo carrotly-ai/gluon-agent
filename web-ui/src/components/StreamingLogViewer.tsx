@@ -214,8 +214,8 @@ function TodoWriteMessage({
       {isExpanded && todos.length > 0 && (
         <div className="border-l-2 border-l-[var(--color-jade)]/70 ml-0 pl-4 py-2 bg-[var(--color-paper)]/[0.02]">
           <div className="space-y-1">
-            {todos.map((todo, idx) => (
-              <div key={idx} className="flex items-start gap-2 text-body">
+            {todos.map((todo) => (
+              <div key={todo.content} className="flex items-start gap-2 text-body">
                 {todo.status === 'completed' ? (
                   <span className="text-[var(--color-jade)] shrink-0">done</span>
                 ) : todo.status === 'in_progress' ? (
@@ -313,8 +313,8 @@ function ToolCallMessage({
       {isExpanded && fullParams.length > 0 && (
         <div className="border-l-2 border-l-[var(--color-stone)]/40 ml-0 pl-6 py-1.5 bg-[var(--color-paper)]/[0.02]">
           <div className="space-y-1">
-            {fullParams.map((param, idx) => (
-              <div key={idx} className="flex gap-2 text-body font-mono">
+            {fullParams.map((param) => (
+              <div key={param.key} className="flex gap-2 text-body font-mono">
                 <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">
                   {param.key}
                 </span>
@@ -361,9 +361,7 @@ function TextMessage({
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              p: ({ children }) => (
-                <p className="mb-2 last:mb-0">{children}</p>
-              ),
+              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               code: ({ children }) => (
                 <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-body font-mono">
                   {children}
@@ -376,9 +374,7 @@ function TextMessage({
                 <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>
               ),
               li: ({ children }) => <li>{children}</li>,
-              strong: ({ children }) => (
-                <strong className="font-medium">{children}</strong>
-              ),
+              strong: ({ children }) => <strong className="font-medium">{children}</strong>,
               em: ({ children }) => <em>{children}</em>,
               blockquote: ({ children }) => (
                 <blockquote className="border-l-2 border-[var(--color-stone)]/30 pl-3 my-2 text-[var(--color-stone)]/80">
@@ -387,9 +383,7 @@ function TextMessage({
               ),
               table: ({ children }) => (
                 <div className="overflow-x-auto mb-2">
-                  <table className="min-w-full border-collapse text-body">
-                    {children}
-                  </table>
+                  <table className="min-w-full border-collapse text-body">{children}</table>
                 </div>
               ),
               thead: ({ children }) => (
@@ -452,13 +446,9 @@ function TextMessage({
                   {children}
                 </pre>
               ),
-              hr: () => (
-                <hr className="border-0 border-t border-[var(--color-stone)]/20 my-3" />
-              ),
+              hr: () => <hr className="border-0 border-t border-[var(--color-stone)]/20 my-3" />,
               del: ({ children }) => (
-                <del className="text-[var(--color-stone)]/60 line-through">
-                  {children}
-                </del>
+                <del className="text-[var(--color-stone)]/60 line-through">{children}</del>
               ),
             }}
           >
@@ -622,6 +612,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
   }, [isActive, clear])
 
   // Reset scroll state when runId changes (new run opened)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reset refs when runId changes
   useEffect(() => {
     shouldAutoScrollRef.current = true
     prevMessageCountRef.current = 0
@@ -799,10 +790,11 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
           ) : (
             filteredMessages.map((msg, idx) => {
               const isFirstOrLast = idx === 0 || idx === filteredMessages.length - 1
+              const msgKey = `${msg.timestamp}-${msg.type}-${idx}`
               if (msg.type === 'tool_use') {
                 return (
                   <ToolCallMessage
-                    key={idx}
+                    key={msgKey}
                     msg={msg}
                     isExpanded={expandedTools.has(idx)}
                     onToggle={() => toggleToolExpanded(idx)}
@@ -811,9 +803,9 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
                 )
               }
               if (msg.type === 'text') {
-                return <TextMessage key={idx} msg={msg} showTimestamp={isFirstOrLast} />
+                return <TextMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
               }
-              return <SystemMessage key={idx} msg={msg} showTimestamp={isFirstOrLast} />
+              return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
             })
           )}
         </div>

@@ -47,11 +47,7 @@ const DEFAULT_POLL_INTERVAL = 5 * 60 * 1000 // 5 minutes
  * - Skips checks in development mode
  */
 export function useVersionCheck(options: UseVersionCheckOptions = {}): VersionCheckState {
-  const {
-    pollInterval = DEFAULT_POLL_INTERVAL,
-    checkOnFocus = true,
-    checkOnMount = true,
-  } = options
+  const { pollInterval = DEFAULT_POLL_INTERVAL, checkOnFocus = true, checkOnMount = true } = options
 
   const [buildVersion] = useState<VersionInfo>(() => getBuildVersion())
   const [serverVersion, setServerVersion] = useState<VersionInfo | null>(null)

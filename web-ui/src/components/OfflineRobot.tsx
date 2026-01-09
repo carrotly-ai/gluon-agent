@@ -141,9 +141,33 @@ export function OfflineRobot({ state = 'searching', size = 'md', className }: Of
         />
 
         {/* Chest detail - minimal lines */}
-        <line x1="32" y1="72" x2="68" y2="72" stroke="var(--color-stone)" strokeWidth="1" opacity="0.4" />
-        <line x1="32" y1="82" x2="68" y2="82" stroke="var(--color-stone)" strokeWidth="1" opacity="0.4" />
-        <line x1="32" y1="92" x2="68" y2="92" stroke="var(--color-stone)" strokeWidth="1" opacity="0.4" />
+        <line
+          x1="32"
+          y1="72"
+          x2="68"
+          y2="72"
+          stroke="var(--color-stone)"
+          strokeWidth="1"
+          opacity="0.4"
+        />
+        <line
+          x1="32"
+          y1="82"
+          x2="68"
+          y2="82"
+          stroke="var(--color-stone)"
+          strokeWidth="1"
+          opacity="0.4"
+        />
+        <line
+          x1="32"
+          y1="92"
+          x2="68"
+          y2="92"
+          stroke="var(--color-stone)"
+          strokeWidth="1"
+          opacity="0.4"
+        />
 
         {/* Status indicator */}
         <circle

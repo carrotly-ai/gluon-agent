@@ -218,7 +218,14 @@ export function KanbanBoard({
 
       // Determine target column - over.id could be a column status OR a run ID
       // (when dropping on a card, dnd-kit returns that card's ID)
-      const validColumns: KanbanColumn[] = ['pending', 'running', 'review', 'completed', 'failed', 'cancelled']
+      const validColumns: KanbanColumn[] = [
+        'pending',
+        'running',
+        'review',
+        'completed',
+        'failed',
+        'cancelled',
+      ]
       let targetColumn: KanbanColumn
 
       if (validColumns.includes(over.id as KanbanColumn)) {

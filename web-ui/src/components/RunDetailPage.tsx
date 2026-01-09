@@ -614,7 +614,7 @@ Focus on preserving functionality from both sides where possible.`
   }
 
   // Lazy load commits
-  const loadCommits = async () => {
+  const loadCommits = useCallback(async () => {
     if (!runId || commitsData || loadingCommits) return
     setLoadingCommits(true)
     try {
@@ -625,10 +625,10 @@ Focus on preserving functionality from both sides where possible.`
     } finally {
       setLoadingCommits(false)
     }
-  }
+  }, [runId, commitsData, loadingCommits])
 
   // Lazy load files
-  const loadFiles = async () => {
+  const loadFiles = useCallback(async () => {
     if (!runId || filesData || loadingFiles) return
     setLoadingFiles(true)
     try {
@@ -639,10 +639,10 @@ Focus on preserving functionality from both sides where possible.`
     } finally {
       setLoadingFiles(false)
     }
-  }
+  }, [runId, filesData, loadingFiles])
 
   // Lazy load attachments
-  const loadAttachments = async () => {
+  const loadAttachments = useCallback(async () => {
     if (!runId || attachments.length > 0 || loadingAttachments) return
     setLoadingAttachments(true)
     try {
@@ -653,7 +653,7 @@ Focus on preserving functionality from both sides where possible.`
     } finally {
       setLoadingAttachments(false)
     }
-  }
+  }, [runId, attachments.length, loadingAttachments])
 
   // Load data when tab changes
   useEffect(() => {
@@ -715,9 +715,7 @@ Focus on preserving functionality from both sides where possible.`
               className="flex items-center gap-1.5 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
-              <span className="text-caption uppercase tracking-widest hidden sm:inline">
-                Board
-              </span>
+              <span className="text-caption uppercase tracking-widest hidden sm:inline">Board</span>
             </Link>
             <div className="w-px h-4 bg-[var(--color-stone)]/20" />
             <div className="flex items-center gap-2 shrink-0">
@@ -1479,7 +1477,11 @@ Focus on preserving the functionality from both sides where possible.`
                                       lineClass = 'text-[var(--color-stone)]/50'
                                     }
                                     return (
-                                      <div key={lineIdx} className={cn('px-1 -mx-1', lineClass)}>
+                                      <div
+                                        // biome-ignore lint/suspicious/noArrayIndexKey: diff lines can be identical
+                                        key={lineIdx}
+                                        className={cn('px-1 -mx-1', lineClass)}
+                                      >
                                         {line || ' '}
                                       </div>
                                     )
@@ -1581,7 +1583,7 @@ Focus on preserving the functionality from both sides where possible.`
               {resumePendingImages.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {resumePendingImages.map((img, idx) => (
-                    <div key={idx} className="relative group">
+                    <div key={img.preview} className="relative group">
                       <img
                         src={img.preview}
                         alt={img.file.name}

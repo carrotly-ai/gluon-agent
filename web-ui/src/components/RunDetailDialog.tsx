@@ -672,7 +672,7 @@ Focus on preserving functionality from both sides where possible.`
   }
 
   // Lazy load commits when switching to commits tab
-  const loadCommits = async () => {
+  const loadCommits = useCallback(async () => {
     if (!run || commitsData || loadingCommits) return
     setLoadingCommits(true)
     try {
@@ -683,10 +683,10 @@ Focus on preserving functionality from both sides where possible.`
     } finally {
       setLoadingCommits(false)
     }
-  }
+  }, [run, commitsData, loadingCommits])
 
   // Lazy load files when switching to files tab
-  const loadFiles = async () => {
+  const loadFiles = useCallback(async () => {
     if (!run || filesData || loadingFiles) return
     setLoadingFiles(true)
     try {
@@ -697,10 +697,10 @@ Focus on preserving functionality from both sides where possible.`
     } finally {
       setLoadingFiles(false)
     }
-  }
+  }, [run, filesData, loadingFiles])
 
   // Lazy load attachments when switching to attachments tab
-  const loadAttachments = async () => {
+  const loadAttachments = useCallback(async () => {
     if (!run || attachments.length > 0 || loadingAttachments) return
     setLoadingAttachments(true)
     try {
@@ -711,7 +711,7 @@ Focus on preserving functionality from both sides where possible.`
     } finally {
       setLoadingAttachments(false)
     }
-  }
+  }, [run, attachments.length, loadingAttachments])
 
   // Load data when tab changes
   useEffect(() => {
@@ -1076,22 +1076,23 @@ Focus on preserving the functionality from both sides where possible.`
                     </pre>
                   </div>
                   {/* Recover button for context overflow errors - show for failed or review status */}
-                  {(run.status === 'failed' || run.status === 'review') && isContextOverflowError(run.error_message) && (
-                    <button
-                      onClick={handleRecover}
-                      disabled={recovering}
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 text-body uppercase tracking-widest rounded-sm transition-colors shrink-0',
-                        recovering
-                          ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                          : 'bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]'
-                      )}
-                      title="Recover from context overflow - starts fresh session with progress summary"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>{recovering ? 'Recovering...' : 'Recover'}</span>
-                    </button>
-                  )}
+                  {(run.status === 'failed' || run.status === 'review') &&
+                    isContextOverflowError(run.error_message) && (
+                      <button
+                        onClick={handleRecover}
+                        disabled={recovering}
+                        className={cn(
+                          'flex items-center gap-1.5 px-3 py-1.5 text-body uppercase tracking-widest rounded-sm transition-colors shrink-0',
+                          recovering
+                            ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                            : 'bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]'
+                        )}
+                        title="Recover from context overflow - starts fresh session with progress summary"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>{recovering ? 'Recovering...' : 'Recover'}</span>
+                      </button>
+                    )}
                 </div>
                 {/* Recovery error message */}
                 {recoverError && (
@@ -1100,11 +1101,13 @@ Focus on preserving the functionality from both sides where possible.`
                   </p>
                 )}
                 {/* Context overflow help text */}
-                {(run.status === 'failed' || run.status === 'review') && isContextOverflowError(run.error_message) && (
-                  <p className="text-body text-[var(--color-stone)]/60 mt-2 border-t border-[rgba(199,62,58,0.15)] pt-2">
-                    This run exceeded the context limit. Click Recover to start a fresh session that preserves progress from completed tasks.
-                  </p>
-                )}
+                {(run.status === 'failed' || run.status === 'review') &&
+                  isContextOverflowError(run.error_message) && (
+                    <p className="text-body text-[var(--color-stone)]/60 mt-2 border-t border-[rgba(199,62,58,0.15)] pt-2">
+                      This run exceeded the context limit. Click Recover to start a fresh session
+                      that preserves progress from completed tasks.
+                    </p>
+                  )}
               </div>
             )}
 
@@ -1646,6 +1649,7 @@ Focus on preserving the functionality from both sides where possible.`
                                         }
                                         return (
                                           <div
+                                            // biome-ignore lint/suspicious/noArrayIndexKey: diff lines can be identical
                                             key={lineIdx}
                                             className={cn('px-1 -mx-1', lineClass)}
                                           >
@@ -1757,7 +1761,7 @@ Focus on preserving the functionality from both sides where possible.`
                 {resumePendingImages.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-2">
                     {resumePendingImages.map((img, idx) => (
-                      <div key={idx} className="relative group">
+                      <div key={img.preview} className="relative group">
                         <img
                           src={img.preview}
                           alt={img.file.name}
@@ -1813,9 +1817,7 @@ Focus on preserving the functionality from both sides where possible.`
                   </button>
                 </div>
                 {resumeError && (
-                  <p className="text-body text-[var(--color-vermillion)] mt-2">
-                    {resumeError}
-                  </p>
+                  <p className="text-body text-[var(--color-vermillion)] mt-2">{resumeError}</p>
                 )}
               </div>
             )}

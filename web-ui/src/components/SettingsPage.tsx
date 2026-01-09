@@ -518,9 +518,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               </h3>
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-title text-[var(--color-paper)]">
-                    Auto-create Pull Requests
-                  </p>
+                  <p className="text-title text-[var(--color-paper)]">Auto-create Pull Requests</p>
                   <p className="text-caption text-[var(--color-stone)]/70 mt-1">
                     Automatically create a PR when a worktree run completes successfully. When
                     disabled, runs will wait in Review until you manually create a PR.
