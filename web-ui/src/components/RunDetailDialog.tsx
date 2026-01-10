@@ -1804,16 +1804,20 @@ Focus on preserving the functionality from both sides where possible.`
                   />
                   <button
                     className={cn(
-                      'flex items-center gap-2 px-4 py-2 rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
+                      'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
+                      'p-2 sm:px-4 sm:py-2 sm:gap-2',
                       resumePrompt.trim() && !resuming
                         ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                         : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
                     )}
                     onClick={handleResume}
                     disabled={!resumePrompt.trim() || resuming}
+                    title={resuming ? 'Resuming...' : 'Resume'}
                   >
                     <Play className="w-3 h-3" />
-                    {resuming ? 'Resuming...' : 'Resume'}
+                    <span className="hidden sm:inline">
+                      {resuming ? 'Resuming...' : 'Resume'}
+                    </span>
                   </button>
                 </div>
                 {resumeError && (
