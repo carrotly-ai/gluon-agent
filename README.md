@@ -7,7 +7,7 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 ## Why Gluon?
 
-**Run multiple AI coding agents in parallel**, each in isolated git branches, while monitoring progress from a single dashboard. Perfect for:
+**Run multiple AI coding agents in parallel**, each in isolated git branches, while monitoring progress from a single dashboard. Deploy with Docker for containerized execution - AI agents run in isolated environments, keeping your host system secure. Perfect for:
 
 - Running several feature implementations simultaneously
 - Delegating bug fixes to AI agents while you focus on architecture
@@ -24,11 +24,19 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 ### Web Dashboard
 - **Kanban Board** - Drag-and-drop task management with Queue, Running, Review, and Done columns
-- **Real-Time Log Streaming** - WebSocket-powered live log output with tool call visualization
+- **Real-Time Log Streaming** - WebSocket-powered live log output with collapsible tool call visualization
 - **Run Details Modal** - View messages, tool calls, commits, file diffs, and attachments
 - **Full-Screen Mode** - Expanded view for detailed run analysis
 - **Message Filtering** - Filter by tools, text, or errors with counts
 - **Toast Notifications** - Instant feedback for merge and PR actions
+- **Recovery UI** - Visual indicator when recovering interrupted runs with progress tracking
+
+### Progressive Web App (PWA)
+- **Installable App** - Install on mobile/desktop for native-like experience
+- **Offline Support** - Service worker caching with offline state detection
+- **Pull-to-Refresh** - Native mobile gesture for refreshing in PWA mode
+- **Animated Offline Indicator** - Friendly visual feedback when connection lost
+- **Update Notifications** - Banner alerts when new version is available
 
 ### Git Integration
 - **Worktree Isolation** - Each task runs in its own git branch without affecting main
@@ -49,9 +57,9 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - **Image Attachments** - Paste screenshots/diagrams for AI context (Cmd+V in resume prompt)
 - **Usage Tracking** - Monitor costs, tokens, and usage per project
 - **Docker Deployment** - Full containerized deployment with docker-compose
-- **MCP Server Auto-Registration** - Docker automatically registers MCP servers from `.mcp.json`
 - **CI/CD Workflows** - GitHub Actions for CI and Docker image publishing
 - **Log Persistence** - Stdout, stderr, and structured message logs for every run
+- **Mobile Optimized** - iOS Safari zoom prevention, touch-friendly interactions
 
 ## Requirements
 
@@ -131,8 +139,8 @@ The dashboard provides:
 |--------|-------------|
 | **Queue** | Pending tasks waiting to start |
 | **Running** | Active AI agents with live progress |
-| **Review** | Completed tasks with branches ready for PR/merge |
-| **Done** | Merged or archived tasks |
+| **Review** | Completed runs awaiting human review (can resume, cancel, or follow logs) |
+| **Done** | Merged, archived, or manually completed tasks |
 
 **Run Details** include:
 - Live message stream with tool call visualization
@@ -178,6 +186,11 @@ docker-compose up -d
 
 # Access dashboard at http://localhost:45866
 ```
+
+**Docker Features:**
+- **HTTPS Git Authentication** - Uses `GH_TOKEN` for GitHub access (no SSH keys needed)
+- **MCP Server Auto-Registration** - Mount `.mcp.json` to auto-register MCP servers on startup
+- **Build-time Versioning** - Git SHA captured at build for update detection
 
 See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions.
 
@@ -280,6 +293,8 @@ gluon run myapp 'Redesign database schema' --model opus
 
 ## Environment Variables
 
+### Bot Configuration
+
 | Variable | Description |
 |----------|-------------|
 | `GLUON_TELEGRAM_TOKEN` | Telegram bot token |
@@ -287,6 +302,24 @@ gluon run myapp 'Redesign database schema' --model opus
 | `GLUON_DISCORD_TOKEN` | Discord bot token |
 | `GLUON_DISCORD_GUILD` | Discord guild (server) ID |
 | `GLUON_DISCORD_USERS` | Allowed Discord user IDs (comma-separated) |
+
+### Docker-Specific
+
+| Variable | Description |
+|----------|-------------|
+| `GH_TOKEN` | GitHub token for HTTPS authentication (replaces SSH) |
+| `GIT_USER_NAME` | Git commit author name |
+| `GIT_USER_EMAIL` | Git commit author email |
+
+## Remote Access
+
+Run Gluon on a home server (e.g., Mac mini) and access it securely from anywhere using [Tailscale](https://tailscale.com), a zero-config VPN:
+
+1. Install Tailscale on your server and devices
+2. Start Gluon: `gluon web` or `docker-compose up -d`
+3. Access the dashboard from any device via your Tailscale IP: `http://your-server:45866`
+
+This enables monitoring and managing AI coding tasks from your phone, tablet, or laptop while on the go - with the PWA providing a native app-like experience on mobile.
 
 ## License
 
