@@ -2252,47 +2252,75 @@ def create_app() -> FastAPI:
             await asyncio.sleep(0.1)
 
     async def _poll_pr_status_changes() -> None:
-        """Background task to poll GitHub PR status and auto-transition merged PRs.
+        """Background task to poll GitHub PR status, comments, and CI failures.
 
-        Checks runs in REVIEW status with open PRs every 60 seconds.
-        When a PR is merged, automatically transitions the run to COMPLETED.
+        Checks runs with open PRs every 60 seconds for:
+        1. @gluon or /gluon comments -> auto-resume to address feedback
+        2. CI failures (Vercel, build, deploy) -> auto-resume to fix issues
+        3. Merged PRs -> transition to COMPLETED
+
+        Supports both REVIEW and COMPLETED status runs with open PRs.
         """
         from gluon.git_manager import GitManager
         from gluon.models import RunStatus
+        from gluon.pr_monitor import PRMonitorService
 
         pr_git_manager = GitManager(store)
+        pr_monitor = PRMonitorService(store, runner, pr_git_manager)
         project_lookup = get_project_lookup()
 
         while True:
             try:
-                # Find runs in REVIEW with open PRs
+                # Find runs with open PRs (REVIEW or COMPLETED status)
                 runs = store.list_runs(limit=100, include_archived=False)
-                review_runs_with_open_prs = [
-                    r
-                    for r in runs
-                    if r.status == RunStatus.REVIEW and r.pr_status == "open" and r.branch_name and not r.archived
-                ]
+                runs_with_open_prs = [r for r in runs if pr_monitor.should_monitor_run(r) and r.branch_name]
 
-                for run in review_runs_with_open_prs:
+                for run in runs_with_open_prs:
                     try:
                         project = store.get_project(run.project_id)
                         if not project:
                             continue
 
-                        # Check current PR status via GitHub CLI
+                        project_name = project_lookup.get(run.project_id, run.project_id[:8])
+
+                        # 1. Check for new @gluon comments
+                        triggered_comment = await pr_monitor.check_pr_comments(run)
+                        if triggered_comment:
+                            # Post "Addressing feedback..." comment
+                            author = triggered_comment.get("author", "reviewer")
+                            await pr_monitor.post_pr_comment(
+                                run, f"Addressing feedback from @{author}..."
+                            )
+                            # Auto-resume to address the comment
+                            updated_run = await pr_monitor.auto_resume_for_comment(run, triggered_comment)
+                            if updated_run:
+                                await ws_manager.broadcast_run_update(updated_run, project_name)
+                            continue
+
+                        # 2. Check for CI failures (Vercel, build, etc.)
+                        ci_failures = await pr_monitor.check_ci_failures(run)
+                        if ci_failures:
+                            failure_names = ", ".join(f.get("name", "unknown") for f in ci_failures[:3])
+                            await pr_monitor.post_pr_comment(
+                                run, f"Detected CI failures ({failure_names}). Investigating..."
+                            )
+                            # Auto-resume to fix CI failures
+                            updated_run = await pr_monitor.auto_resume_for_ci_failure(run, ci_failures)
+                            if updated_run:
+                                await ws_manager.broadcast_run_update(updated_run, project_name)
+                            continue
+
+                        # 3. Check if PR was merged (existing logic)
                         pr_info = await pr_git_manager._get_pr_info(project.expanded_path, run.branch_name)
 
                         if pr_info and pr_info.get("status") == "merged":
                             # PR was merged - transition to COMPLETED
                             logger.info(
-                                f"PR #{run.pr_number} merged - transitioning run {run.id[:8]} from REVIEW to COMPLETED"
+                                f"PR #{run.pr_number} merged - transitioning run {run.id[:8]} to COMPLETED"
                             )
                             run.pr_status = "merged"
                             run.status = RunStatus.COMPLETED
                             store.update_run(run)
-
-                            # Broadcast update to WebSocket clients
-                            project_name = project_lookup.get(run.project_id, run.project_id[:8])
                             await ws_manager.broadcast_run_update(run, project_name)
 
                         elif pr_info and pr_info.get("status") == "closed":
@@ -2300,11 +2328,10 @@ def create_app() -> FastAPI:
                             if run.pr_status != "closed":
                                 run.pr_status = "closed"
                                 store.update_run(run)
-                                project_name = project_lookup.get(run.project_id, run.project_id[:8])
                                 await ws_manager.broadcast_run_update(run, project_name)
 
                     except Exception as e:
-                        logger.debug(f"Error checking PR status for run {run.id[:8]}: {e}")
+                        logger.debug(f"Error checking PR for run {run.id[:8]}: {e}")
 
                 # Refresh project lookup occasionally
                 project_lookup = get_project_lookup()

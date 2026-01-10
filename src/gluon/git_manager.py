@@ -1659,3 +1659,214 @@ Run ID: `{run_id}`
         result["success"] = True
         result["message"] = f"Rebased {feature_branch} onto {new_base}"
         return result
+
+    # ========== PR Comment and Check Run Methods ==========
+
+    async def get_pr_comments(self, path: Path, pr_number: int) -> list[dict]:
+        """
+        Fetch PR comments (both issue comments and review comments).
+
+        Args:
+            path: Repository path
+            pr_number: PR number to get comments for
+
+        Returns:
+            List of dicts with: id, author, body, created_at, path (for review comments)
+        """
+        comments: list[dict] = []
+
+        try:
+            # Get issue-style comments using gh pr view
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--json",
+                "comments",
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+
+            if proc.returncode == 0:
+                import json as json_module
+
+                data = json_module.loads(stdout.decode())
+                for c in data.get("comments", []):
+                    comments.append(
+                        {
+                            "id": c.get("id"),
+                            "author": c.get("author", {}).get("login", "unknown"),
+                            "body": c.get("body", ""),
+                            "created_at": c.get("createdAt"),
+                            "path": None,  # Issue comments don't have file paths
+                            "type": "issue",
+                        }
+                    )
+
+            # Get review comments (inline code comments) using gh api
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "api",
+                f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/comments",
+                "--jq",
+                ".[] | {id: .id, author: .user.login, body: .body, created_at: .created_at, path: .path, line: .line}",
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+
+            if proc.returncode == 0 and stdout.strip():
+                import json as json_module
+
+                for line in stdout.decode().strip().split("\n"):
+                    if line.strip():
+                        try:
+                            c = json_module.loads(line)
+                            comments.append(
+                                {
+                                    "id": c.get("id"),
+                                    "author": c.get("author", "unknown"),
+                                    "body": c.get("body", ""),
+                                    "created_at": c.get("created_at"),
+                                    "path": c.get("path"),
+                                    "line": c.get("line"),
+                                    "type": "review",
+                                }
+                            )
+                        except json_module.JSONDecodeError:
+                            pass
+
+        except (FileNotFoundError, Exception) as e:
+            logger.warning(f"Error fetching PR comments: {e}")
+
+        # Sort by ID (ascending) for consistent processing order
+        comments.sort(key=lambda x: x.get("id") or 0)
+        return comments
+
+    async def get_check_runs(self, path: Path, commit_sha: str) -> list[dict]:
+        """
+        Fetch check runs for a commit.
+
+        Args:
+            path: Repository path
+            commit_sha: Commit SHA to get check runs for
+
+        Returns:
+            List of dicts with: id, name, status, conclusion, details_url, output_title, output_summary
+        """
+        check_runs: list[dict] = []
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "api",
+                f"repos/{{owner}}/{{repo}}/commits/{commit_sha}/check-runs",
+                "--jq",
+                ".check_runs[] | {id: .id, name: .name, status: .status, conclusion: .conclusion, "
+                "details_url: .details_url, output_title: .output.title, output_summary: .output.summary, "
+                "output_text: .output.text}",
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+
+            if proc.returncode == 0 and stdout.strip():
+                import json as json_module
+
+                for line in stdout.decode().strip().split("\n"):
+                    if line.strip():
+                        try:
+                            check = json_module.loads(line)
+                            check_runs.append(check)
+                        except json_module.JSONDecodeError:
+                            pass
+
+        except (FileNotFoundError, Exception) as e:
+            logger.warning(f"Error fetching check runs: {e}")
+
+        return check_runs
+
+    async def get_failed_checks(
+        self,
+        path: Path,
+        commit_sha: str,
+        filter_names: list[str] | None = None,
+    ) -> list[dict]:
+        """
+        Get only failed check runs, optionally filtering by name pattern.
+
+        Args:
+            path: Repository path
+            commit_sha: Commit SHA to check
+            filter_names: List of name patterns to filter (case-insensitive).
+                          Default: ["vercel", "build", "deploy", "lint", "test"]
+
+        Returns:
+            List of failed check run dicts
+        """
+        if filter_names is None:
+            filter_names = ["vercel", "build", "deploy", "lint", "test"]
+
+        all_checks = await self.get_check_runs(path, commit_sha)
+        failed_checks: list[dict] = []
+
+        for check in all_checks:
+            # Only consider completed checks
+            if check.get("status") != "completed":
+                continue
+
+            # Only consider failures (not neutral, cancelled, skipped, etc.)
+            if check.get("conclusion") not in ("failure", "timed_out"):
+                continue
+
+            # Apply name filter if provided
+            name = check.get("name", "").lower()
+            if filter_names:
+                if not any(pattern.lower() in name for pattern in filter_names):
+                    continue
+
+            failed_checks.append(check)
+
+        return failed_checks
+
+    async def post_pr_comment(self, path: Path, pr_number: int, body: str) -> bool:
+        """
+        Post a comment on a PR.
+
+        Args:
+            path: Repository path
+            pr_number: PR number to comment on
+            body: Comment body text
+
+        Returns:
+            True if comment was posted successfully
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "pr",
+                "comment",
+                str(pr_number),
+                "--body",
+                body,
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                logger.warning(f"Failed to post PR comment: {stderr.decode()}")
+                return False
+
+            logger.info(f"Posted comment on PR #{pr_number}")
+            return True
+
+        except (FileNotFoundError, Exception) as e:
+            logger.warning(f"Error posting PR comment: {e}")
+            return False

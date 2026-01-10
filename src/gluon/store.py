@@ -227,6 +227,11 @@ MIGRATIONS = [
     # Recovery progress UI (Phase: Recovery Progress)
     "ALTER TABLE execution_runs ADD COLUMN is_recovering INTEGER DEFAULT 0;",
     "ALTER TABLE execution_runs ADD COLUMN recovery_item_count INTEGER DEFAULT 0;",
+    # PR monitoring tracking (Phase: PR Auto-Resume)
+    "ALTER TABLE execution_runs ADD COLUMN last_comment_id INTEGER;",
+    "ALTER TABLE execution_runs ADD COLUMN last_check_sha TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN auto_resume_enabled INTEGER DEFAULT 1;",
+    "ALTER TABLE execution_runs ADD COLUMN auto_resume_count INTEGER DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -913,7 +918,8 @@ class GluonStore:
                     git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?, pr_mergeable = ?,
                     archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?,
                     recovery_count = ?, last_recovery_at = ?, recovery_from_run_id = ?,
-                    is_recovering = ?, recovery_item_count = ?
+                    is_recovering = ?, recovery_item_count = ?,
+                    last_comment_id = ?, last_check_sha = ?, auto_resume_enabled = ?, auto_resume_count = ?
                 WHERE id = ?
                 """,
                 (
@@ -950,6 +956,10 @@ class GluonStore:
                     run.recovery_from_run_id,
                     1 if run.is_recovering else 0,
                     run.recovery_item_count,
+                    run.last_comment_id,
+                    run.last_check_sha,
+                    1 if run.auto_resume_enabled else 0,
+                    run.auto_resume_count,
                     run.id,
                 ),
             )
@@ -1059,6 +1069,15 @@ class GluonStore:
             else False,
             recovery_item_count=row["recovery_item_count"]
             if "recovery_item_count" in keys and row["recovery_item_count"] is not None
+            else 0,
+            # PR monitoring tracking
+            last_comment_id=row["last_comment_id"] if "last_comment_id" in keys else None,
+            last_check_sha=row["last_check_sha"] if "last_check_sha" in keys else None,
+            auto_resume_enabled=bool(row["auto_resume_enabled"])
+            if "auto_resume_enabled" in keys and row["auto_resume_enabled"] is not None
+            else True,
+            auto_resume_count=row["auto_resume_count"]
+            if "auto_resume_count" in keys and row["auto_resume_count"] is not None
             else 0,
         )
 

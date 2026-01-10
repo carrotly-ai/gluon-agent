@@ -267,6 +267,12 @@ class ExecutionRun(BaseModel):
     is_recovering: bool = False  # Currently in recovery process
     recovery_item_count: int = 0  # Progress counter during recovery
 
+    # PR monitoring tracking
+    last_comment_id: int | None = None  # Last processed PR comment ID
+    last_check_sha: str | None = None  # Last checked commit SHA for CI
+    auto_resume_enabled: bool = True  # Allow auto-resume for this run
+    auto_resume_count: int = 0  # Number of auto-resumes (max 5)
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
