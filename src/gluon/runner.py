@@ -35,6 +35,8 @@ from gluon.worktree import (
     recreate_worktree,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class RunnerConfig:
