@@ -685,13 +685,13 @@ def create_app() -> FastAPI:
                     files_changed=it.files_changed,
                     progress_detected=it.progress_detected,
                     has_errors=it.has_errors,
-                    error_message=it.error_message,
+                    error_message=it.error_summary,  # Model uses error_summary
                     has_completion_signal=it.has_completion_signal,
                     is_test_only=it.is_test_only,
                     confidence_score=it.confidence_score,
                     cost_usd=it.cost_usd,
-                    input_tokens=it.input_tokens,
-                    output_tokens=it.output_tokens,
+                    input_tokens=it.tokens_used,  # Model has tokens_used (combined)
+                    output_tokens=0,  # Not tracked separately in model
                 )
                 for it in iterations
             ],
