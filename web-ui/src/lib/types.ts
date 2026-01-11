@@ -82,9 +82,18 @@ export interface Project {
   path: string
   session_count: number
   workspace_id?: string | null
+  // Basic git status fields
   git_branch?: string | null
   git_ahead?: number | null
   git_behind?: number | null
+  // Extended git status fields for sync button
+  git_uncommitted_count?: number | null
+  git_has_remote?: boolean
+  git_has_conflicts?: boolean
+  git_has_operation_in_progress?: boolean
+  // Computed sync state
+  can_sync?: boolean
+  sync_action?: 'pull' | 'push' | 'commit+push' | 'diverged' | null
 }
 
 /** Project with derived workspace info */
@@ -571,4 +580,43 @@ export interface BranchOperationResponse {
   success: boolean
   message: string
   conflicts: string[]
+}
+
+// ========== Git Sync Types (Settings Page) ==========
+
+/** Detailed git status for a project */
+export interface GitStatusInfo {
+  is_git_repo: boolean
+  branch: string | null
+  remote: string | null
+  remote_url: string | null
+  has_uncommitted: boolean
+  uncommitted_count: number
+  commits_ahead: number
+  commits_behind: number
+  is_diverged: boolean
+  needs_pull: boolean
+  needs_push: boolean
+  has_conflicts: boolean
+  has_operation_in_progress: boolean
+  operation_type: 'rebase' | 'merge' | 'cherry_pick' | null
+  last_fetch_at: string | null
+}
+
+/** Request for git sync operation */
+export interface GitSyncRequest {
+  action: 'auto' | 'pull' | 'push' | 'fetch'
+  force?: boolean
+}
+
+/** Response from git sync operation */
+export interface GitSyncResponse {
+  success: boolean
+  action: string
+  message: string
+  error: string | null
+  commits_pulled: number
+  commits_pushed: number
+  files_committed: number
+  updated_status: GitStatusInfo | null
 }

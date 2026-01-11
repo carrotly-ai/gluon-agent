@@ -94,9 +94,18 @@ class ProjectResponse(BaseModel):
     path: str
     session_count: int = 0
     workspace_id: str | None = None
+    # Basic git status fields
     git_branch: str | None = Field(default=None, description="Current git branch")
     git_ahead: int | None = Field(default=None, description="Commits ahead of upstream")
     git_behind: int | None = Field(default=None, description="Commits behind upstream")
+    # Extended git status fields for sync button
+    git_uncommitted_count: int | None = Field(default=None, description="Number of uncommitted changes")
+    git_has_remote: bool = Field(default=False, description="Whether a remote is configured")
+    git_has_conflicts: bool = Field(default=False, description="Whether there are unresolved conflicts")
+    git_has_operation_in_progress: bool = Field(default=False, description="Whether rebase/merge is in progress")
+    # Computed sync state
+    can_sync: bool = Field(default=False, description="Whether sync is available")
+    sync_action: str | None = Field(default=None, description="Recommended action: pull, push, commit+push, diverged")
 
     class Config:
         from_attributes = True
@@ -551,3 +560,49 @@ class BranchOperationResponse(BaseModel):
     success: bool
     message: str
     conflicts: list[str] = Field(default_factory=list)
+
+
+# ========== Git Sync Models (Settings Page) ==========
+
+
+class GitStatusResponse(BaseModel):
+    """Response model for detailed git status of a project."""
+
+    is_git_repo: bool = Field(description="Whether the path is a git repository")
+    branch: str | None = Field(default=None, description="Current branch name")
+    remote: str | None = Field(default=None, description="Remote name (e.g., origin)")
+    remote_url: str | None = Field(default=None, description="Remote URL")
+    has_uncommitted: bool = Field(default=False, description="Whether there are uncommitted changes")
+    uncommitted_count: int = Field(default=0, description="Number of uncommitted changes")
+    commits_ahead: int = Field(default=0, description="Commits ahead of upstream")
+    commits_behind: int = Field(default=0, description="Commits behind upstream")
+    is_diverged: bool = Field(default=False, description="Whether branch has diverged (both ahead and behind)")
+    needs_pull: bool = Field(default=False, description="Whether project needs to pull (behind only)")
+    needs_push: bool = Field(default=False, description="Whether project needs to push (ahead only)")
+    has_conflicts: bool = Field(default=False, description="Whether there are unresolved conflicts")
+    has_operation_in_progress: bool = Field(default=False, description="Whether rebase/merge is in progress")
+    operation_type: str | None = Field(default=None, description="Type of operation: rebase, merge, cherry_pick")
+    last_fetch_at: datetime | None = Field(default=None, description="Last fetch timestamp")
+
+
+class GitSyncRequest(BaseModel):
+    """Request model for syncing git state."""
+
+    action: str = Field(
+        default="auto",
+        description="Sync action: auto (smart), pull, push, fetch",
+    )
+    force: bool = Field(default=False, description="Force operation (use with caution)")
+
+
+class GitSyncResponse(BaseModel):
+    """Response model for git sync operation."""
+
+    success: bool
+    action: str = Field(description="Action performed: none, pull, push, commit+push")
+    message: str = Field(description="Human-readable result message")
+    error: str | None = Field(default=None, description="Error message if failed")
+    commits_pulled: int = Field(default=0, description="Number of commits pulled")
+    commits_pushed: int = Field(default=0, description="Number of commits pushed")
+    files_committed: int = Field(default=0, description="Number of files committed")
+    updated_status: GitStatusResponse | None = Field(default=None, description="Updated git status after sync")

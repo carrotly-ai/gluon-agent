@@ -40,6 +40,9 @@ from gluon.web.models import (
     ForcePushCheckResponse,
     ForcePushRequest,
     ForcePushResponse,
+    GitStatusResponse,
+    GitSyncRequest,
+    GitSyncResponse,
     ImageResponse,
     LogResponse,
     ProjectDetailResponse,
@@ -829,16 +832,61 @@ def create_app() -> FastAPI:
 
     @app.get("/api/projects", response_model=list[ProjectResponse])
     async def list_projects() -> list[ProjectResponse]:
-        """List all registered projects."""
+        """List all registered projects with git sync status."""
+        from gluon.git_manager import GitManager
+
         projects = orchestrator.list_projects()
         result = []
+
+        # Use git manager for cached status if available
+        project_git_manager = GitManager(store)
 
         for project in projects:
             sessions = orchestrator.list_sessions(project.name)
             # Use expanded_path for git commands (resolves ${HOME}, ~, etc.)
             expanded = project.expanded_path
+
+            # Get basic git info (fast subprocess calls)
             git_branch = _get_git_branch(expanded)
             git_ahead, git_behind = _get_git_ahead_behind(expanded)
+
+            # Get extended git status from cache (no network operations)
+            git_uncommitted_count = None
+            git_has_remote = False
+            git_has_conflicts = False
+            git_has_operation_in_progress = False
+            can_sync = False
+            sync_action = None
+
+            cached_status = project_git_manager.get_cached_status(project)
+            if cached_status and cached_status.is_git_repo:
+                git_uncommitted_count = cached_status.uncommitted_count
+                git_has_remote = cached_status.remote is not None
+                git_has_conflicts = cached_status.has_conflicts
+                git_has_operation_in_progress = (
+                    cached_status.is_rebase_in_progress or cached_status.is_merge_in_progress
+                )
+
+                # Compute sync action
+                if git_has_conflicts or git_has_operation_in_progress:
+                    can_sync = False
+                    sync_action = None
+                elif cached_status.commits_ahead > 0 and cached_status.commits_behind > 0:
+                    can_sync = False
+                    sync_action = "diverged"
+                elif cached_status.commits_behind > 0:
+                    can_sync = cached_status.uncommitted_count == 0
+                    sync_action = "pull"
+                elif cached_status.commits_ahead > 0:
+                    can_sync = True
+                    sync_action = "push"
+                elif cached_status.uncommitted_count > 0:
+                    can_sync = True
+                    sync_action = "commit+push"
+                else:
+                    can_sync = False
+                    sync_action = None  # Already synced
+
             result.append(
                 ProjectResponse(
                     id=project.id,
@@ -849,6 +897,12 @@ def create_app() -> FastAPI:
                     git_branch=git_branch,
                     git_ahead=git_ahead,
                     git_behind=git_behind,
+                    git_uncommitted_count=git_uncommitted_count,
+                    git_has_remote=git_has_remote,
+                    git_has_conflicts=git_has_conflicts,
+                    git_has_operation_in_progress=git_has_operation_in_progress,
+                    can_sync=can_sync,
+                    sync_action=sync_action,
                 )
             )
 
@@ -2069,6 +2123,313 @@ def create_app() -> FastAPI:
         return BranchOperationResponse(
             success=result["success"],
             message=result["message"],
+        )
+
+    # ========== Git Sync Operations (Settings Page) ==========
+
+    @app.get("/api/projects/{project_id}/git/status", response_model=GitStatusResponse)
+    async def get_project_git_status(project_id: str) -> GitStatusResponse:
+        """
+        Get cached git status for a project (no network operations).
+        Returns the last known git state from the database.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        # Get cached status from store (no git operations)
+        cached_status = git_manager.get_cached_status(project)
+
+        if cached_status is None:
+            # No cached status, return minimal response
+            return GitStatusResponse(
+                is_git_repo=False,
+            )
+
+        # Compute derived fields
+        is_diverged = cached_status.commits_ahead > 0 and cached_status.commits_behind > 0
+        needs_pull = cached_status.commits_behind > 0 and cached_status.commits_ahead == 0
+        needs_push = cached_status.commits_ahead > 0 and cached_status.commits_behind == 0
+
+        return GitStatusResponse(
+            is_git_repo=cached_status.is_git_repo,
+            branch=cached_status.branch,
+            remote=cached_status.remote,
+            remote_url=cached_status.remote_url,
+            has_uncommitted=cached_status.has_uncommitted,
+            uncommitted_count=cached_status.uncommitted_count,
+            commits_ahead=cached_status.commits_ahead,
+            commits_behind=cached_status.commits_behind,
+            is_diverged=is_diverged,
+            needs_pull=needs_pull,
+            needs_push=needs_push,
+            has_conflicts=cached_status.has_conflicts,
+            has_operation_in_progress=(
+                cached_status.is_rebase_in_progress or cached_status.is_merge_in_progress
+            ),
+            operation_type=(
+                "rebase" if cached_status.is_rebase_in_progress
+                else ("merge" if cached_status.is_merge_in_progress else None)
+            ),
+            last_fetch_at=cached_status.last_fetch_at,
+        )
+
+    @app.post("/api/projects/{project_id}/git/refresh", response_model=GitStatusResponse)
+    async def refresh_project_git_status(project_id: str) -> GitStatusResponse:
+        """
+        Refresh git status for a project by fetching from remote.
+        Updates the cached status and returns the new state.
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        # Refresh status (performs git fetch)
+        try:
+            status = await git_manager.refresh_status(project)
+        except Exception as e:
+            logger.error(f"Failed to refresh git status for {project.name}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to refresh git status: {e}")
+
+        # Compute derived fields
+        is_diverged = status.commits_ahead > 0 and status.commits_behind > 0
+        needs_pull = status.commits_behind > 0 and status.commits_ahead == 0
+        needs_push = status.commits_ahead > 0 and status.commits_behind == 0
+
+        return GitStatusResponse(
+            is_git_repo=status.is_git_repo,
+            branch=status.branch,
+            remote=status.remote,
+            remote_url=status.remote_url,
+            has_uncommitted=status.has_uncommitted,
+            uncommitted_count=status.uncommitted_count,
+            commits_ahead=status.commits_ahead,
+            commits_behind=status.commits_behind,
+            is_diverged=is_diverged,
+            needs_pull=needs_pull,
+            needs_push=needs_push,
+            has_conflicts=status.has_conflicts,
+            has_operation_in_progress=(
+                status.is_rebase_in_progress or status.is_merge_in_progress
+            ),
+            operation_type=(
+                "rebase" if status.is_rebase_in_progress
+                else ("merge" if status.is_merge_in_progress else None)
+            ),
+            last_fetch_at=status.last_fetch_at,
+        )
+
+    @app.post("/api/projects/{project_id}/git/sync", response_model=GitSyncResponse)
+    async def sync_project_git(project_id: str, body: GitSyncRequest | None = None) -> GitSyncResponse:
+        """
+        Perform git sync operation on a project.
+
+        Actions:
+        - auto: Smart sync (pull if behind, push if ahead, commit+push if uncommitted)
+        - pull: Git pull --ff-only
+        - push: Git push
+        - fetch: Git fetch only (refresh status)
+        """
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        action = body.action if body else "auto"
+        path = project.expanded_path
+
+        # Get current status first
+        status = await git_manager.refresh_status(project)
+
+        if not status.is_git_repo:
+            return GitSyncResponse(
+                success=False,
+                action="none",
+                message="Not a git repository",
+                error="Not a git repository",
+            )
+
+        # Check for blocking conditions
+        if status.has_conflicts or status.is_rebase_in_progress or status.is_merge_in_progress:
+            return GitSyncResponse(
+                success=False,
+                action="none",
+                message="Cannot sync: conflicts or operation in progress",
+                error="Resolve conflicts or complete the in-progress operation first",
+            )
+
+        # Determine action for "auto" mode
+        if action == "auto":
+            is_diverged = status.commits_ahead > 0 and status.commits_behind > 0
+            if is_diverged:
+                return GitSyncResponse(
+                    success=False,
+                    action="diverged",
+                    message=f"Branch diverged: {status.commits_ahead} ahead, {status.commits_behind} behind",
+                    error="Manual rebase or merge required",
+                )
+            elif status.commits_behind > 0:
+                action = "pull"
+            elif status.commits_ahead > 0:
+                action = "push"
+            elif status.has_uncommitted:
+                action = "commit+push"
+            else:
+                # Already synced
+                updated_status = await _build_git_status_response(status)
+                return GitSyncResponse(
+                    success=True,
+                    action="none",
+                    message="Already up to date",
+                    updated_status=updated_status,
+                )
+
+        # Execute the action
+        try:
+            if action == "pull":
+                # Cannot pull with uncommitted changes
+                if status.has_uncommitted:
+                    return GitSyncResponse(
+                        success=False,
+                        action="none",
+                        message=f"Cannot pull: {status.uncommitted_count} uncommitted changes",
+                        error="Commit or stash your changes first",
+                    )
+
+                result = await git_manager.pre_task_sync(project)
+
+                if not result.success:
+                    return GitSyncResponse(
+                        success=False,
+                        action="pull",
+                        message=result.message,
+                        error=result.message,
+                    )
+
+                # Refresh status after pull
+                new_status = await git_manager.refresh_status(project)
+                updated_status = await _build_git_status_response(new_status)
+
+                pull_message = (
+                    f"Pulled {result.commits_pulled} commits"
+                    if result.commits_pulled else "Already up to date"
+                )
+                return GitSyncResponse(
+                    success=True,
+                    action="pull",
+                    message=pull_message,
+                    commits_pulled=result.commits_pulled or 0,
+                    updated_status=updated_status,
+                )
+
+            elif action == "push":
+                # Push current commits
+                rc, stdout, stderr = await git_manager._run_git(path, "push")
+
+                if rc != 0:
+                    return GitSyncResponse(
+                        success=False,
+                        action="push",
+                        message="Push failed",
+                        error=stderr or "Unknown error",
+                    )
+
+                # Refresh status after push
+                new_status = await git_manager.refresh_status(project)
+                updated_status = await _build_git_status_response(new_status)
+                commits_pushed = status.commits_ahead
+
+                return GitSyncResponse(
+                    success=True,
+                    action="push",
+                    message=f"Pushed {commits_pushed} commits",
+                    commits_pushed=commits_pushed,
+                    updated_status=updated_status,
+                )
+
+            elif action == "commit+push":
+                # Stage, commit, and push
+                result = await git_manager.post_task_sync(
+                    project,
+                    commit_message="Manual sync from web UI",
+                )
+
+                if not result.success:
+                    return GitSyncResponse(
+                        success=False,
+                        action="commit+push",
+                        message=result.message,
+                        error=result.message,
+                    )
+
+                # Refresh status after commit+push
+                new_status = await git_manager.refresh_status(project)
+                updated_status = await _build_git_status_response(new_status)
+
+                return GitSyncResponse(
+                    success=True,
+                    action="commit+push",
+                    message=f"Committed {result.files_committed} files and pushed",
+                    files_committed=result.files_committed or 0,
+                    commits_pushed=1,
+                    updated_status=updated_status,
+                )
+
+            elif action == "fetch":
+                # Just refresh status (which does a fetch)
+                new_status = await git_manager.refresh_status(project)
+                updated_status = await _build_git_status_response(new_status)
+
+                return GitSyncResponse(
+                    success=True,
+                    action="fetch",
+                    message="Status refreshed",
+                    updated_status=updated_status,
+                )
+
+            else:
+                return GitSyncResponse(
+                    success=False,
+                    action="none",
+                    message=f"Unknown action: {action}",
+                    error=f"Unknown action: {action}",
+                )
+
+        except Exception as e:
+            logger.error(f"Git sync failed for {project.name}: {e}")
+            return GitSyncResponse(
+                success=False,
+                action=action,
+                message="Sync failed",
+                error=str(e),
+            )
+
+    async def _build_git_status_response(status) -> GitStatusResponse:
+        """Helper to build GitStatusResponse from GitStatus model."""
+        is_diverged = status.commits_ahead > 0 and status.commits_behind > 0
+        needs_pull = status.commits_behind > 0 and status.commits_ahead == 0
+        needs_push = status.commits_ahead > 0 and status.commits_behind == 0
+
+        return GitStatusResponse(
+            is_git_repo=status.is_git_repo,
+            branch=status.branch,
+            remote=status.remote,
+            remote_url=status.remote_url,
+            has_uncommitted=status.has_uncommitted,
+            uncommitted_count=status.uncommitted_count,
+            commits_ahead=status.commits_ahead,
+            commits_behind=status.commits_behind,
+            is_diverged=is_diverged,
+            needs_pull=needs_pull,
+            needs_push=needs_push,
+            has_conflicts=status.has_conflicts,
+            has_operation_in_progress=(
+                status.is_rebase_in_progress or status.is_merge_in_progress
+            ),
+            operation_type=(
+                "rebase" if status.is_rebase_in_progress
+                else ("merge" if status.is_merge_in_progress else None)
+            ),
+            last_fetch_at=status.last_fetch_at,
         )
 
     # ========== WebSocket ==========

@@ -12,6 +12,8 @@ import type {
   FileDiff,
   ForcePushCheckResponse,
   ForcePushResponse,
+  GitStatusInfo,
+  GitSyncResponse,
   ImageAttachment,
   LogResponse,
   Project,
@@ -550,4 +552,29 @@ export async function deleteBranch(
     `/projects/${projectId}/branches/${encodeURIComponent(branchName)}${query ? `?${query}` : ''}`,
     { method: 'DELETE' }
   )
+}
+
+// ========== Git Sync API (Settings Page) ==========
+
+/** Get cached git status for a project (no network operations) */
+export async function fetchProjectGitStatus(projectId: string): Promise<GitStatusInfo> {
+  return fetchJson<GitStatusInfo>(`/projects/${projectId}/git/status`)
+}
+
+/** Refresh git status by fetching from remote */
+export async function refreshProjectGitStatus(projectId: string): Promise<GitStatusInfo> {
+  return fetchJson<GitStatusInfo>(`/projects/${projectId}/git/refresh`, {
+    method: 'POST',
+  })
+}
+
+/** Perform git sync operation (auto, pull, push, fetch) */
+export async function syncProjectGit(
+  projectId: string,
+  action: 'auto' | 'pull' | 'push' | 'fetch' = 'auto'
+): Promise<GitSyncResponse> {
+  return fetchJson<GitSyncResponse>(`/projects/${projectId}/git/sync`, {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  })
 }

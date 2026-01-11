@@ -9,6 +9,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import { GitSyncButton } from './GitSyncButton'
 import { useCallback, useEffect, useState } from 'react'
 import {
   createWorkspace,
@@ -343,11 +344,21 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                                 {project.git_branch || 'no git'}
                               </span>
                             </span>
-                            <span className="text-caption text-[var(--color-stone)]/60 font-mono w-[32px] text-right tabular-nums">
-                              {project.git_ahead ? `↑${project.git_ahead}` : ''}
-                              {project.git_ahead && project.git_behind ? ' ' : ''}
-                              {project.git_behind ? `↓${project.git_behind}` : ''}
-                            </span>
+                            <div
+                              className="min-w-[60px] flex justify-end"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <GitSyncButton
+                                project={project}
+                                compact
+                                onSyncComplete={(success) => {
+                                  if (success) {
+                                    // Refresh data to show updated status
+                                    loadData()
+                                  }
+                                }}
+                              />
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -477,15 +488,19 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           <div className="flex items-center gap-1.5 text-caption text-[var(--color-stone)]/80">
                             <GitBranch className="w-3 h-3" />
                             <span>{project.git_branch}</span>
-                            {(project.git_ahead || project.git_behind) && (
-                              <span className="text-caption text-[var(--color-stone)]/60 font-mono ml-1">
-                                {project.git_ahead ? `↑${project.git_ahead}` : ''}
-                                {project.git_ahead && project.git_behind ? ' ' : ''}
-                                {project.git_behind ? `↓${project.git_behind}` : ''}
-                              </span>
-                            )}
                           </div>
                         )}
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <GitSyncButton
+                            project={project}
+                            compact
+                            onSyncComplete={(success) => {
+                              if (success) {
+                                loadData()
+                              }
+                            }}
+                          />
+                        </div>
                         <button
                           className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
                           onClick={(e) => {
