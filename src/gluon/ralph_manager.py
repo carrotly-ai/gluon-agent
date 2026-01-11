@@ -303,7 +303,7 @@ class RalphManager:
         try:
             async for message in self.agent.execute(
                 prompt=prompt,
-                cwd=self.working_dir,
+                working_dir=self.working_dir,
                 resume_session_id=self.run.claude_session_id,
             ):
                 # Capture session ID from init message
