@@ -9,6 +9,7 @@ RalphManager coordinates the autonomous loop lifecycle:
 """
 
 import asyncio
+import json
 import logging
 import subprocess
 from datetime import UTC, datetime
@@ -47,12 +48,14 @@ class RalphManager:
         store: "GluonStore",
         working_dir: Path,
         *,
+        log_dir: Path | None = None,
         loop_delay_seconds: int = DEFAULT_LOOP_DELAY_SECONDS,
     ):
         self.run = run
         self.agent = agent
         self.store = store
         self.working_dir = working_dir
+        self.log_dir = log_dir
         self.loop_delay_seconds = loop_delay_seconds
 
         # Initialize components with run's config
@@ -300,6 +303,9 @@ class RalphManager:
 
         output_parts = []
 
+        # Path to messages log file for WebSocket streaming
+        messages_path = self.log_dir / "messages.jsonl" if self.log_dir else None
+
         try:
             async for message in self.agent.execute(
                 prompt=prompt,
@@ -311,8 +317,20 @@ class RalphManager:
                     if "session_id" in message.metadata:
                         result["session_id"] = message.metadata["session_id"]
 
-                # Capture output based on message type for more complete completion detection
+                # Write message to log file for WebSocket streaming (like regular tasks)
                 msg_type = getattr(message, "type", None)
+                if messages_path and msg_type:
+                    msg_dict = {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "type": msg_type,
+                        "content": getattr(message, "content", ""),
+                        "metadata": getattr(message, "metadata", None),
+                        "loop_number": self.run.loop_count,
+                    }
+                    with open(messages_path, "a") as f:
+                        f.write(json.dumps(msg_dict) + "\n")
+
+                # Capture output based on message type for more complete completion detection
                 if msg_type == "tool_use":
                     # Include tool usage in output for better completion detection
                     tool_name = message.metadata.get("tool", "unknown") if message.metadata else "unknown"

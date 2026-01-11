@@ -961,6 +961,7 @@ but explicit commits with good messages are preferred.
                 agent=agent,
                 store=self.store,
                 working_dir=working_dir,
+                log_dir=log_dir,
             )
 
             updated_run = await manager.execute_loop()
