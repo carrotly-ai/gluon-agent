@@ -49,6 +49,9 @@ from gluon.web.models import (
     ProjectDetailResponse,
     ProjectResponse,
     ProjectUsageResponse,
+    # Ralph Loop models
+    RalphIterationResponse,
+    RalphIterationsResponse,
     RebaseRequest,
     RebaseResponse,
     RecoverRunRequest,
@@ -67,6 +70,7 @@ from gluon.web.models import (
     ScanResultResponse,
     SessionHistoryResponse,
     StatusResponse,
+    StopLoopResponse,
     SupervisionDecisionResponse,
     SupervisionDisableRequest,
     SupervisionEvaluateResponse,
@@ -165,6 +169,15 @@ def create_app() -> FastAPI:
             # Recovery progress UI
             is_recovering=run.is_recovering,
             recovery_item_count=run.recovery_item_count,
+            # Ralph Loop fields
+            ralph_enabled=run.ralph_enabled,
+            loop_count=run.loop_count,
+            max_loops=run.max_loops,
+            circuit_state=run.circuit_state.value if run.circuit_state else "CLOSED",
+            completion_confidence=run.completion_confidence,
+            completion_reason=run.completion_reason,
+            calls_this_hour=run.calls_this_hour,
+            max_calls_per_hour=run.max_calls_per_hour,
         )
 
     # ========== REST API Routes ==========
@@ -303,6 +316,20 @@ def create_app() -> FastAPI:
             # Precomputed counts for tab badges
             commit_count=commit_count,
             file_count=file_count,
+            # Ralph Loop fields
+            ralph_enabled=run.ralph_enabled,
+            loop_count=run.loop_count,
+            max_loops=run.max_loops,
+            circuit_state=run.circuit_state.value if run.circuit_state else "CLOSED",
+            completion_confidence=run.completion_confidence,
+            completion_reason=run.completion_reason,
+            calls_this_hour=run.calls_this_hour,
+            max_calls_per_hour=run.max_calls_per_hour,
+            # Ralph Loop detail fields
+            consecutive_no_progress=run.consecutive_no_progress,
+            consecutive_same_error=run.consecutive_same_error,
+            test_only_loops=run.test_only_loops,
+            max_cost_usd=run.max_cost_usd,
         )
 
     @app.post("/api/runs", response_model=RunResponse)
@@ -321,6 +348,10 @@ def create_app() -> FastAPI:
             use_worktree=body.use_worktree,
             initiator="web:dashboard",
             model=body.model,
+            # Ralph Loop options
+            ralph_enabled=body.ralph_enabled,
+            max_loops=body.max_loops,
+            max_cost_usd=body.max_cost_usd,
         )
 
         project_lookup = get_project_lookup()
@@ -613,6 +644,98 @@ def create_app() -> FastAPI:
         return SessionHistoryResponse(
             session_id=run.claude_session_id,
             runs=[run_to_response(r, project_lookup) for r in session_runs],
+        )
+
+    # ========== Ralph Loop Endpoints ==========
+
+    @app.get("/api/runs/{run_id}/iterations", response_model=RalphIterationsResponse)
+    async def get_ralph_iterations(run_id: str, limit: int = 50) -> RalphIterationsResponse:
+        """
+        Get iteration history for a ralph-enabled run.
+
+        Returns a list of all loop iterations with metrics for each.
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.ralph_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="Run is not a ralph-enabled run",
+            )
+
+        iterations = store.list_ralph_iterations(run.id, limit=limit)
+
+        return RalphIterationsResponse(
+            run_id=run.id,
+            iteration_count=len(iterations),
+            iterations=[
+                RalphIterationResponse(
+                    id=it.id,
+                    run_id=it.run_id,
+                    loop_number=it.loop_number,
+                    started_at=it.started_at.isoformat() if it.started_at else "",
+                    ended_at=it.ended_at.isoformat() if it.ended_at else None,
+                    duration_seconds=(
+                        (it.ended_at - it.started_at).total_seconds()
+                        if it.started_at and it.ended_at
+                        else None
+                    ),
+                    files_changed=it.files_changed,
+                    progress_detected=it.progress_detected,
+                    has_errors=it.has_errors,
+                    error_message=it.error_message,
+                    has_completion_signal=it.has_completion_signal,
+                    is_test_only=it.is_test_only,
+                    confidence_score=it.confidence_score,
+                    cost_usd=it.cost_usd,
+                    input_tokens=it.input_tokens,
+                    output_tokens=it.output_tokens,
+                )
+                for it in iterations
+            ],
+        )
+
+    @app.post("/api/runs/{run_id}/stop-loop", response_model=StopLoopResponse)
+    async def stop_ralph_loop(run_id: str) -> StopLoopResponse:
+        """
+        Stop a ralph loop early.
+
+        This gracefully terminates the loop and moves the run to REVIEW status.
+        Only works for ralph-enabled runs that are currently running.
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        if not run.ralph_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="Run is not a ralph-enabled run",
+            )
+
+        if run.status != RunStatus.RUNNING:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Run is not running (current status: {run.status.value})",
+            )
+
+        # Set completion reason and move to REVIEW
+        run.completion_reason = "User requested stop"
+        run.status = RunStatus.REVIEW
+        store.update_run(run)
+
+        # Broadcast update to WebSocket clients
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id, run.project_id[:8])
+        await ws_manager.broadcast_run_update(run, project_name)
+
+        return StopLoopResponse(
+            success=True,
+            run_id=run.id,
+            message=f"Ralph loop stopped at iteration {run.loop_count}",
+            final_loop_count=run.loop_count,
         )
 
     # ========== Supervision Endpoints ==========

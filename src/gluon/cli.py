@@ -58,6 +58,9 @@ app.add_typer(ralph_app, name="ralph")
 supervision_app = typer.Typer(help="Supervision and auto-resume commands")
 app.add_typer(supervision_app, name="supervision")
 
+supervisor_app = typer.Typer(help="Supervisor daemon management")
+app.add_typer(supervisor_app, name="supervisor")
+
 console = Console()
 
 
@@ -1838,6 +1841,154 @@ def ralph_runs(
     console.print(table)
 
 
+# ========== Supervisor Daemon Commands ==========
+
+
+@supervisor_app.command("start")
+def supervisor_start(
+    poll_interval: Annotated[int, typer.Option("--poll-interval", "-i", help="Poll interval in seconds")] = 30,
+    foreground: Annotated[bool, typer.Option("--foreground", "-f", help="Run in foreground (don't daemonize)")] = False,
+):
+    """Start the supervisor daemon for auto-resume polling.
+
+    The supervisor polls REVIEW tasks and auto-resumes based on supervision policies.
+    """
+    from gluon.supervisor_daemon import is_running, run_supervisor, setup_logging
+
+    running, pid = is_running()
+    if running:
+        console.print(f"[yellow]Supervisor already running[/yellow] (PID: {pid})")
+        raise typer.Exit(1)
+
+    if foreground:
+        console.print(f"[cyan]Starting supervisor in foreground[/cyan] (poll interval: {poll_interval}s)")
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+        setup_logging()
+        try:
+            import asyncio
+
+            asyncio.run(run_supervisor(poll_interval))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Supervisor stopped[/yellow]")
+    else:
+        # Start as background process
+        import subprocess
+        import sys
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "gluon.supervisor_daemon",
+            "--poll-interval",
+            str(poll_interval),
+        ]
+
+        # Start detached process
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        # Give it a moment to start
+        import time
+
+        time.sleep(0.5)
+
+        # Check if it started successfully
+        running, pid = is_running()
+        if running:
+            from gluon.supervisor_daemon import get_log_file
+
+            console.print(f"[green]✓[/green] Supervisor started (PID: {pid})")
+            console.print(f"[dim]Log file: {get_log_file()}[/dim]")
+        else:
+            console.print("[red]Error:[/red] Failed to start supervisor")
+            console.print(f"[dim]Check log file: {get_log_file()}[/dim]")
+            raise typer.Exit(1)
+
+
+@supervisor_app.command("stop")
+def supervisor_stop():
+    """Stop the supervisor daemon."""
+    from gluon.supervisor_daemon import is_running, stop_daemon
+
+    running, pid = is_running()
+    if not running:
+        console.print("[yellow]Supervisor not running[/yellow]")
+        return
+
+    if stop_daemon():
+        console.print(f"[green]✓[/green] Supervisor stopped (was PID: {pid})")
+    else:
+        console.print("[red]Error:[/red] Failed to stop supervisor")
+        raise typer.Exit(1)
+
+
+@supervisor_app.command("status")
+def supervisor_status():
+    """Check supervisor daemon status."""
+    from gluon.supervisor_daemon import get_log_file, get_pid_file, is_running
+
+    running, pid = is_running()
+
+    console.print("\n[bold]Supervisor Daemon Status[/bold]\n")
+
+    table = Table()
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value")
+
+    if running:
+        table.add_row("Status", "[green]Running[/green]")
+        table.add_row("PID", str(pid))
+    else:
+        table.add_row("Status", "[yellow]Stopped[/yellow]")
+        table.add_row("PID", "-")
+
+    table.add_row("PID File", str(get_pid_file()))
+    table.add_row("Log File", str(get_log_file()))
+
+    console.print(table)
+
+    # Show recent log entries if running
+    if running:
+        log_file = get_log_file()
+        if log_file.exists():
+            console.print("\n[bold]Recent Log Entries:[/bold]")
+            try:
+                lines = log_file.read_text().strip().split("\n")[-10:]
+                for line in lines:
+                    console.print(f"[dim]{line}[/dim]")
+            except Exception:
+                console.print("[dim]Unable to read log file[/dim]")
+
+
+@supervisor_app.command("logs")
+def supervisor_logs(
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow log output")] = False,
+    lines: Annotated[int, typer.Option("--lines", "-n", help="Number of lines to show")] = 50,
+):
+    """View supervisor daemon logs."""
+    from gluon.supervisor_daemon import get_log_file
+
+    log_file = get_log_file()
+
+    if not log_file.exists():
+        console.print("[yellow]No log file found[/yellow]")
+        console.print(f"[dim]Expected at: {log_file}[/dim]")
+        return
+
+    if follow:
+        import subprocess
+
+        subprocess.run(["tail", "-f", str(log_file)])
+    else:
+        content = log_file.read_text().strip().split("\n")
+        for line in content[-lines:]:
+            console.print(line)
+
+
 # ========== Supervision Commands ==========
 
 
@@ -1847,7 +1998,6 @@ def supervision_status(
 ):
     """Show supervision status for a run."""
     store = GluonStore()
-    runner = TaskRunner(store=store)
 
     # Try to find run by full ID or prefix
     run = store.get_run(run_id)
@@ -1966,7 +2116,7 @@ def supervision_disable(
     if success:
         console.print(f"[green]✓[/green] Supervision disabled for run {run.id[:8]}")
     else:
-        console.print(f"[red]Error:[/red] Failed to disable supervision")
+        console.print("[red]Error:[/red] Failed to disable supervision")
         raise typer.Exit(1)
 
 
@@ -2000,7 +2150,7 @@ def supervision_evaluate(
         if result.get("wait_seconds", 0) > 0:
             console.print(f"Wait: {result['wait_seconds']}s until retry")
     else:
-        console.print(f"[red]Error:[/red] Failed to evaluate run")
+        console.print("[red]Error:[/red] Failed to evaluate run")
         raise typer.Exit(1)
 
 

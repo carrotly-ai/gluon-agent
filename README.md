@@ -53,6 +53,25 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - **Channel Topic Config** - Configure default project and model via Discord channel topics
 - **Tool Call Visualization** - See agent tool calls in real-time during execution
 
+### Ralph Loop (Autonomous Mode)
+- **Autonomous Execution** - Claude works continuously until task completion
+- **Completion Detection** - RALPH_STATUS blocks, keyword matching, TODO file parsing
+- **Circuit Breaker** - 3-state machine prevents runaway loops (CLOSED → HALF_OPEN → OPEN)
+- **Rate Limiting** - Hourly API call limits and optional cost caps
+- **Supervision Daemon** - Background auto-resume for tasks in REVIEW status
+- **Session Continuity** - Claude maintains context across loop iterations
+
+```bash
+# Start autonomous ralph run
+gluon run myapp "Implement auth system" --ralph --max-loops 50 --max-cost 10
+
+# Monitor progress
+gluon ralph status <run_id>
+
+# Start supervisor daemon for auto-resume
+gluon supervisor start
+```
+
 ### Additional Features
 - **Image Attachments** - Paste screenshots/diagrams for AI context (Cmd+V in resume prompt)
 - **Usage Tracking** - Monitor costs, tokens, and usage per project
@@ -270,6 +289,7 @@ gluon run myapp 'Redesign database schema' --model opus
 |----------|-------------|
 | [CLI Reference](docs/CLI-REFERENCE.md) | Complete CLI command reference |
 | [Web Dashboard](docs/WEB-DASHBOARD.md) | Dashboard features and API |
+| [Ralph Loop](docs/RALPH-LOOP.md) | Autonomous execution mode and supervision |
 | [Git Operations](docs/GIT-OPERATIONS.md) | Worktrees, PR integration, conflict resolution |
 | [Telegram Bot](docs/TELEGRAM-BOT.md) | Telegram setup and commands |
 | [Discord Bot](docs/DISCORD-BOT.md) | Discord setup and commands |

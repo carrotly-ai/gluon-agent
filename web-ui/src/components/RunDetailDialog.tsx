@@ -17,6 +17,7 @@ import {
   Minus,
   Play,
   Plus,
+  RefreshCw,
   RotateCw,
   Sparkles,
 } from 'lucide-react'
@@ -54,9 +55,10 @@ import type {
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { LoopProgressTab } from './LoopProgressTab'
 import { StreamingLogViewer } from './StreamingLogViewer'
 
-type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments'
+type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments' | 'loop'
 
 interface RunDetailDialogProps {
   run: Run | null
@@ -1230,6 +1232,25 @@ Focus on preserving the functionality from both sides where possible.`
                       </span>
                     )}
                   </button>
+                  {detail?.ralph_enabled && (
+                    <button
+                      className={cn(
+                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                        activeTab === 'loop'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                      )}
+                      onClick={() => setActiveTab('loop')}
+                    >
+                      <RefreshCw className={cn('w-3 h-3', run?.status === 'running' && 'animate-spin')} />
+                      Loop
+                      {(detail.loop_count || 0) > 0 && (
+                        <span className="text-body text-[var(--color-stone)]/50">
+                          ({detail.loop_count}/{detail.max_loops || 50})
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <button
                   className={cn(
@@ -1750,6 +1771,15 @@ Focus on preserving the functionality from both sides where possible.`
                       </div>
                     )}
                   </div>
+                )}
+                {activeTab === 'loop' && detail && (
+                  <LoopProgressTab
+                    run={detail}
+                    onRunUpdated={(updatedRun) => {
+                      setDetail(updatedRun)
+                      onRunUpdated(updatedRun)
+                    }}
+                  />
                 )}
               </div>
             </div>

@@ -74,6 +74,8 @@ class RalphManager:
             self.circuit_breaker.consecutive_no_progress = run.consecutive_no_progress
             self.circuit_breaker.consecutive_same_error = run.consecutive_same_error
             self.circuit_breaker.last_progress_loop = run.last_progress_loop
+            # Restore half_open_iterations for correct HALF_OPEN patience window tracking
+            self.circuit_breaker.half_open_iterations = run.half_open_iterations
 
         # Tracking for completion detection
         self.consecutive_done_signals = run.completion_signals
@@ -137,7 +139,7 @@ class RalphManager:
             # Check completion
             todo_content = self._read_todo_file()
             signals = self.completion_detector.analyze(
-                self._get_iteration_output(iteration),
+                self._get_iteration_output(),
                 todo_content,
             )
 
@@ -236,7 +238,7 @@ class RalphManager:
         iteration.progress_detected = iteration.files_changed > 0
 
         # Analyze output for completion signals
-        output_text = self._get_iteration_output(iteration)
+        output_text = self._get_iteration_output()
         signals = self.completion_detector.analyze(output_text, self._read_todo_file())
         iteration.has_completion_signal = signals.has_done_keyword or signals.has_complete_keyword
         iteration.is_test_only = signals.is_test_only
@@ -309,8 +311,16 @@ class RalphManager:
                     if "session_id" in message.metadata:
                         result["session_id"] = message.metadata["session_id"]
 
-                # Capture output text
-                if hasattr(message, "content"):
+                # Capture output based on message type for more complete completion detection
+                msg_type = getattr(message, "type", None)
+                if msg_type == "tool_use":
+                    # Include tool usage in output for better completion detection
+                    tool_name = message.metadata.get("tool", "unknown") if message.metadata else "unknown"
+                    output_parts.append(f"[Tool: {tool_name}]")
+                elif msg_type == "text" and hasattr(message, "content"):
+                    output_parts.append(str(message.content))
+                elif hasattr(message, "content") and message.content:
+                    # Fallback for other message types with content
                     output_parts.append(str(message.content))
 
                 # Check for errors
@@ -395,8 +405,8 @@ Set STATUS to `COMPLETE` when the task is done, `IN_PROGRESS` when continuing, o
                     pass
         return None
 
-    def _get_iteration_output(self, iteration: RalphLoopIteration) -> str:
-        """Get output text for an iteration.
+    def _get_iteration_output(self) -> str:
+        """Get output text for the current iteration.
 
         Returns the cached output from the most recent _run_claude() call.
         This is used for completion detection to analyze Claude's response.
@@ -430,6 +440,7 @@ Set STATUS to `COMPLETE` when the task is done, `IN_PROGRESS` when continuing, o
         self.run.consecutive_same_error = self.circuit_breaker.consecutive_same_error
         self.run.last_progress_loop = self.circuit_breaker.last_progress_loop
         self.run.last_error_hash = self.circuit_breaker.last_error_hash
+        self.run.half_open_iterations = self.circuit_breaker.half_open_iterations
 
         self.run.completion_signals = self.consecutive_done_signals
         self.run.test_only_loops = self.consecutive_test_only

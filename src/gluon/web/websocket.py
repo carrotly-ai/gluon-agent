@@ -106,6 +106,13 @@ class WebSocketManager:
                 "pr_mergeable": run.pr_mergeable,
                 # Archive status
                 "archived": run.archived,
+                # Ralph Loop fields
+                "ralph_enabled": run.ralph_enabled,
+                "loop_count": run.loop_count,
+                "max_loops": run.max_loops,
+                "circuit_state": run.circuit_state,
+                "completion_confidence": run.completion_confidence,
+                "completion_reason": run.completion_reason,
             },
         }
         await self.broadcast(message)
@@ -137,7 +144,50 @@ class WebSocketManager:
                 "pr_mergeable": None,
                 # Archive status
                 "archived": False,
+                # Ralph Loop fields
+                "ralph_enabled": run.ralph_enabled,
+                "loop_count": run.loop_count or 0,
+                "max_loops": run.max_loops,
+                "circuit_state": run.circuit_state or "CLOSED",
+                "completion_confidence": run.completion_confidence or 0,
+                "completion_reason": run.completion_reason,
             },
+        }
+        await self.broadcast(message)
+
+    async def broadcast_loop_progress(
+        self,
+        run_id: str,
+        loop_count: int,
+        max_loops: int,
+        circuit_state: str,
+        completion_confidence: float,
+        cost_usd: float,
+        files_changed: int = 0,
+        has_errors: bool = False,
+    ) -> None:
+        """Broadcast ralph loop progress to all clients.
+
+        Args:
+            run_id: The run ID
+            loop_count: Current iteration number
+            max_loops: Maximum iterations allowed
+            circuit_state: Current circuit breaker state (CLOSED/HALF_OPEN/OPEN)
+            completion_confidence: Confidence that task is complete (0-100)
+            cost_usd: Total cost so far
+            files_changed: Number of files changed in this iteration
+            has_errors: Whether this iteration had errors
+        """
+        message = {
+            "type": "loop_progress",
+            "run_id": run_id,
+            "loop_count": loop_count,
+            "max_loops": max_loops,
+            "circuit_state": circuit_state,
+            "completion_confidence": completion_confidence,
+            "cost_usd": cost_usd,
+            "files_changed": files_changed,
+            "has_errors": has_errors,
         }
         await self.broadcast(message)
 

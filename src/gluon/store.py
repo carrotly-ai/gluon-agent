@@ -299,6 +299,8 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_supervision_decisions_run ON supervision_decisions(run_id);",
     "CREATE INDEX IF NOT EXISTS idx_supervision_decisions_timestamp ON supervision_decisions(timestamp);",
+    # Circuit breaker HALF_OPEN tracking (missing from original ralph fields)
+    "ALTER TABLE execution_runs ADD COLUMN half_open_iterations INTEGER DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1008,7 +1010,13 @@ class GluonStore:
                     archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?,
                     recovery_count = ?, last_recovery_at = ?, recovery_from_run_id = ?,
                     is_recovering = ?, recovery_item_count = ?,
-                    last_comment_id = ?, last_check_sha = ?, auto_resume_enabled = ?, auto_resume_count = ?
+                    last_comment_id = ?, last_check_sha = ?, auto_resume_enabled = ?, auto_resume_count = ?,
+                    loop_count = ?, circuit_state = ?, consecutive_no_progress = ?,
+                    consecutive_same_error = ?, last_progress_loop = ?, last_error_hash = ?,
+                    half_open_iterations = ?, completion_signals = ?, test_only_loops = ?,
+                    completion_confidence = ?, completion_reason = ?, calls_this_hour = ?,
+                    hour_start = ?, supervision_auto_resume_count = ?, last_supervision_check_at = ?,
+                    last_supervision_resume_at = ?, supervision_disabled_reason = ?
                 WHERE id = ?
                 """,
                 (
@@ -1049,6 +1057,25 @@ class GluonStore:
                     run.last_check_sha,
                     1 if run.auto_resume_enabled else 0,
                     run.auto_resume_count,
+                    # Ralph fields
+                    run.loop_count,
+                    run.circuit_state.value,
+                    run.consecutive_no_progress,
+                    run.consecutive_same_error,
+                    run.last_progress_loop,
+                    run.last_error_hash,
+                    run.half_open_iterations,
+                    run.completion_signals,
+                    run.test_only_loops,
+                    run.completion_confidence,
+                    run.completion_reason,
+                    run.calls_this_hour,
+                    run.hour_start.isoformat() if run.hour_start else None,
+                    # Supervision fields
+                    run.supervision_auto_resume_count,
+                    run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,
+                    run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
+                    run.supervision_disabled_reason,
                     run.id,
                 ),
             )
@@ -1187,6 +1214,9 @@ class GluonStore:
             if "last_progress_loop" in keys and row["last_progress_loop"] is not None
             else 0,
             last_error_hash=row["last_error_hash"] if "last_error_hash" in keys else None,
+            half_open_iterations=row["half_open_iterations"]
+            if "half_open_iterations" in keys and row["half_open_iterations"] is not None
+            else 0,
             completion_signals=row["completion_signals"]
             if "completion_signals" in keys and row["completion_signals"] is not None
             else 0,

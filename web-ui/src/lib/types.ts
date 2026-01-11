@@ -1,6 +1,9 @@
 /** Run status enum matching backend RunStatus */
 export type RunStatus = 'pending' | 'running' | 'review' | 'completed' | 'failed' | 'cancelled'
 
+/** Circuit breaker state enum matching backend CircuitState */
+export type CircuitState = 'CLOSED' | 'HALF_OPEN' | 'OPEN'
+
 /** API response for execution runs */
 export interface Run {
   id: string
@@ -29,6 +32,15 @@ export interface Run {
   // Recovery progress UI
   is_recovering?: boolean
   recovery_item_count?: number
+  // Ralph Loop fields (autonomous execution mode)
+  ralph_enabled?: boolean
+  loop_count?: number
+  max_loops?: number
+  circuit_state?: CircuitState
+  completion_confidence?: number
+  completion_reason?: string | null
+  calls_this_hour?: number
+  max_calls_per_hour?: number
 }
 
 /** Detailed run response (includes additional fields) */
@@ -57,6 +69,11 @@ export interface RunDetail extends Run {
   // Precomputed counts for tab badges
   commit_count: number | null
   file_count: number | null
+  // Ralph Loop detail fields (additional to Run fields)
+  consecutive_no_progress?: number
+  consecutive_same_error?: number
+  test_only_loops?: number
+  max_cost_usd?: number | null
 }
 
 /** Request body for creating a new run */
@@ -65,6 +82,10 @@ export interface CreateRunRequest {
   prompt: string
   model?: string
   use_worktree?: boolean
+  // Ralph Loop options (autonomous execution mode)
+  ralph_enabled?: boolean
+  max_loops?: number
+  max_cost_usd?: number
 }
 
 /** API response for log content */
@@ -178,6 +199,43 @@ export interface SessionHistoryResponse {
   runs: Run[]
 }
 
+// ========== Ralph Loop Types ==========
+
+/** Ralph loop iteration history */
+export interface RalphIteration {
+  id: string
+  run_id: string
+  loop_number: number
+  started_at: string
+  ended_at: string | null
+  duration_seconds: number | null
+  files_changed: number
+  progress_detected: boolean
+  has_errors: boolean
+  error_message: string | null
+  has_completion_signal: boolean
+  is_test_only: boolean
+  confidence_score: number
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+}
+
+/** Response for iteration list */
+export interface RalphIterationsResponse {
+  run_id: string
+  iteration_count: number
+  iterations: RalphIteration[]
+}
+
+/** Response from stopping a ralph loop */
+export interface StopLoopResponse {
+  success: boolean
+  run_id: string
+  message: string
+  final_loop_count: number
+}
+
 /** WebSocket message types */
 export type WebSocketMessageType =
   | 'run_created'
@@ -186,6 +244,7 @@ export type WebSocketMessageType =
   | 'agent_message'
   | 'progress'
   | 'token_update'
+  | 'loop_progress'
   | 'subscribed'
   | 'unsubscribed'
   | 'pong'
@@ -243,6 +302,19 @@ export interface TokenUpdateMessage extends WebSocketMessage {
   estimated_cost_usd: number
 }
 
+/** Loop progress update for ralph-enabled runs */
+export interface LoopProgressMessage extends WebSocketMessage {
+  type: 'loop_progress'
+  run_id: string
+  loop_count: number
+  max_loops: number
+  circuit_state: CircuitState
+  completion_confidence: number
+  files_changed: number
+  has_errors: boolean
+  cost_usd: number
+}
+
 export interface SubscribedMessage extends WebSocketMessage {
   type: 'subscribed'
   run_id: string
@@ -255,6 +327,7 @@ export type WSMessage =
   | AgentMessageWSMessage
   | ProgressMessage
   | TokenUpdateMessage
+  | LoopProgressMessage
   | SubscribedMessage
   | WebSocketMessage
 

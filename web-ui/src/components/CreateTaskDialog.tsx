@@ -1,4 +1,4 @@
-import { ChevronDown, GitBranch, Image as ImageIcon, Play, Trash2, X } from 'lucide-react'
+import { ChevronDown, GitBranch, Image as ImageIcon, Play, RefreshCw, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { createRun, fetchProjects, uploadAndAttachImage } from '@/lib/api'
@@ -22,6 +22,8 @@ const MODEL_OPTIONS = [
 const DEFAULT_MODEL = 'claude-sonnet-4.5'
 const MODEL_STORAGE_KEY = 'gluon-last-model'
 const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
+const RALPH_ENABLED_STORAGE_KEY = 'gluon-ralph-enabled'
+const RALPH_MAX_LOOPS_STORAGE_KEY = 'gluon-ralph-max-loops'
 
 // Get last used model from sessionStorage
 function getLastUsedModel(): string {
@@ -34,6 +36,19 @@ function getLastWorktreeSetting(): boolean {
   if (typeof window === 'undefined') return true
   const stored = sessionStorage.getItem(WORKTREE_STORAGE_KEY)
   return stored === null ? true : stored === 'true'
+}
+
+// Get last ralph enabled setting from sessionStorage
+function getLastRalphEnabledSetting(): boolean {
+  if (typeof window === 'undefined') return false
+  return sessionStorage.getItem(RALPH_ENABLED_STORAGE_KEY) === 'true'
+}
+
+// Get last ralph max loops setting from sessionStorage
+function getLastRalphMaxLoops(): number {
+  if (typeof window === 'undefined') return 50
+  const stored = sessionStorage.getItem(RALPH_MAX_LOOPS_STORAGE_KEY)
+  return stored ? parseInt(stored, 10) : 50
 }
 
 // Pending image (uploaded before run creation)
@@ -53,6 +68,9 @@ export function CreateTaskDialog({
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState(getLastUsedModel)
   const [useWorktree, setUseWorktree] = useState(getLastWorktreeSetting)
+  const [ralphEnabled, setRalphEnabled] = useState(getLastRalphEnabledSetting)
+  const [maxLoops, setMaxLoops] = useState(getLastRalphMaxLoops)
+  const [maxCostUsd, setMaxCostUsd] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
@@ -100,6 +118,16 @@ export function CreateTaskDialog({
   useEffect(() => {
     sessionStorage.setItem(WORKTREE_STORAGE_KEY, String(useWorktree))
   }, [useWorktree])
+
+  // Persist ralph enabled setting to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(RALPH_ENABLED_STORAGE_KEY, String(ralphEnabled))
+  }, [ralphEnabled])
+
+  // Persist ralph max loops setting to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(RALPH_MAX_LOOPS_STORAGE_KEY, String(maxLoops))
+  }, [maxLoops])
 
   // Image handling functions
   const handleFileSelect = useCallback((files: FileList | null) => {
@@ -198,11 +226,15 @@ export function CreateTaskDialog({
 
     try {
       // Create the run first
+      const costValue = maxCostUsd ? parseFloat(maxCostUsd) : undefined
       const run = await createRun({
         project_name: selectedProject,
         prompt: prompt.trim(),
         model,
         use_worktree: useWorktree,
+        ralph_enabled: ralphEnabled,
+        max_loops: ralphEnabled ? maxLoops : undefined,
+        max_cost_usd: ralphEnabled && costValue && costValue > 0 ? costValue : undefined,
       })
 
       // Upload and attach images
@@ -481,6 +513,79 @@ export function CreateTaskDialog({
                 style={{ left: useWorktree ? '22px' : '2px' }}
               />
             </button>
+          </div>
+
+          {/* Ralph Loop Toggle */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between py-2">
+              <div className="flex items-center gap-2">
+                <RefreshCw className={cn(
+                  'w-4 h-4 transition-colors',
+                  ralphEnabled ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
+                )} />
+                <div>
+                  <span className="text-title text-[var(--color-paper)]">Enable Ralph Loop</span>
+                  <p className="text-caption text-[var(--color-stone)]/60">Autonomous execution until complete</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  'relative w-10 h-5 rounded-full transition-colors',
+                  ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                )}
+                onClick={() => setRalphEnabled(!ralphEnabled)}
+              >
+                <span
+                  className={cn(
+                    'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                    ralphEnabled
+                      ? 'bg-[var(--color-void)]'
+                      : 'bg-[var(--color-stone)]'
+                  )}
+                  style={{ left: ralphEnabled ? '22px' : '2px' }}
+                />
+              </button>
+            </div>
+
+            {/* Ralph Options (shown when enabled) */}
+            {ralphEnabled && (
+              <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
+                {/* Max Loops */}
+                <div className="flex items-center justify-between">
+                  <label className="text-body text-[var(--color-stone)]">Max Iterations</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={maxLoops}
+                    onChange={(e) => setMaxLoops(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 1)))}
+                    className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
+                  />
+                </div>
+
+                {/* Max Cost */}
+                <div className="flex items-center justify-between">
+                  <label className="text-body text-[var(--color-stone)]">Cost Limit (USD)</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-body text-[var(--color-stone)]/60">$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="optional"
+                      value={maxCostUsd}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setMaxCostUsd(value)
+                        }
+                      }}
+                      className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Error */}

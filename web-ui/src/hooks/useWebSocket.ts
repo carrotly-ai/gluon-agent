@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Run, WSMessage } from '@/lib/types'
+import type { CircuitState, Run, WSMessage } from '@/lib/types'
 
 interface WebSocketState {
   connected: boolean
@@ -119,6 +119,31 @@ export function useRunsWithWebSocket() {
       } else {
         setRuns((prev) => prev.map((r) => (r.id === runMessage.run.id ? runMessage.run : r)))
       }
+    } else if (message.type === 'loop_progress') {
+      // Handle ralph loop progress updates - update the run's loop-related fields
+      const loopMessage = message as {
+        type: 'loop_progress'
+        run_id: string
+        loop_count: number
+        max_loops: number
+        circuit_state: CircuitState
+        completion_confidence: number
+        cost_usd: number
+      }
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.id === loopMessage.run_id
+            ? {
+                ...r,
+                loop_count: loopMessage.loop_count,
+                max_loops: loopMessage.max_loops,
+                circuit_state: loopMessage.circuit_state,
+                completion_confidence: loopMessage.completion_confidence,
+                cost_usd: loopMessage.cost_usd,
+              }
+            : r
+        )
+      )
     }
   }, [])
 

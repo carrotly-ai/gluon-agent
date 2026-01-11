@@ -19,6 +19,8 @@ import type {
   Project,
   ProjectDetail,
   ProjectUsage,
+  // Ralph Loop types
+  RalphIterationsResponse,
   RebaseResponse,
   RecoverRunResponse,
   ResolveConflictResponse,
@@ -32,6 +34,7 @@ import type {
   RunUsageItem,
   ScanResultResponse,
   SessionHistoryResponse,
+  StopLoopResponse,
   SystemStatus,
   UpdateStatusResponse,
   UsageSummary,
@@ -145,6 +148,24 @@ export async function fetchLogs(
 /** Fetch session history (all runs in the same session) */
 export async function fetchSessionHistory(runId: string): Promise<SessionHistoryResponse> {
   return fetchJson<SessionHistoryResponse>(`/runs/${runId}/session-history`)
+}
+
+// ========== Ralph Loop API ==========
+
+/** Fetch iteration history for a ralph-enabled run */
+export async function fetchRalphIterations(
+  runId: string,
+  limit?: number
+): Promise<RalphIterationsResponse> {
+  const params = limit ? `?limit=${limit}` : ''
+  return fetchJson<RalphIterationsResponse>(`/runs/${runId}/iterations${params}`)
+}
+
+/** Stop a ralph loop early (graceful termination) */
+export async function stopLoop(runId: string): Promise<StopLoopResponse> {
+  return fetchJson<StopLoopResponse>(`/runs/${runId}/stop-loop`, {
+    method: 'POST',
+  })
 }
 
 /** Fetch all projects */

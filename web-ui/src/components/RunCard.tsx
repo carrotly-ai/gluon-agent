@@ -1,7 +1,34 @@
-import { Archive, ExternalLink, GitBranch, RefreshCw, X } from 'lucide-react'
+import { Archive, ExternalLink, GitBranch, RefreshCw, X, Zap } from 'lucide-react'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
-import type { Run } from '@/lib/types'
+import type { CircuitState, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+// Circuit state color mapping
+function getCircuitStateColor(state: CircuitState): string {
+  switch (state) {
+    case 'CLOSED':
+      return 'text-green-400'
+    case 'HALF_OPEN':
+      return 'text-yellow-400'
+    case 'OPEN':
+      return 'text-red-400'
+    default:
+      return 'text-[var(--color-stone)]/60'
+  }
+}
+
+function getCircuitStateBg(state: CircuitState): string {
+  switch (state) {
+    case 'CLOSED':
+      return 'bg-green-400/15'
+    case 'HALF_OPEN':
+      return 'bg-yellow-400/15'
+    case 'OPEN':
+      return 'bg-red-400/15'
+    default:
+      return 'bg-[var(--color-stone)]/15'
+  }
+}
 
 interface RunCardProps {
   run: Run
@@ -187,6 +214,69 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
           </button>
         )}
       </div>
+
+      {/* Ralph Loop Progress */}
+      {run.ralph_enabled && (
+        <div className="mt-2 sm:mt-3 space-y-1.5">
+          {/* Progress bar */}
+          <div className="flex items-center gap-2">
+            <RefreshCw
+              className={cn(
+                'w-3 h-3 text-[var(--color-sky)]',
+                run.status === 'running' && 'animate-spin'
+              )}
+            />
+            <div className="flex-1 h-1.5 bg-[rgba(163,163,163,0.15)] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[var(--color-sky)] rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, ((run.loop_count || 0) / (run.max_loops || 50)) * 100)}%`,
+                }}
+              />
+            </div>
+            <span className="text-caption text-[var(--color-stone)]/60 min-w-[50px] text-right">
+              {run.loop_count || 0}/{run.max_loops || 50}
+            </span>
+          </div>
+
+          {/* Status row: Circuit state + cost */}
+          <div className="flex items-center gap-2 text-caption">
+            {/* Circuit state badge */}
+            <span
+              className={cn(
+                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase',
+                getCircuitStateBg(run.circuit_state || 'CLOSED'),
+                getCircuitStateColor(run.circuit_state || 'CLOSED')
+              )}
+              title={`Circuit: ${run.circuit_state || 'CLOSED'}`}
+            >
+              <Zap className="w-2.5 h-2.5" />
+              {run.circuit_state || 'CLOSED'}
+            </span>
+
+            {/* Completion confidence (shown if > 0) */}
+            {(run.completion_confidence || 0) > 0 && (
+              <span className="text-[var(--color-stone)]/50">
+                {Math.round(run.completion_confidence || 0)}% confident
+              </span>
+            )}
+
+            {/* Cost display */}
+            {run.cost_usd != null && run.cost_usd > 0 && (
+              <span className="text-[var(--color-stone)]/50 ml-auto">
+                ${run.cost_usd.toFixed(2)}
+              </span>
+            )}
+          </div>
+
+          {/* Completion reason (if completed) */}
+          {run.completion_reason && (
+            <p className="text-caption text-[var(--color-jade)] truncate">
+              {run.completion_reason}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Recovery progress OR Error message */}
       {isRecovering ? (

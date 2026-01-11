@@ -315,6 +315,7 @@ class ExecutionRun(BaseModel):
     consecutive_same_error: int = 0  # Loops with same error
     last_progress_loop: int = 0  # Last loop with progress
     last_error_hash: str | None = None  # Hash of last error for repetition detection
+    half_open_iterations: int = 0  # Iterations spent in HALF_OPEN state
 
     # Completion detection
     completion_signals: int = 0  # Consecutive completion signals

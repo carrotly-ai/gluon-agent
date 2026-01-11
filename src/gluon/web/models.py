@@ -34,6 +34,15 @@ class RunResponse(BaseModel):
     # Recovery progress UI
     is_recovering: bool = Field(default=False, description="Whether recovery is in progress")
     recovery_item_count: int = Field(default=0, description="Number of items processed during recovery")
+    # Ralph Loop fields (autonomous execution mode)
+    ralph_enabled: bool = Field(default=False, description="Whether ralph loop is enabled")
+    loop_count: int = Field(default=0, description="Current loop iteration")
+    max_loops: int = Field(default=50, description="Maximum loop iterations")
+    circuit_state: str = Field(default="CLOSED", description="Circuit breaker state: CLOSED, HALF_OPEN, OPEN")
+    completion_confidence: float = Field(default=0.0, description="Task completion confidence (0-100)")
+    completion_reason: str | None = Field(default=None, description="Reason for loop completion/exit")
+    calls_this_hour: int = Field(default=0, description="API calls made in current hour window")
+    max_calls_per_hour: int = Field(default=100, description="Maximum API calls per hour")
 
     class Config:
         from_attributes = True
@@ -66,6 +75,11 @@ class RunDetailResponse(RunResponse):
     # Precomputed counts for tab badges (avoids lazy loading)
     commit_count: int | None = Field(default=None, description="Number of commits on branch")
     file_count: int | None = Field(default=None, description="Number of files changed on branch")
+    # Ralph Loop detail fields (additional to RunResponse fields)
+    consecutive_no_progress: int = Field(default=0, description="Consecutive loops without progress")
+    consecutive_same_error: int = Field(default=0, description="Consecutive loops with same error")
+    test_only_loops: int = Field(default=0, description="Number of test-only loop iterations")
+    max_cost_usd: float | None = Field(default=None, description="Maximum cost limit for ralph loop")
 
 
 class CreateRunRequest(BaseModel):
@@ -75,6 +89,10 @@ class CreateRunRequest(BaseModel):
     prompt: str = Field(description="Task prompt for Claude")
     model: str = Field(default="sonnet", description="Model tier: opus/sonnet/haiku")
     use_worktree: bool = Field(default=False, description="Execute in isolated Git worktree")
+    # Ralph Loop options (autonomous execution mode)
+    ralph_enabled: bool = Field(default=False, description="Enable ralph loop for autonomous execution")
+    max_loops: int = Field(default=50, description="Maximum loop iterations (1-100)")
+    max_cost_usd: float | None = Field(default=None, description="Optional cost limit in USD")
 
 
 class LogResponse(BaseModel):
@@ -660,3 +678,44 @@ class SupervisionDisableRequest(BaseModel):
     """Request model for disabling supervision."""
 
     reason: str = Field(default="Manual disable", description="Reason for disabling")
+
+
+# ========== Ralph Loop Models ==========
+
+
+class RalphIterationResponse(BaseModel):
+    """Response model for a single ralph loop iteration."""
+
+    id: str
+    run_id: str
+    loop_number: int = Field(description="1-indexed loop number")
+    started_at: str = Field(description="ISO timestamp when iteration started")
+    ended_at: str | None = Field(default=None, description="ISO timestamp when iteration ended")
+    duration_seconds: float | None = Field(default=None, description="Iteration duration in seconds")
+    files_changed: int = Field(default=0, description="Number of files modified")
+    progress_detected: bool = Field(default=False, description="Whether progress was detected")
+    has_errors: bool = Field(default=False, description="Whether errors occurred")
+    error_message: str | None = Field(default=None, description="Error message if has_errors is true")
+    has_completion_signal: bool = Field(default=False, description="Whether completion signal was detected")
+    is_test_only: bool = Field(default=False, description="Whether iteration only ran tests")
+    confidence_score: float = Field(default=0.0, description="Task completion confidence (0-100)")
+    cost_usd: float = Field(default=0.0, description="Cost for this iteration in USD")
+    input_tokens: int = Field(default=0, description="Input tokens used")
+    output_tokens: int = Field(default=0, description="Output tokens generated")
+
+
+class RalphIterationsResponse(BaseModel):
+    """Response model for iteration history."""
+
+    run_id: str
+    iteration_count: int = Field(description="Total number of iterations")
+    iterations: list[RalphIterationResponse] = Field(description="List of iterations, most recent first")
+
+
+class StopLoopResponse(BaseModel):
+    """Response model for stopping a ralph loop early."""
+
+    success: bool
+    run_id: str
+    message: str = Field(description="Result message")
+    final_loop_count: int = Field(description="Final loop count when stopped")
