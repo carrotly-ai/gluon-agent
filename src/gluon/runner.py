@@ -6,6 +6,7 @@ long-running Claude Code tasks.
 
 import asyncio
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -15,6 +16,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
