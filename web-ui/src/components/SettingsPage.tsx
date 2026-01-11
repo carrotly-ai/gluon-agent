@@ -9,7 +9,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { GitSyncButton } from './GitSyncButton'
 import { useCallback, useEffect, useState } from 'react'
 import {
   createWorkspace,
@@ -18,11 +17,13 @@ import {
   fetchProjects,
   fetchSettings,
   fetchWorkspaces,
+  refreshAllGitStatuses,
   scanWorkspace,
   updateSetting,
 } from '@/lib/api'
 import type { Project, ScanResultResponse, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { GitSyncButton } from './GitSyncButton'
 
 type Tab = 'workspaces' | 'projects' | 'preferences'
 
@@ -61,6 +62,8 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   // Settings state
   const [autoCreatePr, setAutoCreatePr] = useState(true)
   const [settingsLoading, setSettingsLoading] = useState(false)
+  const [gitUserName, setGitUserName] = useState('')
+  const [gitUserEmail, setGitUserEmail] = useState('')
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -74,6 +77,8 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setWorkspaces(ws)
       setProjects(prj)
       setAutoCreatePr(settings.auto_create_pr !== 'false')
+      setGitUserName(settings.git_user_name || '')
+      setGitUserEmail(settings.git_user_email || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -117,6 +122,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setScanResult(result)
       // Refresh data to show new projects
       loadData()
+      // Also refresh git status for all projects (useful after manual git operations)
+      refreshAllGitStatuses().catch((err) => {
+        console.warn('Failed to refresh git statuses:', err)
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to scan workspace')
     } finally {
@@ -152,6 +161,20 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setAutoCreatePr(newValue)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
+  const handleSaveGitIdentity = async () => {
+    setSettingsLoading(true)
+    try {
+      await Promise.all([
+        updateSetting('git_user_name', gitUserName),
+        updateSetting('git_user_email', gitUserEmail),
+      ])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save git identity')
     } finally {
       setSettingsLoading(false)
     }
@@ -351,10 +374,14 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                               <GitSyncButton
                                 project={project}
                                 compact
-                                onSyncComplete={(success) => {
-                                  if (success) {
-                                    // Refresh data to show updated status
-                                    loadData()
+                                onSyncComplete={(success, _message, updatedProject) => {
+                                  if (success && updatedProject) {
+                                    // Incrementally update just this project's state
+                                    setProjects((prev) =>
+                                      prev.map((p) =>
+                                        p.id === updatedProject.id ? updatedProject : p
+                                      )
+                                    )
                                   }
                                 }}
                               />
@@ -494,9 +521,12 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           <GitSyncButton
                             project={project}
                             compact
-                            onSyncComplete={(success) => {
-                              if (success) {
-                                loadData()
+                            onSyncComplete={(success, _message, updatedProject) => {
+                              if (success && updatedProject) {
+                                // Incrementally update just this project's state
+                                setProjects((prev) =>
+                                  prev.map((p) => (p.id === updatedProject.id ? updatedProject : p))
+                                )
                               }
                             }}
                           />
@@ -556,6 +586,51 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   />
                 </button>
               </div>
+            </div>
+
+            {/* Git Author Identity */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Git Author Identity
+              </h3>
+              <p className="text-caption text-[var(--color-stone)]/70">
+                Configure the author name and email used for commits made by Gluon. This is required
+                for services like Vercel that verify commit authors.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={gitUserName}
+                    onChange={(e) => setGitUserName(e.target.value)}
+                    placeholder="Your Name"
+                    className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={gitUserEmail}
+                    onChange={(e) => setGitUserEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveGitIdentity}
+                disabled={settingsLoading}
+                className="px-3 py-1.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-colors"
+              >
+                {settingsLoading ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
         )}

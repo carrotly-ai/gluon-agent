@@ -19,7 +19,9 @@ from pathlib import Path
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
-from gluon.models import ExecutionRun, RunStatus
+from gluon.models import ExecutionRun, RunStatus, SupervisionConfig
+from gluon.ralph_manager import RalphManager
+from gluon.resume_coordinator import ResumeCoordinator
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
 from gluon.worktree import (
     WorktreeConfig,
@@ -61,6 +63,9 @@ class TaskRunner:
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
         self._active_tasks: dict[str, asyncio.Task] = {}
 
+        # Supervision coordinator (lazy initialized)
+        self._supervisor: "ResumeCoordinator | None" = None
+
         # Ensure log directory exists
         self.config.log_path.mkdir(parents=True, exist_ok=True)
 
@@ -88,6 +93,10 @@ class TaskRunner:
         claude_session_id: str | None = None,
         use_worktree: bool = False,
         model: str | None = None,
+        ralph_enabled: bool = False,
+        max_loops: int = 50,
+        max_calls_per_hour: int = 100,
+        max_cost_usd: float | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -100,12 +109,26 @@ class TaskRunner:
             claude_session_id: Optional Claude SDK session ID to resume from
             use_worktree: Execute in isolated Git worktree (default: False)
             model: Model to use (e.g., "haiku", "claude-haiku-4.5", or full Bedrock ID)
+            ralph_enabled: Enable ralph loop mode for autonomous execution
+            max_loops: Maximum loop iterations (ralph mode only)
+            max_calls_per_hour: Maximum API calls per hour (ralph mode only)
+            max_cost_usd: Optional cost cap in USD (ralph mode only)
 
         Returns:
             ExecutionRun with current status
         """
         # Create run record
-        run = self.store.create_run(project_id, prompt, initiator=initiator, use_worktree=use_worktree, model=model)
+        run = self.store.create_run(
+            project_id,
+            prompt,
+            initiator=initiator,
+            use_worktree=use_worktree,
+            model=model,
+            ralph_enabled=ralph_enabled,
+            max_loops=max_loops,
+            max_calls_per_hour=max_calls_per_hour,
+            max_cost_usd=max_cost_usd,
+        )
         run.claude_session_id = claude_session_id  # Set for resume
 
         if wait:
@@ -177,9 +200,7 @@ class TaskRunner:
                                 )
                                 # Worktree successfully recreated, continue with resume
                             except WorktreeError as e:
-                                raise ValueError(
-                                    f"Failed to recreate worktree for run {run_id[:8]}: {e}"
-                                ) from e
+                                raise ValueError(f"Failed to recreate worktree for run {run_id[:8]}: {e}") from e
                         else:
                             raise ValueError(
                                 f"Worktree for run {run_id[:8]} no longer exists at {wt_path}. "
@@ -340,6 +361,11 @@ class TaskRunner:
         # Update run status
         run.mark_running(pid=os.getpid(), log_path=log_dir)
         self.store.update_run(run)
+
+        # Ralph mode: use RalphManager for autonomous loop execution
+        if run.ralph_enabled:
+            await self._run_ralph_loop(run, working_dir, worktree_manager)
+            return
 
         # Get image paths for multimodal prompt (base64 encoded, not file copies)
         image_paths: list[Path] = []
@@ -715,6 +741,75 @@ but explicit commits with good messages are preferred.
             self.refresh_run_status(run)
         return self.store.list_active_runs()
 
+    # ========== Supervision Control ==========
+
+    async def start_supervisor(self, poll_interval: int = 30) -> None:
+        """Start the background supervision coordinator.
+
+        Args:
+            poll_interval: Seconds between polling cycles
+        """
+        if self._supervisor and self._supervisor.is_running:
+            logger.warning("Supervisor already running")
+            return
+
+        self._supervisor = ResumeCoordinator(
+            store=self.store,
+            runner=self,
+            poll_interval=poll_interval,
+        )
+        await self._supervisor.start()
+        logger.info(f"Started supervision with {poll_interval}s poll interval")
+
+    async def stop_supervisor(self) -> None:
+        """Stop the background supervision coordinator."""
+        if self._supervisor:
+            await self._supervisor.stop()
+            self._supervisor = None
+            logger.info("Stopped supervision")
+
+    @property
+    def supervisor(self) -> ResumeCoordinator | None:
+        """Get the supervision coordinator instance."""
+        return self._supervisor
+
+    @property
+    def supervisor_running(self) -> bool:
+        """Check if supervisor is running."""
+        return self._supervisor is not None and self._supervisor.is_running
+
+    async def evaluate_supervision(self, run_id: str) -> dict | None:
+        """Manually trigger supervision evaluation for a run.
+
+        Args:
+            run_id: ID of run to evaluate
+
+        Returns:
+            Supervision status dict, or None if run not found
+        """
+        run = self.store.get_run(run_id)
+        if not run:
+            return None
+
+        if not self._supervisor:
+            # Create temporary coordinator for one-off evaluation
+            coordinator = ResumeCoordinator(store=self.store, runner=self)
+            decision = await coordinator.evaluate_run(run, trigger="manual")
+            return {
+                "run_id": run_id,
+                "decision": "resume" if decision.should_resume else "skip",
+                "reason": decision.reason,
+                "wait_seconds": decision.wait_seconds,
+            }
+        else:
+            decision = await self._supervisor.evaluate_run(run, trigger="manual")
+            return {
+                "run_id": run_id,
+                "decision": "resume" if decision.should_resume else "skip",
+                "reason": decision.reason,
+                "wait_seconds": decision.wait_seconds,
+            }
+
     def _extract_recovery_state(self, run: ExecutionRun) -> dict:
         """
         Extract recoverable state from a failed run.
@@ -820,6 +915,72 @@ but explicit commits with good messages are preferred.
             pass
 
         return last_tool
+
+    async def _run_ralph_loop(
+        self,
+        run: ExecutionRun,
+        working_dir: Path,
+        worktree_manager: WorktreeManager | None,
+    ) -> None:
+        """Execute a run in ralph loop mode.
+
+        Uses RalphManager to orchestrate autonomous loop execution
+        with circuit breaker, completion detection, and rate limiting.
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Starting ralph loop for run {run.id[:8]}")
+
+        # Setup logging
+        log_dir = self._get_log_dir(run.id)
+        stdout_path = log_dir / "stdout.log"
+
+        try:
+            # Write ralph mode header to log
+            with open(stdout_path, "a") as f:
+                f.write(f"\n{'=' * 60}\n")
+                f.write("RALPH MODE ENABLED - Autonomous Loop Execution\n")
+                f.write(f"Max iterations: {run.max_loops}\n")
+                f.write(f"Max calls/hour: {run.max_calls_per_hour}\n")
+                if run.max_cost_usd:
+                    f.write(f"Cost cap: ${run.max_cost_usd:.2f}\n")
+                f.write(f"{'=' * 60}\n\n")
+
+            # Create agent with model
+            agent = GluonAgent(model=run.model) if run.model else self.agent
+
+            # Create and execute ralph manager
+            manager = RalphManager(
+                run=run,
+                agent=agent,
+                store=self.store,
+                working_dir=working_dir,
+            )
+
+            updated_run = await manager.execute_loop()
+
+            # Log completion
+            with open(stdout_path, "a") as f:
+                f.write(f"\n{'=' * 60}\n")
+                f.write("RALPH LOOP COMPLETED\n")
+                f.write(f"Status: {updated_run.status.value}\n")
+                f.write(f"Iterations: {updated_run.loop_count}/{updated_run.max_loops}\n")
+                if updated_run.completion_reason:
+                    f.write(f"Reason: {updated_run.completion_reason}\n")
+                if updated_run.cost_usd:
+                    f.write(f"Total cost: ${updated_run.cost_usd:.4f}\n")
+                f.write(f"{'=' * 60}\n")
+
+            # Auto-commit and PR creation handled in RalphManager
+
+        except Exception as e:
+            logger.error(f"Ralph loop failed: {e}")
+            run.mark_failed(str(e))
+            self.store.update_run(run)
+
+            with open(stdout_path, "a") as f:
+                f.write(f"\n\nRALPH LOOP ERROR: {e}\n")
 
     async def _handle_context_overflow_recovery(
         self,

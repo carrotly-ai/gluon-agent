@@ -54,6 +54,44 @@ class GitManager:
         except Exception as e:
             return 1, "", str(e)
 
+    def _get_git_author_config(self) -> list[str]:
+        """
+        Get git author config flags for commit commands.
+
+        Resolution order:
+        1. Settings DB (git_user_name, git_user_email)
+        2. Environment variables (GIT_USER_NAME, GIT_USER_EMAIL)
+        3. Empty list (use system git config)
+        """
+        config_args: list[str] = []
+
+        # Try settings DB first
+        name = self.store.get_setting("git_user_name", "")
+        email = self.store.get_setting("git_user_email", "")
+
+        # Fall back to environment variables
+        if not name:
+            name = os.getenv("GIT_USER_NAME", "")
+        if not email:
+            email = os.getenv("GIT_USER_EMAIL", "")
+
+        # Build config args if we have values
+        if name:
+            config_args.extend(["-c", f"user.name={name}"])
+        if email:
+            config_args.extend(["-c", f"user.email={email}"])
+
+        return config_args
+
+    async def _run_git_with_author(
+        self, cwd: Path, *args: str, check: bool = False
+    ) -> tuple[int, str, str]:
+        """Run a git command with author config injected (for commits)."""
+        author_config = self._get_git_author_config()
+        # Insert author config after 'git' command
+        full_args = author_config + list(args)
+        return await self._run_git(cwd, *full_args, check=check)
+
     async def _is_git_repo(self, path: Path) -> bool:
         """Check if path is inside a git repository."""
         rc, _, _ = await self._run_git(path, "rev-parse", "--git-dir")
@@ -272,9 +310,9 @@ class GitManager:
                 if rc != 0:
                     return GitSyncResult.fail(f"Failed to stage changes: {stderr}")
 
-                # Commit
+                # Commit (with author config)
                 commit_msg = f"{GIT_COMMIT_PREFIX} auto-commit before task"
-                rc, _, stderr = await self._run_git(path, "commit", "-m", commit_msg)
+                rc, _, stderr = await self._run_git_with_author(path, "commit", "-m", commit_msg)
                 if rc != 0 and "nothing to commit" not in stderr:
                     return GitSyncResult.fail(f"Failed to commit: {stderr}")
 
@@ -373,10 +411,17 @@ class GitManager:
         if run_id:
             full_message += f"Run: {run_id}\n"
 
-        rc, _, stderr = await self._run_git(path, "commit", "-m", full_message)
+        rc, _, stderr = await self._run_git_with_author(path, "commit", "-m", full_message)
         if rc != 0:
             if "nothing to commit" in stderr:
                 return GitSyncResult.ok("none", "No changes to commit")
+            # Provide actionable error for author identity issues
+            if "Author identity unknown" in stderr:
+                return GitSyncResult.fail(
+                    "Git author not configured. Set git_user_name and git_user_email "
+                    "in Settings > Preferences, or set GIT_USER_NAME and GIT_USER_EMAIL "
+                    "environment variables."
+                )
             return GitSyncResult.fail(f"Failed to commit: {stderr}")
 
         files_committed = uncommitted
@@ -475,11 +520,19 @@ class GitManager:
             if run_id:
                 message += f"\n\nRun ID: {run_id}"
 
-        # Commit
-        rc, _, stderr = await self._run_git(path, "commit", "-m", message)
+        # Commit (with author config)
+        rc, _, stderr = await self._run_git_with_author(path, "commit", "-m", message)
         if rc != 0:
             if "nothing to commit" in stderr:
                 result["message"] = "No changes to commit after staging"
+                return result
+            # Provide actionable error for author identity issues
+            if "Author identity unknown" in stderr:
+                result["message"] = (
+                    "Git author not configured. Set git_user_name and git_user_email "
+                    "in Settings > Preferences, or set GIT_USER_NAME and GIT_USER_EMAIL "
+                    "environment variables."
+                )
                 return result
             result["message"] = f"Failed to commit: {stderr}"
             return result

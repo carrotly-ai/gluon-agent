@@ -40,6 +40,7 @@ from gluon.web.models import (
     ForcePushCheckResponse,
     ForcePushRequest,
     ForcePushResponse,
+    GitRefreshAllResponse,
     GitStatusResponse,
     GitSyncRequest,
     GitSyncResponse,
@@ -66,6 +67,10 @@ from gluon.web.models import (
     ScanResultResponse,
     SessionHistoryResponse,
     StatusResponse,
+    SupervisionDecisionResponse,
+    SupervisionDisableRequest,
+    SupervisionEvaluateResponse,
+    SupervisionStatusResponse,
     UpdateStatusRequest,
     UpdateStatusResponse,
     UsageSummaryResponse,
@@ -608,6 +613,107 @@ def create_app() -> FastAPI:
         return SessionHistoryResponse(
             session_id=run.claude_session_id,
             runs=[run_to_response(r, project_lookup) for r in session_runs],
+        )
+
+    # ========== Supervision Endpoints ==========
+
+    @app.get("/api/runs/{run_id}/supervision", response_model=SupervisionStatusResponse)
+    async def get_supervision_status(run_id: str) -> SupervisionStatusResponse:
+        """Get supervision status for a run."""
+        from gluon.policies import get_supervision_config
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        config = get_supervision_config(run)
+        decisions = store.list_supervision_decisions(run.id, limit=10)
+
+        return SupervisionStatusResponse(
+            run_id=run.id,
+            enabled=config.enabled,
+            policy=config.policy.value,
+            max_auto_resumes=config.max_auto_resumes,
+            auto_resume_count=run.supervision_auto_resume_count,
+            min_time_between_resumes=config.min_time_between_resumes,
+            last_check_at=run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,
+            last_resume_at=run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
+            disabled_reason=run.supervision_disabled_reason,
+            recent_decisions=[
+                SupervisionDecisionResponse(
+                    timestamp=d.timestamp.isoformat(),
+                    decision=d.decision,
+                    reason=d.reason,
+                    trigger=d.trigger,
+                    circuit_state=d.circuit_state.value if d.circuit_state else None,
+                    completion_confidence=d.completion_confidence,
+                    auto_resume_count=d.auto_resume_count,
+                )
+                for d in decisions
+            ],
+        )
+
+    @app.post("/api/runs/{run_id}/supervision/evaluate", response_model=SupervisionEvaluateResponse)
+    async def evaluate_supervision(run_id: str) -> SupervisionEvaluateResponse:
+        """Manually trigger supervision evaluation for a run."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        result = await runner.evaluate_supervision(run.id)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to evaluate supervision")
+
+        return SupervisionEvaluateResponse(
+            run_id=run.id,
+            decision=result["decision"],
+            reason=result["reason"],
+            wait_seconds=result.get("wait_seconds", 0),
+        )
+
+    @app.post("/api/runs/{run_id}/supervision/disable", response_model=SupervisionStatusResponse)
+    async def disable_supervision(run_id: str, request: SupervisionDisableRequest) -> SupervisionStatusResponse:
+        """Disable supervision for a run."""
+        from gluon.policies import get_supervision_config
+        from gluon.resume_coordinator import ResumeCoordinator
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        coordinator = ResumeCoordinator(store=store, runner=runner)
+        success = await coordinator.disable_supervision(run.id, request.reason)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to disable supervision")
+
+        # Refresh run and config
+        run = store.get_run(run.id)
+        config = get_supervision_config(run)  # type: ignore[arg-type]
+        decisions = store.list_supervision_decisions(run.id, limit=10)  # type: ignore[union-attr]
+
+        return SupervisionStatusResponse(
+            run_id=run.id,  # type: ignore[union-attr]
+            enabled=config.enabled,
+            policy=config.policy.value,
+            max_auto_resumes=config.max_auto_resumes,
+            auto_resume_count=run.supervision_auto_resume_count,  # type: ignore[union-attr]
+            min_time_between_resumes=config.min_time_between_resumes,
+            last_check_at=run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,  # type: ignore[union-attr]
+            last_resume_at=run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,  # type: ignore[union-attr]
+            disabled_reason=run.supervision_disabled_reason,  # type: ignore[union-attr]
+            recent_decisions=[
+                SupervisionDecisionResponse(
+                    timestamp=d.timestamp.isoformat(),
+                    decision=d.decision,
+                    reason=d.reason,
+                    trigger=d.trigger,
+                    circuit_state=d.circuit_state.value if d.circuit_state else None,
+                    completion_confidence=d.completion_confidence,
+                    auto_resume_count=d.auto_resume_count,
+                )
+                for d in decisions
+            ],
         )
 
     # ========== Git Commits and Files ==========
@@ -2432,6 +2538,29 @@ def create_app() -> FastAPI:
             last_fetch_at=status.last_fetch_at,
         )
 
+    @app.post("/api/git/refresh-all", response_model=GitRefreshAllResponse)
+    async def refresh_all_git_statuses() -> GitRefreshAllResponse:
+        """
+        Refresh git status for all projects.
+        Useful after manual git operations to update the UI state.
+        """
+        projects = store.list_projects()
+        refreshed = 0
+        errors: list[str] = []
+
+        for project in projects:
+            try:
+                await git_manager.refresh_status(project)
+                refreshed += 1
+            except Exception as e:
+                logger.error(f"Failed to refresh git status for {project.name}: {e}")
+                errors.append(project.name)
+
+        return GitRefreshAllResponse(
+            projects_refreshed=refreshed,
+            errors=errors,
+        )
+
     # ========== WebSocket ==========
 
     @app.websocket("/api/ws")
@@ -2748,11 +2877,21 @@ def create_app() -> FastAPI:
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
         _log_polling_task = asyncio.create_task(_poll_log_updates())
         _pr_polling_task = asyncio.create_task(_poll_pr_status_changes())
-        logger.info("Started background tasks: run status polling, log streaming, log cleanup, PR status polling")
+
+        # Start supervisor for ralph mode auto-resume
+        await runner.start_supervisor(poll_interval=30)
+
+        logger.info(
+            "Started background tasks: run status polling, log streaming, log cleanup, "
+            "PR status polling, supervision coordinator"
+        )
 
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
         """Stop background tasks on app shutdown."""
+        # Stop supervisor first
+        await runner.stop_supervisor()
+
         tasks_to_cancel = []
         if _polling_task:
             tasks_to_cancel.append(("run status polling", _polling_task))

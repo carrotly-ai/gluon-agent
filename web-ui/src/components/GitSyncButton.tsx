@@ -9,13 +9,41 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { syncProjectGit } from '@/lib/api'
-import type { Project } from '@/lib/types'
+import type { GitStatusInfo, Project } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 interface GitSyncButtonProps {
   project: Project
-  onSyncComplete?: (success: boolean, message: string) => void
+  onSyncComplete?: (success: boolean, message: string, updatedProject?: Project) => void
   compact?: boolean
+}
+
+/** Map GitStatusInfo from API response back to Project git fields */
+function applyGitStatusToProject(project: Project, status: GitStatusInfo): Project {
+  // Compute sync_action from status
+  let sync_action: Project['sync_action'] = null
+  if (status.is_diverged) {
+    sync_action = 'diverged'
+  } else if (status.needs_pull) {
+    sync_action = 'pull'
+  } else if (status.needs_push) {
+    sync_action = 'push'
+  } else if (status.uncommitted_count > 0) {
+    sync_action = 'commit+push'
+  }
+
+  return {
+    ...project,
+    git_branch: status.branch,
+    git_ahead: status.commits_ahead,
+    git_behind: status.commits_behind,
+    git_uncommitted_count: status.uncommitted_count,
+    git_has_remote: status.remote !== null,
+    git_has_conflicts: status.has_conflicts,
+    git_has_operation_in_progress: status.has_operation_in_progress,
+    sync_action,
+    can_sync: !status.has_conflicts && !status.has_operation_in_progress,
+  }
 }
 
 type SyncState =
@@ -78,11 +106,7 @@ interface ButtonConfig {
   tooltip: string
 }
 
-function getButtonConfig(
-  state: SyncState,
-  project: Project,
-  compact: boolean
-): ButtonConfig {
+function getButtonConfig(state: SyncState, project: Project, compact: boolean): ButtonConfig {
   const ahead = project.git_ahead ?? 0
   const behind = project.git_behind ?? 0
   const uncommitted = project.git_uncommitted_count ?? 0
@@ -105,8 +129,8 @@ function getButtonConfig(
         icon: <ArrowDown className="w-3 h-3" />,
         bgClass: canPull
           ? 'bg-[var(--color-sky)]/10 hover:bg-[var(--color-sky)]/20'
-          : 'bg-amber-500/10',
-        textClass: canPull ? 'text-[var(--color-sky)]' : 'text-amber-400',
+          : 'bg-[var(--color-vermillion)]/10',
+        textClass: canPull ? 'text-[var(--color-sky)]' : 'text-[var(--color-vermillion)]',
         canSync: canPull,
         tooltip: canPull
           ? `${behind} commits behind. Click to pull.`
@@ -176,11 +200,7 @@ function getButtonConfig(
   }
 }
 
-export function GitSyncButton({
-  project,
-  onSyncComplete,
-  compact = false,
-}: GitSyncButtonProps) {
+export function GitSyncButton({ project, onSyncComplete, compact = false }: GitSyncButtonProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -202,7 +222,11 @@ export function GitSyncButton({
       const result = await syncProjectGit(project.id, 'auto')
 
       if (result.success) {
-        onSyncComplete?.(true, result.message)
+        // Apply updated git status to project if available
+        const updatedProject = result.updated_status
+          ? applyGitStatusToProject(project, result.updated_status)
+          : undefined
+        onSyncComplete?.(true, result.message, updatedProject)
       } else {
         setError(result.error || 'Sync failed')
         onSyncComplete?.(false, result.error || 'Sync failed')
@@ -237,11 +261,7 @@ export function GitSyncButton({
           loading && 'opacity-70'
         )}
       >
-        {loading ? (
-          <Loader2 className="w-3 h-3 animate-spin" />
-        ) : (
-          config.icon
-        )}
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : config.icon}
         {config.label && <span>{config.label}</span>}
       </button>
 

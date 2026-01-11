@@ -7,12 +7,14 @@ from pathlib import Path
 
 from gluon.models import (
     ChannelMapping,
+    CircuitState,
     ExecutionRun,
     GitStatus,
     ImageAttachment,
     Job,
     JobStatus,
     Project,
+    RalphLoopIteration,
     RunStatus,
     Session,
     SessionStatus,
@@ -232,6 +234,71 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN last_check_sha TEXT;",
     "ALTER TABLE execution_runs ADD COLUMN auto_resume_enabled INTEGER DEFAULT 1;",
     "ALTER TABLE execution_runs ADD COLUMN auto_resume_count INTEGER DEFAULT 0;",
+    # Ralph mode fields (autonomous loop execution)
+    "ALTER TABLE execution_runs ADD COLUMN ralph_enabled INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN loop_count INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN max_loops INTEGER DEFAULT 50;",
+    "ALTER TABLE execution_runs ADD COLUMN circuit_state TEXT DEFAULT 'CLOSED';",
+    "ALTER TABLE execution_runs ADD COLUMN consecutive_no_progress INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN consecutive_same_error INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN last_progress_loop INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN last_error_hash TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN completion_signals INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN test_only_loops INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN completion_confidence REAL DEFAULT 0.0;",
+    "ALTER TABLE execution_runs ADD COLUMN completion_reason TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN calls_this_hour INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN hour_start TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN max_calls_per_hour INTEGER DEFAULT 100;",
+    "ALTER TABLE execution_runs ADD COLUMN max_cost_usd REAL;",
+    # Ralph loop iterations table
+    """
+    CREATE TABLE IF NOT EXISTS ralph_loop_iterations (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        loop_number INTEGER NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        files_changed INTEGER DEFAULT 0,
+        has_errors INTEGER DEFAULT 0,
+        error_summary TEXT,
+        output_length INTEGER DEFAULT 0,
+        is_test_only INTEGER DEFAULT 0,
+        has_completion_signal INTEGER DEFAULT 0,
+        progress_detected INTEGER DEFAULT 0,
+        confidence_score REAL DEFAULT 0.0,
+        claude_session_id TEXT,
+        cost_usd REAL DEFAULT 0.0,
+        tokens_used INTEGER DEFAULT 0
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_ralph_iterations_run ON ralph_loop_iterations(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_ralph_iterations_loop ON ralph_loop_iterations(run_id, loop_number);",
+    # Supervision fields for ExecutionRun
+    "ALTER TABLE execution_runs ADD COLUMN supervision_config TEXT;",  # JSON blob
+    "ALTER TABLE execution_runs ADD COLUMN supervision_auto_resume_count INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN last_supervision_check_at TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN last_supervision_resume_at TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN supervision_disabled_reason TEXT;",
+    # Supervision decisions audit trail table
+    """
+    CREATE TABLE IF NOT EXISTS supervision_decisions (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        timestamp TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        trigger TEXT,
+        circuit_state TEXT,
+        completion_confidence REAL,
+        calls_this_hour INTEGER,
+        cost_usd REAL,
+        auto_resume_count INTEGER,
+        policy TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_supervision_decisions_run ON supervision_decisions(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_supervision_decisions_timestamp ON supervision_decisions(timestamp);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -361,6 +428,15 @@ class GluonStore:
                 conn.execute(
                     "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
                     ("auto_create_pr", "true", now),
+                )
+                # Git author identity settings
+                conn.execute(
+                    "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                    ("git_user_name", "", now),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                    ("git_user_email", "", now),
                 )
 
             # Run migrations for existing tables
@@ -798,6 +874,10 @@ class GluonStore:
         session_id: str | None = None,
         use_worktree: bool = False,
         model: str | None = None,
+        ralph_enabled: bool = False,
+        max_loops: int = 50,
+        max_calls_per_hour: int = 100,
+        max_cost_usd: float | None = None,
     ) -> ExecutionRun:
         """Create a new execution run."""
         run = ExecutionRun(
@@ -807,14 +887,19 @@ class GluonStore:
             session_id=session_id,
             use_worktree=use_worktree,
             model=model,
+            ralph_enabled=ralph_enabled,
+            max_loops=max_loops,
+            max_calls_per_hour=max_calls_per_hour,
+            max_cost_usd=max_cost_usd,
         )
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO execution_runs
                 (id, session_id, project_id, pid, status, prompt, initiator, created_at,
-                 started_at, completed_at, exit_code, log_path, error_message, model)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 started_at, completed_at, exit_code, log_path, error_message, model,
+                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -831,6 +916,10 @@ class GluonStore:
                     str(run.log_path) if run.log_path else None,
                     run.error_message,
                     run.model,
+                    1 if run.ralph_enabled else 0,
+                    run.max_loops,
+                    run.max_calls_per_hour,
+                    run.max_cost_usd,
                 ),
             )
         return run
@@ -1079,6 +1168,43 @@ class GluonStore:
             auto_resume_count=row["auto_resume_count"]
             if "auto_resume_count" in keys and row["auto_resume_count"] is not None
             else 0,
+            # Ralph mode fields
+            ralph_enabled=bool(row["ralph_enabled"])
+            if "ralph_enabled" in keys and row["ralph_enabled"] is not None
+            else False,
+            loop_count=row["loop_count"] if "loop_count" in keys and row["loop_count"] is not None else 0,
+            max_loops=row["max_loops"] if "max_loops" in keys and row["max_loops"] is not None else 50,
+            circuit_state=CircuitState(row["circuit_state"])
+            if "circuit_state" in keys and row["circuit_state"]
+            else CircuitState.CLOSED,
+            consecutive_no_progress=row["consecutive_no_progress"]
+            if "consecutive_no_progress" in keys and row["consecutive_no_progress"] is not None
+            else 0,
+            consecutive_same_error=row["consecutive_same_error"]
+            if "consecutive_same_error" in keys and row["consecutive_same_error"] is not None
+            else 0,
+            last_progress_loop=row["last_progress_loop"]
+            if "last_progress_loop" in keys and row["last_progress_loop"] is not None
+            else 0,
+            last_error_hash=row["last_error_hash"] if "last_error_hash" in keys else None,
+            completion_signals=row["completion_signals"]
+            if "completion_signals" in keys and row["completion_signals"] is not None
+            else 0,
+            test_only_loops=row["test_only_loops"]
+            if "test_only_loops" in keys and row["test_only_loops"] is not None
+            else 0,
+            completion_confidence=row["completion_confidence"]
+            if "completion_confidence" in keys and row["completion_confidence"] is not None
+            else 0.0,
+            completion_reason=row["completion_reason"] if "completion_reason" in keys else None,
+            calls_this_hour=row["calls_this_hour"]
+            if "calls_this_hour" in keys and row["calls_this_hour"] is not None
+            else 0,
+            hour_start=_parse_datetime(row["hour_start"]) if "hour_start" in keys else None,
+            max_calls_per_hour=row["max_calls_per_hour"]
+            if "max_calls_per_hour" in keys and row["max_calls_per_hour"] is not None
+            else 100,
+            max_cost_usd=row["max_cost_usd"] if "max_cost_usd" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
@@ -1100,6 +1226,211 @@ class GluonStore:
             if project:
                 return run, project
         return None
+
+    # ========== Ralph Loop Iteration CRUD ==========
+
+    def create_ralph_iteration(self, iteration: RalphLoopIteration) -> RalphLoopIteration:
+        """Create a new ralph loop iteration record."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO ralph_loop_iterations (
+                    id, run_id, loop_number, started_at, ended_at,
+                    files_changed, has_errors, error_summary, output_length,
+                    is_test_only, has_completion_signal, progress_detected,
+                    confidence_score, claude_session_id, cost_usd, tokens_used
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    iteration.id,
+                    iteration.run_id,
+                    iteration.loop_number,
+                    iteration.started_at.isoformat(),
+                    iteration.ended_at.isoformat() if iteration.ended_at else None,
+                    iteration.files_changed,
+                    1 if iteration.has_errors else 0,
+                    iteration.error_summary,
+                    iteration.output_length,
+                    1 if iteration.is_test_only else 0,
+                    1 if iteration.has_completion_signal else 0,
+                    1 if iteration.progress_detected else 0,
+                    iteration.confidence_score,
+                    iteration.claude_session_id,
+                    iteration.cost_usd,
+                    iteration.tokens_used,
+                ),
+            )
+        return iteration
+
+    def update_ralph_iteration(self, iteration: RalphLoopIteration) -> RalphLoopIteration:
+        """Update an existing ralph loop iteration."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE ralph_loop_iterations SET
+                    ended_at = ?,
+                    files_changed = ?,
+                    has_errors = ?,
+                    error_summary = ?,
+                    output_length = ?,
+                    is_test_only = ?,
+                    has_completion_signal = ?,
+                    progress_detected = ?,
+                    confidence_score = ?,
+                    claude_session_id = ?,
+                    cost_usd = ?,
+                    tokens_used = ?
+                WHERE id = ?
+                """,
+                (
+                    iteration.ended_at.isoformat() if iteration.ended_at else None,
+                    iteration.files_changed,
+                    1 if iteration.has_errors else 0,
+                    iteration.error_summary,
+                    iteration.output_length,
+                    1 if iteration.is_test_only else 0,
+                    1 if iteration.has_completion_signal else 0,
+                    1 if iteration.progress_detected else 0,
+                    iteration.confidence_score,
+                    iteration.claude_session_id,
+                    iteration.cost_usd,
+                    iteration.tokens_used,
+                    iteration.id,
+                ),
+            )
+        return iteration
+
+    def list_ralph_iterations(self, run_id: str, limit: int | None = None) -> list[RalphLoopIteration]:
+        """List iterations for a ralph-enabled run."""
+        with self._get_conn() as conn:
+            query = "SELECT * FROM ralph_loop_iterations WHERE run_id = ? ORDER BY loop_number"
+            if limit:
+                query += f" LIMIT {limit}"
+            rows = conn.execute(query, (run_id,)).fetchall()
+        return [self._row_to_ralph_iteration(row) for row in rows]
+
+    def get_ralph_iteration(self, iteration_id: str) -> RalphLoopIteration | None:
+        """Get a specific ralph iteration by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM ralph_loop_iterations WHERE id = ?",
+                (iteration_id,),
+            ).fetchone()
+        return self._row_to_ralph_iteration(row) if row else None
+
+    def get_latest_ralph_iteration(self, run_id: str) -> RalphLoopIteration | None:
+        """Get the most recent iteration for a run."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM ralph_loop_iterations WHERE run_id = ? ORDER BY loop_number DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return self._row_to_ralph_iteration(row) if row else None
+
+    def _row_to_ralph_iteration(self, row: sqlite3.Row) -> RalphLoopIteration:
+        """Convert database row to RalphLoopIteration model."""
+        return RalphLoopIteration(
+            id=row["id"],
+            run_id=row["run_id"],
+            loop_number=row["loop_number"],
+            started_at=_parse_datetime(row["started_at"]),  # type: ignore[arg-type]
+            ended_at=_parse_datetime(row["ended_at"]),
+            files_changed=row["files_changed"] or 0,
+            has_errors=bool(row["has_errors"]),
+            error_summary=row["error_summary"],
+            output_length=row["output_length"] or 0,
+            is_test_only=bool(row["is_test_only"]),
+            has_completion_signal=bool(row["has_completion_signal"]),
+            progress_detected=bool(row["progress_detected"]),
+            confidence_score=row["confidence_score"] or 0.0,
+            claude_session_id=row["claude_session_id"],
+            cost_usd=row["cost_usd"] or 0.0,
+            tokens_used=row["tokens_used"] or 0,
+        )
+
+    # ========== Supervision Decision CRUD ==========
+
+    def create_supervision_decision(self, decision: "SupervisionDecision") -> "SupervisionDecision":
+        """Create a new supervision decision record."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO supervision_decisions (
+                    id, run_id, timestamp, decision, reason, trigger,
+                    circuit_state, completion_confidence, calls_this_hour,
+                    cost_usd, auto_resume_count, policy
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    decision.id,
+                    decision.run_id,
+                    decision.timestamp.isoformat(),
+                    decision.decision,
+                    decision.reason,
+                    decision.trigger,
+                    decision.circuit_state.value if decision.circuit_state else None,
+                    decision.completion_confidence,
+                    decision.calls_this_hour,
+                    decision.cost_usd,
+                    decision.auto_resume_count,
+                    decision.policy.value if decision.policy else None,
+                ),
+            )
+        return decision
+
+    def list_supervision_decisions(
+        self, run_id: str, limit: int | None = None
+    ) -> list["SupervisionDecision"]:
+        """List supervision decisions for a run, most recent first."""
+        with self._get_conn() as conn:
+            query = "SELECT * FROM supervision_decisions WHERE run_id = ? ORDER BY timestamp DESC"
+            if limit:
+                query += f" LIMIT {limit}"
+            rows = conn.execute(query, (run_id,)).fetchall()
+        return [self._row_to_supervision_decision(row) for row in rows]
+
+    def get_latest_supervision_decision(self, run_id: str) -> "SupervisionDecision | None":
+        """Get the most recent supervision decision for a run."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM supervision_decisions WHERE run_id = ? ORDER BY timestamp DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return self._row_to_supervision_decision(row) if row else None
+
+    def count_supervision_decisions(self, run_id: str, decision_type: str | None = None) -> int:
+        """Count supervision decisions for a run, optionally filtered by type."""
+        with self._get_conn() as conn:
+            if decision_type:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM supervision_decisions WHERE run_id = ? AND decision = ?",
+                    (run_id, decision_type),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM supervision_decisions WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+        return row[0] if row else 0
+
+    def _row_to_supervision_decision(self, row: sqlite3.Row) -> "SupervisionDecision":
+        """Convert database row to SupervisionDecision model."""
+        from gluon.models import CircuitState, SupervisionDecision, SupervisionPolicy
+
+        return SupervisionDecision(
+            id=row["id"],
+            run_id=row["run_id"],
+            timestamp=_parse_datetime(row["timestamp"]),  # type: ignore[arg-type]
+            decision=row["decision"],
+            reason=row["reason"],
+            trigger=row["trigger"],
+            circuit_state=CircuitState(row["circuit_state"]) if row["circuit_state"] else None,
+            completion_confidence=row["completion_confidence"],
+            calls_this_hour=row["calls_this_hour"],
+            cost_usd=row["cost_usd"],
+            auto_resume_count=row["auto_resume_count"],
+            policy=SupervisionPolicy(row["policy"]) if row["policy"] else None,
+        )
 
     # ========== Channel Mapping CRUD ==========
 

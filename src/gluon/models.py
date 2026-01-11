@@ -66,6 +66,37 @@ class RunStatus(str, Enum):
     CANCELLED = "cancelled"  # Manually cancelled
 
 
+class CircuitState(str, Enum):
+    """Circuit breaker state for ralph loops."""
+
+    CLOSED = "CLOSED"  # Normal operation, execution allowed
+    HALF_OPEN = "HALF_OPEN"  # Monitoring mode, checking for recovery
+    OPEN = "OPEN"  # Execution halted, requires intervention
+
+
+class SupervisionPolicy(str, Enum):
+    """Supervision policy for auto-resume decisions."""
+
+    AGGRESSIVE = "aggressive"  # Resume if any chance of success
+    CONSERVATIVE = "conservative"  # Resume only with high confidence of progress
+    MANUAL = "manual"  # Never auto-resume (current behavior)
+
+
+class SupervisionConfig(BaseModel):
+    """Configuration for task supervision and auto-resume.
+
+    Controls how the supervisor handles tasks that reach REVIEW status.
+    """
+
+    enabled: bool = True  # Whether supervision is enabled for this task
+    policy: SupervisionPolicy = SupervisionPolicy.CONSERVATIVE  # Decision policy
+    max_auto_resumes: int = 5  # Maximum auto-resume attempts
+    min_time_between_resumes: int = 60  # Minimum seconds between resumes
+    auto_resume_triggers: list[str] = Field(
+        default_factory=lambda: ["incomplete_work", "test_only", "low_confidence"]
+    )
+
+
 # Project markers - files that indicate a directory is a project
 PROJECT_MARKERS = [
     "package.json",  # Node.js/JavaScript
@@ -273,6 +304,37 @@ class ExecutionRun(BaseModel):
     auto_resume_enabled: bool = True  # Allow auto-resume for this run
     auto_resume_count: int = 0  # Number of auto-resumes (max 5)
 
+    # Ralph mode fields (autonomous loop execution)
+    ralph_enabled: bool = False  # Whether ralph loop mode is enabled
+    loop_count: int = 0  # Current iteration count
+    max_loops: int = 50  # Safety cap on iterations
+
+    # Circuit breaker state
+    circuit_state: CircuitState = CircuitState.CLOSED
+    consecutive_no_progress: int = 0  # Loops without file changes
+    consecutive_same_error: int = 0  # Loops with same error
+    last_progress_loop: int = 0  # Last loop with progress
+    last_error_hash: str | None = None  # Hash of last error for repetition detection
+
+    # Completion detection
+    completion_signals: int = 0  # Consecutive completion signals
+    test_only_loops: int = 0  # Consecutive test-only loops
+    completion_confidence: float = 0.0  # Confidence score 0-100
+    completion_reason: str | None = None  # Why loop exited
+
+    # Rate limiting
+    calls_this_hour: int = 0  # API calls in current hour
+    hour_start: datetime | None = None  # When current hour started
+    max_calls_per_hour: int = 100  # Hourly API call limit
+    max_cost_usd: float | None = None  # Optional cost cap
+
+    # Supervision tracking (auto-resume until complete)
+    supervision_config: SupervisionConfig | None = None  # Per-task supervision settings
+    supervision_auto_resume_count: int = 0  # Number of supervisor-initiated resumes
+    last_supervision_check_at: datetime | None = None  # When supervisor last evaluated
+    last_supervision_resume_at: datetime | None = None  # When supervisor last resumed
+    supervision_disabled_reason: str | None = None  # Why supervision was disabled
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
@@ -340,6 +402,70 @@ class ExecutionRun(BaseModel):
             return None
         end = self.completed_at or utc_now()
         return (end - self.started_at).total_seconds()
+
+
+# ========== Ralph Loop Models ==========
+
+
+class RalphLoopIteration(BaseModel):
+    """Tracks individual loop iterations within a ralph-enabled run."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    loop_number: int  # 1-indexed iteration number
+    started_at: datetime = Field(default_factory=utc_now)
+    ended_at: datetime | None = None
+
+    # Execution results
+    files_changed: int = 0  # Number of git file changes
+    has_errors: bool = False  # Whether errors occurred
+    error_summary: str | None = None  # First ~200 chars of error
+    output_length: int = 0  # Length of Claude output
+
+    # Analysis results
+    is_test_only: bool = False  # Only ran tests, no implementation
+    has_completion_signal: bool = False  # Claude indicated "done"
+    progress_detected: bool = False  # Files changed or meaningful work
+    confidence_score: float = 0.0  # Completion confidence 0-100
+
+    # Claude SDK info
+    claude_session_id: str | None = None  # Session ID for this iteration
+    cost_usd: float = 0.0  # Cost for this iteration
+    tokens_used: int = 0  # Total tokens (input + output)
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Get duration in seconds if completed."""
+        if not self.ended_at:
+            return None
+        return (self.ended_at - self.started_at).total_seconds()
+
+
+class SupervisionDecision(BaseModel):
+    """Audit trail for supervision decisions.
+
+    Records every decision made by the supervisor for a run,
+    including whether to resume, skip, or hold.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    timestamp: datetime = Field(default_factory=utc_now)
+
+    # Decision details
+    decision: str  # "resume", "skip", "hold", "disable"
+    reason: str  # Human-readable explanation
+    trigger: str | None = None  # What triggered this check (e.g., "scheduler", "manual", "pr_comment")
+
+    # Context at time of decision
+    circuit_state: CircuitState | None = None
+    completion_confidence: float | None = None
+    calls_this_hour: int | None = None
+    cost_usd: float | None = None
+    auto_resume_count: int | None = None
+
+    # Policy that was applied
+    policy: SupervisionPolicy | None = None
 
 
 # ========== Git Models ==========

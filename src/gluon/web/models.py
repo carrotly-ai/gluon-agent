@@ -606,3 +606,57 @@ class GitSyncResponse(BaseModel):
     commits_pushed: int = Field(default=0, description="Number of commits pushed")
     files_committed: int = Field(default=0, description="Number of files committed")
     updated_status: GitStatusResponse | None = Field(default=None, description="Updated git status after sync")
+
+
+class GitRefreshAllResponse(BaseModel):
+    """Response model for refreshing git status of all projects."""
+
+    projects_refreshed: int = Field(description="Number of projects refreshed")
+    errors: list[str] = Field(default_factory=list, description="Projects that failed to refresh")
+
+
+# ========== Supervision Models ==========
+
+
+class SupervisionDecisionResponse(BaseModel):
+    """Response model for a supervision decision."""
+
+    timestamp: str = Field(description="Decision timestamp in ISO format")
+    decision: str = Field(description="Decision: resume, skip, hold, disable")
+    reason: str = Field(description="Reason for the decision")
+    trigger: str | None = Field(default=None, description="What triggered the evaluation")
+    circuit_state: str | None = Field(default=None, description="Circuit breaker state at time of decision")
+    completion_confidence: float | None = Field(default=None, description="Completion confidence score")
+    auto_resume_count: int | None = Field(default=None, description="Auto-resume count at time of decision")
+
+
+class SupervisionStatusResponse(BaseModel):
+    """Response model for supervision status of a run."""
+
+    run_id: str
+    enabled: bool = Field(description="Whether supervision is enabled")
+    policy: str = Field(description="Supervision policy: aggressive, conservative, manual")
+    max_auto_resumes: int = Field(description="Maximum auto-resume attempts")
+    auto_resume_count: int = Field(description="Current auto-resume count")
+    min_time_between_resumes: int = Field(description="Minimum seconds between resumes")
+    last_check_at: str | None = Field(default=None, description="Last supervision check timestamp")
+    last_resume_at: str | None = Field(default=None, description="Last auto-resume timestamp")
+    disabled_reason: str | None = Field(default=None, description="Reason if supervision disabled")
+    recent_decisions: list[SupervisionDecisionResponse] = Field(
+        default_factory=list, description="Recent supervision decisions"
+    )
+
+
+class SupervisionEvaluateResponse(BaseModel):
+    """Response model for manual supervision evaluation."""
+
+    run_id: str
+    decision: str = Field(description="Decision: resume or skip")
+    reason: str = Field(description="Reason for the decision")
+    wait_seconds: int = Field(default=0, description="Seconds to wait before retrying")
+
+
+class SupervisionDisableRequest(BaseModel):
+    """Request model for disabling supervision."""
+
+    reason: str = Field(default="Manual disable", description="Reason for disabling")

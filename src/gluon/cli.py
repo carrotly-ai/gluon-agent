@@ -20,7 +20,7 @@ from gluon.core import (
     WorkspaceNotFoundError,
 )
 from gluon.git_manager import GitManager
-from gluon.models import RunStatus
+from gluon.models import CircuitState, RunStatus
 from gluon.models_config import ModelTier, describe_models
 from gluon.runner import TaskRunner, format_duration, format_run_status
 from gluon.store import GluonStore
@@ -51,6 +51,12 @@ app.add_typer(mcp_app, name="mcp")
 
 webhook_app = typer.Typer(help="Webhook configuration")
 app.add_typer(webhook_app, name="webhook")
+
+ralph_app = typer.Typer(help="Ralph loop commands")
+app.add_typer(ralph_app, name="ralph")
+
+supervision_app = typer.Typer(help="Supervision and auto-resume commands")
+app.add_typer(supervision_app, name="supervision")
 
 console = Console()
 
@@ -814,8 +820,15 @@ def run(
     model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
     background: Annotated[bool, typer.Option("--background", "-b", help="Run in background")] = False,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Execute in isolated Git worktree")] = False,
+    ralph: Annotated[bool, typer.Option("--ralph", "-r", help="Enable ralph loop mode")] = False,
+    max_loops: Annotated[int, typer.Option("--max-loops", help="Max loop iterations (ralph mode)")] = 50,
+    max_calls: Annotated[int, typer.Option("--max-calls", help="Max API calls per hour (ralph mode)")] = 100,
+    max_cost: Annotated[float | None, typer.Option("--max-cost", help="Max cost in USD (ralph mode)")] = None,
 ):
-    """Execute a task on a project."""
+    """Execute a task on a project.
+
+    Use --ralph for autonomous loop mode that iterates until completion.
+    """
     orchestrator = get_orchestrator()
 
     try:
@@ -839,13 +852,29 @@ def run(
         runner = TaskRunner()
 
         async def _submit():
-            run_obj = await runner.submit(proj.id, prompt, wait=False)
+            run_obj = await runner.submit(
+                proj.id,
+                prompt,
+                wait=False,
+                use_worktree=worktree,
+                model=model_tier.value if model_tier else None,
+                ralph_enabled=ralph,
+                max_loops=max_loops,
+                max_calls_per_hour=max_calls,
+                max_cost_usd=max_cost,
+            )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
             console.print(f"  Prompt: {prompt[:60]}{'...' if len(prompt) > 60 else ''}")
+            if ralph:
+                console.print(f"  [blue]Ralph mode:[/blue] max {max_loops} loops, {max_calls} calls/hr")
+                if max_cost:
+                    console.print(f"  Cost cap: ${max_cost:.2f}")
             console.print()
             console.print("[dim]Use 'gluon runs' to check status[/dim]")
             console.print(f"[dim]Use 'gluon logs {run_obj.id[:8]}' to view logs[/dim]")
+            if ralph:
+                console.print(f"[dim]Use 'gluon ralph status {run_obj.id[:8]}' for loop details[/dim]")
 
         anyio.run(_submit)
         return
@@ -1602,6 +1631,377 @@ def web(
         uvicorn.run(app_instance, host=host, port=port, reload=reload, log_level="info")
     except KeyboardInterrupt:
         console.print("\n[yellow]Web dashboard stopped.[/yellow]")
+
+
+# ========== Ralph Commands ==========
+
+
+@ralph_app.command("status")
+def ralph_status(
+    run_id: Annotated[str, typer.Argument(help="Run ID (can use short prefix)")],
+):
+    """Show ralph loop status for a run."""
+    store = GluonStore()
+
+    # Find run by short ID
+    run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+    if not run:
+        console.print(f"[red]Error:[/red] Run not found: {run_id}")
+        raise typer.Exit(1)
+
+    if not run.ralph_enabled:
+        console.print(f"[yellow]Run {run.id[:8]} is not a ralph mode run[/yellow]")
+        raise typer.Exit(0)
+
+    # Get project name
+    project = store.get_project(run.project_id)
+    proj_name = project.name if project else run.project_id[:8]
+
+    emoji, color = format_run_status(run.status)
+
+    # Circuit state styling
+    circuit_colors = {
+        CircuitState.CLOSED: "green",
+        CircuitState.HALF_OPEN: "yellow",
+        CircuitState.OPEN: "red",
+    }
+    circuit_color = circuit_colors.get(run.circuit_state, "white")
+
+    console.print(f"[bold]Ralph Run:[/bold] {run.id[:8]} [{color}]{emoji} {run.status.value}[/{color}]")
+    console.print(f"[bold]Project:[/bold] {proj_name}")
+    console.print(f"[bold]Prompt:[/bold] {run.prompt[:80]}{'...' if len(run.prompt) > 80 else ''}")
+    console.print()
+
+    # Loop progress
+    console.print(f"[bold]Loop Progress:[/bold] {run.loop_count}/{run.max_loops}")
+    console.print(f"[bold]Circuit State:[/bold] [{circuit_color}]{run.circuit_state.value}[/{circuit_color}]")
+
+    # Completion tracking
+    if run.completion_reason:
+        console.print(f"[bold]Completion:[/bold] {run.completion_reason}")
+    else:
+        console.print(f"[bold]Completion Signals:[/bold] {run.completion_signals}")
+        console.print(f"[bold]Test-Only Loops:[/bold] {run.test_only_loops}")
+
+    # Circuit breaker details
+    if run.consecutive_no_progress > 0:
+        console.print(f"[bold]No Progress:[/bold] {run.consecutive_no_progress} consecutive loops")
+    if run.consecutive_same_error > 0:
+        console.print(f"[bold]Same Error:[/bold] {run.consecutive_same_error} consecutive loops")
+
+    # Rate limiting
+    console.print()
+    console.print(f"[bold]API Calls:[/bold] {run.calls_this_hour}/{run.max_calls_per_hour} this hour")
+    if run.cost_usd:
+        cost_display = f"${run.cost_usd:.4f}"
+        if run.max_cost_usd:
+            cost_display += f" / ${run.max_cost_usd:.2f} cap"
+        console.print(f"[bold]Cost:[/bold] {cost_display}")
+
+
+@ralph_app.command("iterations")
+def ralph_iterations(
+    run_id: Annotated[str, typer.Argument(help="Run ID (can use short prefix)")],
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max iterations to show")] = 20,
+):
+    """Show iteration history for a ralph run."""
+    store = GluonStore()
+
+    # Find run by short ID
+    run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+    if not run:
+        console.print(f"[red]Error:[/red] Run not found: {run_id}")
+        raise typer.Exit(1)
+
+    if not run.ralph_enabled:
+        console.print(f"[yellow]Run {run.id[:8]} is not a ralph mode run[/yellow]")
+        raise typer.Exit(0)
+
+    iterations = store.list_ralph_iterations(run.id, limit=limit)
+
+    if not iterations:
+        console.print("[dim]No iterations recorded yet.[/dim]")
+        return
+
+    table = Table(title=f"Ralph Iterations for {run.id[:8]}")
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Status")
+    table.add_column("Files", justify="right")
+    table.add_column("Confidence", justify="right")
+    table.add_column("Cost", justify="right")
+    table.add_column("Duration")
+
+    for it in iterations:
+        # Status indicator
+        if it.has_errors:
+            status = "[red]Error[/red]"
+        elif it.has_completion_signal:
+            status = "[green]Done signal[/green]"
+        elif it.is_test_only:
+            status = "[yellow]Test only[/yellow]"
+        elif it.progress_detected:
+            status = "[green]Progress[/green]"
+        else:
+            status = "[dim]No change[/dim]"
+
+        # Duration
+        duration = "-"
+        if it.started_at and it.ended_at:
+            secs = (it.ended_at - it.started_at).total_seconds()
+            duration = f"{secs:.1f}s"
+
+        table.add_row(
+            str(it.loop_number),
+            status,
+            str(it.files_changed),
+            f"{it.confidence_score:.0f}%",
+            f"${it.cost_usd:.4f}",
+            duration,
+        )
+
+    console.print(table)
+
+    # Summary
+    total_cost = sum(it.cost_usd for it in iterations)
+    console.print(f"\n[bold]Total iterations:[/bold] {len(iterations)}")
+    console.print(f"[bold]Total cost:[/bold] ${total_cost:.4f}")
+
+
+@ralph_app.command("runs")
+def ralph_runs(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Filter by project")] = None,
+    active: Annotated[bool, typer.Option("--active", "-a", help="Show only active runs")] = False,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max runs to show")] = 20,
+):
+    """List ralph-enabled runs."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    # Refresh status of active runs
+    runner.refresh_all_runs()
+
+    # Get project ID if name provided
+    project_id = None
+    if project:
+        orchestrator = get_orchestrator()
+        try:
+            proj = orchestrator.get_project(project)
+            project_id = proj.id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+    # Get runs - filter for ralph_enabled
+    statuses = [RunStatus.PENDING, RunStatus.RUNNING] if active else None
+    all_runs = store.list_runs(project_id=project_id, statuses=statuses, limit=limit * 2)
+
+    # Filter to ralph runs only
+    ralph_runs = [r for r in all_runs if r.ralph_enabled][:limit]
+
+    if not ralph_runs:
+        console.print("[dim]No ralph runs found.[/dim]")
+        console.print("Use 'gluon run <project> <prompt> --ralph --background' to start a ralph task.")
+        return
+
+    # Build project lookup
+    projects = store.list_projects()
+    project_lookup = {p.id: p.name for p in projects}
+
+    table = Table(title="Ralph Runs")
+    table.add_column("ID", style="cyan")
+    table.add_column("Status")
+    table.add_column("Project")
+    table.add_column("Loops")
+    table.add_column("Circuit")
+    table.add_column("Cost", justify="right")
+
+    circuit_colors = {
+        CircuitState.CLOSED: "green",
+        CircuitState.HALF_OPEN: "yellow",
+        CircuitState.OPEN: "red",
+    }
+
+    for r in ralph_runs:
+        emoji, color = format_run_status(r.status)
+        proj_name = project_lookup.get(r.project_id, r.project_id[:8])
+        circuit_color = circuit_colors.get(r.circuit_state, "white")
+
+        table.add_row(
+            r.id[:8],
+            f"[{color}]{emoji} {r.status.value}[/{color}]",
+            proj_name,
+            f"{r.loop_count}/{r.max_loops}",
+            f"[{circuit_color}]{r.circuit_state.value}[/{circuit_color}]",
+            f"${r.cost_usd:.4f}" if r.cost_usd else "-",
+        )
+
+    console.print(table)
+
+
+# ========== Supervision Commands ==========
+
+
+@supervision_app.command("status")
+def supervision_status(
+    run_id: Annotated[str, typer.Argument(help="Run ID to check")],
+):
+    """Show supervision status for a run."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    # Try to find run by full ID or prefix
+    run = store.get_run(run_id)
+    if not run:
+        run = store.get_run_by_short_id(run_id)
+
+    if not run:
+        console.print(f"[red]Error:[/red] Run '{run_id}' not found")
+        raise typer.Exit(1)
+
+    from gluon.policies import get_supervision_config
+
+    config = get_supervision_config(run)
+
+    console.print(f"\n[bold]Supervision Status for {run.id[:8]}[/bold]\n")
+
+    table = Table()
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value")
+
+    table.add_row("Enabled", "[green]Yes[/green]" if config.enabled else "[red]No[/red]")
+    table.add_row("Policy", config.policy.value)
+    table.add_row("Max Auto-Resumes", str(config.max_auto_resumes))
+    table.add_row("Auto-Resume Count", str(run.supervision_auto_resume_count))
+    table.add_row("Min Time Between", f"{config.min_time_between_resumes}s")
+    table.add_row(
+        "Last Check",
+        run.last_supervision_check_at.strftime("%Y-%m-%d %H:%M:%S") if run.last_supervision_check_at else "-",
+    )
+    table.add_row(
+        "Last Resume",
+        run.last_supervision_resume_at.strftime("%Y-%m-%d %H:%M:%S") if run.last_supervision_resume_at else "-",
+    )
+
+    if run.supervision_disabled_reason:
+        table.add_row("Disabled Reason", f"[yellow]{run.supervision_disabled_reason}[/yellow]")
+
+    console.print(table)
+
+
+@supervision_app.command("logs")
+def supervision_logs(
+    run_id: Annotated[str, typer.Argument(help="Run ID to show logs for")],
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max decisions to show")] = 20,
+):
+    """Show supervision decision log for a run."""
+    store = GluonStore()
+
+    run = store.get_run(run_id)
+    if not run:
+        run = store.get_run_by_short_id(run_id)
+
+    if not run:
+        console.print(f"[red]Error:[/red] Run '{run_id}' not found")
+        raise typer.Exit(1)
+
+    decisions = store.list_supervision_decisions(run.id, limit=limit)
+
+    if not decisions:
+        console.print(f"[dim]No supervision decisions for run {run.id[:8]}[/dim]")
+        return
+
+    console.print(f"\n[bold]Supervision Decisions for {run.id[:8]}[/bold]\n")
+
+    table = Table()
+    table.add_column("Time", style="dim")
+    table.add_column("Decision")
+    table.add_column("Reason")
+    table.add_column("Trigger", style="dim")
+
+    decision_colors = {
+        "resume": "green",
+        "skip": "yellow",
+        "hold": "blue",
+        "disable": "red",
+        "resume_failed": "red",
+    }
+
+    for d in decisions:
+        color = decision_colors.get(d.decision, "white")
+        table.add_row(
+            d.timestamp.strftime("%H:%M:%S"),
+            f"[{color}]{d.decision.upper()}[/{color}]",
+            d.reason[:50] + "..." if len(d.reason) > 50 else d.reason,
+            d.trigger or "-",
+        )
+
+    console.print(table)
+
+
+@supervision_app.command("disable")
+def supervision_disable(
+    run_id: Annotated[str, typer.Argument(help="Run ID to disable supervision for")],
+    reason: Annotated[str, typer.Option("--reason", "-r", help="Reason for disabling")] = "Manual disable",
+):
+    """Disable supervision for a run."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    run = store.get_run(run_id)
+    if not run:
+        run = store.get_run_by_short_id(run_id)
+
+    if not run:
+        console.print(f"[red]Error:[/red] Run '{run_id}' not found")
+        raise typer.Exit(1)
+
+    from gluon.resume_coordinator import ResumeCoordinator
+
+    coordinator = ResumeCoordinator(store=store, runner=runner)
+
+    import asyncio
+
+    success = asyncio.get_event_loop().run_until_complete(coordinator.disable_supervision(run.id, reason))
+
+    if success:
+        console.print(f"[green]✓[/green] Supervision disabled for run {run.id[:8]}")
+    else:
+        console.print(f"[red]Error:[/red] Failed to disable supervision")
+        raise typer.Exit(1)
+
+
+@supervision_app.command("evaluate")
+def supervision_evaluate(
+    run_id: Annotated[str, typer.Argument(help="Run ID to evaluate")],
+):
+    """Manually evaluate a run for auto-resume."""
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+
+    run = store.get_run(run_id)
+    if not run:
+        run = store.get_run_by_short_id(run_id)
+
+    if not run:
+        console.print(f"[red]Error:[/red] Run '{run_id}' not found")
+        raise typer.Exit(1)
+
+    import asyncio
+
+    result = asyncio.get_event_loop().run_until_complete(runner.evaluate_supervision(run.id))
+
+    if result:
+        decision = result["decision"]
+        reason = result["reason"]
+        color = "green" if decision == "resume" else "yellow"
+        console.print(f"\n[bold]Evaluation Result for {run.id[:8]}[/bold]\n")
+        console.print(f"Decision: [{color}]{decision.upper()}[/{color}]")
+        console.print(f"Reason: {reason}")
+        if result.get("wait_seconds", 0) > 0:
+            console.print(f"Wait: {result['wait_seconds']}s until retry")
+    else:
+        console.print(f"[red]Error:[/red] Failed to evaluate run")
+        raise typer.Exit(1)
 
 
 # ========== Utility Commands ==========

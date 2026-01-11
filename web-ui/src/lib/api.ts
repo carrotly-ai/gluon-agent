@@ -578,3 +578,13 @@ export async function syncProjectGit(
     body: JSON.stringify({ action }),
   })
 }
+
+/** Refresh git status for all projects */
+export async function refreshAllGitStatuses(): Promise<{
+  projects_refreshed: number
+  errors: string[]
+}> {
+  return fetchJson<{ projects_refreshed: number; errors: string[] }>('/git/refresh-all', {
+    method: 'POST',
+  })
+}
