@@ -256,20 +256,22 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             )}
           </div>
 
-          {/* Status row: Circuit state + cost */}
+          {/* Status row: Circuit state (if not CLOSED) + cost */}
           <div className="flex items-center gap-2 text-caption">
-            {/* Circuit state badge */}
-            <span
-              className={cn(
-                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase',
-                getCircuitStateBg(run.circuit_state || 'CLOSED'),
-                getCircuitStateColor(run.circuit_state || 'CLOSED')
-              )}
-              title={`Circuit: ${run.circuit_state || 'CLOSED'}`}
-            >
-              <Zap className="w-2.5 h-2.5" />
-              {run.circuit_state || 'CLOSED'}
-            </span>
+            {/* Circuit state badge - only show if NOT CLOSED (abnormal state) */}
+            {run.circuit_state && run.circuit_state !== 'CLOSED' && (
+              <span
+                className={cn(
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase',
+                  getCircuitStateBg(run.circuit_state),
+                  getCircuitStateColor(run.circuit_state)
+                )}
+                title={`Circuit: ${run.circuit_state}`}
+              >
+                <Zap className="w-2.5 h-2.5" />
+                {run.circuit_state}
+              </span>
+            )}
 
             {/* Completion confidence (shown if > 0) */}
             {(run.completion_confidence || 0) > 0 && (

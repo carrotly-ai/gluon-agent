@@ -344,6 +344,7 @@ class GluonAgent:
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
+            max_thinking_tokens=10000,  # Enable extended thinking (medium budget)
         )
 
         # Add can_use_tool callback if question handler is configured
