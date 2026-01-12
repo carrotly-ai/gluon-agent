@@ -317,6 +317,7 @@ class GluonAgent:
         resume_session_id: str | None = None,
         fork_session: bool = False,
         new_session_id: str | None = None,
+        max_thinking_tokens: int = 10000,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -329,6 +330,8 @@ class GluonAgent:
             new_session_id: If provided, use this as the session ID for new sessions.
                            This helps avoid control channel conflicts with other
                            Claude processes.
+            max_thinking_tokens: Token budget for extended thinking (default 10000).
+                                Use 32000 for "ultrathink" mode.
         """
         # Find MCP config (project-level takes precedence over host config)
         mcp_config = find_mcp_config(working_dir)
@@ -344,7 +347,7 @@ class GluonAgent:
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
-            max_thinking_tokens=10000,  # Enable extended thinking (medium budget)
+            max_thinking_tokens=max_thinking_tokens,
         )
 
         # Add can_use_tool callback if question handler is configured
@@ -398,10 +401,17 @@ class GluonAgent:
             AgentMessage during execution
             AgentResult as final yield
         """
+        # Determine thinking budget based on prompt content
+        # "ultrathink" triggers maximum thinking budget (32k tokens)
+        prompt_text = prompt.text if isinstance(prompt, MultimodalPrompt) else prompt
+        max_thinking = 32000 if "ultrathink" in prompt_text.lower() else 10000
+
         # Generate a unique session ID for new sessions to avoid control
         # channel conflicts with other Claude processes
         new_session_id = str(uuid.uuid4()) if not resume_session_id else None
-        options = self._build_options(working_dir, resume_session_id, fork_session, new_session_id)
+        options = self._build_options(
+            working_dir, resume_session_id, fork_session, new_session_id, max_thinking
+        )
 
         # Build multimodal prompt if images provided
         if images:
