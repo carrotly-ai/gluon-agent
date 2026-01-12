@@ -46,9 +46,9 @@ function getLastRalphEnabledSetting(): boolean {
 
 // Get last ralph max loops setting from sessionStorage
 function getLastRalphMaxLoops(): number {
-  if (typeof window === 'undefined') return 50
+  if (typeof window === 'undefined') return 10
   const stored = sessionStorage.getItem(RALPH_MAX_LOOPS_STORAGE_KEY)
-  return stored ? parseInt(stored, 10) : 50
+  return stored ? parseInt(stored, 10) : 10
 }
 
 // Pending image (uploaded before run creation)
