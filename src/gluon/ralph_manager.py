@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from gluon.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 from gluon.completion_detector import CompletionDetector, CompletionDetectorConfig
-from gluon.models import CircuitState, ExecutionRun, RalphLoopIteration, RunStatus
+from gluon.models import CircuitState, ExecutionRun, RalphLoopIteration, RunStatus, SupervisionConfig
 from gluon.rate_limiter import RateLimiter, RateLimiterConfig
 
 if TYPE_CHECKING:
@@ -87,6 +87,17 @@ class RalphManager:
         # Cache for iteration output (used by completion detection)
         self._last_iteration_output: str = ""
 
+    def _disable_supervision(self, reason: str) -> None:
+        """Disable supervision when Ralph Loop completes.
+
+        This prevents the supervisor from auto-resuming a completed Ralph Loop.
+        """
+        if self.run.supervision_config is None:
+            self.run.supervision_config = SupervisionConfig()
+        self.run.supervision_config.enabled = False
+        self.run.supervision_disabled_reason = f"Ralph Loop completed: {reason}"
+        logger.info(f"Disabled supervision for run {self.run.id[:8]}: {reason}")
+
     async def execute_loop(self) -> ExecutionRun:
         """Execute the ralph loop until completion or circuit break.
 
@@ -102,6 +113,7 @@ class RalphManager:
                 logger.warning(f"Circuit breaker OPEN: {reason}")
                 self.run.status = RunStatus.FAILED
                 self.run.error_message = f"Circuit breaker OPEN: {reason}"
+                self._disable_supervision(f"Circuit breaker OPEN: {reason}")
                 self._sync_run_state()
                 break
 
@@ -112,6 +124,7 @@ class RalphManager:
                     logger.warning(f"Cost cap reached: {limit_reason}")
                     self.run.status = RunStatus.REVIEW
                     self.run.completion_reason = f"Cost cap reached: {limit_reason}"
+                    self._disable_supervision(f"Cost cap reached: {limit_reason}")
                     self._sync_run_state()
                     break
                 else:
@@ -127,9 +140,7 @@ class RalphManager:
             # Update completion tracking
             if iteration.has_completion_signal:
                 self.consecutive_done_signals += 1
-                logger.debug(
-                    f"Completion signal detected (consecutive={self.consecutive_done_signals})"
-                )
+                logger.debug(f"Completion signal detected (consecutive={self.consecutive_done_signals})")
             else:
                 self.consecutive_done_signals = 0
 
@@ -149,8 +160,7 @@ class RalphManager:
             # Log completion analysis details
             if signals.matched_patterns:
                 logger.info(
-                    f"Completion analysis: confidence={signals.confidence:.0f}, "
-                    f"patterns={signals.matched_patterns}"
+                    f"Completion analysis: confidence={signals.confidence:.0f}, patterns={signals.matched_patterns}"
                 )
             else:
                 logger.debug(f"Completion analysis: confidence={signals.confidence:.0f}, no patterns matched")
@@ -169,6 +179,7 @@ class RalphManager:
                 )
                 self.run.status = RunStatus.REVIEW
                 self.run.completion_reason = exit_reason
+                self._disable_supervision(exit_reason)
                 self._sync_run_state()
                 break
             else:
@@ -186,6 +197,7 @@ class RalphManager:
             logger.warning(f"Max loops ({self.run.max_loops}) reached")
             self.run.status = RunStatus.REVIEW
             self.run.completion_reason = f"Max loops ({self.run.max_loops}) reached"
+            self._disable_supervision(f"Max loops ({self.run.max_loops}) reached")
             self._sync_run_state()
 
         return self.run

@@ -167,10 +167,14 @@ def _evaluate_aggressive(ctx: PolicyContext, config: SupervisionConfig) -> Polic
     if ctx.completion_confidence < 60 and "low_confidence" in config.auto_resume_triggers:
         triggers_matched.append("low_confidence")
 
-    # Incomplete work trigger (always applies if completion reason suggests more work)
+    # Incomplete work trigger (only if completion reason suggests more work is needed)
+    # Note: "Max loops" and "Max iterations" mean Ralph finished - NOT incomplete work
     if ctx.run.completion_reason:
-        if any(keyword in ctx.run.completion_reason.lower() for keyword in ["loop", "iteration", "test", "continue"]):
-            triggers_matched.append("incomplete_work")
+        reason_lower = ctx.run.completion_reason.lower()
+        # Skip if this is a Ralph Loop completion (max loops reached)
+        if not ("max loops" in reason_lower or "max iterations" in reason_lower):
+            if any(keyword in reason_lower for keyword in ["iteration", "test", "continue"]):
+                triggers_matched.append("incomplete_work")
 
     # Test-only trigger
     if ctx.run.test_only_loops > 0 and "test_only" in config.auto_resume_triggers:
@@ -213,10 +217,14 @@ def _evaluate_conservative(ctx: PolicyContext, config: SupervisionConfig) -> Pol
         reasons_to_resume.append(f"test_saturation ({ctx.run.test_only_loops} loops)")
 
     # Explicit incomplete work indicators
+    # Note: "Max loops" means Ralph finished its configured iterations - NOT incomplete work
     if ctx.run.completion_reason and "incomplete_work" in config.auto_resume_triggers:
-        incomplete_keywords = ["max loop", "iteration limit", "partially"]
-        if any(keyword in ctx.run.completion_reason.lower() for keyword in incomplete_keywords):
-            reasons_to_resume.append("incomplete_work_signal")
+        reason_lower = ctx.run.completion_reason.lower()
+        # Skip if this is a Ralph Loop completion (max loops reached)
+        if not ("max loops" in reason_lower or "max iterations" in reason_lower):
+            incomplete_keywords = ["iteration limit", "partially", "incomplete"]
+            if any(keyword in reason_lower for keyword in incomplete_keywords):
+                reasons_to_resume.append("incomplete_work_signal")
 
     # At least one strong signal required for conservative
     if len(reasons_to_resume) >= 1:
