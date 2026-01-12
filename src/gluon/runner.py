@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -877,6 +878,9 @@ but explicit commits with good messages are preferred.
         """
         Refresh run status by checking if process is still alive.
 
+        If the process has terminated unexpectedly, attempt to salvage any
+        uncommitted work in the worktree before marking as failed.
+
         Args:
             run: Run to check
 
@@ -890,14 +894,133 @@ but explicit commits with good messages are preferred.
             # Check if process exists (signal 0 doesn't kill)
             os.kill(run.pid, 0)
         except ProcessLookupError:
-            # Process is gone - mark as completed (assume success if no error)
-            run.mark_completed(exit_code=0)
+            # Process is gone unexpectedly - attempt to salvage uncommitted work
+            logger.warning(
+                f"Process for run {run.id[:8]} terminated unexpectedly (pid={run.pid}, worktree={run.worktree_path})"
+            )
+
+            # Try to salvage any uncommitted changes
+            salvage_result = self._salvage_uncommitted_work_sync(run)
+
+            # Mark as failed with appropriate message
+            if salvage_result.get("salvaged"):
+                error_msg = (
+                    f"Process terminated unexpectedly. Salvaged {salvage_result['files_count']} uncommitted file(s)."
+                )
+            else:
+                error_msg = "Process terminated unexpectedly"
+                if salvage_result.get("error"):
+                    error_msg += f": {salvage_result['error']}"
+
+            run.mark_failed(error_msg, exit_code=-1)
             self.store.update_run(run)
         except PermissionError:
             # Can't check - leave as is
             pass
 
         return run
+
+    def _salvage_uncommitted_work_sync(self, run: ExecutionRun) -> dict[str, Any]:
+        """
+        Emergency salvage of uncommitted files when process terminates unexpectedly.
+
+        This is a synchronous method that uses subprocess.run directly to avoid
+        async/sync context issues. Called from refresh_run_status() which may be
+        invoked from both sync (CLI) and async (API) contexts.
+
+        Args:
+            run: The run whose worktree may have uncommitted changes
+
+        Returns:
+            Dict with salvage results:
+            - salvaged: bool - whether files were salvaged
+            - files_count: int - number of files committed
+            - pushed: bool - whether push succeeded
+            - error: str | None - error message if salvage failed
+        """
+        if not run.use_worktree or not run.worktree_path:
+            return {"salvaged": False, "error": "Not a worktree run"}
+
+        worktree_path = Path(run.worktree_path)
+        if not worktree_path.exists():
+            return {"salvaged": False, "error": "Worktree no longer exists"}
+
+        try:
+            # Check for uncommitted changes using git status --porcelain
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if status_result.returncode != 0:
+                return {"salvaged": False, "error": f"git status failed: {status_result.stderr}"}
+
+            # Count uncommitted files
+            uncommitted_files = [line for line in status_result.stdout.strip().split("\n") if line.strip()]
+            if not uncommitted_files:
+                return {"salvaged": False, "error": "No uncommitted changes to salvage"}
+
+            files_count = len(uncommitted_files)
+            logger.info(f"Found {files_count} uncommitted file(s) to salvage for run {run.id[:8]}")
+
+            # Stage all changes
+            add_result = subprocess.run(
+                ["git", "add", "-A"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if add_result.returncode != 0:
+                return {"salvaged": False, "error": f"git add failed: {add_result.stderr}"}
+
+            # Commit with salvage message
+            prompt_preview = run.prompt[:50] if run.prompt else "unknown task"
+            commit_msg = (
+                f"SALVAGE: {prompt_preview}...\n\nAuto-salvaged after unexpected process termination\nRun ID: {run.id}"
+            )
+            commit_result = subprocess.run(
+                ["git", "commit", "-m", commit_msg],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if commit_result.returncode != 0:
+                return {"salvaged": False, "error": f"git commit failed: {commit_result.stderr}"}
+
+            logger.warning(f"Salvaged {files_count} uncommitted file(s) for run {run.id[:8]}")
+
+            # Try to push if we have a branch name
+            pushed = False
+            if run.branch_name:
+                push_result = subprocess.run(
+                    ["git", "push", "-u", "origin", run.branch_name],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if push_result.returncode == 0:
+                    pushed = True
+                    logger.info(f"Pushed salvaged commit for run {run.id[:8]}")
+                else:
+                    logger.warning(f"Failed to push salvaged commit for run {run.id[:8]}: {push_result.stderr}")
+
+            return {
+                "salvaged": True,
+                "files_count": files_count,
+                "pushed": pushed,
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"salvaged": False, "error": "Git operation timed out"}
+        except Exception as e:
+            logger.error(f"Failed to salvage uncommitted work for run {run.id[:8]}: {e}")
+            return {"salvaged": False, "error": str(e)}
 
     def refresh_all_runs(self) -> list[ExecutionRun]:
         """
