@@ -5,7 +5,7 @@ import logging
 import mimetypes
 import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -14,13 +14,20 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    PermissionResultAllow,
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ToolPermissionContext,
     ToolUseBlock,
 )
 
 from gluon.models_config import get_model_id
+
+# Type for question handler callback
+# Args: run_id, questions (list of question dicts from AskUserQuestion)
+# Returns: dict mapping question text -> answer string
+QuestionHandler = Callable[[str, list[dict[str, Any]]], Awaitable[dict[str, str]]]
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +257,8 @@ class GluonAgent:
         allowed_tools: list[str] | None = None,
         permission_mode: str = "bypassPermissions",
         cli_path: Path | str | None = None,
+        question_handler: QuestionHandler | None = None,
+        run_id: str | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -262,6 +271,45 @@ class GluonAgent:
         self.permission_mode = permission_mode
         # Auto-detect CLI path if not provided
         self.cli_path = Path(cli_path) if cli_path else find_claude_cli()
+        # Question handler for AskUserQuestion support
+        self.question_handler = question_handler
+        self.run_id = run_id
+
+    async def _can_use_tool(
+        self,
+        tool_name: str,
+        input_data: dict[str, Any],
+        context: ToolPermissionContext,
+    ) -> PermissionResultAllow:
+        """Handle tool permission requests from Claude SDK.
+
+        For most tools, we allow immediately (bypassPermissions behavior).
+        For AskUserQuestion, we invoke the question handler to get answers.
+        """
+        # Special handling for AskUserQuestion tool
+        if tool_name == "AskUserQuestion" and self.question_handler and self.run_id:
+            questions = input_data.get("questions", [])
+            if questions:
+                logger.info(f"AskUserQuestion intercepted with {len(questions)} question(s)")
+                try:
+                    # Call the question handler to get answers
+                    answers = await self.question_handler(self.run_id, questions)
+
+                    # Return with answers injected into the input
+                    return PermissionResultAllow(
+                        behavior="allow",
+                        updated_input={
+                            "questions": questions,
+                            "answers": answers,
+                        },
+                    )
+                except TimeoutError:
+                    logger.warning("Question handler timed out, allowing with empty answers")
+                except Exception as e:
+                    logger.error(f"Question handler failed: {e}")
+
+        # For all other tools (or if no handler), allow immediately
+        return PermissionResultAllow(behavior="allow", updated_input=input_data)
 
     def _build_options(
         self,
@@ -297,6 +345,11 @@ class GluonAgent:
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
         )
+
+        # Add can_use_tool callback if question handler is configured
+        # This enables AskUserQuestion support
+        if self.question_handler:
+            options.can_use_tool = self._can_use_tool
 
         # Add resume option if we have a previous session
         if resume_session_id:

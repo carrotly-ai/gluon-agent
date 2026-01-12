@@ -13,11 +13,16 @@ from gluon.models import (
     ImageAttachment,
     Job,
     JobStatus,
+    PendingQuestion,
     Project,
+    QuestionStatus,
     RalphLoopIteration,
     RunStatus,
     Session,
     SessionStatus,
+    SupervisionConfig,
+    SupervisionDecision,
+    SupervisionPolicy,
     WebhookConfig,
     Worker,
     WorkerStatus,
@@ -301,6 +306,26 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_supervision_decisions_timestamp ON supervision_decisions(timestamp);",
     # Circuit breaker HALF_OPEN tracking (missing from original ralph fields)
     "ALTER TABLE execution_runs ADD COLUMN half_open_iterations INTEGER DEFAULT 0;",
+    # Pending questions table for AskUserQuestion support
+    """
+    CREATE TABLE IF NOT EXISTS pending_questions (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        question_index INTEGER DEFAULT 0,
+        question_text TEXT NOT NULL,
+        header TEXT NOT NULL,
+        options TEXT NOT NULL,
+        multi_select INTEGER DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        answered_at TEXT,
+        expires_at TEXT,
+        selected_labels TEXT,
+        answer_source TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_pending_questions_run ON pending_questions(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_pending_questions_status ON pending_questions(status);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1015,7 +1040,8 @@ class GluonStore:
                     consecutive_same_error = ?, last_progress_loop = ?, last_error_hash = ?,
                     half_open_iterations = ?, completion_signals = ?, test_only_loops = ?,
                     completion_confidence = ?, completion_reason = ?, calls_this_hour = ?,
-                    hour_start = ?, supervision_auto_resume_count = ?, last_supervision_check_at = ?,
+                    hour_start = ?, supervision_config = ?,
+                    supervision_auto_resume_count = ?, last_supervision_check_at = ?,
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?
                 WHERE id = ?
                 """,
@@ -1072,6 +1098,7 @@ class GluonStore:
                     run.calls_this_hour,
                     run.hour_start.isoformat() if run.hour_start else None,
                     # Supervision fields
+                    json.dumps(run.supervision_config.model_dump()) if run.supervision_config else None,
                     run.supervision_auto_resume_count,
                     run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,
                     run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
@@ -1235,6 +1262,22 @@ class GluonStore:
             if "max_calls_per_hour" in keys and row["max_calls_per_hour"] is not None
             else 100,
             max_cost_usd=row["max_cost_usd"] if "max_cost_usd" in keys else None,
+            # Supervision fields
+            supervision_config=SupervisionConfig(**json.loads(row["supervision_config"]))
+            if "supervision_config" in keys and row["supervision_config"]
+            else None,
+            supervision_auto_resume_count=row["supervision_auto_resume_count"]
+            if "supervision_auto_resume_count" in keys and row["supervision_auto_resume_count"] is not None
+            else 0,
+            last_supervision_check_at=_parse_datetime(row["last_supervision_check_at"])
+            if "last_supervision_check_at" in keys
+            else None,
+            last_supervision_resume_at=_parse_datetime(row["last_supervision_resume_at"])
+            if "last_supervision_resume_at" in keys
+            else None,
+            supervision_disabled_reason=row["supervision_disabled_reason"]
+            if "supervision_disabled_reason" in keys
+            else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
@@ -1408,9 +1451,7 @@ class GluonStore:
             )
         return decision
 
-    def list_supervision_decisions(
-        self, run_id: str, limit: int | None = None
-    ) -> list["SupervisionDecision"]:
+    def list_supervision_decisions(self, run_id: str, limit: int | None = None) -> list["SupervisionDecision"]:
         """List supervision decisions for a run, most recent first."""
         with self._get_conn() as conn:
             query = "SELECT * FROM supervision_decisions WHERE run_id = ? ORDER BY timestamp DESC"
@@ -1443,10 +1484,8 @@ class GluonStore:
                 ).fetchone()
         return row[0] if row else 0
 
-    def _row_to_supervision_decision(self, row: sqlite3.Row) -> "SupervisionDecision":
+    def _row_to_supervision_decision(self, row: sqlite3.Row) -> SupervisionDecision:
         """Convert database row to SupervisionDecision model."""
-        from gluon.models import CircuitState, SupervisionDecision, SupervisionPolicy
-
         return SupervisionDecision(
             id=row["id"],
             run_id=row["run_id"],
@@ -1460,6 +1499,114 @@ class GluonStore:
             cost_usd=row["cost_usd"],
             auto_resume_count=row["auto_resume_count"],
             policy=SupervisionPolicy(row["policy"]) if row["policy"] else None,
+        )
+
+    # ========== Pending Questions CRUD ==========
+
+    def create_pending_question(self, question: PendingQuestion) -> PendingQuestion:
+        """Create a new pending question."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO pending_questions (
+                    id, run_id, question_index, question_text, header, options,
+                    multi_select, status, created_at, answered_at, expires_at,
+                    selected_labels, answer_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    question.id,
+                    question.run_id,
+                    question.question_index,
+                    question.question_text,
+                    question.header,
+                    json.dumps(question.options),
+                    1 if question.multi_select else 0,
+                    question.status.value,
+                    question.created_at.isoformat(),
+                    question.answered_at.isoformat() if question.answered_at else None,
+                    question.expires_at.isoformat() if question.expires_at else None,
+                    json.dumps(question.selected_labels),
+                    question.answer_source,
+                ),
+            )
+        return question
+
+    def get_pending_question(self, question_id: str) -> PendingQuestion | None:
+        """Get a pending question by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM pending_questions WHERE id = ?",
+                (question_id,),
+            ).fetchone()
+        return self._row_to_pending_question(row) if row else None
+
+    def list_pending_questions(self, run_id: str, status: QuestionStatus | None = None) -> list[PendingQuestion]:
+        """List pending questions for a run, optionally filtered by status."""
+        with self._get_conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM pending_questions WHERE run_id = ? AND status = ? ORDER BY question_index",
+                    (run_id, status.value),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM pending_questions WHERE run_id = ? ORDER BY question_index",
+                    (run_id,),
+                ).fetchall()
+        return [self._row_to_pending_question(row) for row in rows]
+
+    def get_pending_questions_for_run(self, run_id: str) -> list[PendingQuestion]:
+        """Get all pending (unanswered) questions for a run."""
+        return self.list_pending_questions(run_id, status=QuestionStatus.PENDING)
+
+    def update_pending_question(self, question: PendingQuestion) -> PendingQuestion:
+        """Update a pending question (e.g., after answering)."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE pending_questions SET
+                    status = ?,
+                    answered_at = ?,
+                    selected_labels = ?,
+                    answer_source = ?
+                WHERE id = ?
+                """,
+                (
+                    question.status.value,
+                    question.answered_at.isoformat() if question.answered_at else None,
+                    json.dumps(question.selected_labels),
+                    question.answer_source,
+                    question.id,
+                ),
+            )
+        return question
+
+    def delete_pending_questions(self, run_id: str) -> int:
+        """Delete all pending questions for a run. Returns count deleted."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM pending_questions WHERE run_id = ?",
+                (run_id,),
+            )
+        return cursor.rowcount
+
+    def _row_to_pending_question(self, row: sqlite3.Row) -> PendingQuestion:
+        """Convert database row to PendingQuestion model."""
+        return PendingQuestion(
+            id=row["id"],
+            run_id=row["run_id"],
+            question_index=row["question_index"],
+            question_text=row["question_text"],
+            header=row["header"],
+            options=json.loads(row["options"]),
+            multi_select=bool(row["multi_select"]),
+            status=QuestionStatus(row["status"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            answered_at=_parse_datetime(row["answered_at"]),
+            expires_at=_parse_datetime(row["expires_at"]),
+            selected_labels=json.loads(row["selected_labels"]) if row["selected_labels"] else [],
+            answer_source=row["answer_source"],
         )
 
     # ========== Channel Mapping CRUD ==========

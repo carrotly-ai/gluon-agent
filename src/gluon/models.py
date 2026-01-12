@@ -92,9 +92,7 @@ class SupervisionConfig(BaseModel):
     policy: SupervisionPolicy = SupervisionPolicy.CONSERVATIVE  # Decision policy
     max_auto_resumes: int = 5  # Maximum auto-resume attempts
     min_time_between_resumes: int = 60  # Minimum seconds between resumes
-    auto_resume_triggers: list[str] = Field(
-        default_factory=lambda: ["incomplete_work", "test_only", "low_confidence"]
-    )
+    auto_resume_triggers: list[str] = Field(default_factory=lambda: ["incomplete_work", "test_only", "low_confidence"])
 
 
 # Project markers - files that indicate a directory is a project
@@ -440,6 +438,75 @@ class RalphLoopIteration(BaseModel):
         if not self.ended_at:
             return None
         return (self.ended_at - self.started_at).total_seconds()
+
+
+class QuestionStatus(str, Enum):
+    """Status of a pending question."""
+
+    PENDING = "pending"  # Waiting for user response
+    ANSWERED = "answered"  # User provided answer
+    AUTO_ANSWERED = "auto_answered"  # System auto-answered (timeout/Ralph)
+    EXPIRED = "expired"  # Question timed out without answer
+
+
+class PendingQuestion(BaseModel):
+    """A question from Claude awaiting user response.
+
+    When Claude uses the AskUserQuestion tool, we intercept it and store
+    the question here for the user to answer via web UI or API.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    question_index: int = 0  # Index within the questions array (0-based)
+    question_text: str  # The question being asked
+    header: str  # Short label (e.g., "Database", "UI Style")
+    options: list[dict[str, str]]  # [{label: str, description: str}, ...]
+    multi_select: bool = False  # Whether multiple options can be selected
+    status: QuestionStatus = QuestionStatus.PENDING
+    created_at: datetime = Field(default_factory=utc_now)
+    answered_at: datetime | None = None
+    expires_at: datetime | None = None  # When auto-answer kicks in
+
+    # Answer tracking
+    selected_labels: list[str] = Field(default_factory=list)  # Selected option label(s)
+    answer_source: str | None = None  # "user", "auto_recommended", "auto_first", "ralph"
+
+    @property
+    def is_pending(self) -> bool:
+        """Check if question is still awaiting answer."""
+        return self.status == QuestionStatus.PENDING
+
+    @property
+    def answer_string(self) -> str:
+        """Get answer as comma-separated string for SDK."""
+        return ", ".join(self.selected_labels)
+
+    def get_recommended_option(self) -> str | None:
+        """Find option marked as (Recommended), or None."""
+        for opt in self.options:
+            label = opt.get("label", "")
+            if "(Recommended)" in label or "(recommended)" in label:
+                return label
+        return None
+
+    def auto_answer(self, source: str = "auto_recommended") -> None:
+        """Auto-answer with recommended option, or first if none recommended."""
+        recommended = self.get_recommended_option()
+        if recommended:
+            self.selected_labels = [recommended]
+        elif self.options:
+            self.selected_labels = [self.options[0].get("label", "")]
+        self.status = QuestionStatus.AUTO_ANSWERED
+        self.answer_source = source
+        self.answered_at = utc_now()
+
+    def answer(self, labels: list[str], source: str = "user") -> None:
+        """Record user's answer."""
+        self.selected_labels = labels
+        self.status = QuestionStatus.ANSWERED
+        self.answer_source = source
+        self.answered_at = utc_now()
 
 
 class SupervisionDecision(BaseModel):

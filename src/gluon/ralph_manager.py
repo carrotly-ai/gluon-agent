@@ -358,20 +358,30 @@ class RalphManager:
                     result["has_errors"] = True
                     result["error_summary"] = str(message.content)[:200]
 
+                # Capture AgentResult when yielded (contains cost/token info)
+                if msg_type == "result" and message.metadata:
+                    result["cost_usd"] = message.metadata.get("cost", 0.0)
+                    input_tokens = message.metadata.get("input_tokens", 0) or 0
+                    output_tokens = message.metadata.get("output_tokens", 0) or 0
+                    result["tokens"] = input_tokens + output_tokens
+                    result["session_id"] = message.metadata.get("session_id")
+
+                # Also check for AgentResult object directly (from agent.py)
+                from gluon.agent import AgentResult
+
+                if isinstance(message, AgentResult):
+                    result["cost_usd"] = message.total_cost_usd or 0.0
+                    input_tokens = message.input_tokens or 0
+                    output_tokens = message.output_tokens or 0
+                    result["tokens"] = input_tokens + output_tokens
+                    result["session_id"] = message.claude_session_id
+
             result["output"] = "\n".join(output_parts)
 
         except Exception as e:
             result["has_errors"] = True
             result["error_summary"] = str(e)[:200]
             logger.error(f"Claude execution error: {e}")
-
-        # Get cost from agent if available
-        if hasattr(self.agent, "last_result") and self.agent.last_result:
-            result["cost_usd"] = getattr(self.agent.last_result, "total_cost_usd", 0.0)
-            result["tokens"] = getattr(self.agent.last_result, "input_tokens", 0) + getattr(
-                self.agent.last_result, "output_tokens", 0
-            )
-            result["session_id"] = getattr(self.agent.last_result, "claude_session_id", None)
 
         return result
 
