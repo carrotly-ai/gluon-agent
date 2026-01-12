@@ -14,7 +14,7 @@ import sys
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
-from gluon.models import ExecutionRun, RunStatus, SupervisionConfig
+from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, utc_now
 from gluon.ralph_manager import RalphManager
 from gluon.resume_coordinator import ResumeCoordinator
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
@@ -69,7 +69,7 @@ class TaskRunner:
         self._active_tasks: dict[str, asyncio.Task] = {}
 
         # Supervision coordinator (lazy initialized)
-        self._supervisor: "ResumeCoordinator | None" = None
+        self._supervisor: ResumeCoordinator | None = None
 
         # Ensure log directory exists
         self.config.log_path.mkdir(parents=True, exist_ok=True)
@@ -88,6 +88,125 @@ class TaskRunner:
         """
         log_dir = self.config.log_path / run_id
         return log_dir if log_dir.exists() else None
+
+    async def _question_handler(self, run_id: str, questions: list[dict]) -> dict[str, str]:
+        """Handle AskUserQuestion tool calls by storing questions and waiting for answers.
+
+        This handler:
+        1. Stores each question in the database as PendingQuestion
+        2. Broadcasts to WebSocket subscribers so UI can show the modal
+        3. Waits for user answer (polling with timeout)
+        4. Returns answers dict mapping question header -> selected answer
+
+        Args:
+            run_id: The ExecutionRun ID
+            questions: List of question dicts from AskUserQuestion tool
+
+        Returns:
+            Dict mapping question header to selected answer string
+        """
+        from gluon.web.websocket import ws_manager
+
+        answers: dict[str, str] = {}
+        question_ids: list[str] = []
+
+        # Store each question in database
+        for idx, q in enumerate(questions):
+            pending = PendingQuestion(
+                run_id=run_id,
+                question_index=idx,
+                question_text=q.get("question", ""),
+                header=q.get("header", "Question"),
+                options=[
+                    {"label": opt.get("label", ""), "description": opt.get("description", "")}
+                    for opt in q.get("options", [])
+                ],
+                multi_select=q.get("multiSelect", False),
+                expires_at=utc_now() + timedelta(seconds=300),  # 5 min timeout
+            )
+            self.store.create_pending_question(pending)
+            question_ids.append(pending.id)
+            logger.info(f"Created pending question {pending.id[:8]} for run {run_id[:8]}: {pending.header}")
+
+        # Broadcast to WebSocket so UI can show modal
+        await ws_manager.broadcast_pending_questions(run_id, questions, question_ids)
+
+        # Wait for answers (polling with timeout)
+        timeout = 300  # 5 minutes
+        poll_interval = 0.5
+        elapsed = 0.0
+
+        while elapsed < timeout:
+            all_answered = True
+
+            for qid in question_ids:
+                q = self.store.get_pending_question(qid)
+                if not q:
+                    continue
+
+                if q.status == QuestionStatus.PENDING:
+                    all_answered = False
+                elif q.status in (QuestionStatus.ANSWERED, QuestionStatus.AUTO_ANSWERED):
+                    # Collect answer (use first selected label)
+                    answers[q.header] = q.selected_labels[0] if q.selected_labels else ""
+
+            if all_answered:
+                logger.info(f"All questions answered for run {run_id[:8]}")
+                return answers
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        # Timeout: auto-answer remaining questions with first/recommended option
+        logger.warning(f"Question timeout for run {run_id[:8]}, auto-answering remaining")
+        for qid in question_ids:
+            q = self.store.get_pending_question(qid)
+            if not q:
+                continue
+
+            if q.status == QuestionStatus.PENDING:
+                q.auto_answer(source="timeout_auto")
+                self.store.update_pending_question(q)
+                answers[q.header] = q.selected_labels[0] if q.selected_labels else ""
+                logger.info(f"Auto-answered question {qid[:8]}: {q.header} = {answers[q.header]}")
+
+        return answers
+
+    async def _auto_answer_handler(self, run_id: str, questions: list[dict]) -> dict[str, str]:
+        """Auto-answer handler for Ralph loops - immediately selects recommended option.
+
+        Ralph loops run autonomously without user interaction, so questions are
+        auto-answered immediately with the recommended option (or first option).
+
+        Args:
+            run_id: The ExecutionRun ID
+            questions: List of question dicts from AskUserQuestion tool
+
+        Returns:
+            Dict mapping question header to selected answer string
+        """
+        answers: dict[str, str] = {}
+
+        for q in questions:
+            header = q.get("header", "Question")
+            options = q.get("options", [])
+
+            # Find recommended option (contains "(Recommended)")
+            selected = None
+            for opt in options:
+                label = opt.get("label", "")
+                if "(Recommended)" in label or "(recommended)" in label:
+                    selected = label
+                    break
+
+            # Fall back to first option
+            if not selected and options:
+                selected = options[0].get("label", "")
+
+            answers[header] = selected or ""
+            logger.info(f"Ralph auto-answered for run {run_id[:8]}: {header} = {selected}")
+
+        return answers
 
     async def submit(
         self,
@@ -415,7 +534,15 @@ but explicit commits with good messages are preferred.
                     stdout_file.flush()
 
                 # Create agent with the model specified for this run
-                agent = GluonAgent(model=run.model) if run.model else self.agent
+                # Wire up question handler with run_id bound
+                from functools import partial
+
+                question_handler = partial(self._question_handler, run.id)
+                agent = GluonAgent(
+                    model=run.model or self.agent.model,
+                    question_handler=question_handler,
+                    run_id=run.id,
+                )
 
                 # Execute via agent with images as base64 content blocks
                 async for item in agent.execute(
@@ -587,6 +714,44 @@ but explicit commits with good messages are preferred.
             # Clean up active task tracking
             if run.id in self._active_tasks:
                 del self._active_tasks[run.id]
+
+        # Check for queued follow-up message and auto-resume if present
+        await self._handle_queued_followup(run)
+
+    async def _handle_queued_followup(self, run: ExecutionRun) -> None:
+        """Check for queued follow-up and auto-resume if present.
+
+        This is called after task completion (normal or ralph loop) to check
+        if a user queued a follow-up message while the task was running.
+        If so, we clear the queue and auto-resume with the queued message.
+        """
+        # Refresh run from database to get latest state
+        run = self.store.get_run(run.id)
+        if not run:
+            return
+
+        if not run.queued_followup:
+            return
+
+        # Extract and clear the queued message
+        queued_msg = run.queued_followup
+        run.queued_followup = None
+        run.queued_followup_at = None
+        self.store.update_run(run)
+
+        logger.info(f"Auto-resuming run {run.id[:8]} with queued follow-up")
+
+        # Resume in-place with the queued message
+        try:
+            await self.resume_in_place(
+                run_id=run.id,
+                new_prompt=queued_msg,
+                wait=True,  # Execute inline (already in worker process)
+                initiator="auto:queued_followup",
+            )
+        except Exception as e:
+            logger.error(f"Auto-resume failed for run {run.id[:8]}: {e}")
+            # Don't re-raise - the original task completed, auto-resume is best-effort
 
     async def cancel(self, run_id: str) -> bool:
         """
@@ -953,7 +1118,15 @@ but explicit commits with good messages are preferred.
                 f.write(f"{'=' * 60}\n\n")
 
             # Create agent with model
-            agent = GluonAgent(model=run.model) if run.model else self.agent
+            # Ralph loops use auto-answer handler (no user interaction)
+            from functools import partial
+
+            auto_handler = partial(self._auto_answer_handler, run.id)
+            agent = GluonAgent(
+                model=run.model or self.agent.model,
+                question_handler=auto_handler,
+                run_id=run.id,
+            )
 
             # Create and execute ralph manager
             manager = RalphManager(
@@ -1048,6 +1221,11 @@ but explicit commits with good messages are preferred.
 
             with open(stdout_path, "a") as f:
                 f.write(f"\n\nRALPH LOOP ERROR: {e}\n")
+
+        # Check for queued follow-up message and auto-resume if present
+        # Use updated_run if available (success path), otherwise use run (error path)
+        final_run = locals().get("updated_run", run)
+        await self._handle_queued_followup(final_run)
 
     async def _handle_context_overflow_recovery(
         self,

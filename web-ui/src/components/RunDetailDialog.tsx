@@ -26,6 +26,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
+  answerQuestion,
   cancelRun,
   createPrForRun,
   fetchCommitDetail,
@@ -35,9 +36,11 @@ import {
   fetchRunAttachments,
   fetchRunCommits,
   fetchRunFiles,
+  fetchRunQuestions,
   fetchSessionHistory,
   getImageFileUrl,
   mergeRunBranch,
+  queueFollowup,
   recoverRun,
   resumeRun,
   uploadAndAttachImage,
@@ -47,6 +50,7 @@ import type {
   CommitDetail,
   FileDiff,
   ImageAttachment,
+  PendingQuestion,
   Run,
   RunCommitsResponse,
   RunDetail,
@@ -56,6 +60,7 @@ import type {
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { LoopProgressTab } from './LoopProgressTab'
+import { QuestionModal } from './QuestionModal'
 import { StreamingLogViewer } from './StreamingLogViewer'
 
 type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments' | 'loop'
@@ -181,9 +186,13 @@ export function RunDetailDialog({
   const [mergeError, setMergeError] = useState<string | null>(null)
   const [recovering, setRecovering] = useState(false)
   const [recoverError, setRecoverError] = useState<string | null>(null)
+  const [queuing, setQueuing] = useState(false)
 
   // Resume image paste support
   const [resumePendingImages, setResumePendingImages] = useState<ResumePendingImage[]>([])
+
+  // Pending questions from AskUserQuestion tool
+  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
 
   // Refs for auto-scroll
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -214,6 +223,7 @@ export function RunDetailDialog({
       setExpandedFile(null)
       setFileDiffs({})
       setAttachments([])
+      setPendingQuestions([])
       return
     }
 
@@ -322,6 +332,43 @@ export function RunDetailDialog({
 
     return () => clearInterval(pollInterval)
   }, [open, detail?.id, detail?.pr_status, detail?.status, onRunUpdated, detail])
+
+  // Poll for pending questions when run is active
+  useEffect(() => {
+    if (!open || !run) return
+    const isRunActive = run.status === 'running' || run.status === 'pending'
+    if (!isRunActive) return
+
+    // Initial fetch
+    const fetchQuestions = async () => {
+      try {
+        const response = await fetchRunQuestions(run.id)
+        setPendingQuestions(response.questions)
+      } catch {
+        // Ignore errors - questions are optional
+      }
+    }
+
+    fetchQuestions()
+
+    // Poll every 2 seconds for new questions
+    const pollInterval = setInterval(fetchQuestions, 2000)
+
+    return () => clearInterval(pollInterval)
+  }, [open, run?.id, run?.status, run])
+
+  // Handle answering a question
+  const handleAnswerQuestion = useCallback(
+    async (questionId: string, selectedLabels: string[]) => {
+      await answerQuestion(questionId, selectedLabels)
+      // Refresh questions list
+      if (run) {
+        const response = await fetchRunQuestions(run.id)
+        setPendingQuestions(response.questions)
+      }
+    },
+    [run]
+  )
 
   // Auto-scroll to bottom when content changes
   useEffect(() => {
@@ -479,6 +526,71 @@ export function RunDetailDialog({
       handleRefresh()
     } catch (err) {
       setResumeError(err instanceof Error ? err.message : 'Failed to resume run')
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  // Queue a follow-up message for a running task (will auto-resume after completion)
+  const handleQueueFollowup = async () => {
+    if (!run || !resumePrompt.trim()) return
+    setQueuing(true)
+    setResumeError(null)
+    try {
+      const result = await queueFollowup(run.id, resumePrompt.trim())
+
+      if (result.action === 'resume_now') {
+        // Task is not running - use normal resume instead
+        await handleResume()
+        return
+      }
+
+      // Message queued - clear prompt and refresh to show indicator
+      setResumePrompt('')
+      toast.success('Message queued - will continue after current task completes')
+      handleRefresh()
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : 'Failed to queue follow-up')
+    } finally {
+      setQueuing(false)
+    }
+  }
+
+  // Send message immediately by cancelling current task and resuming with new message
+  const handleSendNow = async () => {
+    if (!run || !resumePrompt.trim()) return
+    setResuming(true)
+    setResumeError(null)
+    try {
+      // Cancel current execution
+      await cancelRun(run.id)
+
+      // Small delay for cancellation to propagate
+      await new Promise((r) => setTimeout(r, 500))
+
+      // Resume with new message
+      await resumeRun(run.id, resumePrompt.trim())
+
+      // Upload images if any
+      if (resumePendingImages.length > 0) {
+        const uploadPromises = resumePendingImages.map((img) =>
+          uploadAndAttachImage(run.id, img.file).catch((err) => {
+            console.error(`Failed to upload image ${img.file.name}:`, err)
+            return null
+          })
+        )
+        await Promise.all(uploadPromises)
+      }
+
+      // Cleanup
+      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
+      setResumePendingImages([])
+      setResumePrompt('')
+
+      // Refresh
+      handleRefresh()
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : 'Failed to send message')
     } finally {
       setResuming(false)
     }
@@ -1784,9 +1896,23 @@ Focus on preserving the functionality from both sides where possible.`
               </div>
             </div>
 
-            {/* Resume/Continue Section - Always visible when resumable */}
-            {isResumable && (
+            {/* Follow-up Section - Always visible when there's a session */}
+            {(isResumable || (isActive && detail?.session_id)) && (
               <div className="mt-4 p-3 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm shrink-0">
+                {/* Queued message indicator */}
+                {detail?.queued_followup && (
+                  <div className="mb-2 p-2 bg-[rgba(102,178,255,0.1)] border border-[rgba(102,178,255,0.2)] rounded-sm">
+                    <p className="text-body text-[var(--color-sky)]/80">
+                      <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-[10px] mr-2">
+                        Queued
+                      </span>
+                      {detail.queued_followup.length > 80
+                        ? `${detail.queued_followup.slice(0, 80)}...`
+                        : detail.queued_followup}
+                    </p>
+                  </div>
+                )}
+
                 {/* Pasted image previews */}
                 {resumePendingImages.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-2">
@@ -1811,19 +1937,27 @@ Focus on preserving the functionality from both sides where possible.`
                 <div className="flex gap-2">
                   <textarea
                     className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-body text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
-                    placeholder="Continue with follow-up... (⌘V to paste images)"
+                    placeholder={
+                      isActive
+                        ? 'Send follow-up message... (⌘V to paste images)'
+                        : 'Continue with follow-up... (⌘V to paste images)'
+                    }
                     value={resumePrompt}
                     onChange={(e) => setResumePrompt(e.target.value)}
                     onKeyDown={(e) => {
                       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                         e.preventDefault()
-                        if (resumePrompt.trim() && !resuming) {
-                          handleResume()
+                        if (resumePrompt.trim() && !resuming && !queuing) {
+                          if (isActive) {
+                            handleQueueFollowup()
+                          } else {
+                            handleResume()
+                          }
                         }
                       }
                     }}
                     onPaste={handleResumePaste}
-                    disabled={resuming}
+                    disabled={resuming || queuing}
                     rows={1}
                     onInput={(e) => {
                       // Auto-resize textarea
@@ -1832,23 +1966,70 @@ Focus on preserving the functionality from both sides where possible.`
                       target.style.height = `${Math.min(target.scrollHeight, 128)}px`
                     }}
                   />
-                  <button
-                    className={cn(
-                      'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
-                      'p-2 sm:px-4 sm:py-2 sm:gap-2',
-                      resumePrompt.trim() && !resuming
-                        ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                        : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
-                    )}
-                    onClick={handleResume}
-                    disabled={!resumePrompt.trim() || resuming}
-                    title={resuming ? 'Resuming...' : 'Resume'}
-                  >
-                    <Play className="w-3 h-3" />
-                    <span className="hidden sm:inline">
-                      {resuming ? 'Resuming...' : 'Resume'}
-                    </span>
-                  </button>
+                  {isActive ? (
+                    /* Active task - show Queue and Send Now buttons */
+                    <div className="flex gap-1.5 shrink-0 self-start">
+                      <button
+                        className={cn(
+                          'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
+                          'p-2 sm:px-3 sm:py-2 sm:gap-1.5',
+                          resumePrompt.trim() && !queuing && !resuming
+                            ? 'bg-[var(--color-stone)]/20 text-[var(--color-paper)] hover:bg-[var(--color-stone)]/30'
+                            : 'bg-[var(--color-stone)]/10 text-[var(--color-stone)]/40 cursor-not-allowed'
+                        )}
+                        onClick={handleQueueFollowup}
+                        disabled={!resumePrompt.trim() || queuing || resuming}
+                        title={
+                          queuing
+                            ? 'Queueing...'
+                            : detail?.queued_followup
+                              ? 'Update queued message'
+                              : 'Queue for after completion'
+                        }
+                      >
+                        <Clock className="w-3 h-3" />
+                        <span className="hidden sm:inline">
+                          {queuing ? 'Queueing...' : detail?.queued_followup ? 'Update' : 'Queue'}
+                        </span>
+                      </button>
+                      <button
+                        className={cn(
+                          'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
+                          'p-2 sm:px-3 sm:py-2 sm:gap-1.5',
+                          resumePrompt.trim() && !resuming && !queuing
+                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                        )}
+                        onClick={handleSendNow}
+                        disabled={!resumePrompt.trim() || resuming || queuing}
+                        title="Cancel current task and send immediately"
+                      >
+                        <Play className="w-3 h-3" />
+                        <span className="hidden sm:inline">
+                          {resuming ? 'Sending...' : 'Send Now'}
+                        </span>
+                      </button>
+                    </div>
+                  ) : (
+                    /* Not active - show single Resume button */
+                    <button
+                      className={cn(
+                        'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
+                        'p-2 sm:px-4 sm:py-2 sm:gap-2',
+                        resumePrompt.trim() && !resuming
+                          ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                          : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                      )}
+                      onClick={handleResume}
+                      disabled={!resumePrompt.trim() || resuming}
+                      title={resuming ? 'Resuming...' : 'Resume'}
+                    >
+                      <Play className="w-3 h-3" />
+                      <span className="hidden sm:inline">
+                        {resuming ? 'Resuming...' : 'Resume'}
+                      </span>
+                    </button>
+                  )}
                 </div>
                 {resumeError && (
                   <p className="text-body text-[var(--color-vermillion)] mt-2">{resumeError}</p>
@@ -1877,6 +2058,21 @@ Focus on preserving the functionality from both sides where possible.`
             )}
           </div>
         </div>
+
+        {/* Question Modal - renders when there are pending questions */}
+        {pendingQuestions.some((q) => q.status === 'pending') && run && (
+          <QuestionModal
+            runId={run.id}
+            questions={pendingQuestions}
+            onAnswer={handleAnswerQuestion}
+            onClose={() => {
+              // Refresh questions to see if all are answered
+              fetchRunQuestions(run.id).then((response) => {
+                setPendingQuestions(response.questions)
+              })
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )

@@ -328,6 +328,9 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_pending_questions_run ON pending_questions(run_id);",
     "CREATE INDEX IF NOT EXISTS idx_pending_questions_status ON pending_questions(status);",
+    # Queued follow-up for sending messages while task is running
+    "ALTER TABLE execution_runs ADD COLUMN queued_followup TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN queued_followup_at TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1046,7 +1049,8 @@ class GluonStore:
                     completion_confidence = ?, completion_reason = ?, calls_this_hour = ?,
                     hour_start = ?, supervision_config = ?,
                     supervision_auto_resume_count = ?, last_supervision_check_at = ?,
-                    last_supervision_resume_at = ?, supervision_disabled_reason = ?
+                    last_supervision_resume_at = ?, supervision_disabled_reason = ?,
+                    queued_followup = ?, queued_followup_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -1108,6 +1112,9 @@ class GluonStore:
                     run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,
                     run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
                     run.supervision_disabled_reason,
+                    # Queued follow-up fields
+                    run.queued_followup,
+                    run.queued_followup_at.isoformat() if run.queued_followup_at else None,
                     run.id,
                 ),
             )
@@ -1283,6 +1290,11 @@ class GluonStore:
             else None,
             supervision_disabled_reason=row["supervision_disabled_reason"]
             if "supervision_disabled_reason" in keys
+            else None,
+            # Queued follow-up fields
+            queued_followup=row["queued_followup"] if "queued_followup" in keys else None,
+            queued_followup_at=_parse_datetime(row["queued_followup_at"])
+            if "queued_followup_at" in keys
             else None,
         )
 

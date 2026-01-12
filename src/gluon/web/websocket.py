@@ -276,6 +276,53 @@ class WebSocketManager:
         }
         await self._send_to_subscribers(run_id, message)
 
+    async def broadcast_pending_questions(
+        self,
+        run_id: str,
+        questions: list[dict[str, Any]],
+        question_ids: list[str],
+    ) -> None:
+        """Broadcast new pending questions to all clients.
+
+        Args:
+            run_id: The run ID the questions belong to
+            questions: List of question dicts from AskUserQuestion tool
+            question_ids: List of PendingQuestion IDs (parallel to questions)
+        """
+        message = {
+            "type": "pending_questions",
+            "run_id": run_id,
+            "questions": [
+                {
+                    "id": qid,
+                    "question": q.get("question", ""),
+                    "header": q.get("header", "Question"),
+                    "options": q.get("options", []),
+                    "multi_select": q.get("multiSelect", False),
+                }
+                for qid, q in zip(question_ids, questions)
+            ],
+        }
+        # Broadcast to all clients (not just subscribers) so any open dashboard sees it
+        await self.broadcast(message)
+        # Also send to run subscribers
+        await self._send_to_subscribers(run_id, message)
+
+    async def broadcast_question_answered(self, run_id: str, question_id: str) -> None:
+        """Broadcast that a question was answered.
+
+        Args:
+            run_id: The run ID the question belongs to
+            question_id: The PendingQuestion ID that was answered
+        """
+        message = {
+            "type": "question_answered",
+            "run_id": run_id,
+            "question_id": question_id,
+        }
+        await self.broadcast(message)
+        await self._send_to_subscribers(run_id, message)
+
     async def handle_client_message(self, websocket: WebSocket, data: str) -> None:
         """Handle incoming WebSocket message from client."""
         try:

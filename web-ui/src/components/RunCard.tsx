@@ -71,6 +71,9 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       ? 'review'
       : run.status
 
+  // Card is in "done" state - completed and not awaiting review
+  const isDone = run.status === 'completed' && effectiveStatus !== 'review'
+
   return (
     <div
       className={cn(
@@ -216,8 +219,8 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         )}
       </div>
 
-      {/* Ralph Loop Progress */}
-      {run.ralph_enabled && (
+      {/* Ralph Loop Progress - hide for done cards to keep them simple */}
+      {run.ralph_enabled && !isDone && (
         <div className="mt-2 sm:mt-3 space-y-1.5">
           {/* Progress bar */}
           <div className="flex items-center gap-2">

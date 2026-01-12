@@ -16,6 +16,9 @@ import type {
   GitSyncResponse,
   ImageAttachment,
   LogResponse,
+  // AskUserQuestion types
+  PendingQuestion,
+  PendingQuestionsResponse,
   Project,
   ProjectDetail,
   ProjectUsage,
@@ -123,6 +126,21 @@ export async function resumeRun(runId: string, prompt: string): Promise<ResumeRu
   })
 }
 
+/** Response from queue follow-up operation */
+export interface QueueFollowupResponse {
+  run_id: string
+  action: 'queued' | 'resume_now'
+  message: string | null
+}
+
+/** Queue a follow-up message for a running task (will auto-resume after completion) */
+export async function queueFollowup(runId: string, message: string): Promise<QueueFollowupResponse> {
+  return fetchJson<QueueFollowupResponse>(`/runs/${runId}/queue-followup`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  })
+}
+
 /** Recover a failed run (typically from context overflow) */
 export async function recoverRun(
   runId: string,
@@ -165,6 +183,24 @@ export async function fetchRalphIterations(
 export async function stopLoop(runId: string): Promise<StopLoopResponse> {
   return fetchJson<StopLoopResponse>(`/runs/${runId}/stop-loop`, {
     method: 'POST',
+  })
+}
+
+// ========== AskUserQuestion API ==========
+
+/** Fetch pending questions for a run */
+export async function fetchRunQuestions(runId: string): Promise<PendingQuestionsResponse> {
+  return fetchJson<PendingQuestionsResponse>(`/runs/${runId}/questions`)
+}
+
+/** Answer a pending question */
+export async function answerQuestion(
+  questionId: string,
+  selectedLabels: string[]
+): Promise<PendingQuestion> {
+  return fetchJson<PendingQuestion>(`/questions/${questionId}/answer`, {
+    method: 'POST',
+    body: JSON.stringify({ selected_labels: selectedLabels }),
   })
 }
 

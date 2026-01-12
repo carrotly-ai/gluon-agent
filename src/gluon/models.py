@@ -335,6 +335,10 @@ class ExecutionRun(BaseModel):
     last_supervision_resume_at: datetime | None = None  # When supervisor last resumed
     supervision_disabled_reason: str | None = None  # Why supervision was disabled
 
+    # Queued follow-up (for sending messages while task is running)
+    queued_followup: str | None = None  # Queued message to resume with after completion
+    queued_followup_at: datetime | None = None  # When the follow-up was queued
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING

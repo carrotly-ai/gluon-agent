@@ -22,6 +22,7 @@ from gluon.models import RunStatus
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
+    AnswerQuestionRequest,
     AttachImageRequest,
     BranchListResponse,
     BranchOperationResponse,
@@ -47,9 +48,13 @@ from gluon.web.models import (
     GitSyncResponse,
     ImageResponse,
     LogResponse,
+    PendingQuestionResponse,
+    PendingQuestionsResponse,
     ProjectDetailResponse,
     ProjectResponse,
     ProjectUsageResponse,
+    QueueFollowupRequest,
+    QueueFollowupResponse,
     # Ralph Loop models
     RalphIterationResponse,
     RalphIterationsResponse,
@@ -449,6 +454,48 @@ def create_app() -> FastAPI:
             new_run_id=resumed_run.id,
         )
 
+    @app.post("/api/runs/{run_id}/queue-followup", response_model=QueueFollowupResponse)
+    async def queue_followup(run_id: str, body: QueueFollowupRequest) -> QueueFollowupResponse:
+        """
+        Queue a follow-up message for a running task.
+
+        If the task is running/pending, the message is queued and will be
+        auto-resumed with after the task completes.
+
+        If the task is not running, returns action="resume_now" to indicate
+        the caller should use the normal resume endpoint instead.
+        """
+        from gluon.models import utc_now
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Check if task is currently running
+        if run.status not in (RunStatus.RUNNING, RunStatus.PENDING):
+            # Not running - caller should use normal resume
+            return QueueFollowupResponse(
+                run_id=run.id,
+                action="resume_now",
+                message=None,
+            )
+
+        # Queue the follow-up message
+        run.queued_followup = body.message
+        run.queued_followup_at = utc_now()
+        store.update_run(run)
+
+        # Broadcast update to WebSocket clients
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id) or "Unknown"
+        await ws_manager.broadcast_run_update(run, project_name)
+
+        return QueueFollowupResponse(
+            run_id=run.id,
+            action="queued",
+            message=body.message,
+        )
+
     @app.post("/api/runs/{run_id}/recover", response_model=RecoverRunResponse)
     async def recover_run(run_id: str, body: RecoverRunRequest | None = None) -> RecoverRunResponse:
         """
@@ -658,6 +705,82 @@ def create_app() -> FastAPI:
             runs=[run_to_response(r, project_lookup) for r in session_runs],
         )
 
+    # ========== AskUserQuestion Endpoints ==========
+
+    def _question_to_response(q) -> PendingQuestionResponse:
+        """Convert PendingQuestion to API response."""
+        return PendingQuestionResponse(
+            id=q.id,
+            run_id=q.run_id,
+            question_index=q.question_index,
+            question_text=q.question_text,
+            header=q.header,
+            options=q.options,
+            multi_select=q.multi_select,
+            status=q.status.value,
+            created_at=q.created_at.isoformat(),
+            expires_at=q.expires_at.isoformat() if q.expires_at else None,
+            selected_labels=q.selected_labels,
+            answer_source=q.answer_source,
+        )
+
+    @app.get("/api/runs/{run_id}/questions", response_model=PendingQuestionsResponse)
+    async def get_run_questions(run_id: str) -> PendingQuestionsResponse:
+        """
+        Get all questions for a run.
+
+        Returns both pending and answered questions for the run.
+        """
+        from gluon.models import QuestionStatus
+
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        questions = store.list_pending_questions(run.id)
+        has_pending = any(q.status == QuestionStatus.PENDING for q in questions)
+
+        return PendingQuestionsResponse(
+            run_id=run.id,
+            questions=[_question_to_response(q) for q in questions],
+            has_pending=has_pending,
+        )
+
+    @app.post("/api/questions/{question_id}/answer", response_model=PendingQuestionResponse)
+    async def answer_question(question_id: str, body: AnswerQuestionRequest) -> PendingQuestionResponse:
+        """
+        Submit an answer to a pending question.
+
+        The answer must contain at least one selected label from the question's options.
+        """
+        from gluon.models import QuestionStatus, utc_now
+
+        question = store.get_pending_question(question_id)
+        if not question:
+            raise HTTPException(status_code=404, detail=f"Question not found: {question_id}")
+
+        if question.status != QuestionStatus.PENDING:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question already answered (status: {question.status.value})",
+            )
+
+        # Validate at least one selection
+        if not body.selected_labels:
+            raise HTTPException(status_code=400, detail="At least one option must be selected")
+
+        # Update the question
+        question.status = QuestionStatus.ANSWERED
+        question.selected_labels = body.selected_labels
+        question.answer_source = "user"
+        question.answered_at = utc_now()
+        store.update_pending_question(question)
+
+        # Broadcast that question was answered
+        await ws_manager.broadcast_question_answered(question.run_id, question_id)
+
+        return _question_to_response(question)
+
     # ========== Ralph Loop Endpoints ==========
 
     @app.get("/api/runs/{run_id}/iterations", response_model=RalphIterationsResponse)
@@ -690,9 +813,7 @@ def create_app() -> FastAPI:
                     started_at=it.started_at.isoformat() if it.started_at else "",
                     ended_at=it.ended_at.isoformat() if it.ended_at else None,
                     duration_seconds=(
-                        (it.ended_at - it.started_at).total_seconds()
-                        if it.started_at and it.ended_at
-                        else None
+                        (it.ended_at - it.started_at).total_seconds() if it.started_at and it.ended_at else None
                     ),
                     files_changed=it.files_changed,
                     progress_detected=it.progress_detected,
@@ -2406,11 +2527,10 @@ def create_app() -> FastAPI:
             needs_pull=needs_pull,
             needs_push=needs_push,
             has_conflicts=cached_status.has_conflicts,
-            has_operation_in_progress=(
-                cached_status.is_rebase_in_progress or cached_status.is_merge_in_progress
-            ),
+            has_operation_in_progress=(cached_status.is_rebase_in_progress or cached_status.is_merge_in_progress),
             operation_type=(
-                "rebase" if cached_status.is_rebase_in_progress
+                "rebase"
+                if cached_status.is_rebase_in_progress
                 else ("merge" if cached_status.is_merge_in_progress else None)
             ),
             last_fetch_at=cached_status.last_fetch_at,
@@ -2451,12 +2571,9 @@ def create_app() -> FastAPI:
             needs_pull=needs_pull,
             needs_push=needs_push,
             has_conflicts=status.has_conflicts,
-            has_operation_in_progress=(
-                status.is_rebase_in_progress or status.is_merge_in_progress
-            ),
+            has_operation_in_progress=(status.is_rebase_in_progress or status.is_merge_in_progress),
             operation_type=(
-                "rebase" if status.is_rebase_in_progress
-                else ("merge" if status.is_merge_in_progress else None)
+                "rebase" if status.is_rebase_in_progress else ("merge" if status.is_merge_in_progress else None)
             ),
             last_fetch_at=status.last_fetch_at,
         )
@@ -2552,8 +2669,7 @@ def create_app() -> FastAPI:
                 updated_status = await _build_git_status_response(new_status)
 
                 pull_message = (
-                    f"Pulled {result.commits_pulled} commits"
-                    if result.commits_pulled else "Already up to date"
+                    f"Pulled {result.commits_pulled} commits" if result.commits_pulled else "Already up to date"
                 )
                 return GitSyncResponse(
                     success=True,
@@ -2664,12 +2780,9 @@ def create_app() -> FastAPI:
             needs_pull=needs_pull,
             needs_push=needs_push,
             has_conflicts=status.has_conflicts,
-            has_operation_in_progress=(
-                status.is_rebase_in_progress or status.is_merge_in_progress
-            ),
+            has_operation_in_progress=(status.is_rebase_in_progress or status.is_merge_in_progress),
             operation_type=(
-                "rebase" if status.is_rebase_in_progress
-                else ("merge" if status.is_merge_in_progress else None)
+                "rebase" if status.is_rebase_in_progress else ("merge" if status.is_merge_in_progress else None)
             ),
             last_fetch_at=status.last_fetch_at,
         )
@@ -2914,9 +3027,7 @@ def create_app() -> FastAPI:
                         if triggered_comment:
                             # Post "Addressing feedback..." comment
                             author = triggered_comment.get("author", "reviewer")
-                            await pr_monitor.post_pr_comment(
-                                run, f"Addressing feedback from @{author}..."
-                            )
+                            await pr_monitor.post_pr_comment(run, f"Addressing feedback from @{author}...")
                             # Auto-resume to address the comment
                             updated_run = await pr_monitor.auto_resume_for_comment(run, triggered_comment)
                             if updated_run:
@@ -2941,9 +3052,7 @@ def create_app() -> FastAPI:
 
                         if pr_info and pr_info.get("status") == "merged":
                             # PR was merged - transition to COMPLETED
-                            logger.info(
-                                f"PR #{run.pr_number} merged - transitioning run {run.id[:8]} to COMPLETED"
-                            )
+                            logger.info(f"PR #{run.pr_number} merged - transitioning run {run.id[:8]} to COMPLETED")
                             run.pr_status = "merged"
                             run.status = RunStatus.COMPLETED
                             store.update_run(run)

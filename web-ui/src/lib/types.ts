@@ -42,6 +42,9 @@ export interface Run {
   completion_reason?: string | null
   calls_this_hour?: number
   max_calls_per_hour?: number
+  // Queued follow-up (for message injection while task is running)
+  queued_followup?: string | null
+  queued_followup_at?: string | null
 }
 
 /** Detailed run response (includes additional fields) */
@@ -75,6 +78,9 @@ export interface RunDetail extends Run {
   consecutive_same_error?: number
   test_only_loops?: number
   max_cost_usd?: number | null
+  // Queued follow-up (inherits from Run, but explicit here for clarity)
+  queued_followup?: string | null
+  queued_followup_at?: string | null
 }
 
 /** Request body for creating a new run */
@@ -246,6 +252,8 @@ export type WebSocketMessageType =
   | 'progress'
   | 'token_update'
   | 'loop_progress'
+  | 'pending_questions'
+  | 'question_answered'
   | 'subscribed'
   | 'unsubscribed'
   | 'pong'
@@ -329,6 +337,8 @@ export type WSMessage =
   | ProgressMessage
   | TokenUpdateMessage
   | LoopProgressMessage
+  | PendingQuestionsMessage
+  | QuestionAnsweredMessage
   | SubscribedMessage
   | WebSocketMessage
 
@@ -693,4 +703,58 @@ export interface GitSyncResponse {
   commits_pushed: number
   files_committed: number
   updated_status: GitStatusInfo | null
+}
+
+// ========== AskUserQuestion Types ==========
+
+/** Question status enum */
+export type QuestionStatus = 'pending' | 'answered' | 'auto_answered' | 'expired'
+
+/** Question option */
+export interface QuestionOption {
+  label: string
+  description?: string
+}
+
+/** Pending question from AskUserQuestion tool */
+export interface PendingQuestion {
+  id: string
+  run_id: string
+  question_index: number
+  question_text: string
+  header: string
+  options: QuestionOption[]
+  multi_select: boolean
+  status: QuestionStatus
+  created_at: string
+  expires_at: string | null
+  selected_labels: string[] | null
+  answer_source: string | null
+}
+
+/** Response for pending questions list */
+export interface PendingQuestionsResponse {
+  run_id: string
+  questions: PendingQuestion[]
+  has_pending: boolean
+}
+
+/** WebSocket message for pending questions */
+export interface PendingQuestionsMessage extends WebSocketMessage {
+  type: 'pending_questions'
+  run_id: string
+  questions: {
+    id: string
+    question: string
+    header: string
+    options: QuestionOption[]
+    multi_select: boolean
+  }[]
+}
+
+/** WebSocket message for question answered */
+export interface QuestionAnsweredMessage extends WebSocketMessage {
+  type: 'question_answered'
+  run_id: string
+  question_id: string
 }

@@ -720,3 +720,51 @@ class StopLoopResponse(BaseModel):
     run_id: str
     message: str = Field(description="Result message")
     final_loop_count: int = Field(description="Final loop count when stopped")
+
+
+# ========== AskUserQuestion Models ==========
+
+
+class PendingQuestionResponse(BaseModel):
+    """Response model for a pending question."""
+
+    id: str
+    run_id: str
+    question_index: int = Field(description="Index of question in batch (0-based)")
+    question_text: str = Field(description="The question text")
+    header: str = Field(description="Short label/header for the question")
+    options: list[dict[str, str]] = Field(description="List of options with label and description")
+    multi_select: bool = Field(default=False, description="Whether multiple options can be selected")
+    status: str = Field(description="Status: pending, answered, auto_answered, expired")
+    created_at: str = Field(description="Creation timestamp")
+    expires_at: str | None = Field(default=None, description="Expiration timestamp")
+    selected_labels: list[str] | None = Field(default=None, description="Selected option labels")
+    answer_source: str | None = Field(default=None, description="Source of answer: user, timeout_auto, etc.")
+
+
+class AnswerQuestionRequest(BaseModel):
+    """Request model for answering a question."""
+
+    selected_labels: list[str] = Field(description="List of selected option labels")
+
+
+class PendingQuestionsResponse(BaseModel):
+    """Response model for questions on a run."""
+
+    run_id: str
+    questions: list[PendingQuestionResponse]
+    has_pending: bool = Field(description="Whether there are pending (unanswered) questions")
+
+
+class QueueFollowupRequest(BaseModel):
+    """Request model for queuing a follow-up message."""
+
+    message: str = Field(description="The follow-up message to queue")
+
+
+class QueueFollowupResponse(BaseModel):
+    """Response model for queue-followup endpoint."""
+
+    run_id: str
+    action: str = Field(description="Action taken: 'queued' or 'resume_now'")
+    message: str | None = Field(default=None, description="The queued message if action is 'queued'")
