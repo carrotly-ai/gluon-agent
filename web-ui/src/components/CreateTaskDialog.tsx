@@ -19,7 +19,7 @@ const MODEL_OPTIONS = [
   { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5', description: 'Fastest' },
 ]
 
-const DEFAULT_MODEL = 'claude-sonnet-4.5'
+const DEFAULT_MODEL = 'claude-opus-4.5'
 const MODEL_STORAGE_KEY = 'gluon-last-model'
 const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
 const RALPH_ENABLED_STORAGE_KEY = 'gluon-ralph-enabled'
