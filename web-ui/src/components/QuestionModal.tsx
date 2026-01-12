@@ -11,7 +11,7 @@ interface QuestionModalProps {
   onClose: () => void
 }
 
-export function QuestionModal({ runId, questions, onAnswer, onClose }: QuestionModalProps) {
+export function QuestionModal({ runId: _runId, questions, onAnswer, onClose }: QuestionModalProps) {
   const pendingQuestions = questions.filter((q) => q.status === 'pending')
 
   // Track current question index (for multi-question batches)
