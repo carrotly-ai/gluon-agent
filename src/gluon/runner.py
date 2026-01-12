@@ -978,7 +978,68 @@ but explicit commits with good messages are preferred.
                     f.write(f"Total cost: ${updated_run.cost_usd:.4f}\n")
                 f.write(f"{'=' * 60}\n")
 
-            # Auto-commit and PR creation handled in RalphManager
+            # Git operations for worktree runs (same as regular task completion)
+            project = self.store.get_project(run.project_id)
+            if project and updated_run.status == RunStatus.REVIEW:
+                working_path = Path(run.worktree_path) if run.worktree_path else project.expanded_path
+
+                # Capture git info
+                try:
+                    git_info = await self.git_manager.capture_run_git_info(working_path)
+                    updated_run.branch_name = git_info.get("branch_name") or updated_run.branch_name
+                    updated_run.git_commit_sha = git_info.get("git_commit_sha")
+                except Exception as git_err:
+                    with open(stdout_path, "a") as f:
+                        f.write(f"Warning: Failed to capture git info: {git_err}\n")
+
+                # Auto-commit and create PR for worktree runs
+                auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
+                if updated_run.use_worktree and updated_run.branch_name:
+                    # Auto-commit uncommitted changes
+                    try:
+                        prompt_preview = updated_run.prompt[:60]
+                        ellipsis = "..." if len(updated_run.prompt) > 60 else ""
+                        commit_msg = (
+                            f"chore: {prompt_preview}{ellipsis}\n\n"
+                            f"Auto-committed by Gluon Agent (Ralph Loop)\nRun ID: {updated_run.id}"
+                        )
+                        commit_result = await self.git_manager.auto_commit_changes(
+                            path=working_path,
+                            message=commit_msg,
+                            run_id=updated_run.id,
+                        )
+                        if commit_result.get("committed"):
+                            with open(stdout_path, "a") as f:
+                                f.write(f"✓ Auto-committed {commit_result['files_count']} file(s)\n")
+                    except Exception as commit_err:
+                        with open(stdout_path, "a") as f:
+                            f.write(f"Warning: Auto-commit failed: {commit_err}\n")
+
+                    # Push and create PR
+                    if auto_create_pr:
+                        try:
+                            pr_result = await self.git_manager.push_branch_and_create_pr(
+                                project_path=working_path,
+                                branch_name=updated_run.branch_name,
+                                prompt=updated_run.prompt,
+                                run_id=updated_run.id,
+                            )
+                            if pr_result.get("pushed"):
+                                with open(stdout_path, "a") as f:
+                                    f.write(f"✓ Pushed branch {updated_run.branch_name} to remote\n")
+                            if pr_result.get("pr_url"):
+                                updated_run.pr_number = pr_result.get("pr_number")
+                                updated_run.pr_url = pr_result.get("pr_url")
+                                updated_run.pr_status = pr_result.get("pr_status")
+                                with open(stdout_path, "a") as f:
+                                    f.write(f"✓ Created PR: {updated_run.pr_url}\n")
+                                self.store.update_run(updated_run)
+                            elif pr_result.get("error"):
+                                with open(stdout_path, "a") as f:
+                                    f.write(f"Warning: PR creation: {pr_result['error']}\n")
+                        except Exception as pr_err:
+                            with open(stdout_path, "a") as f:
+                                f.write(f"Warning: Failed to push/create PR: {pr_err}\n")
 
         except Exception as e:
             logger.error(f"Ralph loop failed: {e}")

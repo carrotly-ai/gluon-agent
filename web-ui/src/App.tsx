@@ -20,6 +20,7 @@ import {
   fetchRun,
   fetchRuns,
   fetchUsageSummary,
+  stopLoop,
 } from './lib/api'
 import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
@@ -165,6 +166,27 @@ function App() {
         await archiveRun(run.id)
       } catch (err) {
         console.error('Failed to archive run:', err)
+      }
+    },
+    [setRuns]
+  )
+
+  const handleStopLoop = useCallback(
+    async (run: Run) => {
+      try {
+        const response = await stopLoop(run.id)
+        if (response.success) {
+          // Update will come via WebSocket, but we can optimistically update
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.id === run.id
+                ? { ...r, status: 'review' as const, completion_reason: response.message }
+                : r
+            )
+          )
+        }
+      } catch (err) {
+        console.error('Failed to stop loop:', err)
       }
     },
     [setRuns]
@@ -328,6 +350,7 @@ function App() {
             onRunClick={handleRunClick}
             onCancelRun={handleCancelRun}
             onArchiveRun={handleArchiveRun}
+            onStopLoop={handleStopLoop}
             onRunUpdate={handleRunUpdated}
             onRefresh={refresh}
           />

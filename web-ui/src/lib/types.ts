@@ -11,6 +11,7 @@ export interface Run {
   project_name: string
   status: RunStatus
   prompt: string
+  original_prompt: string | null // Original task prompt (preserved across resumes)
   initiator: string | null
   created_at: string
   started_at: string | null

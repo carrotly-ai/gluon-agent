@@ -306,6 +306,8 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_supervision_decisions_timestamp ON supervision_decisions(timestamp);",
     # Circuit breaker HALF_OPEN tracking (missing from original ralph fields)
     "ALTER TABLE execution_runs ADD COLUMN half_open_iterations INTEGER DEFAULT 0;",
+    # Original prompt preservation (for auto-resume to reference original task)
+    "ALTER TABLE execution_runs ADD COLUMN original_prompt TEXT;",
     # Pending questions table for AskUserQuestion support
     """
     CREATE TABLE IF NOT EXISTS pending_questions (
@@ -910,6 +912,7 @@ class GluonStore:
         run = ExecutionRun(
             project_id=project_id,
             prompt=prompt,
+            original_prompt=prompt,  # Preserve original prompt for auto-resume
             initiator=initiator,
             session_id=session_id,
             use_worktree=use_worktree,
@@ -923,10 +926,10 @@ class GluonStore:
             conn.execute(
                 """
                 INSERT INTO execution_runs
-                (id, session_id, project_id, pid, status, prompt, initiator, created_at,
+                (id, session_id, project_id, pid, status, prompt, original_prompt, initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message, model,
                  ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -935,6 +938,7 @@ class GluonStore:
                     run.pid,
                     run.status.value,
                     run.prompt,
+                    run.original_prompt,
                     run.initiator,
                     run.created_at.isoformat(),
                     run.started_at.isoformat() if run.started_at else None,
@@ -1027,7 +1031,7 @@ class GluonStore:
             conn.execute(
                 """
                 UPDATE execution_runs
-                SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, prompt = ?,
+                SET session_id = ?, claude_session_id = ?, pid = ?, status = ?, prompt = ?, original_prompt = ?,
                     started_at = ?, completed_at = ?, exit_code = ?, log_path = ?, error_message = ?,
                     thread_id = ?, cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?,
                     branch_name = ?, source_branch = ?, worktree_path = ?, use_worktree = ?,
@@ -1051,6 +1055,7 @@ class GluonStore:
                     run.pid,
                     run.status.value,
                     run.prompt,
+                    run.original_prompt,
                     run.started_at.isoformat() if run.started_at else None,
                     run.completed_at.isoformat() if run.completed_at else None,
                     run.exit_code,
@@ -1167,6 +1172,7 @@ class GluonStore:
             pid=row["pid"],
             status=RunStatus(row["status"]),
             prompt=row["prompt"],
+            original_prompt=row["original_prompt"] if "original_prompt" in keys else None,
             initiator=row["initiator"] if "initiator" in keys else None,
             thread_id=row["thread_id"] if "thread_id" in keys else None,
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]

@@ -265,8 +265,11 @@ class ResumeCoordinator:
 
         context = "\n".join(context_parts)
 
+        # Use original_prompt if available (preserved across resumes), else fall back to prompt
+        task_prompt = run.original_prompt or run.prompt
+
         # Prepend context to original prompt
-        return f"{context}\n\n---\n\nContinue with the original task:\n\n{run.prompt}"
+        return f"{context}\n\n---\n\nContinue with the original task:\n\n{task_prompt}"
 
     async def disable_supervision(self, run_id: str, reason: str) -> bool:
         """Disable supervision for a specific run.

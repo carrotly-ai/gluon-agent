@@ -27,6 +27,7 @@ interface KanbanBoardProps {
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
   onArchiveRun: (run: Run) => void
+  onStopLoop: (run: Run) => void
   onRunUpdate?: (run: Run) => void
   onRefresh?: () => Promise<void>
 }
@@ -48,6 +49,7 @@ interface DraggableRunCardProps {
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
+  onStopLoop?: () => void
   isDragging?: boolean
 }
 
@@ -56,6 +58,7 @@ function DraggableRunCard({
   onClick,
   onCancel,
   onArchive,
+  onStopLoop,
   isDragging,
 }: DraggableRunCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: run.id })
@@ -68,7 +71,7 @@ function DraggableRunCard({
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} />
+      <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} onStopLoop={onStopLoop} />
     </div>
   )
 }
@@ -81,6 +84,7 @@ interface DroppableColumnProps {
   onRunClick: (run: Run) => void
   onCancelRun: (run: Run) => void
   onArchiveRun: (run: Run) => void
+  onStopLoop: (run: Run) => void
   isOver?: boolean
   canDrop?: boolean
   activeRun?: Run | null
@@ -93,6 +97,7 @@ function DroppableColumn({
   onRunClick,
   onCancelRun,
   onArchiveRun,
+  onStopLoop,
   isOver,
   canDrop,
   activeRun,
@@ -144,6 +149,9 @@ function DroppableColumn({
                 onArchive={
                   status !== 'running' && status !== 'pending' ? () => onArchiveRun(run) : undefined
                 }
+                onStopLoop={
+                  run.ralph_enabled && status === 'running' ? () => onStopLoop(run) : undefined
+                }
               />
             ))
           )}
@@ -158,6 +166,7 @@ export function KanbanBoard({
   onRunClick,
   onCancelRun,
   onArchiveRun,
+  onStopLoop,
   onRunUpdate,
   onRefresh,
 }: KanbanBoardProps) {
@@ -314,6 +323,7 @@ export function KanbanBoard({
               onRunClick={onRunClick}
               onCancelRun={onCancelRun}
               onArchiveRun={onArchiveRun}
+              onStopLoop={onStopLoop}
             />
           </PullToRefresh>
         </div>
@@ -331,6 +341,7 @@ export function KanbanBoard({
                 onRunClick={onRunClick}
                 onCancelRun={onCancelRun}
                 onArchiveRun={onArchiveRun}
+                onStopLoop={onStopLoop}
                 isOver={overId === status}
                 canDrop={canDropOnColumn(status)}
                 activeRun={activeRun}

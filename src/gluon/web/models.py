@@ -13,6 +13,7 @@ class RunResponse(BaseModel):
     project_name: str = Field(description="Denormalized project name for display")
     status: str
     prompt: str
+    original_prompt: str | None = Field(default=None, description="Original task prompt (preserved across resumes)")
     initiator: str | None = None
     created_at: datetime
     started_at: datetime | None = None

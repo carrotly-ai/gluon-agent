@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -133,6 +134,15 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json",
     )
 
+    # Add CORS middleware to handle localhost/IP differences
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     # Shared instances
     store = GluonStore()
     orchestrator = Orchestrator(store=store)
@@ -151,6 +161,7 @@ def create_app() -> FastAPI:
             project_name=project_lookup.get(run.project_id, run.project_id[:8]),
             status=run.status.value,
             prompt=run.prompt,
+            original_prompt=run.original_prompt,
             initiator=run.initiator,
             created_at=run.created_at,
             started_at=run.started_at,
@@ -286,6 +297,7 @@ def create_app() -> FastAPI:
             project_name=project_lookup.get(run.project_id, run.project_id[:8]),
             status=run.status.value,
             prompt=run.prompt,
+            original_prompt=run.original_prompt,
             initiator=run.initiator,
             created_at=run.created_at,
             started_at=run.started_at,

@@ -1,4 +1,4 @@
-import { Archive, ExternalLink, GitBranch, RefreshCw, X, Zap } from 'lucide-react'
+import { Archive, ExternalLink, GitBranch, RefreshCw, Square, X, Zap } from 'lucide-react'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { CircuitState, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -35,6 +35,7 @@ interface RunCardProps {
   onClick: () => void
   onCancel?: () => void
   onArchive?: () => void
+  onStopLoop?: () => void
 }
 
 // Map status to CSS variable for border color
@@ -60,7 +61,7 @@ function getStatusBorderColor(status: string, isRecovering?: boolean): string {
   }
 }
 
-export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
+export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCardProps) {
   const isActive = run.status === 'running' || run.status === 'pending'
   const isRecovering = run.is_recovering
 
@@ -237,6 +238,19 @@ export function RunCard({ run, onClick, onCancel, onArchive }: RunCardProps) {
             <span className="text-caption text-[var(--color-stone)]/60 min-w-[50px] text-right">
               {run.loop_count || 0}/{run.max_loops || 50}
             </span>
+            {/* Stop Loop button - only for running ralph tasks */}
+            {run.status === 'running' && onStopLoop && (
+              <button
+                className="p-1 text-[var(--color-stone)]/50 hover:text-amber-400 hover:bg-amber-400/10 rounded-sm transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStopLoop()
+                }}
+                title="Stop loop gracefully"
+              >
+                <Square className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           {/* Status row: Circuit state + cost */}

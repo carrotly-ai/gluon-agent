@@ -253,7 +253,8 @@ class ExecutionRun(BaseModel):
     project_id: str  # FK to Project
     pid: int | None = None  # OS process ID for cancellation
     status: RunStatus = RunStatus.PENDING
-    prompt: str  # The task prompt
+    prompt: str  # The task prompt (may be updated on resume)
+    original_prompt: str | None = None  # Original task prompt (preserved across resumes)
     model: str | None = None  # Requested model (e.g., "claude-haiku-4.5", "haiku")
     initiator: str | None = None  # Who started the run (e.g., "cli", "telegram:12345")
     thread_id: str | None = None  # Discord/Slack thread ID for resume detection
