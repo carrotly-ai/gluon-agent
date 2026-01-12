@@ -851,9 +851,10 @@ Focus on preserving functionality from both sides where possible.`
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
   const hasErrors = !!logs.stderr
+  // Allow resuming any non-active run (completed, failed, review)
+  // Session ID is optional - backend will start fresh if no prior session
   const isResumable =
-    (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review') &&
-    detail?.session_id
+    run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review'
   const hasHistory = sessionHistory.length > 0
 
   return (
