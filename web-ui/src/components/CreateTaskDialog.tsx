@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, GitBranch, Image as ImageIcon, Play, Refresh
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { createRun, fetchProjects, uploadAndAttachImage } from '@/lib/api'
-import type { Project, ProjectWithWorkspace } from '@/lib/types'
+import type { Project, ProjectWithWorkspace, TaskProfile, ThinkingBudget } from '@/lib/types'
 import { groupProjectsByWorkspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -264,10 +264,10 @@ export function CreateTaskDialog({
         project_name: selectedProject,
         prompt: prompt.trim(),
         // Profile-based options
-        profile,
+        profile: profile as TaskProfile,
         model: modelOverride || profileConfig?.model || 'sonnet',
         model_override: modelOverride || undefined,
-        thinking_override: thinkingOverride || undefined,
+        thinking_override: thinkingOverride ? (thinkingOverride as ThinkingBudget) : undefined,
         max_budget_override: budgetOverrideValue,
         force_planning: profile === 'planning',
         // Existing options
