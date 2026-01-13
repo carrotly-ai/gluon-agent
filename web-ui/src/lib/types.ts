@@ -86,11 +86,24 @@ export interface RunDetail extends Run {
   max_cost_usd?: number | null
 }
 
+/** Task profile options */
+export type TaskProfile = 'quick' | 'standard' | 'deep' | 'planning'
+
+/** Thinking budget options */
+export type ThinkingBudget = 'none' | 'low' | 'medium' | 'high' | 'ultrathink'
+
 /** Request body for creating a new run */
 export interface CreateRunRequest {
   project_name: string
   prompt: string
+  // Profile-based options
+  profile?: TaskProfile
   model?: string
+  model_override?: string
+  thinking_override?: ThinkingBudget
+  max_budget_override?: number
+  force_planning?: boolean
+  // Existing options
   use_worktree?: boolean
   // Ralph Loop options (autonomous execution mode)
   ralph_enabled?: boolean

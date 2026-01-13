@@ -12,7 +12,7 @@ from gluon.agent import AgentMessage, AgentResult
 from gluon.chat_agent import ChatMessage, GluonChatAgent
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.git_manager import GitManager
-from gluon.models import ExecutionRun
+from gluon.models import ExecutionRun, TaskProfile, ThinkingBudget
 from gluon.models_config import ModelTier
 from gluon.runner import format_duration, format_run_status
 from gluon.store import GluonStore
@@ -240,6 +240,12 @@ class GluonBotCore:
         create_thread_callback: Callable[[TransportContext, str, str | None], Coroutine[Any, Any, str | None]]
         | None = None,
         use_worktree: bool = False,
+        # Task profile options
+        profile: TaskProfile | str | None = None,
+        thinking_budget: ThinkingBudget | str | None = None,
+        max_turns: int | None = None,
+        max_budget_usd: float | None = None,
+        force_planning: bool | None = None,
     ) -> None:
         """Execute a Gluon task with streaming updates.
 
@@ -257,6 +263,11 @@ class GluonBotCore:
             initial_msg_id: ID of initial message (for threading)
             create_thread_callback: Optional callback to create threads
             use_worktree: Execute in isolated Git worktree (default: False)
+            profile: Task profile (quick, standard, deep, planning)
+            thinking_budget: Thinking budget override
+            max_turns: Maximum conversation turns
+            max_budget_usd: Maximum cost in USD
+            force_planning: Force planning mode
         """
         result: AgentResult | None = None
         message_buffer: list[str] = []
@@ -293,6 +304,12 @@ class GluonBotCore:
                     model=model,
                     session_id=session_id,
                     use_worktree=use_worktree,
+                    # Task profile options
+                    profile=profile,
+                    thinking_budget=thinking_budget,
+                    max_turns=max_turns,
+                    max_budget_usd=max_budget_usd,
+                    force_planning=force_planning,
                 )
 
                 async for item in execution:

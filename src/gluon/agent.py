@@ -22,6 +22,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from gluon.models import PLANNING_SYSTEM_PROMPT
 from gluon.models_config import get_model_id
 
 # Type for question handler callback
@@ -259,6 +260,10 @@ class GluonAgent:
         cli_path: Path | str | None = None,
         question_handler: QuestionHandler | None = None,
         run_id: str | None = None,
+        max_thinking_tokens: int | None = None,
+        max_turns: int | None = None,
+        max_budget_usd: float | None = None,
+        force_planning: bool = False,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -274,6 +279,11 @@ class GluonAgent:
         # Question handler for AskUserQuestion support
         self.question_handler = question_handler
         self.run_id = run_id
+        # Task profile options
+        self.max_thinking_tokens = max_thinking_tokens
+        self.max_turns = max_turns
+        self.max_budget_usd = max_budget_usd
+        self.force_planning = force_planning
 
     async def _can_use_tool(
         self,
@@ -317,7 +327,6 @@ class GluonAgent:
         resume_session_id: str | None = None,
         fork_session: bool = False,
         new_session_id: str | None = None,
-        max_thinking_tokens: int = 10000,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -330,8 +339,6 @@ class GluonAgent:
             new_session_id: If provided, use this as the session ID for new sessions.
                            This helps avoid control channel conflicts with other
                            Claude processes.
-            max_thinking_tokens: Token budget for extended thinking (default 10000).
-                                Use 32000 for "ultrathink" mode.
         """
         # Find MCP config (project-level takes precedence over host config)
         mcp_config = find_mcp_config(working_dir)
@@ -341,14 +348,29 @@ class GluonAgent:
         # Without MCP, use the configured allowed_tools list
         effective_tools = None if mcp_config else self.allowed_tools
 
+        # Use configured thinking tokens, default to 10000 if not set
+        thinking_tokens = self.max_thinking_tokens if self.max_thinking_tokens is not None else 10000
+
         options = ClaudeAgentOptions(
             cwd=working_dir,
             allowed_tools=effective_tools,
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
-            max_thinking_tokens=max_thinking_tokens,
+            max_thinking_tokens=thinking_tokens,
         )
+
+        # Add max_turns if configured
+        if self.max_turns is not None:
+            options.max_turns = self.max_turns
+
+        # Add max_budget_usd if configured
+        if self.max_budget_usd is not None:
+            options.max_budget_usd = self.max_budget_usd
+
+        # Inject planning system prompt if force_planning is enabled
+        if self.force_planning:
+            options.append_system_prompt = PLANNING_SYSTEM_PROMPT
 
         # Add can_use_tool callback if question handler is configured
         # This enables AskUserQuestion support
@@ -401,17 +423,10 @@ class GluonAgent:
             AgentMessage during execution
             AgentResult as final yield
         """
-        # Determine thinking budget based on prompt content
-        # "ultrathink" triggers maximum thinking budget (32k tokens)
-        prompt_text = prompt.text if isinstance(prompt, MultimodalPrompt) else prompt
-        max_thinking = 32000 if "ultrathink" in prompt_text.lower() else 10000
-
         # Generate a unique session ID for new sessions to avoid control
         # channel conflicts with other Claude processes
         new_session_id = str(uuid.uuid4()) if not resume_session_id else None
-        options = self._build_options(
-            working_dir, resume_session_id, fork_session, new_session_id, max_thinking
-        )
+        options = self._build_options(working_dir, resume_session_id, fork_session, new_session_id)
 
         # Build multimodal prompt if images provided
         if images:

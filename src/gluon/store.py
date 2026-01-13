@@ -380,6 +380,8 @@ MIGRATIONS = [
     # Flags on execution_runs to track snapshot status
     "ALTER TABLE execution_runs ADD COLUMN changes_snapshotted INTEGER DEFAULT 0;",
     "ALTER TABLE execution_runs ADD COLUMN snapshot_at TEXT;",
+    # Task profile metadata (JSON blob)
+    "ALTER TABLE execution_runs ADD COLUMN metadata TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1099,7 +1101,8 @@ class GluonStore:
                     hour_start = ?, supervision_config = ?,
                     supervision_auto_resume_count = ?, last_supervision_check_at = ?,
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?,
-                    queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?
+                    queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?,
+                    metadata = ?
                 WHERE id = ?
                 """,
                 (
@@ -1166,6 +1169,8 @@ class GluonStore:
                     # Snapshot tracking
                     1 if run.changes_snapshotted else 0,
                     run.snapshot_at.isoformat() if run.snapshot_at else None,
+                    # Task profile metadata
+                    json.dumps(run.metadata) if run.metadata else None,
                     run.id,
                 ),
             )
@@ -1351,6 +1356,8 @@ class GluonStore:
             if "changes_snapshotted" in keys and row["changes_snapshotted"] is not None
             else False,
             snapshot_at=_parse_datetime(row["snapshot_at"]) if "snapshot_at" in keys else None,
+            # Task profile metadata
+            metadata=json.loads(row["metadata"]) if "metadata" in keys and row["metadata"] else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:

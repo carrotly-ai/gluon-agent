@@ -827,10 +827,26 @@ def run(
     max_loops: Annotated[int, typer.Option("--max-loops", help="Max loop iterations (ralph mode)")] = 50,
     max_calls: Annotated[int, typer.Option("--max-calls", help="Max API calls per hour (ralph mode)")] = 100,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Max cost in USD (ralph mode)")] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-P", help="Task profile: quick/standard/deep/planning"),
+    ] = None,
+    thinking: Annotated[
+        str | None,
+        typer.Option("--thinking", help="Thinking budget: none/low/medium/high/ultrathink"),
+    ] = None,
+    planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,
 ):
     """Execute a task on a project.
 
+    Use --profile to select a task profile (quick/standard/deep/planning).
     Use --ralph for autonomous loop mode that iterates until completion.
+
+    Profiles bundle model + thinking budget + cost limits:
+      quick    - Haiku, no thinking, $0.50 budget
+      standard - Sonnet, 10k thinking, $3 budget (default)
+      deep     - Opus, 32k thinking, $15 budget
+      planning - Opus, plan before executing
     """
     orchestrator = get_orchestrator()
 
@@ -865,10 +881,15 @@ def run(
                 max_loops=max_loops,
                 max_calls_per_hour=max_calls,
                 max_cost_usd=max_cost,
+                profile=profile,
+                thinking_budget=thinking,
+                force_planning=planning if planning else None,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
             console.print(f"  Prompt: {prompt[:60]}{'...' if len(prompt) > 60 else ''}")
+            if profile:
+                console.print(f"  [blue]Profile:[/blue] {profile}")
             if ralph:
                 console.print(f"  [blue]Ralph mode:[/blue] max {max_loops} loops, {max_calls} calls/hr")
                 if max_cost:
@@ -888,8 +909,14 @@ def run(
 
         console.print(f"[bold]Running on project:[/bold] {project}")
         console.print(f"[bold]Prompt:[/bold] {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+        if profile:
+            console.print(f"[bold]Profile:[/bold] {profile}")
         if model_tier:
             console.print(f"[bold]Model:[/bold] {model_tier.value}")
+        if thinking:
+            console.print(f"[bold]Thinking:[/bold] {thinking}")
+        if planning:
+            console.print("[bold]Planning:[/bold] enabled (plan before executing)")
         if worktree:
             console.print("[bold]Worktree:[/bold] enabled (isolated execution)")
         console.print()
@@ -901,6 +928,9 @@ def run(
             model=model_tier,
             use_worktree=worktree,
             initiator="cli:foreground",
+            profile=profile,
+            thinking_budget=thinking,
+            force_planning=planning if planning else None,
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:

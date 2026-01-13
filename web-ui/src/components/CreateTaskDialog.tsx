@@ -1,4 +1,4 @@
-import { ChevronDown, GitBranch, Image as ImageIcon, Play, RefreshCw, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch, Image as ImageIcon, Play, RefreshCw, Settings, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { createRun, fetchProjects, uploadAndAttachImage } from '@/lib/api'
@@ -13,22 +13,42 @@ interface CreateTaskDialogProps {
   initialProject?: string
 }
 
-const MODEL_OPTIONS = [
-  { value: 'claude-opus-4.5', label: 'Claude Opus 4.5', description: 'Highest quality' },
-  { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5', description: 'Fast, high-quality' },
-  { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5', description: 'Fastest' },
+// Task profile options
+const PROFILE_OPTIONS = [
+  { value: 'quick', label: 'Quick', description: 'Haiku - Fast responses', model: 'haiku' },
+  { value: 'standard', label: 'Standard', description: 'Sonnet - Balanced (default)', model: 'sonnet' },
+  { value: 'deep', label: 'Deep', description: 'Opus - Maximum reasoning', model: 'opus' },
+  { value: 'planning', label: 'Planning', description: 'Opus - Plan before executing', model: 'opus' },
 ]
 
-const DEFAULT_MODEL = 'claude-opus-4.5'
-const MODEL_STORAGE_KEY = 'gluon-last-model'
+// Model options for advanced override
+const MODEL_OPTIONS = [
+  { value: '', label: 'Use profile default', description: '' },
+  { value: 'haiku', label: 'Haiku', description: 'Fastest' },
+  { value: 'sonnet', label: 'Sonnet', description: 'Balanced' },
+  { value: 'opus', label: 'Opus', description: 'Highest quality' },
+]
+
+// Thinking budget options for advanced override
+const THINKING_OPTIONS = [
+  { value: '', label: 'Use profile default', description: '' },
+  { value: 'none', label: 'None', description: '0 tokens' },
+  { value: 'low', label: 'Low', description: '4k tokens' },
+  { value: 'medium', label: 'Medium', description: '10k tokens' },
+  { value: 'high', label: 'High', description: '16k tokens' },
+  { value: 'ultrathink', label: 'Ultrathink', description: '32k tokens' },
+]
+
+const DEFAULT_PROFILE = 'standard'
+const PROFILE_STORAGE_KEY = 'gluon-profile'
 const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
 const RALPH_ENABLED_STORAGE_KEY = 'gluon-ralph-enabled'
 const RALPH_MAX_LOOPS_STORAGE_KEY = 'gluon-ralph-max-loops'
 
-// Get last used model from sessionStorage
-function getLastUsedModel(): string {
-  if (typeof window === 'undefined') return DEFAULT_MODEL
-  return sessionStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODEL
+// Get last used profile from sessionStorage
+function getLastUsedProfile(): string {
+  if (typeof window === 'undefined') return DEFAULT_PROFILE
+  return sessionStorage.getItem(PROFILE_STORAGE_KEY) || DEFAULT_PROFILE
 }
 
 // Get last worktree setting from sessionStorage
@@ -66,7 +86,7 @@ export function CreateTaskDialog({
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState(getLastUsedModel)
+  const [profile, setProfile] = useState(getLastUsedProfile)
   const [useWorktree, setUseWorktree] = useState(getLastWorktreeSetting)
   const [ralphEnabled, setRalphEnabled] = useState(getLastRalphEnabledSetting)
   const [maxLoops, setMaxLoops] = useState(getLastRalphMaxLoops)
@@ -74,7 +94,15 @@ export function CreateTaskDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
+
+  // Advanced options state
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [modelOverride, setModelOverride] = useState('')
+  const [thinkingOverride, setThinkingOverride] = useState('')
+  const [maxBudgetOverride, setMaxBudgetOverride] = useState<string>('')
+  const [advancedModelDropdownOpen, setAdvancedModelDropdownOpen] = useState(false)
+  const [advancedThinkingDropdownOpen, setAdvancedThinkingDropdownOpen] = useState(false)
 
   // Image upload state
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
@@ -109,10 +137,10 @@ export function CreateTaskDialog({
     pendingImages.forEach,
   ])
 
-  // Persist model selection to sessionStorage
+  // Persist profile selection to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem(MODEL_STORAGE_KEY, model)
-  }, [model])
+    sessionStorage.setItem(PROFILE_STORAGE_KEY, profile)
+  }, [profile])
 
   // Persist worktree setting to sessionStorage
   useEffect(() => {
@@ -227,10 +255,22 @@ export function CreateTaskDialog({
     try {
       // Create the run first
       const costValue = maxCostUsd ? parseFloat(maxCostUsd) : undefined
+      const budgetOverrideValue = maxBudgetOverride ? parseFloat(maxBudgetOverride) : undefined
+
+      // Get profile config for model fallback
+      const profileConfig = PROFILE_OPTIONS.find((p) => p.value === profile)
+
       const run = await createRun({
         project_name: selectedProject,
         prompt: prompt.trim(),
-        model,
+        // Profile-based options
+        profile,
+        model: modelOverride || profileConfig?.model || 'sonnet',
+        model_override: modelOverride || undefined,
+        thinking_override: thinkingOverride || undefined,
+        max_budget_override: budgetOverrideValue,
+        force_planning: profile === 'planning',
+        // Existing options
         use_worktree: useWorktree,
         ralph_enabled: ralphEnabled,
         max_loops: ralphEnabled ? maxLoops : undefined,
@@ -258,7 +298,9 @@ export function CreateTaskDialog({
     }
   }
 
-  const selectedModelOption = MODEL_OPTIONS.find((m) => m.value === model)
+  const selectedProfileOption = PROFILE_OPTIONS.find((p) => p.value === profile)
+  const selectedAdvancedModelOption = MODEL_OPTIONS.find((m) => m.value === modelOverride)
+  const selectedAdvancedThinkingOption = THINKING_OPTIONS.find((t) => t.value === thinkingOverride)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -433,46 +475,46 @@ export function CreateTaskDialog({
             )}
           </div>
 
-          {/* Model Select */}
+          {/* Profile Select */}
           <div>
             <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-              Model
+              Profile
             </label>
             <div className="relative">
               <button
                 type="button"
                 className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
               >
                 <span className="text-[var(--color-paper)]">
-                  {selectedModelOption?.label}
+                  {selectedProfileOption?.label}
                   <span className="ml-2 text-[var(--color-stone)]/60">
-                    {selectedModelOption?.description}
+                    {selectedProfileOption?.description}
                   </span>
                 </span>
                 <ChevronDown
                   className={cn(
                     'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                    modelDropdownOpen && 'rotate-180'
+                    profileDropdownOpen && 'rotate-180'
                   )}
                 />
               </button>
 
-              {modelDropdownOpen && (
+              {profileDropdownOpen && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                  {MODEL_OPTIONS.map((option) => (
+                  {PROFILE_OPTIONS.map((option) => (
                     <button
                       key={option.value}
                       type="button"
                       className={cn(
                         'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                        model === option.value
+                        profile === option.value
                           ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                           : 'text-[var(--color-stone)]'
                       )}
                       onClick={() => {
-                        setModel(option.value)
-                        setModelDropdownOpen(false)
+                        setProfile(option.value)
+                        setProfileDropdownOpen(false)
                       }}
                     >
                       {option.label}
@@ -484,6 +526,165 @@ export function CreateTaskDialog({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Advanced Options */}
+          <div>
+            <button
+              type="button"
+              className="flex items-center gap-2 text-body text-[var(--color-stone)]/70 hover:text-[var(--color-paper)] transition-colors"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <ChevronRight
+                className={cn(
+                  'w-4 h-4 transition-transform',
+                  showAdvanced && 'rotate-90'
+                )}
+              />
+              <Settings className="w-4 h-4" />
+              <span>Advanced Options</span>
+            </button>
+
+            {showAdvanced && (
+              <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
+                {/* Model Override */}
+                <div>
+                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                    Model Override
+                  </label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                      onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
+                    >
+                      <span className={modelOverride ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'}>
+                        {selectedAdvancedModelOption?.label || 'Use profile default'}
+                        {selectedAdvancedModelOption?.description && (
+                          <span className="ml-2 text-[var(--color-stone)]/60">
+                            {selectedAdvancedModelOption.description}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                          advancedModelDropdownOpen && 'rotate-180'
+                        )}
+                      />
+                    </button>
+
+                    {advancedModelDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                        {MODEL_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={cn(
+                              'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                              modelOverride === option.value
+                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                : 'text-[var(--color-stone)]'
+                            )}
+                            onClick={() => {
+                              setModelOverride(option.value)
+                              setAdvancedModelDropdownOpen(false)
+                            }}
+                          >
+                            {option.label}
+                            {option.description && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {option.description}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Thinking Budget Override */}
+                <div>
+                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                    Thinking Budget
+                  </label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                      onClick={() => setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)}
+                    >
+                      <span className={thinkingOverride ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'}>
+                        {selectedAdvancedThinkingOption?.label || 'Use profile default'}
+                        {selectedAdvancedThinkingOption?.description && (
+                          <span className="ml-2 text-[var(--color-stone)]/60">
+                            {selectedAdvancedThinkingOption.description}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                          advancedThinkingDropdownOpen && 'rotate-180'
+                        )}
+                      />
+                    </button>
+
+                    {advancedThinkingDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                        {THINKING_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={cn(
+                              'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                              thinkingOverride === option.value
+                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                : 'text-[var(--color-stone)]'
+                            )}
+                            onClick={() => {
+                              setThinkingOverride(option.value)
+                              setAdvancedThinkingDropdownOpen(false)
+                            }}
+                          >
+                            {option.label}
+                            {option.description && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {option.description}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Max Budget Override */}
+                <div>
+                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                    Max Budget (USD)
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-body text-[var(--color-stone)]/60">$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Use profile default"
+                      value={maxBudgetOverride}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setMaxBudgetOverride(value)
+                        }
+                      }}
+                      className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Worktree Toggle */}

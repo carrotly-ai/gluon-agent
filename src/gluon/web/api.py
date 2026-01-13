@@ -37,6 +37,7 @@ from gluon.web.models import (
     CreateRunRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
+    EditQueuedMessageRequest,
     FileChangeResponse,
     FileDiffResponse,
     ForcePushCheckResponse,
@@ -53,10 +54,9 @@ from gluon.web.models import (
     ProjectDetailResponse,
     ProjectResponse,
     ProjectUsageResponse,
+    QueuedMessageResponse,
     QueueFollowupRequest,
     QueueFollowupResponse,
-    QueuedMessageResponse,
-    EditQueuedMessageRequest,
     # Ralph Loop models
     RalphIterationResponse,
     RalphIterationsResponse,
@@ -385,11 +385,15 @@ def create_app() -> FastAPI:
             wait=False,
             use_worktree=body.use_worktree,
             initiator="web:dashboard",
-            model=body.model,
+            model=body.model_override or body.model,  # Override takes precedence
+            # Task profile options
+            profile=body.profile,
+            thinking_budget=body.thinking_override,
+            force_planning=body.force_planning,
             # Ralph Loop options
             ralph_enabled=body.ralph_enabled,
             max_loops=body.max_loops,
-            max_cost_usd=body.max_cost_usd,
+            max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
         )
 
         project_lookup = get_project_lookup()

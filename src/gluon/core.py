@@ -11,8 +11,19 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
-from gluon.models import ExecutionRun, GitStatus, Project, RunStatus, Session, SessionStatus, Workspace, utc_now
-from gluon.models_config import DEFAULT_MODEL, ModelTier, get_model_id
+from gluon.models import (
+    ExecutionRun,
+    GitStatus,
+    Project,
+    RunStatus,
+    Session,
+    SessionStatus,
+    TaskProfile,
+    Workspace,
+    resolve_task_options,
+    utc_now,
+)
+from gluon.models_config import ModelTier, get_model_id
 from gluon.store import GluonStore
 from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 
@@ -389,6 +400,12 @@ class Orchestrator:
         session_id: str | None = None,
         use_worktree: bool = False,
         initiator: str | None = None,
+        profile: TaskProfile | str | None = None,
+        max_thinking_tokens: int | None = None,
+        thinking_budget: str | None = None,
+        max_turns: int | None = None,
+        max_budget_usd: float | None = None,
+        force_planning: bool | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -403,11 +420,17 @@ class Orchestrator:
             project_name: Name or ID of the project
             prompt: User prompt to execute
             force_new_session: Force creation of new session
-            model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
+            model: Model tier to use (opus/sonnet/haiku). Overrides profile's model.
             run_id: Optional run ID to link to existing ExecutionRun
             session_id: Specific session ID to resume (overrides auto-detection)
             use_worktree: Execute in isolated Git worktree (default: False)
             initiator: Source of execution (e.g., "cli:foreground", "telegram:123")
+            profile: Task profile (quick/standard/deep/planning). Defaults to standard.
+            max_thinking_tokens: Override thinking token budget directly.
+            thinking_budget: Override via preset (none/low/medium/high/ultrathink).
+            max_turns: Override max conversation turns.
+            max_budget_usd: Override max cost budget.
+            force_planning: Override planning mode (True = plan before executing).
 
         Yields:
             AgentMessage during execution
@@ -500,12 +523,28 @@ class Orchestrator:
             session.status = SessionStatus.ACTIVE
             self.store.update_session(session)
 
-            # Determine model to use
-            model_tier = model or DEFAULT_MODEL
-            model_id = get_model_id(model_tier)
+            # Resolve task options from profile and overrides
+            task_options = resolve_task_options(
+                profile=profile,
+                model=model,
+                max_thinking_tokens=max_thinking_tokens,
+                thinking_budget=thinking_budget,
+                max_turns=max_turns,
+                max_budget_usd=max_budget_usd,
+                force_planning=force_planning,
+            )
 
-            # Create agent with specified model
-            agent = GluonAgent(model=model_id)
+            # Get model ID from resolved options
+            model_id = get_model_id(task_options["model"])
+
+            # Create agent with resolved options
+            agent = GluonAgent(
+                model=model_id,
+                max_thinking_tokens=task_options["max_thinking_tokens"],
+                max_turns=task_options["max_turns"],
+                max_budget_usd=task_options["max_budget_usd"],
+                force_planning=task_options["force_planning"],
+            )
 
             # Execute via agent with log file writing
             result: AgentResult | None = None
@@ -629,6 +668,7 @@ class Orchestrator:
         project_name: str,
         prompt: str | None = None,
         model: ModelTier | str | None = None,
+        profile: TaskProfile | str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Resume the last session for a project.
@@ -636,7 +676,8 @@ class Orchestrator:
         Args:
             project_name: Name or ID of the project
             prompt: Optional new prompt (uses "Continue" if not provided)
-            model: Model tier to use (opus/sonnet/haiku). Defaults to sonnet.
+            model: Model tier to use (opus/sonnet/haiku). Overrides profile's model.
+            profile: Task profile (quick/standard/deep/planning).
 
         Yields:
             AgentMessage during execution
@@ -653,7 +694,9 @@ class Orchestrator:
 
         actual_prompt = prompt or "Continue from where you left off."
 
-        async for item in self.execute(project_name, actual_prompt, force_new_session=False, model=model):
+        async for item in self.execute(
+            project_name, actual_prompt, force_new_session=False, model=model, profile=profile
+        ):
             yield item
 
     # ========== Status ==========

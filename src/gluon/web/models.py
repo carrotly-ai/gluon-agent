@@ -100,6 +100,24 @@ class CreateRunRequest(BaseModel):
     prompt: str = Field(description="Task prompt for Claude")
     model: str = Field(default="sonnet", description="Model tier: opus/sonnet/haiku")
     use_worktree: bool = Field(default=False, description="Execute in isolated Git worktree")
+    # Task profile options
+    profile: str = Field(default="standard", description="Task profile: quick/standard/deep/planning")
+    thinking_override: str | None = Field(
+        default=None,
+        description="Override thinking budget: none/low/medium/high/ultrathink",
+    )
+    model_override: str | None = Field(
+        default=None,
+        description="Override profile's model: haiku/sonnet/opus",
+    )
+    max_budget_override: float | None = Field(
+        default=None,
+        description="Override profile's max budget in USD",
+    )
+    force_planning: bool | None = Field(
+        default=None,
+        description="Override planning mode (True = plan before executing)",
+    )
     # Ralph Loop options (autonomous execution mode)
     ralph_enabled: bool = Field(default=False, description="Enable ralph loop for autonomous execution")
     max_loops: int = Field(default=50, description="Maximum loop iterations (1-100)")

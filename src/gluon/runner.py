@@ -222,6 +222,9 @@ class TaskRunner:
         max_loops: int = 50,
         max_calls_per_hour: int = 100,
         max_cost_usd: float | None = None,
+        profile: str | None = None,
+        thinking_budget: str | None = None,
+        force_planning: bool | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -238,23 +241,46 @@ class TaskRunner:
             max_loops: Maximum loop iterations (ralph mode only)
             max_calls_per_hour: Maximum API calls per hour (ralph mode only)
             max_cost_usd: Optional cost cap in USD (ralph mode only)
+            profile: Task profile (quick/standard/deep/planning)
+            thinking_budget: Override thinking budget (none/low/medium/high/ultrathink)
+            force_planning: Override planning mode (True = plan before executing)
 
         Returns:
             ExecutionRun with current status
         """
-        # Create run record
+        # Resolve task options from profile and overrides
+        from gluon.models import resolve_task_options
+
+        task_options = resolve_task_options(
+            profile=profile,
+            model=model,
+            thinking_budget=thinking_budget,
+            max_budget_usd=max_cost_usd,  # Use max_cost_usd as budget override
+            force_planning=force_planning,
+        )
+
+        # Create run record with resolved model
         run = self.store.create_run(
             project_id,
             prompt,
             initiator=initiator,
             use_worktree=use_worktree,
-            model=model,
+            model=task_options["model"],
             ralph_enabled=ralph_enabled,
             max_loops=max_loops,
             max_calls_per_hour=max_calls_per_hour,
-            max_cost_usd=max_cost_usd,
+            max_cost_usd=task_options["max_budget_usd"],  # Use resolved budget
         )
         run.claude_session_id = claude_session_id  # Set for resume
+
+        # Store profile options in run metadata for _run_task to use
+        if run.metadata is None:
+            run.metadata = {}
+        run.metadata["profile"] = profile or "standard"
+        run.metadata["max_thinking_tokens"] = task_options["max_thinking_tokens"]
+        run.metadata["max_turns"] = task_options["max_turns"]
+        run.metadata["force_planning"] = task_options["force_planning"]
+        self.store.update_run(run)
 
         if wait:
             # Execute synchronously
@@ -539,10 +565,21 @@ but explicit commits with good messages are preferred.
                 from functools import partial
 
                 question_handler = partial(self._question_handler, run.id)
+
+                # Get profile options from run metadata (set by submit())
+                metadata = run.metadata or {}
+                max_thinking_tokens = metadata.get("max_thinking_tokens")
+                max_turns = metadata.get("max_turns")
+                force_planning = metadata.get("force_planning", False)
+
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
                     question_handler=question_handler,
                     run_id=run.id,
+                    max_thinking_tokens=max_thinking_tokens,
+                    max_turns=max_turns,
+                    max_budget_usd=run.max_cost_usd,
+                    force_planning=force_planning,
                 )
 
                 # Execute via agent with images as base64 content blocks

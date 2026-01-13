@@ -82,6 +82,173 @@ class SupervisionPolicy(str, Enum):
     MANUAL = "manual"  # Never auto-resume (current behavior)
 
 
+# ========== Task Profile Models ==========
+
+
+class TaskProfile(str, Enum):
+    """Pre-defined task profiles for common use cases."""
+
+    QUICK = "quick"  # Fast, cheap, simple tasks (Haiku)
+    STANDARD = "standard"  # Balanced performance (Sonnet, default)
+    DEEP = "deep"  # Maximum reasoning (Opus)
+    PLANNING = "planning"  # Force plan-first workflow (Opus)
+
+
+class ThinkingBudget(str, Enum):
+    """Thinking budget presets for extended thinking."""
+
+    NONE = "none"  # 0 tokens - no thinking
+    LOW = "low"  # 4,000 tokens - simple reasoning
+    MEDIUM = "medium"  # 10,000 tokens - moderate complexity
+    HIGH = "high"  # 16,000 tokens - complex analysis
+    ULTRATHINK = "ultrathink"  # 32,000 tokens - maximum reasoning
+
+
+# Thinking budget token values
+THINKING_BUDGET_TOKENS: dict[ThinkingBudget, int] = {
+    ThinkingBudget.NONE: 0,
+    ThinkingBudget.LOW: 4000,
+    ThinkingBudget.MEDIUM: 10000,
+    ThinkingBudget.HIGH: 16000,
+    ThinkingBudget.ULTRATHINK: 32000,
+}
+
+
+# System prompt injected when force_planning is enabled
+PLANNING_SYSTEM_PROMPT = """
+## PLANNING MODE ACTIVE
+
+Before executing ANY code changes or tool calls that modify files, you MUST:
+
+1. **Analyze the Request**: Understand what the user is asking for
+2. **Create a Plan**: Write a detailed plan using TodoWrite tool with specific tasks
+3. **Present the Plan**: Output the plan for review BEFORE executing
+4. **Wait for Confirmation**: Only proceed after presenting the plan
+
+Structure your plan as:
+- [ ] Task 1: Description
+- [ ] Task 2: Description
+- ...
+
+DO NOT make any file modifications until you have presented your complete plan.
+"""
+
+
+# Profile configurations - each profile bundles model + options
+TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
+    TaskProfile.QUICK: {
+        "model": "haiku",
+        "max_thinking_tokens": 0,
+        "max_turns": 10,
+        "max_budget_usd": 0.50,
+        "force_planning": False,
+        "description": "Fast responses for simple tasks",
+    },
+    TaskProfile.STANDARD: {
+        "model": "sonnet",
+        "max_thinking_tokens": 10000,
+        "max_turns": 30,
+        "max_budget_usd": 3.00,
+        "force_planning": False,
+        "description": "Balanced performance (default)",
+    },
+    TaskProfile.DEEP: {
+        "model": "opus",
+        "max_thinking_tokens": 32000,
+        "max_turns": 50,
+        "max_budget_usd": 15.00,
+        "force_planning": False,
+        "description": "Maximum reasoning for complex tasks",
+    },
+    TaskProfile.PLANNING: {
+        "model": "opus",
+        "max_thinking_tokens": 16000,
+        "max_turns": 40,
+        "max_budget_usd": 10.00,
+        "force_planning": True,
+        "description": "Plan before executing",
+    },
+}
+
+
+def resolve_task_options(
+    profile: TaskProfile | str | None = None,
+    model: str | None = None,
+    max_thinking_tokens: int | None = None,
+    thinking_budget: ThinkingBudget | str | None = None,
+    max_turns: int | None = None,
+    max_budget_usd: float | None = None,
+    force_planning: bool | None = None,
+) -> dict[str, Any]:
+    """
+    Resolve task options from profile and overrides.
+
+    Args:
+        profile: Base profile to use (defaults to STANDARD)
+        model: Override profile's model
+        max_thinking_tokens: Override thinking tokens directly
+        thinking_budget: Override via ThinkingBudget preset
+        max_turns: Override profile's max turns
+        max_budget_usd: Override profile's cost budget
+        force_planning: Override profile's planning mode
+
+    Returns:
+        Dict with resolved options:
+        - model: str
+        - max_thinking_tokens: int
+        - max_turns: int | None
+        - max_budget_usd: float | None
+        - force_planning: bool
+    """
+    # Resolve profile enum
+    if profile is None:
+        resolved_profile = TaskProfile.STANDARD
+    elif isinstance(profile, str):
+        try:
+            resolved_profile = TaskProfile(profile.lower())
+        except ValueError:
+            resolved_profile = TaskProfile.STANDARD
+    else:
+        resolved_profile = profile
+
+    # Get base config from profile
+    config = TASK_PROFILES[resolved_profile].copy()
+
+    # Apply overrides
+    if model is not None:
+        config["model"] = model
+
+    # Thinking tokens: direct override takes precedence, then budget preset
+    if max_thinking_tokens is not None:
+        config["max_thinking_tokens"] = max_thinking_tokens
+    elif thinking_budget is not None:
+        if isinstance(thinking_budget, str):
+            try:
+                budget = ThinkingBudget(thinking_budget.lower())
+            except ValueError:
+                budget = ThinkingBudget.MEDIUM
+        else:
+            budget = thinking_budget
+        config["max_thinking_tokens"] = THINKING_BUDGET_TOKENS[budget]
+
+    if max_turns is not None:
+        config["max_turns"] = max_turns
+
+    if max_budget_usd is not None:
+        config["max_budget_usd"] = max_budget_usd
+
+    if force_planning is not None:
+        config["force_planning"] = force_planning
+
+    return {
+        "model": config["model"],
+        "max_thinking_tokens": config["max_thinking_tokens"],
+        "max_turns": config.get("max_turns"),
+        "max_budget_usd": config.get("max_budget_usd"),
+        "force_planning": config["force_planning"],
+    }
+
+
 class SupervisionConfig(BaseModel):
     """Configuration for task supervision and auto-resume.
 
@@ -266,6 +433,7 @@ class ExecutionRun(BaseModel):
     model: str | None = None  # Requested model (e.g., "claude-haiku-4.5", "haiku")
     initiator: str | None = None  # Who started the run (e.g., "cli", "telegram:12345")
     thread_id: str | None = None  # Discord/Slack thread ID for resume detection
+    metadata: dict[str, Any] | None = None  # Task profile options and other metadata
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
