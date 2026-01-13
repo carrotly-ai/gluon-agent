@@ -15,11 +15,13 @@ import {
   Image as ImageIcon,
   Maximize2,
   Minus,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
   RotateCw,
   Sparkles,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -29,6 +31,8 @@ import {
   answerQuestion,
   cancelRun,
   createPrForRun,
+  deleteQueuedMessage,
+  editQueuedMessage,
   fetchCommitDetail,
   fetchFileDiff,
   fetchLogs,
@@ -187,6 +191,8 @@ export function RunDetailDialog({
   const [recovering, setRecovering] = useState(false)
   const [recoverError, setRecoverError] = useState<string | null>(null)
   const [queuing, setQueuing] = useState(false)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingMessageText, setEditingMessageText] = useState('')
 
   // Resume image paste support
   const [resumePendingImages, setResumePendingImages] = useState<ResumePendingImage[]>([])
@@ -199,6 +205,7 @@ export function RunDetailDialog({
   const outputContainerRef = useRef<HTMLPreElement>(null)
   const prevMessagesRef = useRef<string>('')
   const prevOutputRef = useRef<string>('')
+  const resumeTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!open || !run) {
@@ -521,6 +528,10 @@ export function RunDetailDialog({
       resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setResumePendingImages([])
       setResumePrompt('')
+      // Reset textarea height
+      if (resumeTextareaRef.current) {
+        resumeTextareaRef.current.style.height = 'auto'
+      }
 
       // Refresh the run data to show new status
       handleRefresh()
@@ -547,6 +558,10 @@ export function RunDetailDialog({
 
       // Message queued - clear prompt and refresh to show indicator
       setResumePrompt('')
+      // Reset textarea height
+      if (resumeTextareaRef.current) {
+        resumeTextareaRef.current.style.height = 'auto'
+      }
       toast.success('Message queued - will continue after current task completes')
       handleRefresh()
     } catch (err) {
@@ -586,6 +601,10 @@ export function RunDetailDialog({
       resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setResumePendingImages([])
       setResumePrompt('')
+      // Reset textarea height
+      if (resumeTextareaRef.current) {
+        resumeTextareaRef.current.style.height = 'auto'
+      }
 
       // Refresh
       handleRefresh()
@@ -593,6 +612,30 @@ export function RunDetailDialog({
       setResumeError(err instanceof Error ? err.message : 'Failed to send message')
     } finally {
       setResuming(false)
+    }
+  }
+
+  // Edit a queued message
+  const handleEditQueuedMessage = async (messageId: string, newText: string) => {
+    if (!run || !newText.trim()) return
+    try {
+      await editQueuedMessage(run.id, messageId, newText.trim())
+      setEditingMessageId(null)
+      setEditingMessageText('')
+      handleRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to edit message')
+    }
+  }
+
+  // Delete a queued message
+  const handleDeleteQueuedMessage = async (messageId: string) => {
+    if (!run) return
+    try {
+      await deleteQueuedMessage(run.id, messageId)
+      handleRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete message')
     }
   }
 
@@ -1897,20 +1940,91 @@ Focus on preserving the functionality from both sides where possible.`
               </div>
             </div>
 
-            {/* Follow-up Section - Always visible when there's a session */}
-            {(isResumable || (isActive && detail?.session_id)) && (
+            {/* Follow-up Section - Always visible except for cancelled runs */}
+            {run && run.status !== 'cancelled' && (
               <div className="mt-4 p-3 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm shrink-0">
-                {/* Queued message indicator */}
-                {detail?.queued_followup && (
-                  <div className="mb-2 p-2 bg-[rgba(102,178,255,0.1)] border border-[rgba(102,178,255,0.2)] rounded-sm">
-                    <p className="text-body text-[var(--color-sky)]/80">
-                      <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-[10px] mr-2">
-                        Queued
-                      </span>
-                      {detail.queued_followup.length > 80
-                        ? `${detail.queued_followup.slice(0, 80)}...`
-                        : detail.queued_followup}
-                    </p>
+                {/* Queued messages list */}
+                {detail?.queued_messages && detail.queued_messages.length > 0 && (
+                  <div className="mb-2 space-y-1.5">
+                    {detail.queued_messages.map((msg, idx) => (
+                      <div
+                        key={msg.id}
+                        className="p-2 bg-[rgba(102,178,255,0.1)] border border-[rgba(102,178,255,0.2)] rounded-sm group"
+                      >
+                        {editingMessageId === msg.id ? (
+                          <div className="flex gap-2">
+                            <textarea
+                              className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-2 py-1 text-body text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[32px]"
+                              value={editingMessageText}
+                              onChange={(e) => setEditingMessageText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault()
+                                  handleEditQueuedMessage(msg.id, editingMessageText)
+                                } else if (e.key === 'Escape') {
+                                  setEditingMessageId(null)
+                                  setEditingMessageText('')
+                                }
+                              }}
+                              autoFocus
+                              rows={1}
+                              onInput={(e) => {
+                                const target = e.target as HTMLTextAreaElement
+                                target.style.height = 'auto'
+                                target.style.height = `${Math.min(target.scrollHeight, 80)}px`
+                              }}
+                            />
+                            <button
+                              className="p-1.5 text-[var(--color-leaf)] hover:bg-[var(--color-leaf)]/10 rounded-sm transition-colors"
+                              onClick={() => handleEditQueuedMessage(msg.id, editingMessageText)}
+                              title="Save"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              className="p-1.5 text-[var(--color-stone)] hover:bg-[var(--color-stone)]/10 rounded-sm transition-colors"
+                              onClick={() => {
+                                setEditingMessageId(null)
+                                setEditingMessageText('')
+                              }}
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-body text-[var(--color-sky)]/80 flex-1">
+                              <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-[10px] mr-2">
+                                {idx + 1}
+                              </span>
+                              {msg.message.length > 100
+                                ? `${msg.message.slice(0, 100)}...`
+                                : msg.message}
+                            </p>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <button
+                                className="p-1 text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
+                                onClick={() => {
+                                  setEditingMessageId(msg.id)
+                                  setEditingMessageText(msg.message)
+                                }}
+                                title="Edit"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button
+                                className="p-1 text-[var(--color-stone)] hover:text-[var(--color-vermillion)] transition-colors"
+                                onClick={() => handleDeleteQueuedMessage(msg.id)}
+                                title="Delete"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -1937,6 +2051,7 @@ Focus on preserving the functionality from both sides where possible.`
                 )}
                 <div className="flex gap-2">
                   <textarea
+                    ref={resumeTextareaRef}
                     className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-body text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
                     placeholder={
                       isActive
@@ -1983,14 +2098,12 @@ Focus on preserving the functionality from both sides where possible.`
                         title={
                           queuing
                             ? 'Queueing...'
-                            : detail?.queued_followup
-                              ? 'Update queued message'
-                              : 'Queue for after completion'
+                            : 'Add to queue'
                         }
                       >
                         <Clock className="w-3 h-3" />
                         <span className="hidden sm:inline">
-                          {queuing ? 'Queueing...' : detail?.queued_followup ? 'Update' : 'Queue'}
+                          {queuing ? 'Queueing...' : 'Queue'}
                         </span>
                       </button>
                       <button

@@ -8,7 +8,10 @@ from pathlib import Path
 from gluon.models import (
     ChannelMapping,
     CircuitState,
+    CommitFileSnapshot,
+    CommitSnapshot,
     ExecutionRun,
+    FileChangeSnapshot,
     GitStatus,
     ImageAttachment,
     Job,
@@ -16,6 +19,7 @@ from gluon.models import (
     PendingQuestion,
     Project,
     QuestionStatus,
+    QueuedMessage,
     RalphLoopIteration,
     RunStatus,
     Session,
@@ -331,6 +335,51 @@ MIGRATIONS = [
     # Queued follow-up for sending messages while task is running
     "ALTER TABLE execution_runs ADD COLUMN queued_followup TEXT;",
     "ALTER TABLE execution_runs ADD COLUMN queued_followup_at TEXT;",
+    # Migration: queued_followup -> queued_messages (JSON array)
+    "ALTER TABLE execution_runs ADD COLUMN queued_messages TEXT;",
+    # Commit/file snapshot tables for persisting changes after branch merge/deletion
+    """
+    CREATE TABLE IF NOT EXISTS commit_snapshots (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        sha TEXT NOT NULL,
+        message TEXT NOT NULL,
+        full_message TEXT,
+        author TEXT NOT NULL,
+        author_email TEXT,
+        date TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_commit_snapshots_run ON commit_snapshots(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_commit_snapshots_run_ordinal ON commit_snapshots(run_id, ordinal);",
+    """
+    CREATE TABLE IF NOT EXISTS file_change_snapshots (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        change_type TEXT NOT NULL,
+        additions INTEGER DEFAULT 0,
+        deletions INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_file_change_snapshots_run ON file_change_snapshots(run_id);",
+    """
+    CREATE TABLE IF NOT EXISTS commit_file_snapshots (
+        id TEXT PRIMARY KEY,
+        commit_snapshot_id TEXT NOT NULL REFERENCES commit_snapshots(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        change_type TEXT NOT NULL,
+        additions INTEGER DEFAULT 0,
+        deletions INTEGER DEFAULT 0
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_commit_file_snapshots_commit ON commit_file_snapshots(commit_snapshot_id);",
+    # Flags on execution_runs to track snapshot status
+    "ALTER TABLE execution_runs ADD COLUMN changes_snapshotted INTEGER DEFAULT 0;",
+    "ALTER TABLE execution_runs ADD COLUMN snapshot_at TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1050,7 +1099,7 @@ class GluonStore:
                     hour_start = ?, supervision_config = ?,
                     supervision_auto_resume_count = ?, last_supervision_check_at = ?,
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?,
-                    queued_followup = ?, queued_followup_at = ?
+                    queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -1112,9 +1161,11 @@ class GluonStore:
                     run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,
                     run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
                     run.supervision_disabled_reason,
-                    # Queued follow-up fields
-                    run.queued_followup,
-                    run.queued_followup_at.isoformat() if run.queued_followup_at else None,
+                    # Queued messages (JSON array)
+                    json.dumps([m.model_dump() for m in run.queued_messages]) if run.queued_messages else None,
+                    # Snapshot tracking
+                    1 if run.changes_snapshotted else 0,
+                    run.snapshot_at.isoformat() if run.snapshot_at else None,
                     run.id,
                 ),
             )
@@ -1291,11 +1342,15 @@ class GluonStore:
             supervision_disabled_reason=row["supervision_disabled_reason"]
             if "supervision_disabled_reason" in keys
             else None,
-            # Queued follow-up fields
-            queued_followup=row["queued_followup"] if "queued_followup" in keys else None,
-            queued_followup_at=_parse_datetime(row["queued_followup_at"])
-            if "queued_followup_at" in keys
-            else None,
+            # Queued messages (JSON array)
+            queued_messages=[
+                QueuedMessage(**m) for m in json.loads(row["queued_messages"])
+            ] if "queued_messages" in keys and row["queued_messages"] else [],
+            # Commit/file snapshot tracking
+            changes_snapshotted=bool(row["changes_snapshotted"])
+            if "changes_snapshotted" in keys and row["changes_snapshotted"] is not None
+            else False,
+            snapshot_at=_parse_datetime(row["snapshot_at"]) if "snapshot_at" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
@@ -1418,6 +1473,15 @@ class GluonStore:
             ).fetchone()
         return self._row_to_ralph_iteration(row) if row else None
 
+    def get_ralph_total_cost(self, run_id: str) -> float:
+        """Get the total cost summed from all iterations for a ralph run."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) as total FROM ralph_loop_iterations WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return float(row["total"]) if row else 0.0
+
     def _row_to_ralph_iteration(self, row: sqlite3.Row) -> RalphLoopIteration:
         """Convert database row to RalphLoopIteration model."""
         return RalphLoopIteration(
@@ -1437,6 +1501,190 @@ class GluonStore:
             claude_session_id=row["claude_session_id"],
             cost_usd=row["cost_usd"] or 0.0,
             tokens_used=row["tokens_used"] or 0,
+        )
+
+    # ========== Commit/File Snapshot CRUD ==========
+
+    def has_commit_snapshots(self, run_id: str) -> bool:
+        """Check if a run has commit snapshots."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM commit_snapshots WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            return row[0] > 0 if row else False
+
+    def has_file_change_snapshots(self, run_id: str) -> bool:
+        """Check if a run has file change snapshots."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM file_change_snapshots WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            return row[0] > 0 if row else False
+
+    def get_commit_snapshots(self, run_id: str) -> list[CommitSnapshot]:
+        """Get commit snapshots for a run, ordered by ordinal."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM commit_snapshots WHERE run_id = ? ORDER BY ordinal",
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_commit_snapshot(row) for row in rows]
+
+    def get_file_change_snapshots(self, run_id: str) -> list[FileChangeSnapshot]:
+        """Get file change snapshots for a run."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM file_change_snapshots WHERE run_id = ?",
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_file_change_snapshot(row) for row in rows]
+
+    def get_commit_file_snapshots(self, commit_snapshot_id: str) -> list[CommitFileSnapshot]:
+        """Get file snapshots for a specific commit."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM commit_file_snapshots WHERE commit_snapshot_id = ?",
+                (commit_snapshot_id,),
+            ).fetchall()
+        return [self._row_to_commit_file_snapshot(row) for row in rows]
+
+    def save_run_snapshots(
+        self,
+        run_id: str,
+        commits: list[CommitSnapshot],
+        files: list[FileChangeSnapshot],
+        commit_files: list[CommitFileSnapshot],
+    ) -> None:
+        """Atomically save all snapshots for a run and mark it as snapshotted."""
+        with self._get_conn() as conn:
+            # Insert commits
+            for commit in commits:
+                conn.execute(
+                    """
+                    INSERT INTO commit_snapshots (
+                        id, run_id, sha, message, full_message, author, author_email,
+                        date, ordinal, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        commit.id,
+                        commit.run_id,
+                        commit.sha,
+                        commit.message,
+                        commit.full_message,
+                        commit.author,
+                        commit.author_email,
+                        commit.date.isoformat(),
+                        commit.ordinal,
+                        commit.created_at.isoformat(),
+                    ),
+                )
+
+            # Insert file changes
+            for file_change in files:
+                conn.execute(
+                    """
+                    INSERT INTO file_change_snapshots (
+                        id, run_id, file_path, change_type, additions, deletions, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        file_change.id,
+                        file_change.run_id,
+                        file_change.file_path,
+                        file_change.change_type,
+                        file_change.additions,
+                        file_change.deletions,
+                        file_change.created_at.isoformat(),
+                    ),
+                )
+
+            # Insert commit files
+            for commit_file in commit_files:
+                conn.execute(
+                    """
+                    INSERT INTO commit_file_snapshots (
+                        id, commit_snapshot_id, file_path, change_type, additions, deletions
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        commit_file.id,
+                        commit_file.commit_snapshot_id,
+                        commit_file.file_path,
+                        commit_file.change_type,
+                        commit_file.additions,
+                        commit_file.deletions,
+                    ),
+                )
+
+            # Mark run as snapshotted
+            now = utc_now()
+            conn.execute(
+                "UPDATE execution_runs SET changes_snapshotted = 1, snapshot_at = ? WHERE id = ?",
+                (now.isoformat(), run_id),
+            )
+
+    def mark_run_snapshotted(self, run_id: str) -> None:
+        """Mark a run as having snapshots captured."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE execution_runs SET changes_snapshotted = 1, snapshot_at = ? WHERE id = ?",
+                (utc_now().isoformat(), run_id),
+            )
+
+    def delete_run_snapshots(self, run_id: str) -> int:
+        """Delete all snapshots for a run. Returns count deleted."""
+        with self._get_conn() as conn:
+            # Commit file snapshots deleted via CASCADE
+            result1 = conn.execute(
+                "DELETE FROM commit_snapshots WHERE run_id = ?", (run_id,)
+            )
+            result2 = conn.execute(
+                "DELETE FROM file_change_snapshots WHERE run_id = ?", (run_id,)
+            )
+            # Reset flag
+            conn.execute(
+                "UPDATE execution_runs SET changes_snapshotted = 0, snapshot_at = NULL WHERE id = ?",
+                (run_id,),
+            )
+            return result1.rowcount + result2.rowcount
+
+    def _row_to_commit_snapshot(self, row: sqlite3.Row) -> CommitSnapshot:
+        """Convert database row to CommitSnapshot model."""
+        return CommitSnapshot(
+            id=row["id"],
+            run_id=row["run_id"],
+            sha=row["sha"],
+            message=row["message"],
+            full_message=row["full_message"],
+            author=row["author"],
+            author_email=row["author_email"],
+            date=_parse_datetime(row["date"]),  # type: ignore[arg-type]
+            ordinal=row["ordinal"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+        )
+
+    def _row_to_file_change_snapshot(self, row: sqlite3.Row) -> FileChangeSnapshot:
+        """Convert database row to FileChangeSnapshot model."""
+        return FileChangeSnapshot(
+            id=row["id"],
+            run_id=row["run_id"],
+            file_path=row["file_path"],
+            change_type=row["change_type"],
+            additions=row["additions"] or 0,
+            deletions=row["deletions"] or 0,
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+        )
+
+    def _row_to_commit_file_snapshot(self, row: sqlite3.Row) -> CommitFileSnapshot:
+        """Convert database row to CommitFileSnapshot model."""
+        return CommitFileSnapshot(
+            id=row["id"],
+            commit_snapshot_id=row["commit_snapshot_id"],
+            file_path=row["file_path"],
+            change_type=row["change_type"],
+            additions=row["additions"] or 0,
+            deletions=row["deletions"] or 0,
         )
 
     # ========== Supervision Decision CRUD ==========

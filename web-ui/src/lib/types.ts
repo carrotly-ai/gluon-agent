@@ -4,6 +4,13 @@ export type RunStatus = 'pending' | 'running' | 'review' | 'completed' | 'failed
 /** Circuit breaker state enum matching backend CircuitState */
 export type CircuitState = 'CLOSED' | 'HALF_OPEN' | 'OPEN'
 
+/** Queued follow-up message */
+export interface QueuedMessage {
+  id: string
+  message: string
+  queued_at: string
+}
+
 /** API response for execution runs */
 export interface Run {
   id: string
@@ -42,9 +49,8 @@ export interface Run {
   completion_reason?: string | null
   calls_this_hour?: number
   max_calls_per_hour?: number
-  // Queued follow-up (for message injection while task is running)
-  queued_followup?: string | null
-  queued_followup_at?: string | null
+  // Queued follow-up messages (for message injection while task is running)
+  queued_messages?: QueuedMessage[]
 }
 
 /** Detailed run response (includes additional fields) */
@@ -78,9 +84,6 @@ export interface RunDetail extends Run {
   consecutive_same_error?: number
   test_only_loops?: number
   max_cost_usd?: number | null
-  // Queued follow-up (inherits from Run, but explicit here for clarity)
-  queued_followup?: string | null
-  queued_followup_at?: string | null
 }
 
 /** Request body for creating a new run */
@@ -490,6 +493,7 @@ export interface RunCommitsResponse {
   base_branch: string
   commit_count: number
   commits: Commit[]
+  from_snapshot?: boolean // True if data from snapshot (branch may be deleted)
 }
 
 /** Detailed commit with files - for expanded view */
@@ -500,6 +504,7 @@ export interface CommitDetail {
   author_email: string
   date: string
   files: FileChange[]
+  from_snapshot?: boolean // True if data from snapshot
 }
 
 /** File change response */
@@ -519,6 +524,7 @@ export interface RunFilesResponse {
   total_additions: number
   total_deletions: number
   files: FileChange[]
+  from_snapshot?: boolean // True if data from snapshot (branch may be deleted)
 }
 
 /** File diff response - for expanded view */

@@ -1,4 +1,5 @@
 import {
+  Archive,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -15,10 +16,12 @@ import {
   Image as ImageIcon,
   Minimize2,
   Minus,
+  Pencil,
   Play,
   Plus,
   RotateCw,
   Sparkles,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -27,6 +30,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import {
   cancelRun,
   createPrForRun,
+  deleteQueuedMessage,
+  editQueuedMessage,
   fetchCommitDetail,
   fetchFileDiff,
   fetchLogs,
@@ -37,6 +42,7 @@ import {
   fetchSessionHistory,
   getImageFileUrl,
   mergeRunBranch,
+  queueFollowup,
   resumeRun,
   uploadAndAttachImage,
 } from '@/lib/api'
@@ -140,6 +146,7 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
   const [resuming, setResuming] = useState(false)
+  const [queuing, setQueuing] = useState(false)
   const [resumeError, setResumeError] = useState<string | null>(null)
   const [sessionHistory, setSessionHistory] = useState<Run[]>([])
   const [expandedHistoryRun, setExpandedHistoryRun] = useState<string | null>(null)
@@ -151,11 +158,14 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   const [merging, setMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
   const [resumePendingImages, setResumePendingImages] = useState<ResumePendingImage[]>([])
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingMessageText, setEditingMessageText] = useState('')
 
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const outputContainerRef = useRef<HTMLPreElement>(null)
   const prevMessagesRef = useRef<string>('')
   const prevOutputRef = useRef<string>('')
+  const resumeTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Track previous status to detect completion
   const prevStatusRef = useRef<RunStatus | null>(null)
@@ -465,11 +475,112 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setResumePendingImages([])
       setResumePrompt('')
+      // Reset textarea height
+      if (resumeTextareaRef.current) {
+        resumeTextareaRef.current.style.height = 'auto'
+      }
       handleRefresh()
     } catch (err) {
       setResumeError(err instanceof Error ? err.message : 'Failed to resume run')
     } finally {
       setResuming(false)
+    }
+  }
+
+  // Queue a follow-up message for a running task (will auto-resume after completion)
+  const handleQueueFollowup = async () => {
+    if (!run || !resumePrompt.trim()) return
+    setQueuing(true)
+    setResumeError(null)
+    try {
+      const result = await queueFollowup(run.id, resumePrompt.trim())
+
+      if (result.action === 'resume_now') {
+        // Task is not running - use normal resume instead
+        await handleResume()
+        return
+      }
+
+      // Message queued - clear prompt and refresh to show indicator
+      setResumePrompt('')
+      // Reset textarea height
+      if (resumeTextareaRef.current) {
+        resumeTextareaRef.current.style.height = 'auto'
+      }
+      toast.success('Message queued - will continue after current task completes')
+      handleRefresh()
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : 'Failed to queue follow-up')
+    } finally {
+      setQueuing(false)
+    }
+  }
+
+  // Send message immediately by cancelling current task and resuming with new message
+  const handleSendNow = async () => {
+    if (!run || !resumePrompt.trim()) return
+    setResuming(true)
+    setResumeError(null)
+    try {
+      // Cancel current execution
+      await cancelRun(run.id)
+
+      // Small delay for cancellation to propagate
+      await new Promise((r) => setTimeout(r, 500))
+
+      // Resume with new message
+      await resumeRun(run.id, resumePrompt.trim())
+
+      // Upload images if any
+      if (resumePendingImages.length > 0) {
+        const uploadPromises = resumePendingImages.map((img) =>
+          uploadAndAttachImage(run.id, img.file).catch((err) => {
+            console.error(`Failed to upload image ${img.file.name}:`, err)
+            return null
+          })
+        )
+        await Promise.all(uploadPromises)
+      }
+
+      // Cleanup
+      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
+      setResumePendingImages([])
+      setResumePrompt('')
+      // Reset textarea height
+      if (resumeTextareaRef.current) {
+        resumeTextareaRef.current.style.height = 'auto'
+      }
+
+      // Refresh
+      handleRefresh()
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : 'Failed to send message')
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  // Edit a queued message
+  const handleEditQueuedMessage = async (messageId: string, newText: string) => {
+    if (!run || !newText.trim()) return
+    try {
+      await editQueuedMessage(run.id, messageId, newText.trim())
+      setEditingMessageId(null)
+      setEditingMessageText('')
+      handleRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to edit message')
+    }
+  }
+
+  // Delete a queued message
+  const handleDeleteQueuedMessage = async (messageId: string) => {
+    if (!run) return
+    try {
+      await deleteQueuedMessage(run.id, messageId)
+      handleRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete message')
     }
   }
 
@@ -1204,6 +1315,12 @@ Focus on preserving the functionality from both sides where possible.`
                         {commitsData.commit_count} commit{commitsData.commit_count !== 1 ? 's' : ''}{' '}
                         ahead of {commitsData.base_branch}
                       </span>
+                      {commitsData.from_snapshot && (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 text-[0.5rem] uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
+                          <Archive className="w-2.5 h-2.5" />
+                          Snapshot
+                        </span>
+                      )}
                     </div>
                     {commitsData.commits
                       .slice()
@@ -1346,6 +1463,12 @@ Focus on preserving the functionality from both sides where possible.`
                         <span className="text-caption text-[var(--color-paper)]/80">
                           {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''} changed
                         </span>
+                        {filesData.from_snapshot && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 text-[0.5rem] uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
+                            <Archive className="w-2.5 h-2.5" />
+                            Snapshot
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-caption">
                         <span className="flex items-center gap-1 text-[var(--color-jade)]">
@@ -1578,9 +1701,95 @@ Focus on preserving the functionality from both sides where possible.`
             )}
           </div>
 
-          {/* Resume Section */}
-          {isResumable && (
+          {/* Follow-up Section - Always visible except for cancelled runs */}
+          {run && run.status !== 'cancelled' && (
             <div className="mt-4 p-3 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm">
+              {/* Queued messages list */}
+              {detail?.queued_messages && detail.queued_messages.length > 0 && (
+                <div className="mb-2 space-y-1.5">
+                  {detail.queued_messages.map((msg, idx) => (
+                    <div
+                      key={msg.id}
+                      className="p-2 bg-[rgba(102,178,255,0.1)] border border-[rgba(102,178,255,0.2)] rounded-sm group"
+                    >
+                      {editingMessageId === msg.id ? (
+                        <div className="flex gap-2">
+                          <textarea
+                            className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-2 py-1 text-caption text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[32px]"
+                            value={editingMessageText}
+                            onChange={(e) => setEditingMessageText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                handleEditQueuedMessage(msg.id, editingMessageText)
+                              } else if (e.key === 'Escape') {
+                                setEditingMessageId(null)
+                                setEditingMessageText('')
+                              }
+                            }}
+                            autoFocus
+                            rows={1}
+                            onInput={(e) => {
+                              const target = e.target as HTMLTextAreaElement
+                              target.style.height = 'auto'
+                              target.style.height = `${Math.min(target.scrollHeight, 80)}px`
+                            }}
+                          />
+                          <button
+                            className="p-1.5 text-[var(--color-leaf)] hover:bg-[var(--color-leaf)]/10 rounded-sm transition-colors"
+                            onClick={() => handleEditQueuedMessage(msg.id, editingMessageText)}
+                            title="Save"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            className="p-1.5 text-[var(--color-stone)] hover:bg-[var(--color-stone)]/10 rounded-sm transition-colors"
+                            onClick={() => {
+                              setEditingMessageId(null)
+                              setEditingMessageText('')
+                            }}
+                            title="Cancel"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-caption text-[var(--color-sky)]/80 flex-1">
+                            <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-[10px] mr-2">
+                              {idx + 1}
+                            </span>
+                            {msg.message.length > 100
+                              ? `${msg.message.slice(0, 100)}...`
+                              : msg.message}
+                          </p>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                            <button
+                              className="p-1 text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
+                              onClick={() => {
+                                setEditingMessageId(msg.id)
+                                setEditingMessageText(msg.message)
+                              }}
+                              title="Edit"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              className="p-1 text-[var(--color-stone)] hover:text-[var(--color-vermillion)] transition-colors"
+                              onClick={() => handleDeleteQueuedMessage(msg.id)}
+                              title="Delete"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Pasted image previews */}
               {resumePendingImages.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {resumePendingImages.map((img, idx) => (
@@ -1603,20 +1812,29 @@ Focus on preserving the functionality from both sides where possible.`
               )}
               <div className="flex gap-2">
                 <textarea
+                  ref={resumeTextareaRef}
                   className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-title text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
-                  placeholder="Continue with follow-up... (⌘V to paste images)"
+                  placeholder={
+                    isActive
+                      ? 'Send follow-up message... (⌘V to paste images)'
+                      : 'Continue with follow-up... (⌘V to paste images)'
+                  }
                   value={resumePrompt}
                   onChange={(e) => setResumePrompt(e.target.value)}
                   onKeyDown={(e) => {
                     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                       e.preventDefault()
-                      if (resumePrompt.trim() && !resuming) {
-                        handleResume()
+                      if (resumePrompt.trim() && !resuming && !queuing) {
+                        if (isActive) {
+                          handleQueueFollowup()
+                        } else {
+                          handleResume()
+                        }
                       }
                     }
                   }}
                   onPaste={handleResumePaste}
-                  disabled={resuming}
+                  disabled={resuming || queuing}
                   rows={1}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement
@@ -1624,19 +1842,64 @@ Focus on preserving the functionality from both sides where possible.`
                     target.style.height = `${Math.min(target.scrollHeight, 128)}px`
                   }}
                 />
-                <button
-                  className={cn(
-                    'flex items-center gap-2 px-4 py-2 rounded-sm text-caption uppercase tracking-widest transition-colors shrink-0 self-start',
-                    resumePrompt.trim() && !resuming
-                      ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                      : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
-                  )}
-                  onClick={handleResume}
-                  disabled={!resumePrompt.trim() || resuming}
-                >
-                  <Play className="w-3 h-3" />
-                  {resuming ? 'Resuming...' : 'Resume'}
-                </button>
+                {isActive ? (
+                  /* Active task - show Queue and Send Now buttons */
+                  <div className="flex gap-1.5 shrink-0 self-start">
+                    <button
+                      className={cn(
+                        'flex items-center justify-center rounded-sm text-caption uppercase tracking-widest transition-colors',
+                        'p-2 sm:px-3 sm:py-2 sm:gap-1.5',
+                        resumePrompt.trim() && !queuing && !resuming
+                          ? 'bg-[var(--color-stone)]/20 text-[var(--color-paper)] hover:bg-[var(--color-stone)]/30'
+                          : 'bg-[var(--color-stone)]/10 text-[var(--color-stone)]/40 cursor-not-allowed'
+                      )}
+                      onClick={handleQueueFollowup}
+                      disabled={!resumePrompt.trim() || queuing || resuming}
+                      title={queuing ? 'Queueing...' : 'Add to queue'}
+                    >
+                      <Clock className="w-3 h-3" />
+                      <span className="hidden sm:inline">
+                        {queuing ? 'Queueing...' : 'Queue'}
+                      </span>
+                    </button>
+                    <button
+                      className={cn(
+                        'flex items-center justify-center rounded-sm text-caption uppercase tracking-widest transition-colors',
+                        'p-2 sm:px-3 sm:py-2 sm:gap-1.5',
+                        resumePrompt.trim() && !resuming && !queuing
+                          ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                          : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                      )}
+                      onClick={handleSendNow}
+                      disabled={!resumePrompt.trim() || resuming || queuing}
+                      title="Cancel current task and send immediately"
+                    >
+                      <Play className="w-3 h-3" />
+                      <span className="hidden sm:inline">
+                        {resuming ? 'Sending...' : 'Send Now'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
+                  /* Not active - show single Resume button */
+                  <button
+                    className={cn(
+                      'flex items-center justify-center rounded-sm text-caption uppercase tracking-widest transition-colors shrink-0 self-start',
+                      'p-2 sm:px-4 sm:py-2 sm:gap-2',
+                      resumePrompt.trim() && !resuming
+                        ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                        : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                    )}
+                    onClick={handleResume}
+                    disabled={!resumePrompt.trim() || resuming}
+                    title={resuming ? 'Resuming...' : 'Resume'}
+                  >
+                    <Play className="w-3 h-3" />
+                    <span className="hidden sm:inline">
+                      {resuming ? 'Resuming...' : 'Resume'}
+                    </span>
+                  </button>
+                )}
               </div>
               {resumeError && (
                 <p className="text-caption text-[var(--color-vermillion)] mt-2">{resumeError}</p>

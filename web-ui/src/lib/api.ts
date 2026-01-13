@@ -22,6 +22,7 @@ import type {
   Project,
   ProjectDetail,
   ProjectUsage,
+  QueuedMessage,
   // Ralph Loop types
   RalphIterationsResponse,
   RebaseResponse,
@@ -138,6 +139,38 @@ export async function queueFollowup(runId: string, message: string): Promise<Que
   return fetchJson<QueueFollowupResponse>(`/runs/${runId}/queue-followup`, {
     method: 'POST',
     body: JSON.stringify({ message }),
+  })
+}
+
+/** Edit a queued message */
+export async function editQueuedMessage(
+  runId: string,
+  messageId: string,
+  message: string
+): Promise<QueuedMessage> {
+  return fetchJson<QueuedMessage>(`/runs/${runId}/queue/${messageId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ message }),
+  })
+}
+
+/** Delete a queued message */
+export async function deleteQueuedMessage(
+  runId: string,
+  messageId: string
+): Promise<{ deleted: boolean; message_id: string }> {
+  return fetchJson<{ deleted: boolean; message_id: string }>(
+    `/runs/${runId}/queue/${messageId}`,
+    { method: 'DELETE' }
+  )
+}
+
+/** Clear all queued messages */
+export async function clearQueue(
+  runId: string
+): Promise<{ cleared: boolean; count: number }> {
+  return fetchJson<{ cleared: boolean; count: number }>(`/runs/${runId}/queue`, {
+    method: 'DELETE',
   })
 }
 

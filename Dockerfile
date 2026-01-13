@@ -36,7 +36,7 @@ RUN cp /tmp/version.env /app/version.env
 # ========== Stage 2: Python runtime ==========
 FROM python:3.12-slim-bookworm
 
-# Install system dependencies
+# Layer 1: System dependencies (rarely change - cached for weeks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
@@ -48,7 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GitHub CLI for PR operations
+# Layer 2: GitHub CLI (rarely changes)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
@@ -56,75 +56,73 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js v24 LTS from NodeSource
+# Layer 3: Node.js v24 LTS (rarely changes)
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Bun JavaScript runtime
+# Layer 4: Bun JavaScript runtime (rarely changes)
 RUN curl -fsSL https://bun.sh/install | bash \
     && mv /root/.bun /opt/bun \
     && ln -s /opt/bun/bin/bun /usr/local/bin/bun \
     && ln -s /opt/bun/bin/bunx /usr/local/bin/bunx
 
-# Install Claude Code CLI globally
+# Layer 5: Claude Code CLI (changes with npm updates)
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create non-root user for security
+# Layer 6: Create non-root user and directories (rarely changes)
 RUN groupadd -g 1000 gluon && \
-    useradd -m -u 1000 -g gluon -s /bin/bash gluon
-
-# Create necessary directories
-RUN mkdir -p /home/gluon/.claude \
+    useradd -m -u 1000 -g gluon -s /bin/bash gluon && \
+    mkdir -p /home/gluon/.claude \
              /home/gluon/workspaces \
              /home/gluon/.cache/gluon \
              /home/gluon/.ssh \
              /app && \
-    chown -R gluon:gluon /home/gluon /app
-
-# Pre-populate GitHub's SSH host keys to avoid verification prompts
-RUN ssh-keyscan -t ed25519,rsa github.com >> /home/gluon/.ssh/known_hosts && \
+    chown -R gluon:gluon /home/gluon /app && \
+    ssh-keyscan -t ed25519,rsa github.com >> /home/gluon/.ssh/known_hosts && \
     chown gluon:gluon /home/gluon/.ssh/known_hosts && \
     chmod 644 /home/gluon/.ssh/known_hosts
 
 WORKDIR /app
 
-# Copy version info from builder stage
-COPY --from=web-builder /app/version.env /tmp/version.env
+# Layer 7: Python tooling (rarely changes)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Set version environment variables
+# Layer 8: Copy ONLY pyproject.toml first for dependency caching
+# Dependencies change less frequently than source code
+COPY --chown=gluon:gluon pyproject.toml README.md LICENSE* ./
+
+# Layer 9: Install Python dependencies BEFORE source copy
+# This layer is cached as long as pyproject.toml doesn't change
+USER gluon
+RUN pip install --no-cache-dir -e '.[all]' --no-deps && \
+    pip install --no-cache-dir $(pip show gluon-agent 2>/dev/null | grep Requires | cut -d: -f2 | tr ',' '\n' | xargs) 2>/dev/null || \
+    pip install --no-cache-dir anyio pydantic python-dotenv redis rich typer fastapi uvicorn python-telegram-bot discord.py claude-agent-sdk
+
+# Layer 10: Copy Python source (changes with backend code)
+USER root
+COPY --chown=gluon:gluon src/ src/
+COPY --chown=gluon:gluon docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Layer 11: Re-install in editable mode (fast - deps already cached)
+USER gluon
+RUN pip install --no-cache-dir -e '.[all]'
+
+# Layer 12: Copy built web-ui LAST (changes most frequently with frontend work)
+# Using --link to avoid invalidating subsequent layers
+COPY --from=web-builder --chown=gluon:gluon /app/src/gluon/web/dist/ src/gluon/web/dist/
+
+# Layer 13: Version info LAST (changes every build but doesn't invalidate anything important)
+USER root
+COPY --from=web-builder /app/version.env /tmp/version.env
 RUN . /tmp/version.env && \
     echo "GLUON_VERSION=${VITE_APP_VERSION}" >> /etc/environment && \
     echo "GLUON_FULL_VERSION=${VITE_APP_FULL_VERSION}" >> /etc/environment && \
     echo "GLUON_BUILD_TIME=${VITE_APP_BUILD_TIME}" >> /etc/environment
 
-# Copy gluon-agent source (as root first for proper permissions)
-COPY --chown=gluon:gluon pyproject.toml README.md LICENSE* ./
-COPY --chown=gluon:gluon src/ src/
-COPY --chown=gluon:gluon docker-entrypoint.sh /usr/local/bin/
-
-# Copy built web-ui from stage 1 (overwrites any pre-built dist)
-COPY --from=web-builder --chown=gluon:gluon /app/src/gluon/web/dist/ src/gluon/web/dist/
-
-# Install Python dependencies as root first
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Make entrypoint executable
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# Switch to non-root user
+# Final setup
 USER gluon
-
-# Install gluon-agent package with all features (web, telegram, discord)
-RUN pip install --no-cache-dir -e '.[all]'
-
-# Set version env vars for runtime (using shell form to expand)
-# These get set from /tmp/version.env
-ARG GLUON_VERSION_ARG
-ARG GLUON_FULL_VERSION_ARG
-ARG GLUON_BUILD_TIME_ARG
-
-# Add to PATH and set version env vars
 ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon

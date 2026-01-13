@@ -95,6 +95,14 @@ class SupervisionConfig(BaseModel):
     auto_resume_triggers: list[str] = Field(default_factory=lambda: ["incomplete_work", "test_only", "low_confidence"])
 
 
+class QueuedMessage(BaseModel):
+    """A queued follow-up message for a running task."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:8])
+    message: str
+    queued_at: datetime = Field(default_factory=utc_now)
+
+
 # Project markers - files that indicate a directory is a project
 PROJECT_MARKERS = [
     "package.json",  # Node.js/JavaScript
@@ -335,9 +343,12 @@ class ExecutionRun(BaseModel):
     last_supervision_resume_at: datetime | None = None  # When supervisor last resumed
     supervision_disabled_reason: str | None = None  # Why supervision was disabled
 
-    # Queued follow-up (for sending messages while task is running)
-    queued_followup: str | None = None  # Queued message to resume with after completion
-    queued_followup_at: datetime | None = None  # When the follow-up was queued
+    # Queued follow-up messages (for sending messages while task is running)
+    queued_messages: list[QueuedMessage] = Field(default_factory=list)
+
+    # Commit/file snapshot tracking (persist changes after branch merge)
+    changes_snapshotted: bool = False  # Whether commits/files have been snapshotted
+    snapshot_at: datetime | None = None  # When snapshot was captured
 
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
@@ -633,6 +644,57 @@ class GitSyncResult(BaseModel):
     def skip(cls, reason: str) -> "GitSyncResult":
         """Create a skipped result (not a git repo, etc.)."""
         return cls(success=True, action="none", message=reason)
+
+
+# ========== Commit/File Snapshot Models ==========
+
+
+class CommitSnapshot(BaseModel):
+    """Persisted commit data captured before branch merge/deletion.
+
+    Snapshots preserve commit history after the branch is merged into main
+    or deleted, when git comparisons would otherwise return no results.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    sha: str  # Git commit SHA
+    message: str  # Commit subject line
+    full_message: str | None = None  # Full commit body (optional)
+    author: str
+    author_email: str | None = None
+    date: datetime  # Commit timestamp
+    ordinal: int  # 1-indexed order in commit list
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class FileChangeSnapshot(BaseModel):
+    """Persisted file change data for a run.
+
+    Stores aggregate file changes across the entire branch (not per-commit).
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    file_path: str  # Path relative to repo root
+    change_type: str  # "added", "modified", "deleted", "renamed"
+    additions: int = 0  # Lines added
+    deletions: int = 0  # Lines deleted
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class CommitFileSnapshot(BaseModel):
+    """Files changed in a specific commit (for detailed commit view).
+
+    Links to CommitSnapshot to provide per-commit file breakdown.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    commit_snapshot_id: str  # FK to CommitSnapshot
+    file_path: str
+    change_type: str  # "added", "modified", "deleted", "renamed"
+    additions: int = 0
+    deletions: int = 0
 
 
 class ChannelMapping(BaseModel):

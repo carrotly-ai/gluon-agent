@@ -55,6 +55,8 @@ from gluon.web.models import (
     ProjectUsageResponse,
     QueueFollowupRequest,
     QueueFollowupResponse,
+    QueuedMessageResponse,
+    EditQueuedMessageRequest,
     # Ralph Loop models
     RalphIterationResponse,
     RalphIterationsResponse,
@@ -160,6 +162,11 @@ def create_app() -> FastAPI:
 
     def run_to_response(run, project_lookup: dict[str, str]) -> RunResponse:
         """Convert ExecutionRun to RunResponse."""
+        # For ralph-enabled runs, compute cost from iterations (accurate total)
+        cost = run.cost_usd
+        if run.ralph_enabled and run.loop_count > 0:
+            cost = store.get_ralph_total_cost(run.id)
+
         return RunResponse(
             id=run.id,
             project_id=run.project_id,
@@ -173,7 +180,7 @@ def create_app() -> FastAPI:
             completed_at=run.completed_at,
             duration_seconds=run.duration_seconds,
             error_message=run.error_message,
-            cost_usd=run.cost_usd,
+            cost_usd=cost,
             # Git/PR fields for Kanban routing
             use_worktree=run.use_worktree,
             branch_name=run.branch_name,
@@ -296,6 +303,11 @@ def create_app() -> FastAPI:
             except Exception:
                 pass  # Counts are optional, don't fail request
 
+        # For ralph-enabled runs, compute cost from iterations (accurate total)
+        cost = run.cost_usd
+        if run.ralph_enabled and run.loop_count > 0:
+            cost = store.get_ralph_total_cost(run.id)
+
         return RunDetailResponse(
             id=run.id,
             project_id=run.project_id,
@@ -313,7 +325,7 @@ def create_app() -> FastAPI:
             exit_code=run.exit_code,
             log_path=str(run.log_path) if run.log_path else None,
             # Cost tracking
-            cost_usd=run.cost_usd,
+            cost_usd=cost,
             input_tokens=run.input_tokens,
             output_tokens=run.output_tokens,
             model_used=run.model_used,
@@ -347,6 +359,15 @@ def create_app() -> FastAPI:
             consecutive_same_error=run.consecutive_same_error,
             test_only_loops=run.test_only_loops,
             max_cost_usd=run.max_cost_usd,
+            # Queued messages
+            queued_messages=[
+                QueuedMessageResponse(
+                    id=m.id,
+                    message=m.message,
+                    queued_at=m.queued_at.isoformat(),
+                )
+                for m in run.queued_messages
+            ],
         )
 
     @app.post("/api/runs", response_model=RunResponse)
@@ -459,13 +480,13 @@ def create_app() -> FastAPI:
         """
         Queue a follow-up message for a running task.
 
-        If the task is running/pending, the message is queued and will be
-        auto-resumed with after the task completes.
+        If the task is running/pending, the message is appended to the queue
+        and will auto-resume after the task completes.
 
         If the task is not running, returns action="resume_now" to indicate
         the caller should use the normal resume endpoint instead.
         """
-        from gluon.models import utc_now
+        from gluon.models import QueuedMessage
 
         run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
         if not run:
@@ -480,9 +501,9 @@ def create_app() -> FastAPI:
                 message=None,
             )
 
-        # Queue the follow-up message
-        run.queued_followup = body.message
-        run.queued_followup_at = utc_now()
+        # Append message to the queue
+        queued_msg = QueuedMessage(message=body.message)
+        run.queued_messages.append(queued_msg)
         store.update_run(run)
 
         # Broadcast update to WebSocket clients
@@ -494,7 +515,77 @@ def create_app() -> FastAPI:
             run_id=run.id,
             action="queued",
             message=body.message,
+            message_id=queued_msg.id,
         )
+
+    @app.put("/api/runs/{run_id}/queue/{message_id}")
+    async def edit_queued_message(
+        run_id: str, message_id: str, body: EditQueuedMessageRequest
+    ) -> QueuedMessageResponse:
+        """Edit a queued message by its ID."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Find and update the message
+        for msg in run.queued_messages:
+            if msg.id == message_id:
+                msg.message = body.message
+                store.update_run(run)
+
+                # Broadcast update
+                project_lookup = get_project_lookup()
+                project_name = project_lookup.get(run.project_id) or "Unknown"
+                await ws_manager.broadcast_run_update(run, project_name)
+
+                return QueuedMessageResponse(
+                    id=msg.id,
+                    message=msg.message,
+                    queued_at=msg.queued_at.isoformat(),
+                )
+
+        raise HTTPException(status_code=404, detail=f"Queued message not found: {message_id}")
+
+    @app.delete("/api/runs/{run_id}/queue/{message_id}")
+    async def delete_queued_message(run_id: str, message_id: str) -> dict:
+        """Delete a queued message by its ID."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Find and remove the message
+        original_len = len(run.queued_messages)
+        run.queued_messages = [m for m in run.queued_messages if m.id != message_id]
+
+        if len(run.queued_messages) == original_len:
+            raise HTTPException(status_code=404, detail=f"Queued message not found: {message_id}")
+
+        store.update_run(run)
+
+        # Broadcast update
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id) or "Unknown"
+        await ws_manager.broadcast_run_update(run, project_name)
+
+        return {"deleted": True, "message_id": message_id}
+
+    @app.delete("/api/runs/{run_id}/queue")
+    async def clear_queue(run_id: str) -> dict:
+        """Clear all queued messages for a run."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        cleared_count = len(run.queued_messages)
+        run.queued_messages = []
+        store.update_run(run)
+
+        # Broadcast update
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id) or "Unknown"
+        await ws_manager.broadcast_run_update(run, project_name)
+
+        return {"cleared": True, "count": cleared_count}
 
     @app.post("/api/runs/{run_id}/recover", response_model=RecoverRunResponse)
     async def recover_run(run_id: str, body: RecoverRunRequest | None = None) -> RecoverRunResponse:
@@ -978,7 +1069,8 @@ def create_app() -> FastAPI:
     async def get_run_commits(run_id: str) -> RunCommitsResponse:
         """
         Get commits on the run's branch since it diverged from the base branch.
-        Only available for worktree runs with a branch.
+
+        Falls back to snapshots if the branch has been merged or deleted.
         """
         from gluon.git_manager import GitManager
 
@@ -986,11 +1078,35 @@ def create_app() -> FastAPI:
         if not run:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
 
+        base_branch = run.source_branch or "main"
+
+        # Priority 1: Check for snapshots (work after branch merge/deletion)
+        if store.has_commit_snapshots(run.id):
+            snapshots = store.get_commit_snapshots(run.id)
+            return RunCommitsResponse(
+                run_id=run.id,
+                branch_name=run.branch_name,
+                base_branch=base_branch,
+                commit_count=len(snapshots),
+                commits=[
+                    CommitResponse(
+                        sha=s.sha,
+                        message=s.message,
+                        author=s.author,
+                        author_email=s.author_email or "",
+                        date=s.date.isoformat(),
+                    )
+                    for s in snapshots
+                ],
+                from_snapshot=True,
+            )
+
+        # Priority 2: Live git query (original behavior)
         if not run.branch_name:
             return RunCommitsResponse(
                 run_id=run.id,
                 branch_name=None,
-                base_branch="main",
+                base_branch=base_branch,
                 commit_count=0,
                 commits=[],
             )
@@ -1005,10 +1121,7 @@ def create_app() -> FastAPI:
             Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
         )
 
-        # Get base branch (source_branch or default to main)
-        base_branch = run.source_branch or "main"
-
-        # Fetch commits
+        # Fetch commits from git
         git_manager = GitManager(store)
         commits_data = await git_manager.get_branch_commits(
             path=working_path,
@@ -1022,13 +1135,15 @@ def create_app() -> FastAPI:
             base_branch=base_branch,
             commit_count=len(commits_data),
             commits=[CommitResponse(**c) for c in commits_data],
+            from_snapshot=False,
         )
 
     @app.get("/api/runs/{run_id}/files", response_model=RunFilesResponse)
     async def get_run_files(run_id: str) -> RunFilesResponse:
         """
         Get files changed on the run's branch since it diverged from the base branch.
-        Only available for worktree runs with a branch.
+
+        Falls back to snapshots if the branch has been merged or deleted.
         """
         from gluon.git_manager import GitManager
 
@@ -1036,11 +1151,38 @@ def create_app() -> FastAPI:
         if not run:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
 
+        base_branch = run.source_branch or "main"
+
+        # Priority 1: Check for snapshots (work after branch merge/deletion)
+        if store.has_file_change_snapshots(run.id):
+            snapshots = store.get_file_change_snapshots(run.id)
+            total_additions = sum(s.additions for s in snapshots)
+            total_deletions = sum(s.deletions for s in snapshots)
+            return RunFilesResponse(
+                run_id=run.id,
+                branch_name=run.branch_name,
+                base_branch=base_branch,
+                file_count=len(snapshots),
+                total_additions=total_additions,
+                total_deletions=total_deletions,
+                files=[
+                    FileChangeResponse(
+                        file_path=s.file_path,
+                        additions=s.additions,
+                        deletions=s.deletions,
+                        change_type=s.change_type,
+                    )
+                    for s in snapshots
+                ],
+                from_snapshot=True,
+            )
+
+        # Priority 2: Live git query (original behavior)
         if not run.branch_name:
             return RunFilesResponse(
                 run_id=run.id,
                 branch_name=None,
-                base_branch="main",
+                base_branch=base_branch,
                 file_count=0,
                 total_additions=0,
                 total_deletions=0,
@@ -1057,10 +1199,7 @@ def create_app() -> FastAPI:
             Path(run.worktree_path) if run.worktree_path and Path(run.worktree_path).exists() else project.expanded_path
         )
 
-        # Get base branch (source_branch or default to main)
-        base_branch = run.source_branch or "main"
-
-        # Fetch file changes
+        # Fetch file changes from git
         git_manager = GitManager(store)
         files_data = await git_manager.get_changed_files(
             path=working_path,
@@ -1080,13 +1219,15 @@ def create_app() -> FastAPI:
             total_additions=total_additions,
             total_deletions=total_deletions,
             files=[FileChangeResponse(**f) for f in files_data],
+            from_snapshot=False,
         )
 
     @app.get("/api/runs/{run_id}/commits/{sha}", response_model=CommitDetailResponse)
     async def get_commit_detail(run_id: str, sha: str) -> CommitDetailResponse:
         """
         Get detailed information for a specific commit including files changed.
-        This is lazy-loaded when a commit row is expanded.
+
+        Falls back to snapshots if the branch has been merged or deleted.
         """
         from gluon.git_manager import GitManager
 
@@ -1094,6 +1235,34 @@ def create_app() -> FastAPI:
         if not run:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
 
+        # Priority 1: Check for snapshots
+        if store.has_commit_snapshots(run.id):
+            commit_snapshots = store.get_commit_snapshots(run.id)
+            # Find matching commit by SHA
+            matching = [c for c in commit_snapshots if c.sha == sha or c.sha.startswith(sha)]
+            if matching:
+                commit_snap = matching[0]
+                # Get per-commit file changes from commit_file_snapshots
+                file_snapshots = store.get_commit_file_snapshots(commit_snap.id)
+                return CommitDetailResponse(
+                    sha=commit_snap.sha,
+                    message=commit_snap.full_message or commit_snap.message,
+                    author=commit_snap.author,
+                    author_email=commit_snap.author_email or "",
+                    date=commit_snap.date.isoformat(),
+                    files=[
+                        FileChangeResponse(
+                            file_path=f.file_path,
+                            additions=f.additions,
+                            deletions=f.deletions,
+                            change_type=f.change_type,
+                        )
+                        for f in file_snapshots
+                    ],
+                    from_snapshot=True,
+                )
+
+        # Priority 2: Live git query (original behavior)
         if not run.branch_name:
             raise HTTPException(status_code=400, detail="Run has no branch")
 
@@ -1121,6 +1290,7 @@ def create_app() -> FastAPI:
             author_email=commit_data["author_email"],
             date=commit_data["date"],
             files=[FileChangeResponse(**f) for f in commit_data.get("files", [])],
+            from_snapshot=False,
         )
 
     @app.get("/api/runs/{run_id}/files/{file_path:path}/diff", response_model=FileDiffResponse)

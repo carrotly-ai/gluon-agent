@@ -700,6 +700,28 @@ but explicit commits with good messages are preferred.
                                     stderr_file.write(f"Warning: Failed to push/create PR: {pr_err}\n")
                                     stderr_file.flush()
 
+                        # Capture commit/file snapshots before status change
+                        # This preserves data even after branch merge/deletion
+                        if run.branch_name and not run.changes_snapshotted:
+                            try:
+                                commits, files, commit_files = await self.git_manager.capture_branch_snapshots(
+                                    path=working_path,
+                                    run_id=run.id,
+                                    branch_name=run.branch_name,
+                                    base_branch=run.source_branch or "main",
+                                )
+                                if commits or files:
+                                    self.store.save_run_snapshots(run.id, commits, files, commit_files)
+                                    run.changes_snapshotted = True
+                                    run.snapshot_at = utc_now()
+                                    stdout_file.write(
+                                        f"\n✓ Captured {len(commits)} commits, {len(files)} files for persistence\n"
+                                    )
+                                    stdout_file.flush()
+                            except Exception as snap_err:
+                                stderr_file.write(f"Warning: Failed to capture snapshots: {snap_err}\n")
+                                stderr_file.flush()
+
                         if item.success:
                             run.mark_review()  # All tasks go to REVIEW first
                         else:
@@ -720,39 +742,44 @@ but explicit commits with good messages are preferred.
         await self._handle_queued_followup(run)
 
     async def _handle_queued_followup(self, run: ExecutionRun) -> None:
-        """Check for queued follow-up and auto-resume if present.
+        """Check for queued follow-up messages and auto-resume if present.
 
         This is called after task completion (normal or ralph loop) to check
-        if a user queued a follow-up message while the task was running.
-        If so, we clear the queue and auto-resume with the queued message.
+        if the user queued follow-up messages while the task was running.
+        If so, we process them sequentially, clearing each from the queue.
         """
         # Refresh run from database to get latest state
         run = self.store.get_run(run.id)
         if not run:
             return
 
-        if not run.queued_followup:
+        if not run.queued_messages:
             return
 
-        # Extract and clear the queued message
-        queued_msg = run.queued_followup
-        run.queued_followup = None
-        run.queued_followup_at = None
-        self.store.update_run(run)
+        # Process all queued messages sequentially
+        while run.queued_messages:
+            # Pop the first message from the queue
+            msg = run.queued_messages.pop(0)
+            self.store.update_run(run)  # Persist queue change
 
-        logger.info(f"Auto-resuming run {run.id[:8]} with queued follow-up")
+            logger.info(f"Auto-resuming run {run.id[:8]} with queued message {msg.id}")
 
-        # Resume in-place with the queued message
-        try:
-            await self.resume_in_place(
-                run_id=run.id,
-                new_prompt=queued_msg,
-                wait=True,  # Execute inline (already in worker process)
-                initiator="auto:queued_followup",
-            )
-        except Exception as e:
-            logger.error(f"Auto-resume failed for run {run.id[:8]}: {e}")
-            # Don't re-raise - the original task completed, auto-resume is best-effort
+            try:
+                await self.resume_in_place(
+                    run_id=run.id,
+                    new_prompt=msg.message,
+                    wait=True,  # Execute inline (already in worker process)
+                    initiator=f"auto:queued_{msg.id}",
+                )
+            except Exception as e:
+                logger.error(f"Auto-resume failed for run {run.id[:8]}: {e}")
+                # Don't re-raise - best-effort processing
+                break
+
+            # Refresh run for next iteration
+            run = self.store.get_run(run.id)
+            if not run or run.status not in (RunStatus.COMPLETED, RunStatus.REVIEW):
+                break  # Stop if task failed/cancelled
 
     async def cancel(self, run_id: str) -> bool:
         """
@@ -1336,6 +1363,28 @@ but explicit commits with good messages are preferred.
                         except Exception as pr_err:
                             with open(stdout_path, "a") as f:
                                 f.write(f"Warning: Failed to push/create PR: {pr_err}\n")
+
+                # Capture commit/file snapshots before finishing
+                if updated_run.branch_name and not updated_run.changes_snapshotted:
+                    try:
+                        commits, files, commit_files = await self.git_manager.capture_branch_snapshots(
+                            path=working_path,
+                            run_id=updated_run.id,
+                            branch_name=updated_run.branch_name,
+                            base_branch=updated_run.source_branch or "main",
+                        )
+                        if commits or files:
+                            self.store.save_run_snapshots(updated_run.id, commits, files, commit_files)
+                            updated_run.changes_snapshotted = True
+                            updated_run.snapshot_at = utc_now()
+                            self.store.update_run(updated_run)
+                            with open(stdout_path, "a") as f:
+                                f.write(
+                                    f"✓ Captured {len(commits)} commits, {len(files)} files for persistence\n"
+                                )
+                    except Exception as snap_err:
+                        with open(stdout_path, "a") as f:
+                            f.write(f"Warning: Failed to capture snapshots: {snap_err}\n")
 
         except Exception as e:
             logger.error(f"Ralph loop failed: {e}")

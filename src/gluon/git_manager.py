@@ -6,7 +6,15 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from gluon.models import GitStatus, GitSyncResult, Project
+from gluon.models import (
+    CommitFileSnapshot,
+    CommitSnapshot,
+    FileChangeSnapshot,
+    GitStatus,
+    GitSyncResult,
+    Project,
+    utc_now,
+)
 from gluon.store import GluonStore
 
 logger = logging.getLogger(__name__)
@@ -1028,6 +1036,103 @@ Run ID: `{run_id}`
             "additions": additions,
             "deletions": deletions,
         }
+
+    async def capture_branch_snapshots(
+        self,
+        path: Path,
+        run_id: str,
+        branch_name: str | None,
+        base_branch: str = "main",
+    ) -> tuple[list[CommitSnapshot], list[FileChangeSnapshot], list[CommitFileSnapshot]]:
+        """
+        Capture complete branch state as snapshots before merge/deletion.
+
+        This method creates persistent records of commits and file changes
+        that can be retrieved even after the branch is merged or deleted.
+
+        Args:
+            path: Path to the repository
+            run_id: ID of the execution run to associate snapshots with
+            branch_name: Branch to capture (required)
+            base_branch: Base branch to compare against (default: main)
+
+        Returns:
+            Tuple of (commit_snapshots, file_change_snapshots, commit_file_snapshots)
+            Returns empty lists if branch doesn't exist or has no changes.
+        """
+        if not branch_name:
+            return [], [], []
+
+        if not await self._is_git_repo(path):
+            return [], [], []
+
+        # Get all commits on branch
+        commits = await self.get_branch_commits(path, branch_name, base_branch)
+        if not commits:
+            return [], [], []
+
+        # Get all changed files
+        files = await self.get_changed_files(path, branch_name, base_branch)
+
+        # Get per-commit file details for detailed view
+        commit_files_map: dict[str, list[dict]] = {}
+        for commit in commits:
+            detail = await self.get_commit_detail(path, commit["sha"])
+            commit_files_map[commit["sha"]] = detail.get("files", [])
+
+        # Build snapshot objects
+        now = utc_now()
+        commit_snapshots: list[CommitSnapshot] = []
+        for i, c in enumerate(commits):
+            # Parse date - commits return ISO format string
+            commit_date = datetime.fromisoformat(c["date"])
+            commit_snapshots.append(
+                CommitSnapshot(
+                    run_id=run_id,
+                    sha=c["sha"],
+                    message=c["message"],
+                    author=c["author"],
+                    author_email=c.get("author_email", ""),
+                    date=commit_date,
+                    ordinal=i + 1,
+                    created_at=now,
+                )
+            )
+
+        file_change_snapshots: list[FileChangeSnapshot] = [
+            FileChangeSnapshot(
+                run_id=run_id,
+                file_path=f["file_path"],
+                change_type=f["change_type"],
+                additions=f.get("additions", 0),
+                deletions=f.get("deletions", 0),
+                created_at=now,
+            )
+            for f in files
+        ]
+
+        # Per-commit files (link to commit snapshots)
+        commit_file_snapshots: list[CommitFileSnapshot] = []
+        for commit_snap in commit_snapshots:
+            for f in commit_files_map.get(commit_snap.sha, []):
+                commit_file_snapshots.append(
+                    CommitFileSnapshot(
+                        commit_snapshot_id=commit_snap.id,
+                        file_path=f["file_path"],
+                        change_type=f.get("change_type", "modified"),
+                        additions=f.get("additions", 0),
+                        deletions=f.get("deletions", 0),
+                    )
+                )
+
+        logger.info(
+            f"Captured snapshots for run {run_id}: "
+            f"{len(commit_snapshots)} commits, "
+            f"{len(file_change_snapshots)} files, "
+            f"{len(commit_file_snapshots)} commit-file links"
+        )
+
+        return commit_snapshots, file_change_snapshots, commit_file_snapshots
 
     # ========== Local Merge Operation ==========
 

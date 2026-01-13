@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Check,
   CheckCircle,
   CircleSlash,
   Clock,
@@ -7,7 +8,6 @@ import {
   FileCode,
   RefreshCw,
   Square,
-  XCircle,
   Zap,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
@@ -35,32 +35,6 @@ function getCircuitStateColor(state: CircuitState): string {
   }
 }
 
-function getCircuitStateBg(state: CircuitState): string {
-  switch (state) {
-    case 'CLOSED':
-      return 'bg-green-400/15'
-    case 'HALF_OPEN':
-      return 'bg-yellow-400/15'
-    case 'OPEN':
-      return 'bg-red-400/15'
-    default:
-      return 'bg-[var(--color-stone)]/15'
-  }
-}
-
-function getCircuitStateDescription(state: CircuitState): string {
-  switch (state) {
-    case 'CLOSED':
-      return 'Normal operation - loop continues'
-    case 'HALF_OPEN':
-      return 'Testing recovery - one more attempt'
-    case 'OPEN':
-      return 'Stopped - too many failures'
-    default:
-      return 'Unknown state'
-  }
-}
-
 function formatDuration(seconds: number | null): string {
   if (seconds === null) return '-'
   if (seconds < 60) return `${Math.round(seconds)}s`
@@ -73,6 +47,39 @@ function formatTokens(tokens: number | null): string {
   if (tokens < 1000) return `${tokens}`
   if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}k`
   return `${(tokens / 1000000).toFixed(2)}M`
+}
+
+// Compact safety badge component
+function SafetyBadge({
+  label,
+  value,
+  threshold,
+}: {
+  label: string
+  value: number
+  threshold: number
+}) {
+  const isWarning = value >= threshold * 0.6
+  const isDanger = value >= threshold
+
+  return (
+    <span
+      className={cn(
+        'flex items-center gap-1',
+        isDanger
+          ? 'text-[var(--color-vermillion)]'
+          : isWarning
+            ? 'text-yellow-400'
+            : 'text-[var(--color-jade)]'
+      )}
+    >
+      {isDanger ? <AlertTriangle className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+      <span className="text-[var(--color-stone)]/70">{label}</span>
+      <span className="font-mono">
+        ({value}/{threshold})
+      </span>
+    </span>
+  )
 }
 
 export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgressTabProps) {
@@ -152,7 +159,6 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
   const progressPercent = Math.min(100, (loopCount / maxLoops) * 100)
   const circuitState = (run.circuit_state as CircuitState) || 'CLOSED'
   const completionConfidence = run.completion_confidence || 0
-  const costUsd = run.cost_usd || 0
   const maxCostUsd = run.max_cost_usd || null
   const callsThisHour = run.calls_this_hour || 0
   const maxCallsPerHour = run.max_calls_per_hour || 100
@@ -162,209 +168,132 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
   const sameErrorStreak = run.consecutive_same_error || 0
   const testOnlyLoops = run.test_only_loops || 0
 
-  return (
-    <div className="p-3 overflow-y-auto h-full space-y-4">
-      {/* Loop Status Section */}
-      <div className="border border-[rgba(163,163,163,0.08)] rounded-sm p-4">
-        <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70 mb-3">
-          Loop Status
-        </h3>
+  // Calculate total cost from iterations (accurate sum)
+  const totalCost = iterations.reduce((sum, iter) => sum + iter.cost_usd, 0)
+  // Fall back to run.cost_usd if no iterations loaded yet
+  const displayCost = iterations.length > 0 ? totalCost : run.cost_usd || 0
 
-        {/* Progress bar */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-body text-[var(--color-paper)]">
-              Iteration {loopCount} of {maxLoops}
+  return (
+    <div className="p-2 sm:p-3 overflow-y-auto h-full space-y-2 sm:space-y-3">
+      {/* Progress Section - Full width with inline Stop button on desktop */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex-1 border border-[rgba(163,163,163,0.08)] rounded-sm p-2 sm:p-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="text-body uppercase tracking-widest text-[var(--color-stone)]/70 shrink-0">
+              Loop
             </span>
-            <span className="text-mono text-body text-[var(--color-stone)]/60">
+            <span className="text-mono text-body sm:text-sm text-[var(--color-paper)] shrink-0 font-medium">
+              {loopCount}/{maxLoops}
+            </span>
+            <div className="flex-1 h-1.5 sm:h-2 bg-[rgba(163,163,163,0.15)] rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all duration-300',
+                  run.status === 'running' ? 'bg-[var(--color-sky)]' : 'bg-[var(--color-jade)]'
+                )}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <span className="text-mono text-body sm:text-sm text-[var(--color-stone)]/60 shrink-0">
               {Math.round(progressPercent)}%
             </span>
           </div>
-          <div className="h-2 bg-[rgba(163,163,163,0.15)] rounded-full overflow-hidden">
-            <div
-              className={cn(
-                'h-full rounded-full transition-all duration-300',
-                run.status === 'running' ? 'bg-[var(--color-sky)]' : 'bg-[var(--color-jade)]'
-              )}
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
         </div>
-
-        {/* Status grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Circuit State */}
-          <div className="flex flex-col gap-1">
-            <span className="text-body text-[var(--color-stone)]/60">Circuit State</span>
-            <span
-              className={cn(
-                'flex items-center gap-1.5 px-2 py-1 rounded-sm text-body w-fit',
-                getCircuitStateBg(circuitState),
-                getCircuitStateColor(circuitState)
-              )}
-              title={getCircuitStateDescription(circuitState)}
-            >
-              <Zap className="w-3 h-3" />
-              {circuitState}
-            </span>
-          </div>
-
-          {/* Completion Confidence */}
-          <div className="flex flex-col gap-1">
-            <span className="text-body text-[var(--color-stone)]/60">Confidence</span>
-            <span
-              className={cn(
-                'text-body font-mono',
-                completionConfidence >= 80
-                  ? 'text-[var(--color-jade)]'
-                  : completionConfidence >= 50
-                    ? 'text-yellow-400'
-                    : 'text-[var(--color-paper)]'
-              )}
-            >
-              {Math.round(completionConfidence)}%
-            </span>
-          </div>
-
-          {/* Cost */}
-          <div className="flex flex-col gap-1">
-            <span className="text-body text-[var(--color-stone)]/60">Cost</span>
-            <span className="text-body font-mono text-[var(--color-harvest)]">
-              ${costUsd.toFixed(2)}
-              {maxCostUsd && (
-                <span className="text-[var(--color-stone)]/50"> / ${maxCostUsd.toFixed(2)}</span>
-              )}
-            </span>
-          </div>
-
-          {/* Rate Limit */}
-          <div className="flex flex-col gap-1">
-            <span className="text-body text-[var(--color-stone)]/60">Calls/Hour</span>
-            <span
-              className={cn(
-                'text-body font-mono',
-                callsThisHour >= maxCallsPerHour * 0.8
-                  ? 'text-[var(--color-vermillion)]'
-                  : 'text-[var(--color-paper)]'
-              )}
-            >
-              {callsThisHour}/{maxCallsPerHour}
-            </span>
-          </div>
-        </div>
-
-        {/* Completion reason if finished */}
-        {run.completion_reason && (
-          <div className="mt-3 pt-3 border-t border-[rgba(163,163,163,0.08)]">
-            <span className="text-body text-[var(--color-stone)]/60">Completion:</span>
-            <span className="ml-2 text-body text-[var(--color-jade)]">{run.completion_reason}</span>
-          </div>
+        {/* Stop button - inline on desktop */}
+        {run.status === 'running' && (
+          <button
+            onClick={handleStopLoop}
+            disabled={stopping}
+            className={cn(
+              'hidden sm:flex items-center gap-2 px-3 py-2 rounded-sm text-body uppercase tracking-widest transition-colors shrink-0',
+              stopping
+                ? 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50 cursor-wait'
+                : 'bg-[rgba(199,62,58,0.15)] border border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
+            )}
+          >
+            <Square className="w-3.5 h-3.5" />
+            {stopping ? '...' : 'Stop'}
+          </button>
         )}
       </div>
 
-      {/* Safety Metrics Section */}
-      <div className="border border-[rgba(163,163,163,0.08)] rounded-sm p-4">
-        <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70 mb-3">
-          Safety Metrics
-        </h3>
+      {/* Unified Status Row - Cost, Circuit, Safety, Completion */}
+      <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 text-body sm:text-sm px-1">
+        {/* Cost */}
+        <span className="flex items-center gap-1">
+          <DollarSign className="w-3 h-3 text-[var(--color-harvest)]" />
+          <span className="font-mono text-[var(--color-harvest)]">${displayCost.toFixed(2)}</span>
+          {maxCostUsd && (
+            <span className="text-[var(--color-stone)]/40">/ ${maxCostUsd.toFixed(0)}</span>
+          )}
+        </span>
 
-        <div className="grid grid-cols-3 gap-4">
-          {/* No Progress Streak */}
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center',
-                noProgressStreak >= 3
-                  ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
-                  : noProgressStreak >= 2
-                    ? 'bg-[rgba(245,158,11,0.15)] text-yellow-400'
-                    : 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]'
-              )}
-            >
-              {noProgressStreak >= 3 ? (
-                <XCircle className="w-4 h-4" />
-              ) : noProgressStreak >= 2 ? (
-                <AlertTriangle className="w-4 h-4" />
-              ) : (
-                <CheckCircle className="w-4 h-4" />
-              )}
-            </div>
-            <div>
-              <p className="text-body text-[var(--color-paper)]">No-Progress</p>
-              <p className="text-body text-[var(--color-stone)]/60">
-                {noProgressStreak}/5 threshold
-              </p>
-            </div>
-          </div>
+        {/* API Calls */}
+        <span className="flex items-center gap-1">
+          <span
+            className={cn(
+              'font-mono',
+              callsThisHour >= maxCallsPerHour * 0.8
+                ? 'text-[var(--color-vermillion)]'
+                : 'text-[var(--color-stone)]/70'
+            )}
+          >
+            {callsThisHour}/{maxCallsPerHour}
+          </span>
+          <span className="text-[var(--color-stone)]/40">calls/hr</span>
+        </span>
 
-          {/* Same Error Streak */}
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center',
-                sameErrorStreak >= 3
-                  ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
-                  : sameErrorStreak >= 2
-                    ? 'bg-[rgba(245,158,11,0.15)] text-yellow-400'
-                    : 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]'
-              )}
-            >
-              {sameErrorStreak >= 3 ? (
-                <XCircle className="w-4 h-4" />
-              ) : sameErrorStreak >= 2 ? (
-                <AlertTriangle className="w-4 h-4" />
-              ) : (
-                <CheckCircle className="w-4 h-4" />
-              )}
-            </div>
-            <div>
-              <p className="text-body text-[var(--color-paper)]">Same-Error</p>
-              <p className="text-body text-[var(--color-stone)]/60">
-                {sameErrorStreak}/5 threshold
-              </p>
-            </div>
-          </div>
+        <span className="text-[var(--color-stone)]/20">|</span>
 
-          {/* Test-Only Loops */}
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center',
-                testOnlyLoops >= 3
-                  ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
-                  : testOnlyLoops >= 2
-                    ? 'bg-[rgba(245,158,11,0.15)] text-yellow-400'
-                    : 'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]'
-              )}
-            >
-              {testOnlyLoops >= 3 ? (
-                <XCircle className="w-4 h-4" />
-              ) : testOnlyLoops >= 2 ? (
-                <AlertTriangle className="w-4 h-4" />
-              ) : (
-                <CheckCircle className="w-4 h-4" />
-              )}
-            </div>
-            <div>
-              <p className="text-body text-[var(--color-paper)]">Test-Only</p>
-              <p className="text-body text-[var(--color-stone)]/60">{testOnlyLoops}/3 threshold</p>
-            </div>
-          </div>
-        </div>
+        {/* Circuit State */}
+        <span className={cn('flex items-center gap-1', getCircuitStateColor(circuitState))}>
+          <Zap className="w-3 h-3" />
+          <span className="font-mono">{circuitState}</span>
+        </span>
+
+        {/* Confidence (if > 0) */}
+        {completionConfidence > 0 && (
+          <span
+            className={cn(
+              'font-mono',
+              completionConfidence >= 80
+                ? 'text-[var(--color-jade)]'
+                : completionConfidence >= 50
+                  ? 'text-yellow-400'
+                  : 'text-[var(--color-stone)]/60'
+            )}
+          >
+            {Math.round(completionConfidence)}%
+          </span>
+        )}
+
+        {/* Completion Reason (if completed) */}
+        {run.completion_reason && (
+          <span className="text-[var(--color-jade)] truncate max-w-[200px] sm:max-w-none" title={run.completion_reason}>
+            {run.completion_reason}
+          </span>
+        )}
+
+        <span className="text-[var(--color-stone)]/20">|</span>
+
+        {/* Safety Badges */}
+        <SafetyBadge label="Progress" value={noProgressStreak} threshold={5} />
+        <SafetyBadge label="Errors" value={sameErrorStreak} threshold={5} />
+        <SafetyBadge label="Tests" value={testOnlyLoops} threshold={3} />
       </div>
 
-      {/* Iteration History Section */}
-      <div className="border border-[rgba(163,163,163,0.08)] rounded-sm p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
-            Iteration History
+      {/* Iteration History - Responsive table */}
+      <div className="border border-[rgba(163,163,163,0.08)] rounded-sm p-2 sm:p-3 flex-1">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-body sm:text-sm uppercase tracking-widest text-[var(--color-stone)]/70">
+            Iterations
           </h3>
           <button
             onClick={loadIterations}
             className="p-1 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors"
             title="Refresh"
           >
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+            <RefreshCw className={cn('w-3.5 h-3.5 sm:w-4 sm:h-4', loading && 'animate-spin')} />
           </button>
         </div>
 
@@ -373,129 +302,136 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
         ) : iterations.length === 0 ? (
           <p className="text-body text-[var(--color-stone)]/50 italic">No iterations yet</p>
         ) : (
-          <div className="space-y-1">
-            {/* Header */}
-            <div className="grid grid-cols-[40px_60px_50px_60px_70px_70px_1fr] gap-2 text-body text-[var(--color-stone)]/60 pb-1 border-b border-[rgba(163,163,163,0.08)]">
-              <span>#</span>
-              <span>Duration</span>
-              <span>Files</span>
-              <span>Progress</span>
-              <span>Tokens</span>
-              <span>Cost</span>
-              <span>Status</span>
-            </div>
-
-            {/* Rows - newest first */}
-            {iterations
-              .slice()
-              .reverse()
-              .map((iteration) => (
-                <div
-                  key={iteration.id}
-                  className={cn(
-                    'grid grid-cols-[40px_60px_50px_60px_70px_70px_1fr] gap-2 text-body py-1.5 border-b border-[rgba(163,163,163,0.05)] items-center',
-                    iteration.has_errors && 'bg-[rgba(199,62,58,0.05)]'
-                  )}
-                >
-                  {/* Loop number */}
-                  <span className="text-[var(--color-paper)] font-mono">
-                    {iteration.loop_number}
-                  </span>
-
-                  {/* Duration */}
-                  <span className="text-[var(--color-stone)]/70 flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {formatDuration(iteration.duration_seconds)}
-                  </span>
-
-                  {/* Files changed */}
-                  <span
+          <table className="w-full text-body sm:text-sm">
+            <thead>
+              <tr className="text-[var(--color-stone)]/60 text-left border-b border-[rgba(163,163,163,0.08)]">
+                <th className="py-1 pr-2 sm:pr-4 font-normal w-8 sm:w-12">#</th>
+                <th className="py-1 pr-2 sm:pr-4 font-normal">Time</th>
+                <th className="py-1 pr-2 sm:pr-4 font-normal">Files</th>
+                <th className="py-1 pr-2 sm:pr-4 font-normal text-center w-10 sm:w-14">OK</th>
+                <th className="py-1 pr-2 sm:pr-4 font-normal hidden sm:table-cell">Tokens</th>
+                <th className="py-1 pr-2 sm:pr-4 font-normal">Cost</th>
+                <th className="py-1 font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {iterations
+                .slice()
+                .reverse()
+                .map((iteration) => (
+                  <tr
+                    key={iteration.id}
                     className={cn(
-                      'flex items-center gap-1',
-                      iteration.files_changed > 0
-                        ? 'text-[var(--color-sky)]'
-                        : 'text-[var(--color-stone)]/50'
+                      'border-b border-[rgba(163,163,163,0.03)]',
+                      iteration.has_errors && 'bg-[rgba(199,62,58,0.05)]'
                     )}
                   >
-                    <FileCode className="w-3 h-3" />
-                    {iteration.files_changed}
-                  </span>
+                    {/* Loop number */}
+                    <td className="py-1.5 sm:py-2 pr-2 sm:pr-4 font-mono text-[var(--color-paper)]">
+                      {iteration.loop_number}
+                    </td>
 
-                  {/* Progress detected */}
-                  <span>
-                    {iteration.progress_detected ? (
-                      <CheckCircle className="w-4 h-4 text-[var(--color-jade)]" />
-                    ) : (
-                      <CircleSlash className="w-4 h-4 text-[var(--color-stone)]/40" />
-                    )}
-                  </span>
-
-                  {/* Tokens */}
-                  <span className="text-[var(--color-stone)]/70 font-mono text-[0.65rem]">
-                    {formatTokens(iteration.input_tokens + iteration.output_tokens)}
-                  </span>
-
-                  {/* Cost */}
-                  <span className="text-[var(--color-harvest)] font-mono flex items-center gap-0.5">
-                    <DollarSign className="w-2.5 h-2.5" />
-                    {iteration.cost_usd.toFixed(2)}
-                  </span>
-
-                  {/* Status indicators */}
-                  <div className="flex items-center gap-1.5">
-                    {iteration.has_completion_signal && (
-                      <span
-                        className="px-1.5 py-0.5 rounded-sm text-body bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]"
-                        title="Completion signal detected"
-                      >
-                        DONE
+                    {/* Duration */}
+                    <td className="py-1.5 sm:py-2 pr-2 sm:pr-4 text-[var(--color-stone)]/70">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3 shrink-0 hidden sm:block" />
+                        {formatDuration(iteration.duration_seconds)}
                       </span>
-                    )}
-                    {iteration.has_errors && (
+                    </td>
+
+                    {/* Files changed */}
+                    <td className="py-1.5 sm:py-2 pr-2 sm:pr-4">
                       <span
-                        className="px-1.5 py-0.5 rounded-sm text-body bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]"
-                        title={iteration.error_message || 'Error occurred'}
+                        className={cn(
+                          'flex items-center gap-1',
+                          iteration.files_changed > 0
+                            ? 'text-[var(--color-sky)]'
+                            : 'text-[var(--color-stone)]/50'
+                        )}
                       >
-                        ERR
+                        <FileCode className="w-3 h-3 shrink-0" />
+                        {iteration.files_changed}
                       </span>
-                    )}
-                    {iteration.is_test_only && (
-                      <span
-                        className="px-1.5 py-0.5 rounded-sm text-body bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]"
-                        title="Only ran tests, no code changes"
-                      >
-                        TEST
-                      </span>
-                    )}
-                    {!iteration.has_completion_signal &&
-                      !iteration.has_errors &&
-                      !iteration.is_test_only && (
-                        <span className="text-[var(--color-stone)]/40">-</span>
+                    </td>
+
+                    {/* Progress detected */}
+                    <td className="py-1.5 sm:py-2 pr-2 sm:pr-4 text-center">
+                      {iteration.progress_detected ? (
+                        <CheckCircle className="w-4 h-4 text-[var(--color-jade)] inline-block" />
+                      ) : (
+                        <CircleSlash className="w-4 h-4 text-[var(--color-stone)]/30 inline-block" />
                       )}
-                  </div>
-                </div>
-              ))}
-          </div>
+                    </td>
+
+                    {/* Tokens - hidden on mobile */}
+                    <td className="py-1.5 sm:py-2 pr-2 sm:pr-4 font-mono text-[var(--color-stone)]/60 hidden sm:table-cell">
+                      {formatTokens(iteration.input_tokens + iteration.output_tokens)}
+                    </td>
+
+                    {/* Cost */}
+                    <td className="py-1.5 sm:py-2 pr-2 sm:pr-4 font-mono text-[var(--color-harvest)]">
+                      <span className="flex items-center gap-0.5">
+                        <DollarSign className="w-3 h-3 shrink-0" />
+                        {iteration.cost_usd.toFixed(2)}
+                      </span>
+                    </td>
+
+                    {/* Status indicators */}
+                    <td className="py-1.5 sm:py-2">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {iteration.has_completion_signal && (
+                          <span
+                            className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]"
+                            title="Completion signal detected"
+                          >
+                            Done
+                          </span>
+                        )}
+                        {iteration.has_errors && (
+                          <span
+                            className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]"
+                            title={iteration.error_message || 'Error occurred'}
+                          >
+                            Err
+                          </span>
+                        )}
+                        {iteration.is_test_only && (
+                          <span
+                            className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]"
+                            title="Only ran tests"
+                          >
+                            Test
+                          </span>
+                        )}
+                        {!iteration.has_completion_signal &&
+                          !iteration.has_errors &&
+                          !iteration.is_test_only && (
+                            <span className="text-[var(--color-stone)]/30">—</span>
+                          )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         )}
       </div>
 
-      {/* Stop Loop Button */}
+      {/* Mobile-only Stop Button */}
       {run.status === 'running' && (
-        <div className="pt-2">
-          <button
-            onClick={handleStopLoop}
-            disabled={stopping}
-            className={cn(
-              'flex items-center justify-center gap-2 w-full py-2.5 rounded-sm text-body uppercase tracking-widest transition-colors',
-              stopping
-                ? 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50 cursor-wait'
-                : 'bg-[rgba(199,62,58,0.15)] border border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
-            )}
-          >
-            <Square className="w-4 h-4" />
-            {stopping ? 'Stopping...' : 'Stop Loop Early'}
-          </button>
-        </div>
+        <button
+          onClick={handleStopLoop}
+          disabled={stopping}
+          className={cn(
+            'sm:hidden flex items-center justify-center gap-2 w-full py-2 rounded-sm text-body uppercase tracking-widest transition-colors',
+            stopping
+              ? 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50 cursor-wait'
+              : 'bg-[rgba(199,62,58,0.15)] border border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
+          )}
+        >
+          <Square className="w-3.5 h-3.5" />
+          {stopping ? 'Stopping...' : 'Stop Loop'}
+        </button>
       )}
     </div>
   )

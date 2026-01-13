@@ -70,6 +70,9 @@ class RalphManager:
             max_cost_usd=run.max_cost_usd,
         )
         self.rate_limiter = RateLimiter(rl_config)
+        # Restore cumulative cost from previous iterations (for resume continuity)
+        if run.cost_usd is not None:
+            self.rate_limiter.total_cost_usd = run.cost_usd
 
         # Restore circuit breaker state from run if resuming
         if run.circuit_state != CircuitState.CLOSED:

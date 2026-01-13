@@ -56,6 +56,9 @@ node_modules/
 npm-debug.log
 yarn-error.log
 
+# Pre-built web assets (rebuilt in Docker stage 1)
+src/gluon/web/dist/
+
 # Logs
 logs/
 *.log

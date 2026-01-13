@@ -5,6 +5,14 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class QueuedMessageResponse(BaseModel):
+    """Response model for a queued message."""
+
+    id: str
+    message: str
+    queued_at: str
+
+
 class RunResponse(BaseModel):
     """Response model for execution runs."""
 
@@ -81,6 +89,8 @@ class RunDetailResponse(RunResponse):
     consecutive_same_error: int = Field(default=0, description="Consecutive loops with same error")
     test_only_loops: int = Field(default=0, description="Number of test-only loop iterations")
     max_cost_usd: float | None = Field(default=None, description="Maximum cost limit for ralph loop")
+    # Queued messages (for follow-up while task is running)
+    queued_messages: list[QueuedMessageResponse] = Field(default_factory=list, description="Queued follow-up messages")
 
 
 class CreateRunRequest(BaseModel):
@@ -385,6 +395,7 @@ class RunCommitsResponse(BaseModel):
     base_branch: str
     commit_count: int
     commits: list[CommitResponse]
+    from_snapshot: bool = Field(default=False, description="True if data from snapshot (branch may be deleted)")
 
 
 class FileChangeResponse(BaseModel):
@@ -406,6 +417,7 @@ class RunFilesResponse(BaseModel):
     total_additions: int
     total_deletions: int
     files: list[FileChangeResponse]
+    from_snapshot: bool = Field(default=False, description="True if data from snapshot (branch may be deleted)")
 
 
 class CommitDetailResponse(BaseModel):
@@ -417,6 +429,7 @@ class CommitDetailResponse(BaseModel):
     author_email: str = Field(description="Author email")
     date: str = Field(description="Commit date in ISO format")
     files: list[FileChangeResponse] = Field(description="Files changed in this commit")
+    from_snapshot: bool = Field(default=False, description="True if data from snapshot (branch may be deleted)")
 
 
 class FileDiffResponse(BaseModel):
@@ -768,3 +781,10 @@ class QueueFollowupResponse(BaseModel):
     run_id: str
     action: str = Field(description="Action taken: 'queued' or 'resume_now'")
     message: str | None = Field(default=None, description="The queued message if action is 'queued'")
+    message_id: str | None = Field(default=None, description="The ID of the queued message")
+
+
+class EditQueuedMessageRequest(BaseModel):
+    """Request model for editing a queued message."""
+
+    message: str = Field(description="The updated message content")
