@@ -11,6 +11,7 @@ RalphManager coordinates the autonomous loop lifecycle:
 import asyncio
 import json
 import logging
+import re
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,9 @@ DEFAULT_LOOP_DELAY_SECONDS = 5
 
 # TODO file names to check for completion
 TODO_FILE_NAMES = ["@fix_plan.md", "TODO.md", "todo.md", "TASKS.md"]
+
+# Progress file for fresh context sessions
+PROGRESS_FILE_NAME = ".gluon-progress.md"
 
 
 class RalphManager:
@@ -289,6 +293,9 @@ class RalphManager:
         # Sync run state to database
         self._sync_run_state()
 
+        # Write progress file for next iteration (fresh context sessions)
+        self._write_progress_file(iteration, output_text)
+
         # Log iteration summary
         logger.info(
             f"Iteration {loop_num} complete: "
@@ -322,10 +329,16 @@ class RalphManager:
         messages_path = self.log_dir / "messages.jsonl" if self.log_dir else None
 
         try:
+            # IMPORTANT: Use fresh sessions for each Ralph Loop iteration.
+            # This prevents "context rot" where LLM performance degrades as
+            # the context window fills up. Context is passed via progress file
+            # instead of session resumption.
+            # NOTE: Manual user resumes (CLI/web-ui) still use legacy resume
+            # behavior - this change only affects Ralph Loop auto-iterations.
             async for message in self.agent.execute(
                 prompt=prompt,
                 working_dir=self.working_dir,
-                resume_session_id=self.run.claude_session_id,
+                resume_session_id=None,  # Always fresh for Ralph auto-iterations
             ):
                 # Capture session ID from init message
                 if hasattr(message, "metadata") and message.metadata:
@@ -393,6 +406,10 @@ class RalphManager:
 
         Prepends loop context to original prompt to help Claude
         understand this is part of an autonomous loop.
+
+        For iterations 2+, includes the previous iteration's summary
+        from the progress file to provide context without resuming
+        the session (which would cause context rot).
         """
         context_parts = [f"[Loop {loop_number}/{self.run.max_loops}]"]
 
@@ -409,6 +426,24 @@ class RalphManager:
             context_parts.append(f"[Circuit: {self.circuit_breaker.state.value}]")
 
         context = " ".join(context_parts)
+
+        # Inject previous iteration summary for fresh context sessions
+        previous_summary = ""
+        if loop_number > 1:
+            prev_content = self._read_progress_file()
+            if prev_content:
+                previous_summary = f"""
+
+---
+
+## Previous Iteration Summary
+
+{prev_content}
+
+**Note:** This is a fresh session. The above describes what was done previously. Continue from there.
+
+---
+"""
 
         # RALPH_STATUS instruction for structured completion signals
         status_instruction = """
@@ -435,7 +470,7 @@ Set STATUS to `COMPLETE` when the task is done, `IN_PROGRESS` when continuing, o
 ---
 """
 
-        return f"{context}\n\n{self.run.prompt}{status_instruction}"
+        return f"{context}{previous_summary}\n\n{self.run.prompt}{status_instruction}"
 
     def _read_todo_file(self) -> str | None:
         """Read @fix_plan.md or TODO.md if present."""
@@ -497,3 +532,140 @@ Set STATUS to `COMPLETE` when the task is done, `IN_PROGRESS` when continuing, o
         self.run.cost_usd = self.rate_limiter.total_cost_usd
 
         self.store.update_run(self.run)
+
+    # -------------------------------------------------------------------------
+    # Progress file methods for fresh context sessions
+    # -------------------------------------------------------------------------
+
+    def _write_progress_file(self, iteration: RalphLoopIteration, output: str) -> None:
+        """Write iteration summary to progress file in project directory.
+
+        This enables fresh context sessions by persisting key learnings
+        from each iteration to a markdown file that the next iteration
+        can read. Overwrites previous content (last iteration only).
+        """
+        progress_path = self.working_dir / PROGRESS_FILE_NAME
+
+        # Extract RALPH_STATUS block from output
+        ralph_status = self._extract_ralph_status(output)
+
+        # Extract key output summary
+        key_output = self._extract_key_output(output)
+
+        # Build markdown summary
+        summary = f"""## Iteration {iteration.loop_number}
+
+**Started**: {iteration.started_at.isoformat() if iteration.started_at else "N/A"}
+**Files Changed**: {iteration.files_changed}
+**Errors**: {iteration.has_errors}
+**Confidence**: {iteration.confidence_score:.0f}%
+
+### Status
+{ralph_status or "No RALPH_STATUS block found"}
+
+### Key Output
+{key_output or "No significant output captured"}
+
+---
+"""
+        try:
+            progress_path.write_text(summary)
+            logger.debug(f"Wrote progress file: {progress_path}")
+        except Exception as e:
+            logger.warning(f"Failed to write progress file: {e}")
+
+    def _read_progress_file(self) -> str | None:
+        """Read previous iteration summary from progress file.
+
+        Returns:
+            Content of progress file, or None if not found.
+        """
+        progress_path = self.working_dir / PROGRESS_FILE_NAME
+        if progress_path.exists():
+            try:
+                return progress_path.read_text()
+            except Exception as e:
+                logger.debug(f"Failed to read progress file: {e}")
+        return None
+
+    def _extract_ralph_status(self, output: str) -> str | None:
+        """Extract RALPH_STATUS block from Claude output.
+
+        Returns:
+            The RALPH_STATUS block content, or None if not found.
+        """
+        # Match the RALPH_STATUS block
+        pattern = r"---RALPH_STATUS---(.*?)---END_RALPH_STATUS---"
+        match = re.search(pattern, output, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    def _extract_key_output(self, output: str, max_chars: int = 2000) -> str:
+        """Extract key information from iteration output.
+
+        Focuses on tool calls, file modifications, and decisions.
+        Truncates to max_chars to keep context concise.
+
+        Args:
+            output: Full output from Claude
+            max_chars: Maximum characters to include
+
+        Returns:
+            Summarized key output
+        """
+        if not output:
+            return ""
+
+        lines = []
+
+        # Extract tool usage mentions
+        tool_pattern = r"\[Tool: (\w+)\]"
+        tools_used = re.findall(tool_pattern, output)
+        if tools_used:
+            # Count unique tools
+            tool_counts: dict[str, int] = {}
+            for tool in tools_used:
+                tool_counts[tool] = tool_counts.get(tool, 0) + 1
+            tool_summary = ", ".join(f"{t}({c})" for t, c in tool_counts.items())
+            lines.append(f"- Tools used: {tool_summary}")
+
+        # Extract file modification patterns (common in Claude output)
+        file_patterns = [
+            r"(?:Modified|Created|Edited|Updated|Deleted)\s+[`'\"]?([^\s`'\"]+\.\w+)[`'\"]?",
+            r"(?:wrote to|edited|created)\s+[`'\"]?([^\s`'\"]+\.\w+)[`'\"]?",
+        ]
+        files_mentioned: set[str] = set()
+        for pattern in file_patterns:
+            matches = re.findall(pattern, output, re.IGNORECASE)
+            files_mentioned.update(matches)
+        if files_mentioned:
+            lines.append(f"- Files mentioned: {', '.join(sorted(files_mentioned)[:10])}")
+
+        # Extract test results if any
+        test_patterns = [
+            r"(\d+)\s+(?:tests?\s+)?passed",
+            r"(\d+)\s+(?:tests?\s+)?failed",
+            r"pytest.*?(\d+\s+passed|\d+\s+failed)",
+        ]
+        for pattern in test_patterns:
+            match = re.search(pattern, output, re.IGNORECASE)
+            if match:
+                lines.append(f"- Test results: {match.group(0)}")
+                break
+
+        # Extract error summaries if any
+        error_pattern = r"(?:Error|Exception|Failed):\s*(.+?)(?:\n|$)"
+        errors = re.findall(error_pattern, output, re.IGNORECASE)
+        if errors:
+            lines.append(f"- Errors: {errors[0][:100]}")
+
+        # If we found structured info, return it
+        if lines:
+            return "\n".join(lines)
+
+        # Fallback: return truncated raw output (skip tool markers)
+        clean_output = re.sub(r"\[Tool: \w+\]\n?", "", output)
+        if len(clean_output) > max_chars:
+            return clean_output[:max_chars] + "..."
+        return clean_output
