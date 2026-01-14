@@ -1213,8 +1213,8 @@ Run ID: `{run_id}`
         else:
             logger.debug(f"No upstream tracking for {base_branch}, skipping pull")
 
-        # Merge the feature branch
-        rc, stdout, stderr = await self._run_git(project_path, "merge", branch_name, "--no-edit")
+        # Merge the feature branch (use author config from settings for merge commit)
+        rc, stdout, stderr = await self._run_git_with_author(project_path, "merge", branch_name, "--no-edit")
         if rc != 0:
             # Merge conflict - get list of conflicting files before aborting
             conflict_rc, conflict_stdout, _ = await self._run_git(
