@@ -261,13 +261,13 @@ class TaskRunner:
 
         # Determine cost limit:
         # - If user provided explicit cost limit, use it
-        # - If Ralph enabled with no explicit limit, use high default ($1000)
+        # - If Ralph enabled with no explicit limit, use high default ($1000 or env var)
         # - Otherwise use profile's budget
-        DEFAULT_RALPH_COST_LIMIT = 1000.0
+        default_ralph_cost = float(os.environ.get("DEFAULT_RALPH_COST_LIMIT", "1000.0"))
         if max_cost_usd is not None:
             effective_cost_limit = max_cost_usd
         elif ralph_enabled:
-            effective_cost_limit = DEFAULT_RALPH_COST_LIMIT
+            effective_cost_limit = default_ralph_cost
         else:
             effective_cost_limit = task_options["max_budget_usd"]
 
