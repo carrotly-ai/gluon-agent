@@ -14,9 +14,14 @@ import {
   Clock,
   Copy,
   DollarSign,
+  FileCode,
   Filter,
+  Flag,
+  Lightbulb,
+  ListChecks,
   MessageSquare,
   Settings2,
+  TestTube,
   Wrench,
   Zap,
 } from 'lucide-react'
@@ -139,6 +144,204 @@ interface AgentMessage {
     tool_id?: string
     input?: unknown
   }
+}
+
+// RALPH_STATUS block parser and renderer
+interface RalphStatusData {
+  status?: 'COMPLETE' | 'IN_PROGRESS' | 'BLOCKED'
+  tasksCompleted?: number
+  filesModified?: number
+  testsStatus?: 'PASSING' | 'FAILING' | 'NOT_RUN'
+  workType?: 'IMPLEMENTATION' | 'TESTING' | 'DOCUMENTATION' | 'REFACTORING'
+  exitSignal?: boolean
+  recommendation?: string
+}
+
+function parseRalphStatus(content: string): {
+  before: string
+  status: RalphStatusData | null
+  after: string
+} {
+  const pattern = /---RALPH_STATUS---([\s\S]*?)---END_RALPH_STATUS---/
+  const match = content.match(pattern)
+
+  if (!match) {
+    return { before: content, status: null, after: '' }
+  }
+
+  const beforeMatch = content.slice(0, match.index).trim()
+  const afterMatch = content.slice((match.index || 0) + match[0].length).trim()
+  const blockContent = match[1]
+
+  const data: RalphStatusData = {}
+
+  // Parse each line
+  for (const line of blockContent.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || !trimmed.includes(':')) continue
+
+    const [key, ...valueParts] = trimmed.split(':')
+    const value = valueParts.join(':').trim()
+
+    switch (key.trim().toUpperCase()) {
+      case 'STATUS':
+        if (['COMPLETE', 'IN_PROGRESS', 'BLOCKED'].includes(value.toUpperCase())) {
+          data.status = value.toUpperCase() as RalphStatusData['status']
+        }
+        break
+      case 'TASKS_COMPLETED_THIS_LOOP':
+        data.tasksCompleted = Number.parseInt(value, 10) || 0
+        break
+      case 'FILES_MODIFIED':
+        data.filesModified = Number.parseInt(value, 10) || 0
+        break
+      case 'TESTS_STATUS':
+        if (['PASSING', 'FAILING', 'NOT_RUN'].includes(value.toUpperCase())) {
+          data.testsStatus = value.toUpperCase() as RalphStatusData['testsStatus']
+        }
+        break
+      case 'WORK_TYPE':
+        if (
+          ['IMPLEMENTATION', 'TESTING', 'DOCUMENTATION', 'REFACTORING'].includes(
+            value.toUpperCase()
+          )
+        ) {
+          data.workType = value.toUpperCase() as RalphStatusData['workType']
+        }
+        break
+      case 'EXIT_SIGNAL':
+        data.exitSignal = value.toLowerCase() === 'true'
+        break
+      case 'RECOMMENDATION':
+        data.recommendation = value
+        break
+    }
+  }
+
+  return { before: beforeMatch, status: data, after: afterMatch }
+}
+
+function RalphStatusBlock({ data }: { data: RalphStatusData }) {
+  const statusConfig = {
+    COMPLETE: {
+      color: 'text-[var(--color-jade)]',
+      bg: 'bg-[var(--color-jade)]/10',
+      label: 'Complete',
+    },
+    IN_PROGRESS: {
+      color: 'text-[var(--color-sky)]',
+      bg: 'bg-[var(--color-sky)]/10',
+      label: 'In Progress',
+    },
+    BLOCKED: {
+      color: 'text-[var(--color-vermillion)]',
+      bg: 'bg-[var(--color-vermillion)]/10',
+      label: 'Blocked',
+    },
+  }
+
+  const testsConfig = {
+    PASSING: { color: 'text-[var(--color-jade)]', label: 'Passing' },
+    FAILING: { color: 'text-[var(--color-vermillion)]', label: 'Failing' },
+    NOT_RUN: { color: 'text-[var(--color-stone)]/60', label: 'Not Run' },
+  }
+
+  const workTypeConfig = {
+    IMPLEMENTATION: { icon: FileCode, label: 'Implementation' },
+    TESTING: { icon: TestTube, label: 'Testing' },
+    DOCUMENTATION: { icon: MessageSquare, label: 'Documentation' },
+    REFACTORING: { icon: Settings2, label: 'Refactoring' },
+  }
+
+  const config = data.status ? statusConfig[data.status] : statusConfig.IN_PROGRESS
+  const testsStatusConfig = data.testsStatus ? testsConfig[data.testsStatus] : null
+  const workConfig = data.workType ? workTypeConfig[data.workType] : null
+  const WorkIcon = workConfig?.icon || FileCode
+
+  return (
+    <div className="my-3 rounded-md border border-[var(--color-stone)]/20 bg-[var(--color-void)] overflow-hidden">
+      {/* Header */}
+      <div
+        className={cn(
+          'flex items-center gap-2 px-3 py-2 border-b border-[var(--color-stone)]/15',
+          config.bg
+        )}
+      >
+        <Flag className={cn('w-3.5 h-3.5', config.color)} />
+        <span className={cn('font-medium text-body', config.color)}>Ralph Status</span>
+        <span
+          className={cn(
+            'ml-auto px-2 py-0.5 rounded text-body font-medium',
+            config.bg,
+            config.color
+          )}
+        >
+          {config.label}
+        </span>
+        {data.exitSignal && (
+          <span className="px-2 py-0.5 rounded text-body font-medium bg-[var(--color-jade)]/20 text-[var(--color-jade)]">
+            EXIT
+          </span>
+        )}
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[var(--color-stone)]/10">
+        {/* Tasks Completed */}
+        <div className="bg-[var(--color-void)] px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60 text-body mb-1">
+            <ListChecks className="w-3 h-3" />
+            <span>Tasks</span>
+          </div>
+          <div className="text-[var(--color-paper)] font-medium">{data.tasksCompleted ?? 0}</div>
+        </div>
+
+        {/* Files Modified */}
+        <div className="bg-[var(--color-void)] px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60 text-body mb-1">
+            <FileCode className="w-3 h-3" />
+            <span>Files</span>
+          </div>
+          <div className="text-[var(--color-paper)] font-medium">{data.filesModified ?? 0}</div>
+        </div>
+
+        {/* Tests Status */}
+        <div className="bg-[var(--color-void)] px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60 text-body mb-1">
+            <TestTube className="w-3 h-3" />
+            <span>Tests</span>
+          </div>
+          <div
+            className={cn(
+              'font-medium',
+              testsStatusConfig?.color || 'text-[var(--color-stone)]/60'
+            )}
+          >
+            {testsStatusConfig?.label || '-'}
+          </div>
+        </div>
+
+        {/* Work Type */}
+        <div className="bg-[var(--color-void)] px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60 text-body mb-1">
+            <WorkIcon className="w-3 h-3" />
+            <span>Type</span>
+          </div>
+          <div className="text-[var(--color-paper)] font-medium">{workConfig?.label || '-'}</div>
+        </div>
+      </div>
+
+      {/* Recommendation */}
+      {data.recommendation && (
+        <div className="px-3 py-2 border-t border-[var(--color-stone)]/15 bg-[var(--color-paper)]/[0.02]">
+          <div className="flex items-start gap-2">
+            <Lightbulb className="w-3.5 h-3.5 text-[var(--color-harvest)] shrink-0 mt-0.5" />
+            <span className="text-body text-[var(--color-paper)]/80">{data.recommendation}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // TodoWrite specialized renderer
@@ -330,6 +533,87 @@ function ToolCallMessage({
   )
 }
 
+// Shared markdown components configuration
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0">{children}</p>,
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-body font-mono">
+      {children}
+    </code>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-medium">{children}</strong>
+  ),
+  em: ({ children }: { children?: React.ReactNode }) => <em>{children}</em>,
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="border-l-2 border-[var(--color-stone)]/30 pl-3 my-2 text-[var(--color-stone)]/80">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="overflow-x-auto mb-2">
+      <table className="min-w-full border-collapse text-body">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => (
+    <thead className="border-b border-[var(--color-stone)]/30">{children}</thead>
+  ),
+  tbody: ({ children }: { children?: React.ReactNode }) => <tbody>{children}</tbody>,
+  tr: ({ children }: { children?: React.ReactNode }) => (
+    <tr className="border-b border-[var(--color-stone)]/10">{children}</tr>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="px-2 py-1 text-left font-medium text-[var(--color-paper)]/80">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="px-2 py-1 text-[var(--color-paper)]/70">{children}</td>
+  ),
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="font-semibold text-[var(--color-paper)] mt-3 mb-2 first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="font-semibold text-[var(--color-paper)] mt-3 mb-2 first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="font-medium text-[var(--color-paper)] mt-2 mb-1 first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }: { children?: React.ReactNode }) => (
+    <h4 className="font-medium text-[var(--color-paper)]/90 mt-2 mb-1 first:mt-0">{children}</h4>
+  ),
+  h5: ({ children }: { children?: React.ReactNode }) => (
+    <h5 className="font-medium text-[var(--color-paper)]/80 mt-1 mb-1 first:mt-0">{children}</h5>
+  ),
+  h6: ({ children }: { children?: React.ReactNode }) => (
+    <h6 className="font-medium text-[var(--color-paper)]/70 mt-1 mb-1 first:mt-0">{children}</h6>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-[var(--color-sky)] hover:text-[var(--color-sky)]/80 underline underline-offset-2"
+    >
+      {children}
+    </a>
+  ),
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="bg-[var(--color-void)] border border-[var(--color-stone)]/15 rounded-sm p-3 my-2 overflow-x-auto text-body font-mono">
+      {children}
+    </pre>
+  ),
+  hr: () => <hr className="border-0 border-t border-[var(--color-stone)]/20 my-3" />,
+  del: ({ children }: { children?: React.ReactNode }) => (
+    <del className="text-[var(--color-stone)]/60 line-through">{children}</del>
+  ),
+}
+
 function TextMessage({
   msg,
   showTimestamp = true,
@@ -338,7 +622,17 @@ function TextMessage({
   showTimestamp?: boolean
 }) {
   const time = formatMessageTime(msg.timestamp)
-  const isLong = msg.content.length > 200
+
+  // Parse RALPH_STATUS block from content
+  const {
+    before,
+    status: ralphStatus,
+    after,
+  } = useMemo(() => parseRalphStatus(msg.content), [msg.content])
+
+  // Calculate length excluding RALPH_STATUS block for expand logic
+  const textLength = before.length + after.length
+  const isLong = textLength > 200
   const [isExpanded, setIsExpanded] = useState(!isLong)
   const [copied, setCopied] = useState(false)
 
@@ -355,105 +649,25 @@ function TextMessage({
         <div
           className={cn(
             'text-body text-[var(--color-paper)]/90 leading-relaxed',
-            !isExpanded && 'line-clamp-2'
+            !isExpanded && !ralphStatus && 'line-clamp-2'
           )}
         >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-              code: ({ children }) => (
-                <code className="text-[var(--color-paper)]/70 bg-[var(--color-ink)] px-1 py-0.5 rounded text-body font-mono">
-                  {children}
-                </code>
-              ),
-              ul: ({ children }) => (
-                <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
-              ),
-              ol: ({ children }) => (
-                <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>
-              ),
-              li: ({ children }) => <li>{children}</li>,
-              strong: ({ children }) => <strong className="font-medium">{children}</strong>,
-              em: ({ children }) => <em>{children}</em>,
-              blockquote: ({ children }) => (
-                <blockquote className="border-l-2 border-[var(--color-stone)]/30 pl-3 my-2 text-[var(--color-stone)]/80">
-                  {children}
-                </blockquote>
-              ),
-              table: ({ children }) => (
-                <div className="overflow-x-auto mb-2">
-                  <table className="min-w-full border-collapse text-body">{children}</table>
-                </div>
-              ),
-              thead: ({ children }) => (
-                <thead className="border-b border-[var(--color-stone)]/30">{children}</thead>
-              ),
-              tbody: ({ children }) => <tbody>{children}</tbody>,
-              tr: ({ children }) => (
-                <tr className="border-b border-[var(--color-stone)]/10">{children}</tr>
-              ),
-              th: ({ children }) => (
-                <th className="px-2 py-1 text-left font-medium text-[var(--color-paper)]/80">
-                  {children}
-                </th>
-              ),
-              td: ({ children }) => (
-                <td className="px-2 py-1 text-[var(--color-paper)]/70">{children}</td>
-              ),
-              h1: ({ children }) => (
-                <h1 className="font-semibold text-[var(--color-paper)] mt-3 mb-2 first:mt-0">
-                  {children}
-                </h1>
-              ),
-              h2: ({ children }) => (
-                <h2 className="font-semibold text-[var(--color-paper)] mt-3 mb-2 first:mt-0">
-                  {children}
-                </h2>
-              ),
-              h3: ({ children }) => (
-                <h3 className="font-medium text-[var(--color-paper)] mt-2 mb-1 first:mt-0">
-                  {children}
-                </h3>
-              ),
-              h4: ({ children }) => (
-                <h4 className="font-medium text-[var(--color-paper)]/90 mt-2 mb-1 first:mt-0">
-                  {children}
-                </h4>
-              ),
-              h5: ({ children }) => (
-                <h5 className="font-medium text-[var(--color-paper)]/80 mt-1 mb-1 first:mt-0">
-                  {children}
-                </h5>
-              ),
-              h6: ({ children }) => (
-                <h6 className="font-medium text-[var(--color-paper)]/70 mt-1 mb-1 first:mt-0">
-                  {children}
-                </h6>
-              ),
-              a: ({ href, children }) => (
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--color-sky)] hover:text-[var(--color-sky)]/80 underline underline-offset-2"
-                >
-                  {children}
-                </a>
-              ),
-              pre: ({ children }) => (
-                <pre className="bg-[var(--color-void)] border border-[var(--color-stone)]/15 rounded-sm p-3 my-2 overflow-x-auto text-body font-mono">
-                  {children}
-                </pre>
-              ),
-              hr: () => <hr className="border-0 border-t border-[var(--color-stone)]/20 my-3" />,
-              del: ({ children }) => (
-                <del className="text-[var(--color-stone)]/60 line-through">{children}</del>
-              ),
-            }}
-          >
-            {msg.content}
-          </ReactMarkdown>
+          {/* Render text before RALPH_STATUS */}
+          {before && (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {before}
+            </ReactMarkdown>
+          )}
+
+          {/* Render RALPH_STATUS block with special formatting */}
+          {ralphStatus && <RalphStatusBlock data={ralphStatus} />}
+
+          {/* Render text after RALPH_STATUS */}
+          {after && (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {after}
+            </ReactMarkdown>
+          )}
         </div>
         {isLong && (
           <div className="flex items-center gap-3 mt-1">
