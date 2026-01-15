@@ -114,7 +114,26 @@ THINKING_BUDGET_TOKENS: dict[ThinkingBudget, int] = {
 }
 
 
-# System prompt injected when force_planning is enabled
+# Base system prompt appended to ALL Gluon-launched tasks
+GLUON_SYSTEM_PROMPT = """
+## Gluon Runtime Environment
+
+You are being run by **Gluon**, an orchestrator application that manages one or more concurrent coding agents. Key context:
+
+**Environment:**
+- Runtime: Docker container (Ubuntu-based)
+- Home directory: `/home/gluon` (use `~` or `$HOME` when possible)
+- Available runtimes: Node.js, Python, Bun, Git, GitHub CLI (gh)
+- MCP servers may be configured for additional tool access
+
+**Important:**
+- NEVER hallucinate paths like `/home/user`, `/home/ralph`, `/Users/*` - these do not exist
+- When referencing home directory, prefer `~` or `$HOME` over hardcoded paths
+- If you must use an absolute path, the home directory is `/home/gluon`
+"""
+
+
+# System prompt injected when force_planning is enabled (appended after GLUON_SYSTEM_PROMPT)
 PLANNING_SYSTEM_PROMPT = """
 ## PLANNING MODE ACTIVE
 

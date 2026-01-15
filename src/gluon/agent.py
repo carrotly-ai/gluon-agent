@@ -22,7 +22,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from gluon.models import PLANNING_SYSTEM_PROMPT
+from gluon.models import GLUON_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT
 from gluon.models_config import get_model_id
 
 # Type for question handler callback
@@ -368,9 +368,12 @@ class GluonAgent:
         if self.max_budget_usd is not None:
             options.max_budget_usd = self.max_budget_usd
 
-        # Inject planning system prompt if force_planning is enabled
+        # Always append base Gluon system prompt (environment context)
+        options.append_system_prompt = GLUON_SYSTEM_PROMPT
+
+        # Additionally append planning prompt if force_planning is enabled
         if self.force_planning:
-            options.append_system_prompt = PLANNING_SYSTEM_PROMPT
+            options.append_system_prompt += "\n" + PLANNING_SYSTEM_PROMPT
 
         # Add can_use_tool callback if question handler is configured
         # This enables AskUserQuestion support
