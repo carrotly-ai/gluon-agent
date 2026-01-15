@@ -21,6 +21,8 @@ import type {
   PendingQuestionsResponse,
   Project,
   ProjectDetail,
+  ProjectFile,
+  ProjectFilesResponse,
   ProjectUsage,
   QueuedMessage,
   // Ralph Loop types
@@ -688,4 +690,21 @@ export async function refreshAllGitStatuses(): Promise<{
 export async function fetchCommands(): Promise<SlashCommand[]> {
   const response = await fetchJson<SlashCommandsResponse>('/commands')
   return response.commands
+}
+
+// ========== Project Files (Autocomplete) ==========
+
+/** Fetch files in a project for autocomplete */
+export async function fetchProjectFiles(
+  projectId: string,
+  prefix: string = '',
+  limit: number = 50
+): Promise<{ files: ProjectFile[]; truncated: boolean }> {
+  const params = new URLSearchParams()
+  if (prefix) params.set('prefix', prefix)
+  params.set('limit', limit.toString())
+  const response = await fetchJson<ProjectFilesResponse>(
+    `/projects/${projectId}/files?${params.toString()}`
+  )
+  return { files: response.files, truncated: response.truncated }
 }

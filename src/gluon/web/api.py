@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from gluon.cleanup import LogCleanupService
 from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
+from gluon.files import get_project_files
 from gluon.models import RunStatus
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
@@ -53,6 +54,8 @@ from gluon.web.models import (
     PendingQuestionResponse,
     PendingQuestionsResponse,
     ProjectDetailResponse,
+    ProjectFileResponse,
+    ProjectFilesResponse,
     ProjectResponse,
     ProjectUsageResponse,
     QueuedMessageResponse,
@@ -1539,6 +1542,38 @@ def create_app() -> FastAPI:
                 )
                 for cmd in commands
             ]
+        )
+
+    @app.get("/api/projects/{project_id}/files", response_model=ProjectFilesResponse)
+    async def list_project_files(
+        project_id: str,
+        prefix: str = "",
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> ProjectFilesResponse:
+        """List files in a project for autocomplete.
+
+        Returns files and directories from whitelisted scan paths (src/, tests/, etc.)
+        with common exclusions (node_modules, .git, __pycache__, etc.) filtered out.
+        """
+        project = store.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        project_path = Path(project.expanded_path)
+        if not project_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project path not found: {project_path}")
+
+        files, truncated = get_project_files(
+            project_id=project_id,
+            project_path=project_path,
+            prefix=prefix,
+            limit=limit,
+        )
+
+        return ProjectFilesResponse(
+            project_id=project_id,
+            files=[ProjectFileResponse(path=f.path, type=f.type) for f in files],
+            truncated=truncated,
         )
 
     # ========== Phase 7.2: Status Transitions (Drag-and-Drop) ==========

@@ -11,9 +11,10 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
+import { FileAutocomplete } from '@/components/FileAutocomplete'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { createRun, fetchCommands, fetchProjects, uploadAndAttachImage } from '@/lib/api'
-import type { Project, ProjectWithWorkspace, SlashCommand, TaskProfile, ThinkingBudget } from '@/lib/types'
+import { createRun, fetchCommands, fetchProjectFiles, fetchProjects, uploadAndAttachImage } from '@/lib/api'
+import type { Project, ProjectFile, ProjectWithWorkspace, SlashCommand, TaskProfile, ThinkingBudget } from '@/lib/types'
 import { groupProjectsByWorkspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -136,6 +137,13 @@ export function CreateTaskDialog({
   const [autocompleteFilter, setAutocompleteFilter] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // File autocomplete state (@mentions)
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([])
+  const [showFileAutocomplete, setShowFileAutocomplete] = useState(false)
+  const [fileAutocompleteFilter, setFileAutocompleteFilter] = useState('')
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [filesTruncated, setFilesTruncated] = useState(false)
+
   useEffect(() => {
     if (open) {
       fetchProjects().then(setProjects).catch(console.error)
@@ -146,6 +154,27 @@ export function CreateTaskDialog({
       }
     }
   }, [open, initialProject])
+
+  // Load files when project is selected (for @mentions autocomplete)
+  useEffect(() => {
+    if (!selectedProject || !open) {
+      setProjectFiles([])
+      return
+    }
+
+    // Find project ID from project name
+    const project = projects.find((p) => p.name === selectedProject)
+    if (!project) return
+
+    setFilesLoading(true)
+    fetchProjectFiles(project.id)
+      .then(({ files, truncated }) => {
+        setProjectFiles(files)
+        setFilesTruncated(truncated)
+      })
+      .catch(console.error)
+      .finally(() => setFilesLoading(false))
+  }, [selectedProject, projects, open])
 
   // Reset form when closed (but preserve model and worktree preferences)
   useEffect(() => {
@@ -273,7 +302,7 @@ export function CreateTaskDialog({
 
   const grouped = groupProjectsByWorkspace(projects)
 
-  // Handle prompt changes and detect slash command trigger
+  // Handle prompt changes and detect slash command / file triggers
   const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value
     setPrompt(value)
@@ -282,18 +311,30 @@ export function CreateTaskDialog({
     const cursorPos = e.target.selectionStart
     const textBeforeCursor = value.slice(0, cursorPos)
 
-    // Find if there's a `/` at the start or after a space/newline
+    // Find if there's a `/` at the start or after a space/newline (slash commands)
     const lastSlashMatch = textBeforeCursor.match(/(?:^|\s)\/(\S*)$/)
+    // Find if there's a `@` at the start or after a space/newline (file mentions)
+    const lastAtMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/)
 
     if (lastSlashMatch) {
       const filter = lastSlashMatch[1]
       setAutocompleteFilter(filter)
       setShowAutocomplete(true)
+      setShowFileAutocomplete(false)
+      setFileAutocompleteFilter('')
+    } else if (lastAtMatch && selectedProject) {
+      const filter = lastAtMatch[1]
+      setFileAutocompleteFilter(filter)
+      setShowFileAutocomplete(true)
+      setShowAutocomplete(false)
+      setAutocompleteFilter('')
     } else {
       setShowAutocomplete(false)
       setAutocompleteFilter('')
+      setShowFileAutocomplete(false)
+      setFileAutocompleteFilter('')
     }
-  }, [])
+  }, [selectedProject])
 
   // Handle command selection from autocomplete
   const handleCommandSelect = useCallback((command: SlashCommand) => {
@@ -325,6 +366,39 @@ export function CreateTaskDialog({
   const handleAutocompleteClose = useCallback(() => {
     setShowAutocomplete(false)
     setAutocompleteFilter('')
+    textareaRef.current?.focus()
+  }, [])
+
+  // Handle file path selection from autocomplete (@mentions)
+  const handleFileMentionSelect = useCallback((file: ProjectFile) => {
+    if (!textareaRef.current) return
+
+    const cursorPos = textareaRef.current.selectionStart
+    const textBeforeCursor = prompt.slice(0, cursorPos)
+    const textAfterCursor = prompt.slice(cursorPos)
+
+    // Find the start of the @mention we're replacing
+    const atMatch = textBeforeCursor.match(/(?:^|\s)(@\S*)$/)
+    if (atMatch) {
+      const matchStart = textBeforeCursor.length - atMatch[1].length
+      const newText = prompt.slice(0, matchStart) + `@${file.path} ` + textAfterCursor
+      setPrompt(newText)
+
+      // Move cursor after the inserted file path
+      const newCursorPos = matchStart + file.path.length + 2 // +2 for '@' and space
+      setTimeout(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
+      }, 0)
+    }
+
+    setShowFileAutocomplete(false)
+    setFileAutocompleteFilter('')
+  }, [prompt])
+
+  const handleFileAutocompleteClose = useCallback(() => {
+    setShowFileAutocomplete(false)
+    setFileAutocompleteFilter('')
     textareaRef.current?.focus()
   }, [])
 
@@ -469,7 +543,7 @@ export function CreateTaskDialog({
               onChange={handlePromptChange}
               onKeyDown={(e) => {
                 // Let autocomplete handle navigation keys when visible
-                if (showAutocomplete && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+                if ((showAutocomplete || showFileAutocomplete) && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
                   return
                 }
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -480,7 +554,7 @@ export function CreateTaskDialog({
                 }
               }}
               onPaste={handlePaste}
-              placeholder="Type / for commands. Paste images with ⌘V"
+              placeholder="Type / for commands, @ for files. Paste images with ⌘V"
               className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
             />
@@ -492,6 +566,17 @@ export function CreateTaskDialog({
               onSelect={handleCommandSelect}
               onClose={handleAutocompleteClose}
               anchorRef={textareaRef}
+            />
+            {/* File autocomplete (@mentions) - rendered via portal */}
+            <FileAutocomplete
+              files={projectFiles}
+              filter={fileAutocompleteFilter}
+              visible={showFileAutocomplete}
+              onSelect={handleFileMentionSelect}
+              onClose={handleFileAutocompleteClose}
+              anchorRef={textareaRef}
+              loading={filesLoading}
+              truncated={filesTruncated}
             />
           </div>
 

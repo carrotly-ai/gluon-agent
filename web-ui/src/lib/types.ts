@@ -792,3 +792,18 @@ export interface SlashCommand {
 export interface SlashCommandsResponse {
   commands: SlashCommand[]
 }
+
+// ========== Project File Autocomplete Types ==========
+
+/** A file or directory in a project */
+export interface ProjectFile {
+  path: string
+  type: 'file' | 'directory'
+}
+
+/** Response for project files list (autocomplete) */
+export interface ProjectFilesResponse {
+  project_id: string
+  files: ProjectFile[]
+  truncated: boolean
+}

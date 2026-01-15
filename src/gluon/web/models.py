@@ -824,3 +824,21 @@ class SlashCommandsResponse(BaseModel):
     """Response model for list of slash commands."""
 
     commands: list[SlashCommandResponse] = Field(description="Available slash commands")
+
+
+# ========== Project File Autocomplete Models ==========
+
+
+class ProjectFileResponse(BaseModel):
+    """Response model for a file or directory in a project."""
+
+    path: str = Field(description="Relative path from project root")
+    type: str = Field(description="Type: file or directory")
+
+
+class ProjectFilesResponse(BaseModel):
+    """Response model for project files list (autocomplete)."""
+
+    project_id: str = Field(description="Project ID")
+    files: list[ProjectFileResponse] = Field(description="List of files and directories")
+    truncated: bool = Field(default=False, description="Whether results were truncated")
