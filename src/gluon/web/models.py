@@ -806,3 +806,21 @@ class EditQueuedMessageRequest(BaseModel):
     """Request model for editing a queued message."""
 
     message: str = Field(description="The updated message content")
+
+
+# ========== Slash Command Models ==========
+
+
+class SlashCommandResponse(BaseModel):
+    """Response model for a slash command or skill."""
+
+    name: str = Field(description="Command name (e.g., commit-push-pr)")
+    type: str = Field(description="Type: command or skill")
+    description: str = Field(description="Brief description")
+    argument_hint: str = Field(default="", description="Argument syntax hint")
+
+
+class SlashCommandsResponse(BaseModel):
+    """Response model for list of slash commands."""
+
+    commands: list[SlashCommandResponse] = Field(description="Available slash commands")

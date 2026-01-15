@@ -777,3 +777,18 @@ export interface QuestionAnsweredMessage extends WebSocketMessage {
   run_id: string
   question_id: string
 }
+
+// ========== Slash Command Types ==========
+
+/** Slash command or skill from ~/.claude directories */
+export interface SlashCommand {
+  name: string
+  type: 'command' | 'skill'
+  description: string
+  argument_hint: string
+}
+
+/** Response for slash commands list */
+export interface SlashCommandsResponse {
+  commands: SlashCommand[]
+}

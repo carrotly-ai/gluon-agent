@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from gluon.cleanup import LogCleanupService
+from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.models import RunStatus
 from gluon.runner import TaskRunner
@@ -77,6 +78,9 @@ from gluon.web.models import (
     RunUsageItemResponse,
     ScanResultResponse,
     SessionHistoryResponse,
+    # Slash Command models
+    SlashCommandResponse,
+    SlashCommandsResponse,
     StatusResponse,
     StopLoopResponse,
     SupervisionDecisionResponse,
@@ -1518,6 +1522,24 @@ def create_app() -> FastAPI:
         """Get application version info for update checking."""
         info = _get_version_info()
         return VersionResponse(**info)
+
+    # ========== Slash Commands ==========
+
+    @app.get("/api/commands", response_model=SlashCommandsResponse)
+    async def get_commands() -> SlashCommandsResponse:
+        """Get available slash commands and skills from ~/.claude directories."""
+        commands = get_slash_commands()
+        return SlashCommandsResponse(
+            commands=[
+                SlashCommandResponse(
+                    name=cmd.name,
+                    type=cmd.type,
+                    description=cmd.description,
+                    argument_hint=cmd.argument_hint,
+                )
+                for cmd in commands
+            ]
+        )
 
     # ========== Phase 7.2: Status Transitions (Drag-and-Drop) ==========
 

@@ -288,12 +288,6 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             )}
           </div>
 
-          {/* Completion reason (if completed) */}
-          {run.completion_reason && (
-            <p className="text-caption text-[var(--color-jade)] truncate">
-              {run.completion_reason}
-            </p>
-          )}
         </div>
       )}
 

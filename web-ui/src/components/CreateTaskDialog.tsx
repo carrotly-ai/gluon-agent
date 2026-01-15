@@ -1,8 +1,19 @@
-import { ChevronDown, ChevronRight, GitBranch, Image as ImageIcon, Play, RefreshCw, Settings, Trash2, X } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  GitBranch,
+  Image as ImageIcon,
+  Play,
+  RefreshCw,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { CommandAutocomplete } from '@/components/CommandAutocomplete'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { createRun, fetchProjects, uploadAndAttachImage } from '@/lib/api'
-import type { Project, ProjectWithWorkspace, TaskProfile, ThinkingBudget } from '@/lib/types'
+import { createRun, fetchCommands, fetchProjects, uploadAndAttachImage } from '@/lib/api'
+import type { Project, ProjectWithWorkspace, SlashCommand, TaskProfile, ThinkingBudget } from '@/lib/types'
 import { groupProjectsByWorkspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -16,9 +27,19 @@ interface CreateTaskDialogProps {
 // Task profile options
 const PROFILE_OPTIONS = [
   { value: 'quick', label: 'Quick', description: 'Haiku - Fast responses', model: 'haiku' },
-  { value: 'standard', label: 'Standard', description: 'Sonnet - Balanced (default)', model: 'sonnet' },
+  {
+    value: 'standard',
+    label: 'Standard',
+    description: 'Sonnet - Balanced (default)',
+    model: 'sonnet',
+  },
   { value: 'deep', label: 'Deep', description: 'Opus - Maximum reasoning', model: 'opus' },
-  { value: 'planning', label: 'Planning', description: 'Opus - Plan before executing', model: 'opus' },
+  {
+    value: 'planning',
+    label: 'Planning',
+    description: 'Opus - Plan before executing',
+    model: 'opus',
+  },
 ]
 
 // Model options for advanced override
@@ -109,9 +130,16 @@ export function CreateTaskDialog({
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Slash command autocomplete state
+  const [commands, setCommands] = useState<SlashCommand[]>([])
+  const [showAutocomplete, setShowAutocomplete] = useState(false)
+  const [autocompleteFilter, setAutocompleteFilter] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
   useEffect(() => {
     if (open) {
       fetchProjects().then(setProjects).catch(console.error)
+      fetchCommands().then(setCommands).catch(console.error)
       setError(null)
       if (initialProject) {
         setSelectedProject(initialProject)
@@ -245,6 +273,61 @@ export function CreateTaskDialog({
 
   const grouped = groupProjectsByWorkspace(projects)
 
+  // Handle prompt changes and detect slash command trigger
+  const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setPrompt(value)
+
+    // Check if we should show autocomplete
+    const cursorPos = e.target.selectionStart
+    const textBeforeCursor = value.slice(0, cursorPos)
+
+    // Find if there's a `/` at the start or after a space/newline
+    const lastSlashMatch = textBeforeCursor.match(/(?:^|\s)\/(\S*)$/)
+
+    if (lastSlashMatch) {
+      const filter = lastSlashMatch[1]
+      setAutocompleteFilter(filter)
+      setShowAutocomplete(true)
+    } else {
+      setShowAutocomplete(false)
+      setAutocompleteFilter('')
+    }
+  }, [])
+
+  // Handle command selection from autocomplete
+  const handleCommandSelect = useCallback((command: SlashCommand) => {
+    if (!textareaRef.current) return
+
+    const cursorPos = textareaRef.current.selectionStart
+    const textBeforeCursor = prompt.slice(0, cursorPos)
+    const textAfterCursor = prompt.slice(cursorPos)
+
+    // Find the start of the slash command we're replacing
+    const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/\S*)$/)
+    if (slashMatch) {
+      const matchStart = textBeforeCursor.length - slashMatch[1].length
+      const newText = prompt.slice(0, matchStart) + `/${command.name} ` + textAfterCursor
+      setPrompt(newText)
+
+      // Move cursor after the inserted command
+      const newCursorPos = matchStart + command.name.length + 2 // +2 for '/' and space
+      setTimeout(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
+      }, 0)
+    }
+
+    setShowAutocomplete(false)
+    setAutocompleteFilter('')
+  }, [prompt])
+
+  const handleAutocompleteClose = useCallback(() => {
+    setShowAutocomplete(false)
+    setAutocompleteFilter('')
+    textareaRef.current?.focus()
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedProject || !prompt.trim()) return
@@ -376,14 +459,19 @@ export function CreateTaskDialog({
           </div>
 
           {/* Prompt */}
-          <div>
+          <div className="relative">
             <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
               Prompt
             </label>
             <textarea
+              ref={textareaRef}
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={handlePromptChange}
               onKeyDown={(e) => {
+                // Let autocomplete handle navigation keys when visible
+                if (showAutocomplete && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+                  return
+                }
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                   e.preventDefault()
                   if (selectedProject && prompt.trim() && !submitting) {
@@ -392,9 +480,18 @@ export function CreateTaskDialog({
                 }
               }}
               onPaste={handlePaste}
-              placeholder="What would you like the agent to do? (Paste images with ⌘V)"
+              placeholder="Type / for commands. Paste images with ⌘V"
               className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
               autoFocus
+            />
+            {/* Slash command autocomplete - rendered via portal */}
+            <CommandAutocomplete
+              commands={commands}
+              filter={autocompleteFilter}
+              visible={showAutocomplete}
+              onSelect={handleCommandSelect}
+              onClose={handleAutocompleteClose}
+              anchorRef={textareaRef}
             />
           </div>
 
@@ -536,10 +633,7 @@ export function CreateTaskDialog({
               onClick={() => setShowAdvanced(!showAdvanced)}
             >
               <ChevronRight
-                className={cn(
-                  'w-4 h-4 transition-transform',
-                  showAdvanced && 'rotate-90'
-                )}
+                className={cn('w-4 h-4 transition-transform', showAdvanced && 'rotate-90')}
               />
               <Settings className="w-4 h-4" />
               <span>Advanced Options</span>
@@ -558,7 +652,13 @@ export function CreateTaskDialog({
                       className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
                       onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
                     >
-                      <span className={modelOverride ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'}>
+                      <span
+                        className={
+                          modelOverride
+                            ? 'text-[var(--color-paper)]'
+                            : 'text-[var(--color-stone)]/60'
+                        }
+                      >
                         {selectedAdvancedModelOption?.label || 'Use profile default'}
                         {selectedAdvancedModelOption?.description && (
                           <span className="ml-2 text-[var(--color-stone)]/60">
@@ -615,7 +715,13 @@ export function CreateTaskDialog({
                       className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
                       onClick={() => setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)}
                     >
-                      <span className={thinkingOverride ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'}>
+                      <span
+                        className={
+                          thinkingOverride
+                            ? 'text-[var(--color-paper)]'
+                            : 'text-[var(--color-stone)]/60'
+                        }
+                      >
                         {selectedAdvancedThinkingOption?.label || 'Use profile default'}
                         {selectedAdvancedThinkingOption?.description && (
                           <span className="ml-2 text-[var(--color-stone)]/60">
@@ -720,13 +826,17 @@ export function CreateTaskDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between py-2">
               <div className="flex items-center gap-2">
-                <RefreshCw className={cn(
-                  'w-4 h-4 transition-colors',
-                  ralphEnabled ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                )} />
+                <RefreshCw
+                  className={cn(
+                    'w-4 h-4 transition-colors',
+                    ralphEnabled ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
+                  )}
+                />
                 <div>
                   <span className="text-title text-[var(--color-paper)]">Enable Ralph Loop</span>
-                  <p className="text-caption text-[var(--color-stone)]/60">Autonomous execution until complete</p>
+                  <p className="text-caption text-[var(--color-stone)]/60">
+                    Autonomous execution until complete
+                  </p>
                 </div>
               </div>
               <button
@@ -740,9 +850,7 @@ export function CreateTaskDialog({
                 <span
                   className={cn(
                     'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                    ralphEnabled
-                      ? 'bg-[var(--color-void)]'
-                      : 'bg-[var(--color-stone)]'
+                    ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
                   )}
                   style={{ left: ralphEnabled ? '22px' : '2px' }}
                 />
@@ -760,7 +868,9 @@ export function CreateTaskDialog({
                     min={1}
                     max={100}
                     value={maxLoops}
-                    onChange={(e) => setMaxLoops(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 1)))}
+                    onChange={(e) =>
+                      setMaxLoops(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 1)))
+                    }
                     className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
                   />
                 </div>

@@ -38,6 +38,9 @@ import type {
   RunUsageItem,
   ScanResultResponse,
   SessionHistoryResponse,
+  // Slash Command types
+  SlashCommand,
+  SlashCommandsResponse,
   StopLoopResponse,
   SystemStatus,
   UpdateStatusResponse,
@@ -135,7 +138,10 @@ export interface QueueFollowupResponse {
 }
 
 /** Queue a follow-up message for a running task (will auto-resume after completion) */
-export async function queueFollowup(runId: string, message: string): Promise<QueueFollowupResponse> {
+export async function queueFollowup(
+  runId: string,
+  message: string
+): Promise<QueueFollowupResponse> {
   return fetchJson<QueueFollowupResponse>(`/runs/${runId}/queue-followup`, {
     method: 'POST',
     body: JSON.stringify({ message }),
@@ -159,16 +165,13 @@ export async function deleteQueuedMessage(
   runId: string,
   messageId: string
 ): Promise<{ deleted: boolean; message_id: string }> {
-  return fetchJson<{ deleted: boolean; message_id: string }>(
-    `/runs/${runId}/queue/${messageId}`,
-    { method: 'DELETE' }
-  )
+  return fetchJson<{ deleted: boolean; message_id: string }>(`/runs/${runId}/queue/${messageId}`, {
+    method: 'DELETE',
+  })
 }
 
 /** Clear all queued messages */
-export async function clearQueue(
-  runId: string
-): Promise<{ cleared: boolean; count: number }> {
+export async function clearQueue(runId: string): Promise<{ cleared: boolean; count: number }> {
   return fetchJson<{ cleared: boolean; count: number }>(`/runs/${runId}/queue`, {
     method: 'DELETE',
   })
@@ -677,4 +680,12 @@ export async function refreshAllGitStatuses(): Promise<{
   return fetchJson<{ projects_refreshed: number; errors: string[] }>('/git/refresh-all', {
     method: 'POST',
   })
+}
+
+// ========== Slash Commands ==========
+
+/** Fetch available slash commands and skills from ~/.claude directories */
+export async function fetchCommands(): Promise<SlashCommand[]> {
+  const response = await fetchJson<SlashCommandsResponse>('/commands')
+  return response.commands
 }
