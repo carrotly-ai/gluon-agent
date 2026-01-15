@@ -259,6 +259,18 @@ class TaskRunner:
             force_planning=force_planning,
         )
 
+        # Determine cost limit:
+        # - If user provided explicit cost limit, use it
+        # - If Ralph enabled with no explicit limit, use high default ($1000)
+        # - Otherwise use profile's budget
+        DEFAULT_RALPH_COST_LIMIT = 1000.0
+        if max_cost_usd is not None:
+            effective_cost_limit = max_cost_usd
+        elif ralph_enabled:
+            effective_cost_limit = DEFAULT_RALPH_COST_LIMIT
+        else:
+            effective_cost_limit = task_options["max_budget_usd"]
+
         # Create run record with resolved model
         run = self.store.create_run(
             project_id,
@@ -269,7 +281,7 @@ class TaskRunner:
             ralph_enabled=ralph_enabled,
             max_loops=max_loops,
             max_calls_per_hour=max_calls_per_hour,
-            max_cost_usd=task_options["max_budget_usd"],  # Use resolved budget
+            max_cost_usd=effective_cost_limit,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 
@@ -1427,9 +1439,7 @@ but explicit commits with good messages are preferred.
                             updated_run.snapshot_at = utc_now()
                             self.store.update_run(updated_run)
                             with open(stdout_path, "a") as f:
-                                f.write(
-                                    f"✓ Captured {len(commits)} commits, {len(files)} files for persistence\n"
-                                )
+                                f.write(f"✓ Captured {len(commits)} commits, {len(files)} files for persistence\n")
                     except Exception as snap_err:
                         with open(stdout_path, "a") as f:
                             f.write(f"Warning: Failed to capture snapshots: {snap_err}\n")
