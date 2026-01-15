@@ -153,13 +153,16 @@ DO NOT make any file modifications until you have presented your complete plan.
 """
 
 
+# Default budget for all profiles (configurable via env var)
+DEFAULT_BUDGET_USD = float(os.environ.get("DEFAULT_RALPH_COST_LIMIT", "1000.0"))
+
 # Profile configurations - each profile bundles model + options
 TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     TaskProfile.QUICK: {
         "model": "haiku",
         "max_thinking_tokens": 0,
         "max_turns": 10,
-        "max_budget_usd": 0.50,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
         "description": "Fast responses for simple tasks",
     },
@@ -167,7 +170,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "model": "sonnet",
         "max_thinking_tokens": 10000,
         "max_turns": 30,
-        "max_budget_usd": 3.00,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
         "description": "Balanced performance (default)",
     },
@@ -175,7 +178,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "model": "opus",
         "max_thinking_tokens": 32000,
         "max_turns": 50,
-        "max_budget_usd": 15.00,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
         "description": "Maximum reasoning for complex tasks",
     },
@@ -183,7 +186,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "model": "opus",
         "max_thinking_tokens": 16000,
         "max_turns": 40,
-        "max_budget_usd": 10.00,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": True,
         "description": "Plan before executing",
     },
