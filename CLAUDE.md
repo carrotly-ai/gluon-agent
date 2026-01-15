@@ -16,6 +16,37 @@ IMPORTANT: We only support the following LLM models:
 | claude-sonnet-4.5   | global.anthropic.claude-sonnet-4-5-20250929-v1:0     | Fast, high-quality Claude model for general use    |
 | claude-haiku-4.5    | global.anthropic.claude-haiku-4-5-20251001-v1:0      | Lightweight, fast Claude model for low latency     |
 
+## Docker Operations
+
+**IMPORTANT: Always use `docker compose` for container operations. NEVER use raw `docker run` commands.**
+
+The `docker-compose.yml` contains critical volume mounts and environment variables that are easy to forget with manual commands:
+- `~/.claude` - Claude CLI credentials (authentication)
+- `~/.gluon` - Gluon database and logs
+- `~/.aws` - AWS credentials for Bedrock
+- `~/.config/gh` - GitHub CLI for PR operations
+- Environment variables from `.env.local`
+
+```bash
+# Rebuild and restart (after code changes)
+docker compose build && docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+
+# Full rebuild (no cache)
+docker compose build --no-cache && docker compose up -d
+
+# Shell into container
+docker exec -it gluon-agent-dev bash
+```
+
+**Container name:** `gluon-agent-dev` (not `gluon-agent`)
+**Port:** 45866
+
 ## Commands
 
 ```bash
