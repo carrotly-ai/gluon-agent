@@ -1,7 +1,5 @@
 """Tests for CompletionDetector - task completion detection."""
 
-import pytest
-
 from gluon.completion_detector import (
     CompletionDetector,
     CompletionDetectorConfig,
@@ -203,8 +201,13 @@ class TestShouldExitLogic:
         assert should_exit
         assert "EXIT_SIGNAL" in reason
 
-    def test_exit_on_ralph_status_complete(self):
-        """Exit on RALPH_STATUS STATUS=COMPLETE."""
+    def test_no_exit_when_exit_signal_false(self):
+        """Do NOT exit when EXIT_SIGNAL=false, even if STATUS=COMPLETE.
+
+        EXIT_SIGNAL is the SOLE authority when RALPH_STATUS block is present.
+        STATUS=COMPLETE alone does NOT trigger exit - Claude must explicitly
+        set EXIT_SIGNAL=true to indicate completion.
+        """
         output = """
         ---RALPH_STATUS---
         STATUS: COMPLETE
@@ -215,8 +218,41 @@ class TestShouldExitLogic:
         signals = detector.analyze(output)
         should_exit, reason = detector.should_exit(signals, 0, 0)
 
-        assert should_exit
-        assert "STATUS=COMPLETE" in reason
+        # EXIT_SIGNAL=false means continue, regardless of STATUS
+        assert not should_exit
+        assert reason == ""
+
+    def test_fallback_heuristics_skipped_when_ralph_status_present(self):
+        """Fallback heuristics are NOT used when RALPH_STATUS block is present.
+
+        When Claude provides a RALPH_STATUS block, EXIT_SIGNAL is the SOLE
+        authority. Keywords like 'complete' or 'done' should NOT trigger
+        completion detection.
+        """
+        # Output with RALPH_STATUS (EXIT_SIGNAL=false) AND completion keywords
+        output = """
+        All tasks complete! The work is done.
+        ---RALPH_STATUS---
+        STATUS: IN_PROGRESS
+        EXIT_SIGNAL: false
+        ---END_RALPH_STATUS---
+        """
+        detector = CompletionDetector()
+        signals = detector.analyze(output)
+
+        # Verify RALPH_STATUS was detected
+        assert signals.ralph_status is not None
+        assert signals.ralph_status.found
+
+        # Verify confidence is 0 (not affected by keywords)
+        assert signals.confidence == 0
+
+        # Verify fallback_heuristics pattern was NOT added
+        assert "fallback_heuristics" not in signals.matched_patterns
+
+        # Verify we do NOT exit despite completion keywords
+        should_exit, reason = detector.should_exit(signals, 0, 0)
+        assert not should_exit
 
     def test_exit_on_all_todos_done(self):
         """Exit when all TODO items are complete."""

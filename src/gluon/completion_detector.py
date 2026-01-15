@@ -150,6 +150,10 @@ class CompletionDetector:
     def analyze(self, output: str, todo_file_content: str | None = None) -> CompletionSignals:
         """Analyze output for completion signals.
 
+        IMPORTANT: When a RALPH_STATUS block is present, EXIT_SIGNAL is the SOLE
+        authority for completion. Fallback heuristics (keywords, TODO files, etc.)
+        are ONLY used when no RALPH_STATUS block is found.
+
         Args:
             output: Claude's output text from the iteration
             todo_file_content: Contents of @fix_plan.md or TODO.md if present
@@ -166,25 +170,29 @@ class CompletionDetector:
             signals.ralph_status = ralph_status
             signals.matched_patterns.append("ralph_status_block")
 
-            # EXIT_SIGNAL=true is the strongest completion signal (+50 confidence)
+            # When RALPH_STATUS is present, EXIT_SIGNAL is the SOLE authority
+            # Do NOT run fallback heuristics - they cause false positives
             if ralph_status.exit_signal:
-                signals.confidence += 50
-                signals.matched_patterns.append("ralph_exit_signal")
+                signals.confidence = 100  # Definitive completion
+                signals.matched_patterns.append("ralph_exit_signal=true")
+            else:
+                signals.confidence = 0  # Explicitly NOT complete
+                signals.matched_patterns.append("ralph_exit_signal=false")
 
-            # STATUS=COMPLETE adds significant confidence
-            if ralph_status.status == RalphStatus.COMPLETE:
-                signals.has_complete_keyword = True
-                signals.confidence += 30
-                signals.matched_patterns.append("ralph_status_complete")
-
-            # STATUS=BLOCKED might indicate issue but not completion
-            if ralph_status.status == RalphStatus.BLOCKED:
-                signals.matched_patterns.append("ralph_status_blocked")
-
-            # Test-only work type from status block
+            # Record other fields for logging/debugging (but don't affect completion)
+            if ralph_status.status:
+                signals.matched_patterns.append(f"ralph_status={ralph_status.status.value}")
             if ralph_status.work_type == WorkType.TESTING:
                 signals.is_test_only = True
-                signals.matched_patterns.append("ralph_work_type_testing")
+                signals.matched_patterns.append("ralph_work_type=TESTING")
+
+            # Return early - do NOT run fallback heuristics
+            return signals
+
+        # =====================================================================
+        # FALLBACK HEURISTICS - only used when no RALPH_STATUS block found
+        # =====================================================================
+        signals.matched_patterns.append("fallback_heuristics")
 
         # Check completion keywords with word boundaries to avoid false positives
         # (e.g., "incomplete" should not match "complete")
@@ -241,6 +249,10 @@ class CompletionDetector:
     ) -> tuple[bool, str]:
         """Determine if loop should exit based on signals.
 
+        IMPORTANT: When a RALPH_STATUS block is present, EXIT_SIGNAL is the SOLE
+        authority. If EXIT_SIGNAL=false, we MUST continue regardless of other signals.
+        Fallback heuristics only apply when no RALPH_STATUS block is found.
+
         Args:
             signals: CompletionSignals from current iteration
             consecutive_done_signals: Count of consecutive done signal iterations
@@ -249,29 +261,33 @@ class CompletionDetector:
         Returns:
             Tuple of (should_exit, reason)
         """
-        # RALPH_STATUS EXIT_SIGNAL=true is highest priority (explicit completion)
-        if signals.ralph_status and signals.ralph_status.exit_signal:
-            return True, "RALPH_STATUS EXIT_SIGNAL=true"
+        # When RALPH_STATUS block is present, EXIT_SIGNAL is the SOLE authority
+        if signals.ralph_status and signals.ralph_status.found:
+            if signals.ralph_status.exit_signal:
+                return True, "RALPH_STATUS EXIT_SIGNAL=true"
+            else:
+                # EXIT_SIGNAL=false means explicitly NOT done - continue loop
+                return False, ""
 
-        # RALPH_STATUS STATUS=COMPLETE is also strong signal
-        if signals.ralph_status and signals.ralph_status.status == RalphStatus.COMPLETE:
-            return True, "RALPH_STATUS STATUS=COMPLETE"
+        # =====================================================================
+        # FALLBACK HEURISTICS - only used when no RALPH_STATUS block found
+        # =====================================================================
 
         # All TODOs done is strongest traditional signal
         if signals.all_todos_done:
-            return True, "All TODO items completed"
+            return True, "All TODO items completed (fallback)"
 
         # Multiple done signals indicate stable completion
         if consecutive_done_signals >= self.config.max_consecutive_done:
-            return True, f"Multiple completion signals ({consecutive_done_signals})"
+            return True, f"Multiple completion signals ({consecutive_done_signals}) (fallback)"
 
         # Test saturation: only running tests, no new implementation
         if consecutive_test_only >= self.config.max_consecutive_test_only:
-            return True, f"Test saturation ({consecutive_test_only} test-only loops)"
+            return True, f"Test saturation ({consecutive_test_only} test-only loops) (fallback)"
 
         # High confidence from combined signals
         if signals.confidence >= self.config.min_confidence:
-            return True, f"High completion confidence ({signals.confidence:.0f}%)"
+            return True, f"High completion confidence ({signals.confidence:.0f}%) (fallback)"
 
         return False, ""
 
