@@ -86,7 +86,7 @@ function formatTokens(tokens: number | null): string {
 
 interface AgentMessage {
   timestamp: string
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result'
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
   content: string
   metadata?: {
     tool?: string
@@ -1813,7 +1813,7 @@ Focus on preserving the functionality from both sides where possible.`
               <div className="flex gap-2">
                 <textarea
                   ref={resumeTextareaRef}
-                  className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-title text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
+                  className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-input text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
                   placeholder={
                     isActive
                       ? 'Send follow-up message... (⌘V to paste images)'
@@ -1858,9 +1858,7 @@ Focus on preserving the functionality from both sides where possible.`
                       title={queuing ? 'Queueing...' : 'Add to queue'}
                     >
                       <Clock className="w-3 h-3" />
-                      <span className="hidden sm:inline">
-                        {queuing ? 'Queueing...' : 'Queue'}
-                      </span>
+                      <span className="hidden sm:inline">{queuing ? 'Queueing...' : 'Queue'}</span>
                     </button>
                     <button
                       className={cn(
@@ -1895,9 +1893,7 @@ Focus on preserving the functionality from both sides where possible.`
                     title={resuming ? 'Resuming...' : 'Resume'}
                   >
                     <Play className="w-3 h-3" />
-                    <span className="hidden sm:inline">
-                      {resuming ? 'Resuming...' : 'Resume'}
-                    </span>
+                    <span className="hidden sm:inline">{resuming ? 'Resuming...' : 'Resume'}</span>
                   </button>
                 )}
               </div>

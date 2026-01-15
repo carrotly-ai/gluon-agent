@@ -428,6 +428,17 @@ class TaskRunner:
             with open(messages_path, "a") as f:
                 f.write(json.dumps(resume_msg) + "\n")
 
+            # Write user's follow-up prompt as a visible message
+            # Skip auto-resume prompts (they start with system-generated text)
+            if run.prompt and not run.prompt.startswith("[SUPERVISION"):
+                user_msg = {
+                    "type": "user",
+                    "content": run.prompt,
+                    "timestamp": run.last_resumed_at.isoformat() if run.last_resumed_at else None,
+                }
+                with open(messages_path, "a") as f:
+                    f.write(json.dumps(user_msg) + "\n")
+
     def _spawn_background_process(self, run: ExecutionRun) -> None:
         """Spawn a detached subprocess to execute the run."""
         # Use the same Python interpreter to run the worker

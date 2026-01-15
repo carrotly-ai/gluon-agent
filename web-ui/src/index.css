@@ -230,6 +230,13 @@ body {
   line-height: 1.5;
 }
 
+/* Input text - same as text-body but allows touch device override for iOS zoom prevention */
+.text-input {
+  font-size: 0.75rem; /* 12px on desktop */
+  font-weight: 300;
+  line-height: 1.5;
+}
+
 .text-caption {
   font-size: 0.625rem; /* 10px - labels, metadata, buttons */
   font-weight: 300;
@@ -344,6 +351,16 @@ body {
   }
 
   .kanban-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Utility class to hide scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
 
@@ -467,7 +484,8 @@ body {
   input,
   textarea,
   select,
-  [contenteditable="true"] {
+  [contenteditable="true"],
+  .text-input {
     font-size: 1rem !important; /* 16px */
   }
 }

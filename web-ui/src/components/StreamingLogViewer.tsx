@@ -79,6 +79,13 @@ const MESSAGE_CONFIG: Record<
     border: 'border-l-2 border-l-[var(--color-jade)]',
     label: 'Done',
   },
+  user: {
+    icon: MessageSquare,
+    color: 'text-[var(--color-indigo)]',
+    bg: 'bg-[var(--color-indigo)]/5',
+    border: 'border-l-2 border-l-[var(--color-indigo)]/50',
+    label: 'You',
+  },
 }
 
 // Helper to get primary parameter from tool input
@@ -137,7 +144,7 @@ type MessageFilter = 'all' | 'tool_use' | 'text' | 'error'
 // Convert AgentMessageData to the format MessagesPanel expects
 interface AgentMessage {
   timestamp: string
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result'
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
   content: string
   metadata?: {
     tool?: string

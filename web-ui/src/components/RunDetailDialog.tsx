@@ -67,7 +67,15 @@ import { LoopProgressTab } from './LoopProgressTab'
 import { QuestionModal } from './QuestionModal'
 import { StreamingLogViewer } from './StreamingLogViewer'
 
-type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments' | 'loop'
+type TabType =
+  | 'output'
+  | 'errors'
+  | 'messages'
+  | 'history'
+  | 'commits'
+  | 'files'
+  | 'attachments'
+  | 'loop'
 
 interface RunDetailDialogProps {
   run: Run | null
@@ -100,7 +108,7 @@ function formatTokens(tokens: number | null): string {
 
 interface AgentMessage {
   timestamp: string
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result'
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
   content: string
   metadata?: {
     tool?: string
@@ -1272,11 +1280,11 @@ Focus on preserving the functionality from both sides where possible.`
             {/* Logs Section */}
             <div className="flex flex-col flex-1 min-h-0">
               {/* Tab Bar */}
-              <div className="flex items-center justify-between mb-3 shrink-0">
-                <div className="flex items-center gap-1">
+              <div className="flex items-center justify-between mb-3 shrink-0 gap-2">
+                <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-nowrap min-w-0">
                   <button
                     className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm',
+                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0',
                       activeTab === 'messages'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1287,7 +1295,7 @@ Focus on preserving the functionality from both sides where possible.`
                   </button>
                   <button
                     className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm',
+                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0',
                       activeTab === 'output'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1298,7 +1306,7 @@ Focus on preserving the functionality from both sides where possible.`
                   </button>
                   <button
                     className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
                       activeTab === 'errors'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1313,7 +1321,7 @@ Focus on preserving the functionality from both sides where possible.`
                   {hasHistory && (
                     <button
                       className={cn(
-                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
                         activeTab === 'history'
                           ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                           : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1331,7 +1339,7 @@ Focus on preserving the functionality from both sides where possible.`
                     <>
                       <button
                         className={cn(
-                          'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                          'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
                           activeTab === 'commits'
                             ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                             : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1351,7 +1359,7 @@ Focus on preserving the functionality from both sides where possible.`
                       </button>
                       <button
                         className={cn(
-                          'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                          'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
                           activeTab === 'files'
                             ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                             : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1373,7 +1381,7 @@ Focus on preserving the functionality from both sides where possible.`
                   )}
                   <button
                     className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
                       activeTab === 'attachments'
                         ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -1391,14 +1399,16 @@ Focus on preserving the functionality from both sides where possible.`
                   {detail?.ralph_enabled && (
                     <button
                       className={cn(
-                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm flex items-center gap-1.5',
+                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
                         activeTab === 'loop'
                           ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
                           : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
                       )}
                       onClick={() => setActiveTab('loop')}
                     >
-                      <RefreshCw className={cn('w-3 h-3', run?.status === 'running' && 'animate-spin')} />
+                      <RefreshCw
+                        className={cn('w-3 h-3', run?.status === 'running' && 'animate-spin')}
+                      />
                       Loop
                       {(detail.loop_count || 0) > 0 && (
                         <span className="text-body text-[var(--color-stone)]/50">
@@ -2052,7 +2062,7 @@ Focus on preserving the functionality from both sides where possible.`
                 <div className="flex gap-2">
                   <textarea
                     ref={resumeTextareaRef}
-                    className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-body text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
+                    className="flex-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.1)] rounded-sm px-3 py-2 text-input text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.2)] resize-none min-h-[38px] max-h-32"
                     placeholder={
                       isActive
                         ? 'Send follow-up message... (⌘V to paste images)'
@@ -2095,11 +2105,7 @@ Focus on preserving the functionality from both sides where possible.`
                         )}
                         onClick={handleQueueFollowup}
                         disabled={!resumePrompt.trim() || queuing || resuming}
-                        title={
-                          queuing
-                            ? 'Queueing...'
-                            : 'Add to queue'
-                        }
+                        title={queuing ? 'Queueing...' : 'Add to queue'}
                       >
                         <Clock className="w-3 h-3" />
                         <span className="hidden sm:inline">
@@ -2151,9 +2157,9 @@ Focus on preserving the functionality from both sides where possible.`
               </div>
             )}
 
-            {/* Footer Meta */}
+            {/* Footer Meta - hidden on mobile */}
             {(detail?.session_id || detail?.input_tokens || detail?.model_used) && (
-              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0 flex items-center justify-between">
+              <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] shrink-0 hidden sm:flex items-center justify-between">
                 <span className="text-mono text-body text-[var(--color-stone)]/50">
                   {detail?.session_id ? `session ${detail.session_id.slice(0, 12)}` : ''}
                 </span>

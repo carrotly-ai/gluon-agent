@@ -295,9 +295,9 @@ export interface LogLineMessage extends WebSocketMessage {
   line: string
 }
 
-/** Agent message from messages.jsonl - text, tool_use, error, result, etc. */
+/** Agent message from messages.jsonl - text, tool_use, error, result, user, etc. */
 export interface AgentMessageData {
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result'
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
   content: string
   metadata?: Record<string, unknown>
   timestamp?: string
