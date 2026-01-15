@@ -549,12 +549,14 @@ const markdownComponents = {
     </code>
   ),
   ul: ({ children }: { children?: React.ReactNode }) => (
-    <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
+    <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>
   ),
   ol: ({ children }: { children?: React.ReactNode }) => (
-    <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>
+    <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>
   ),
-  li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="[&>p]:inline [&>p]:mb-0">{children}</li>
+  ),
   strong: ({ children }: { children?: React.ReactNode }) => (
     <strong className="font-medium">{children}</strong>
   ),
