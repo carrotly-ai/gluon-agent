@@ -1607,6 +1607,26 @@ def create_app() -> FastAPI:
 
         return response
 
+    @app.post("/api/runs/{run_id}/unarchive", response_model=RunResponse)
+    async def unarchive_run(run_id: str) -> RunResponse:
+        """Unarchive a run to show it on the board again."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        updated_run = store.archive_run(run.id, archived=False)
+        if not updated_run:
+            raise HTTPException(status_code=500, detail="Failed to unarchive run")
+
+        project_lookup = get_project_lookup()
+        response = run_to_response(updated_run, project_lookup)
+
+        # Broadcast update so UI reflects the change
+        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
+        await ws_manager.broadcast_run_update(updated_run, project_name)
+
+        return response
+
     @app.post("/api/runs/{run_id}/pr-status", response_model=RunResponse)
     async def update_pr_status(run_id: str, pr_status: str = Query(..., description="New PR status")) -> RunResponse:
         """Update the PR status for a run (e.g., mark as merged to move from REVIEW to DONE)."""
