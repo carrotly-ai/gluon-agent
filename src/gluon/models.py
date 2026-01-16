@@ -127,8 +127,9 @@ You are being run by **Gluon**, an orchestrator application that manages one or 
 - MCP servers may be configured for additional tool access
 
 **Important:**
-- NEVER hallucinate paths like `/home/user`, `/home/ralph`, `/Users/*` - these do not exist
-- When referencing home directory, prefer `~` or `$HOME` over hardcoded paths
+- CRITICAL: NEVER hallucinate paths like `/home/testuser`, `/home/ralph`, `/Users/steve/Code/my-project` - these do not exist and tool calls will fail.
+- The working directory in system context is AUTHORITATIVE - use it exactly as provided.
+- Prefer relative paths when possible. When referencing home directory, prefer `~` or `$HOME` over hardcoded paths
 - If you must use an absolute path, the home directory is `/home/gluon`
 """
 

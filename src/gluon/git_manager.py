@@ -91,9 +91,7 @@ class GitManager:
 
         return config_args
 
-    async def _run_git_with_author(
-        self, cwd: Path, *args: str, check: bool = False
-    ) -> tuple[int, str, str]:
+    async def _run_git_with_author(self, cwd: Path, *args: str, check: bool = False) -> tuple[int, str, str]:
         """Run a git command with author config injected (for commits)."""
         author_config = self._get_git_author_config()
         # Insert author config after 'git' command

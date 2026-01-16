@@ -1348,9 +1348,9 @@ class GluonStore:
             if "supervision_disabled_reason" in keys
             else None,
             # Queued messages (JSON array)
-            queued_messages=[
-                QueuedMessage(**m) for m in json.loads(row["queued_messages"])
-            ] if "queued_messages" in keys and row["queued_messages"] else [],
+            queued_messages=[QueuedMessage(**m) for m in json.loads(row["queued_messages"])]
+            if "queued_messages" in keys and row["queued_messages"]
+            else [],
             # Commit/file snapshot tracking
             changes_snapshotted=bool(row["changes_snapshotted"])
             if "changes_snapshotted" in keys and row["changes_snapshotted"] is not None
@@ -1515,17 +1515,13 @@ class GluonStore:
     def has_commit_snapshots(self, run_id: str) -> bool:
         """Check if a run has commit snapshots."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM commit_snapshots WHERE run_id = ?", (run_id,)
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) FROM commit_snapshots WHERE run_id = ?", (run_id,)).fetchone()
             return row[0] > 0 if row else False
 
     def has_file_change_snapshots(self, run_id: str) -> bool:
         """Check if a run has file change snapshots."""
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM file_change_snapshots WHERE run_id = ?", (run_id,)
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) FROM file_change_snapshots WHERE run_id = ?", (run_id,)).fetchone()
             return row[0] > 0 if row else False
 
     def get_commit_snapshots(self, run_id: str) -> list[CommitSnapshot]:
@@ -1643,12 +1639,8 @@ class GluonStore:
         """Delete all snapshots for a run. Returns count deleted."""
         with self._get_conn() as conn:
             # Commit file snapshots deleted via CASCADE
-            result1 = conn.execute(
-                "DELETE FROM commit_snapshots WHERE run_id = ?", (run_id,)
-            )
-            result2 = conn.execute(
-                "DELETE FROM file_change_snapshots WHERE run_id = ?", (run_id,)
-            )
+            result1 = conn.execute("DELETE FROM commit_snapshots WHERE run_id = ?", (run_id,))
+            result2 = conn.execute("DELETE FROM file_change_snapshots WHERE run_id = ?", (run_id,))
             # Reset flag
             conn.execute(
                 "UPDATE execution_runs SET changes_snapshotted = 0, snapshot_at = NULL WHERE id = ?",

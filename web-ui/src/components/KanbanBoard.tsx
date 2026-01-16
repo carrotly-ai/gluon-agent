@@ -71,7 +71,13 @@ function DraggableRunCard({
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <RunCard run={run} onClick={onClick} onCancel={onCancel} onArchive={onArchive} onStopLoop={onStopLoop} />
+      <RunCard
+        run={run}
+        onClick={onClick}
+        onCancel={onCancel}
+        onArchive={onArchive}
+        onStopLoop={onStopLoop}
+      />
     </div>
   )
 }

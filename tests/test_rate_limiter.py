@@ -1,7 +1,6 @@
 """Tests for RateLimiter - API call and cost limiting."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
 
 import pytest
 
@@ -65,7 +64,7 @@ class TestRateLimiterCallLimit:
         for i in range(9):
             rl.record_call()
             allowed, _ = rl.can_make_call()
-            assert allowed, f"Should allow call {i+2} of 10"
+            assert allowed, f"Should allow call {i + 2} of 10"
 
 
 class TestRateLimiterCostCap:

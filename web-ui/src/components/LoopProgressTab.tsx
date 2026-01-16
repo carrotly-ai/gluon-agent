@@ -269,7 +269,10 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
 
         {/* Completion Reason (if completed) */}
         {run.completion_reason && (
-          <span className="text-[var(--color-jade)] truncate max-w-[200px] sm:max-w-none" title={run.completion_reason}>
+          <span
+            className="text-[var(--color-jade)] truncate max-w-[200px] sm:max-w-none"
+            title={run.completion_reason}
+          >
             {run.completion_reason}
           </span>
         )}

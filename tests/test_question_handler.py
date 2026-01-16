@@ -18,7 +18,6 @@ def store(tmp_path):
 @pytest.fixture
 def sample_project(store: GluonStore, tmp_path):
     """Create a sample project for testing."""
-    from pathlib import Path
 
     project_path = tmp_path / "test-project"
     project_path.mkdir(exist_ok=True)

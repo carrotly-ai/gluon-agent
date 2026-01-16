@@ -1,6 +1,12 @@
 import { Check, Clock } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { PendingQuestion, QuestionOption } from '@/lib/types'
 import { cn } from '@/lib/utils'
 

@@ -62,3 +62,4 @@ tmp/
 
 # Chat transcripts
 *.txt
+.playwright-mcp/

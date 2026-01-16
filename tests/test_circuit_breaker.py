@@ -1,7 +1,5 @@
 """Tests for CircuitBreaker - runaway loop prevention."""
 
-import pytest
-
 from gluon.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 from gluon.models import CircuitState
 

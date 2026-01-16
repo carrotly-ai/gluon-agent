@@ -1,7 +1,7 @@
 """Tests for PR Monitoring Service."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -10,7 +10,6 @@ from gluon.models import ExecutionRun, RunStatus
 from gluon.pr_monitor import (
     MAX_AUTO_RESUMES,
     PRMonitorService,
-    TRIGGER_PATTERNS,
 )
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
@@ -112,13 +111,17 @@ class TestShouldMonitorRun:
         run_with_pr.status = RunStatus.REVIEW
         assert pr_monitor.should_monitor_run(run_with_pr) is True
 
-    def test_completed_status_monitored(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    def test_completed_status_monitored(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that COMPLETED status runs with open PRs are monitored."""
         run_with_pr.status = RunStatus.COMPLETED
         store.update_run(run_with_pr)
         assert pr_monitor.should_monitor_run(run_with_pr) is True
 
-    def test_running_status_not_monitored(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    def test_running_status_not_monitored(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that RUNNING status runs are not monitored."""
         run_with_pr.status = RunStatus.RUNNING
         store.update_run(run_with_pr)
@@ -136,13 +139,17 @@ class TestShouldMonitorRun:
         store.update_run(run_with_pr)
         assert pr_monitor.should_monitor_run(run_with_pr) is False
 
-    def test_disabled_auto_resume_not_monitored(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    def test_disabled_auto_resume_not_monitored(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that runs with auto_resume_enabled=False are not monitored."""
         run_with_pr.auto_resume_enabled = False
         store.update_run(run_with_pr)
         assert pr_monitor.should_monitor_run(run_with_pr) is False
 
-    def test_max_resumes_reached_not_monitored(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    def test_max_resumes_reached_not_monitored(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that runs at max auto-resumes are not monitored."""
         run_with_pr.auto_resume_count = MAX_AUTO_RESUMES
         store.update_run(run_with_pr)
@@ -171,7 +178,9 @@ class TestCheckPRComments:
             assert "@gluon" in result["body"]
 
     @pytest.mark.asyncio
-    async def test_filters_already_processed(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    async def test_filters_already_processed(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that already-processed comments are filtered out."""
         run_with_pr.last_comment_id = 2
         store.update_run(run_with_pr)
@@ -244,7 +253,9 @@ class TestAutoResumeForComment:
     """Test auto-resume for comment functionality."""
 
     @pytest.mark.asyncio
-    async def test_resumes_with_comment_context(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    async def test_resumes_with_comment_context(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that resume includes comment context in prompt."""
         comment = {
             "id": 100,
@@ -271,7 +282,9 @@ class TestAutoResumeForComment:
             assert "(line 42)" in prompt
 
     @pytest.mark.asyncio
-    async def test_updates_tracking_fields(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    async def test_updates_tracking_fields(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that tracking fields are updated."""
         comment = {"id": 100, "body": "@gluon fix", "author": "reviewer"}
 
@@ -290,7 +303,9 @@ class TestAutoResumeForCIFailure:
     """Test auto-resume for CI failure functionality."""
 
     @pytest.mark.asyncio
-    async def test_resumes_with_failure_context(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    async def test_resumes_with_failure_context(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that resume includes failure context in prompt."""
         failures = [
             {
@@ -319,7 +334,9 @@ class TestAutoResumeForCIFailure:
             assert "https://example.com/logs" in prompt
 
     @pytest.mark.asyncio
-    async def test_uses_vercel_prompt_for_vercel(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    async def test_uses_vercel_prompt_for_vercel(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that Vercel-specific prompt is used for Vercel failures."""
         failures = [
             {
@@ -342,7 +359,9 @@ class TestAutoResumeForCIFailure:
             assert "TypeScript type errors" in prompt or "Missing imports" in prompt
 
     @pytest.mark.asyncio
-    async def test_updates_tracking_fields(self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore):
+    async def test_updates_tracking_fields(
+        self, pr_monitor: PRMonitorService, run_with_pr: ExecutionRun, store: GluonStore
+    ):
         """Test that tracking fields are updated."""
         failures = [{"name": "Build", "conclusion": "failure"}]
 
