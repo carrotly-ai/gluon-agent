@@ -293,7 +293,16 @@ class TestBuildLoopPrompt:
         todo_path.write_text("- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3")
 
         prompt = ralph_manager._build_loop_prompt(1)
-        assert "[2/3 tasks remaining]" in prompt
+        assert "[2/3 tasks remaining - EXIT_SIGNAL must be false]" in prompt
+
+    def test_todo_count_all_done(self, ralph_manager, temp_dir):
+        """Prompt shows all done when no tasks remain."""
+        # Create a TODO file with all tasks complete
+        todo_path = temp_dir / "TODO.md"
+        todo_path.write_text("- [x] Task 1\n- [x] Task 2\n- [x] Task 3")
+
+        prompt = ralph_manager._build_loop_prompt(1)
+        assert "[0/3 tasks remaining - all done]" in prompt
 
 
 class TestFreshSessionBehavior:

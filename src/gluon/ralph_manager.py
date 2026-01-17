@@ -413,13 +413,15 @@ class RalphManager:
         """
         context_parts = [f"[Loop {loop_number}/{self.run.max_loops}]"]
 
-        # Add remaining TODO count if available
+        # Add remaining TODO count if available - with explicit EXIT_SIGNAL guidance
         todo_content = self._read_todo_file()
         if todo_content:
             total = todo_content.count("- [ ]") + todo_content.count("- [x]")
             remaining = todo_content.count("- [ ]")
-            if total > 0:
-                context_parts.append(f"[{remaining}/{total} tasks remaining]")
+            if remaining > 0:
+                context_parts.append(f"[{remaining}/{total} tasks remaining - EXIT_SIGNAL must be false]")
+            elif total > 0:
+                context_parts.append(f"[0/{total} tasks remaining - all done]")
 
         # Add circuit state if not normal
         if self.circuit_breaker.state != CircuitState.CLOSED:
@@ -450,7 +452,7 @@ class RalphManager:
 
 ---
 
-**IMPORTANT: At the end of your response, you MUST include a RALPH_STATUS block in exactly this format:**
+**IMPORTANT: At the end of your response, you MUST include a RALPH_STATUS block:**
 
 ```
 ---RALPH_STATUS---
@@ -464,8 +466,15 @@ RECOMMENDATION: <one line summary of what to do next>
 ---END_RALPH_STATUS---
 ```
 
-Set EXIT_SIGNAL to `true` ONLY when ALL work is genuinely complete and no further action is needed.
-Set STATUS to `COMPLETE` when the task is done, `IN_PROGRESS` when continuing, or `BLOCKED` if stuck.
+**EXIT_SIGNAL is CRITICAL - it controls whether the Ralph Loop CONTINUES or STOPS:**
+- `false` = There is MORE work remaining in the original prompt/PRD → loop continues
+- `true` = The ENTIRE original task is 100% complete with NOTHING left → loop stops
+
+**IMPORTANT RULES:**
+1. If your RECOMMENDATION mentions "proceed", "continue", "next", or any future action → EXIT_SIGNAL MUST be `false`
+2. STATUS=COMPLETE means THIS ITERATION is done, NOT the entire project
+3. The most common pattern is `STATUS: COMPLETE` + `EXIT_SIGNAL: false` (iteration done, project continues)
+4. Only set `EXIT_SIGNAL: true` when there is genuinely NO remaining work whatsoever
 
 ---
 """
