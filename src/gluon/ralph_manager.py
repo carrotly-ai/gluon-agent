@@ -329,6 +329,17 @@ class RalphManager:
         messages_path = self.log_dir / "messages.jsonl" if self.log_dir else None
 
         try:
+            # Log the loop prompt as a user message for visibility in web-ui
+            if messages_path:
+                prompt_msg = {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "type": "user",
+                    "content": prompt,
+                    "loop_number": self.run.loop_count,
+                }
+                with open(messages_path, "a") as f:
+                    f.write(json.dumps(prompt_msg) + "\n")
+
             # IMPORTANT: Use fresh sessions for each Ralph Loop iteration.
             # This prevents "context rot" where LLM performance degrades as
             # the context window fills up. Context is passed via progress file
