@@ -447,6 +447,25 @@ class RalphManager:
 ---
 """
 
+        # Add messages log filepath for context (loops 2+)
+        messages_context = ""
+        if self.log_dir and loop_number > 1:
+            messages_path = self.log_dir / "messages.jsonl"
+            if messages_path.exists():
+                messages_context = f"""
+
+---
+
+## Previous Messages Log
+
+The full conversation history from previous loops is available at:
+`{messages_path}`
+
+You can read this file to review detailed tool calls, outputs, and decisions from earlier iterations.
+
+---
+"""
+
         # RALPH_STATUS instruction for structured completion signals
         status_instruction = """
 
@@ -479,7 +498,7 @@ RECOMMENDATION: <one line summary of what to do next>
 ---
 """
 
-        return f"{context}{previous_summary}\n\n{self.run.prompt}{status_instruction}"
+        return f"{context}{messages_context}{previous_summary}\n\n{self.run.prompt}{status_instruction}"
 
     def _read_todo_file(self) -> str | None:
         """Read @fix_plan.md or TODO.md if present."""
