@@ -95,10 +95,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
-# Layer 5c: agent-browser CLI with Chromium
-# Installs globally and downloads Chromium binary
-RUN npm install -g agent-browser \
-    && agent-browser install
+# Layer 5c: agent-browser CLI (global install only)
+# Browser binaries downloaded later as gluon user
+RUN npm install -g agent-browser
 
 # Layer 6: Create non-root user and directories (rarely changes)
 RUN groupadd -g 1000 gluon && \
@@ -138,6 +137,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Layer 11: Re-install in editable mode (fast - deps already cached)
 USER gluon
 RUN pip install --no-cache-dir -e '.[all]'
+
+# Layer 11b: Download Chromium browser for agent-browser (as gluon user)
+# This ensures browsers are in /home/gluon/.cache/ms-playwright
+RUN agent-browser install
 
 # Layer 12: Copy built web-ui LAST (changes most frequently with frontend work)
 # Using --link to avoid invalidating subsequent layers
