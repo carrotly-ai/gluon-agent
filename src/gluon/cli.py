@@ -12,6 +12,7 @@ from rich.table import Table
 
 from gluon import __version__
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
+from gluon.cleanup import LogCleanupService
 from gluon.core import (
     Orchestrator,
     ProjectExistsError,
@@ -2191,6 +2192,141 @@ def supervision_evaluate(
 def version():
     """Show version."""
     console.print(f"Gluon Agent v{__version__}")
+
+
+@app.command("cleanup")
+def cleanup(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Preview what would be deleted without deleting"),
+    ] = False,
+):
+    """Clean up old log files based on retention policies.
+
+    Retention policies:
+    - Orphan logs (no DB record): deleted immediately
+    - Archived runs: deleted 30 days after completion
+    - Failed runs: deleted 7 days after completion
+    - Completed runs (non-archived): deleted 30 days after completion
+    """
+    store = GluonStore()
+    service = LogCleanupService(store=store)
+
+    if dry_run:
+        preview = service.preview()
+        total = sum(len(ids) for ids in preview.values())
+
+        if total == 0:
+            console.print("[green]No logs to clean up[/green]")
+            return
+
+        console.print("[bold]Logs that would be deleted:[/bold]\n")
+
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Category")
+        table.add_column("Count", justify="right")
+        table.add_column("Run IDs")
+
+        for category, run_ids in preview.items():
+            if run_ids:
+                ids_display = ", ".join(run_ids[:3])
+                if len(run_ids) > 3:
+                    ids_display += f" (+{len(run_ids) - 3} more)"
+                table.add_row(category.title(), str(len(run_ids)), ids_display)
+
+        console.print(table)
+        console.print(f"\n[bold]Total:[/bold] {total} log directories would be deleted")
+    else:
+        stats = service.cleanup()
+        total = (
+            stats["orphan_deleted"] + stats["archived_deleted"] + stats["failed_deleted"] + stats["completed_deleted"]
+        )
+
+        if total == 0:
+            console.print("[green]No logs to clean up[/green]")
+        else:
+            console.print("[bold]Cleanup complete:[/bold]")
+            console.print(f"  Orphan:    {stats['orphan_deleted']}")
+            console.print(f"  Archived:  {stats['archived_deleted']}")
+            console.print(f"  Failed:    {stats['failed_deleted']}")
+            console.print(f"  Completed: {stats['completed_deleted']}")
+            console.print(f"  [bold]Total:[/bold]    {total}")
+
+        if stats["errors"] > 0:
+            console.print(f"\n[yellow]Errors: {stats['errors']}[/yellow]")
+
+
+def _format_bytes(size: int) -> str:
+    """Format bytes as human-readable string."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+@app.command("stats")
+def stats():
+    """Show disk usage statistics for ~/.gluon directory."""
+    gluon_dir = Path.home() / ".gluon"
+
+    if not gluon_dir.exists():
+        console.print("[yellow]~/.gluon directory does not exist[/yellow]")
+        return
+
+    console.print("[bold]Disk Usage: ~/.gluon[/bold]\n")
+
+    # Calculate sizes for main sections
+    sections = []
+    for entry in gluon_dir.iterdir():
+        if entry.is_file():
+            sections.append((entry.name, entry.stat().st_size))
+        elif entry.is_dir():
+            total = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+            sections.append((entry.name + "/", total))
+
+    sections.sort(key=lambda x: x[1], reverse=True)
+    total_size = sum(size for _, size in sections)
+
+    # Display section breakdown
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Section")
+    table.add_column("Size", justify="right")
+    table.add_column("%", justify="right")
+
+    for name, size in sections:
+        pct = (size / total_size * 100) if total_size > 0 else 0
+        table.add_row(name, _format_bytes(size), f"{pct:.0f}%")
+
+    table.add_row("[bold]Total[/bold]", f"[bold]{_format_bytes(total_size)}[/bold]", "[bold]100%[/bold]")
+    console.print(table)
+
+    # Show top runs by size
+    store = GluonStore()
+    service = LogCleanupService(store=store)
+    usage = service.get_disk_usage()
+
+    if usage["run_count"] > 0:
+        console.print(f"\n[bold]Log Directory:[/bold] {usage['run_count']} runs, {_format_bytes(usage['total_bytes'])}")
+
+        top_runs = usage.get("top_runs", [])
+        if top_runs:
+            console.print("\n[bold]Top 5 Largest Runs:[/bold]")
+            runs_table = Table(show_header=True, header_style="bold")
+            runs_table.add_column("Run ID")
+            runs_table.add_column("Size", justify="right")
+            runs_table.add_column("Status")
+            runs_table.add_column("Project")
+
+            db_runs = {run.id: run for run in store.list_runs(limit=10000, include_archived=True)}
+
+            for run_id, size in top_runs[:5]:
+                run = db_runs.get(run_id)
+                status = run.status.value if run else "[orphan]"
+                project = run.project_id if run else "-"
+                runs_table.add_row(run_id[:8] + "...", _format_bytes(size), status, project)
+
+            console.print(runs_table)
 
 
 # ========== Helper Functions ==========

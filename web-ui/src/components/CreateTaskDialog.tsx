@@ -13,8 +13,21 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
 import { FileAutocomplete } from '@/components/FileAutocomplete'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { createRun, fetchCommands, fetchProjectFiles, fetchProjects, uploadAndAttachImage } from '@/lib/api'
-import type { Project, ProjectFile, ProjectWithWorkspace, SlashCommand, TaskProfile, ThinkingBudget } from '@/lib/types'
+import {
+  createRun,
+  fetchCommands,
+  fetchProjectFiles,
+  fetchProjects,
+  uploadAndAttachImage,
+} from '@/lib/api'
+import type {
+  Project,
+  ProjectFile,
+  ProjectWithWorkspace,
+  SlashCommand,
+  TaskProfile,
+  ThinkingBudget,
+} from '@/lib/types'
 import { groupProjectsByWorkspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -31,10 +44,15 @@ const PROFILE_OPTIONS = [
   {
     value: 'standard',
     label: 'Standard',
-    description: 'Sonnet - Balanced (default)',
+    description: 'Sonnet - Balanced',
     model: 'sonnet',
   },
-  { value: 'deep', label: 'Deep', description: 'Opus - Maximum reasoning', model: 'opus' },
+  {
+    value: 'deep',
+    label: 'Deep',
+    description: 'Opus - Maximum reasoning (default)',
+    model: 'opus',
+  },
   {
     value: 'planning',
     label: 'Planning',
@@ -61,7 +79,7 @@ const THINKING_OPTIONS = [
   { value: 'ultrathink', label: 'Ultrathink', description: '32k tokens' },
 ]
 
-const DEFAULT_PROFILE = 'standard'
+const DEFAULT_PROFILE = 'deep'
 const PROFILE_STORAGE_KEY = 'gluon-profile'
 const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
 const RALPH_ENABLED_STORAGE_KEY = 'gluon-ralph-enabled'
@@ -147,6 +165,7 @@ export function CreateTaskDialog({
   useEffect(() => {
     if (open) {
       fetchProjects().then(setProjects).catch(console.error)
+      // Load global commands initially (project-specific loaded when project selected)
       fetchCommands().then(setCommands).catch(console.error)
       setError(null)
       if (initialProject) {
@@ -155,7 +174,7 @@ export function CreateTaskDialog({
     }
   }, [open, initialProject])
 
-  // Load files when project is selected (for @mentions autocomplete)
+  // Load files and project-specific commands when project is selected
   useEffect(() => {
     if (!selectedProject || !open) {
       setProjectFiles([])
@@ -166,6 +185,10 @@ export function CreateTaskDialog({
     const project = projects.find((p) => p.name === selectedProject)
     if (!project) return
 
+    // Fetch project-specific commands (includes global merged)
+    fetchCommands(project.id).then(setCommands).catch(console.error)
+
+    // Fetch project files for @mentions
     setFilesLoading(true)
     fetchProjectFiles(project.id)
       .then(({ files, truncated }) => {
@@ -303,65 +326,71 @@ export function CreateTaskDialog({
   const grouped = groupProjectsByWorkspace(projects)
 
   // Handle prompt changes and detect slash command / file triggers
-  const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value
-    setPrompt(value)
+  const handlePromptChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value
+      setPrompt(value)
 
-    // Check if we should show autocomplete
-    const cursorPos = e.target.selectionStart
-    const textBeforeCursor = value.slice(0, cursorPos)
+      // Check if we should show autocomplete
+      const cursorPos = e.target.selectionStart
+      const textBeforeCursor = value.slice(0, cursorPos)
 
-    // Find if there's a `/` at the start or after a space/newline (slash commands)
-    const lastSlashMatch = textBeforeCursor.match(/(?:^|\s)\/(\S*)$/)
-    // Find if there's a `@` at the start or after a space/newline (file mentions)
-    const lastAtMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/)
+      // Find if there's a `/` at the start or after a space/newline (slash commands)
+      const lastSlashMatch = textBeforeCursor.match(/(?:^|\s)\/(\S*)$/)
+      // Find if there's a `@` at the start or after a space/newline (file mentions)
+      const lastAtMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/)
 
-    if (lastSlashMatch) {
-      const filter = lastSlashMatch[1]
-      setAutocompleteFilter(filter)
-      setShowAutocomplete(true)
-      setShowFileAutocomplete(false)
-      setFileAutocompleteFilter('')
-    } else if (lastAtMatch && selectedProject) {
-      const filter = lastAtMatch[1]
-      setFileAutocompleteFilter(filter)
-      setShowFileAutocomplete(true)
-      setShowAutocomplete(false)
-      setAutocompleteFilter('')
-    } else {
-      setShowAutocomplete(false)
-      setAutocompleteFilter('')
-      setShowFileAutocomplete(false)
-      setFileAutocompleteFilter('')
-    }
-  }, [selectedProject])
+      if (lastSlashMatch) {
+        const filter = lastSlashMatch[1]
+        setAutocompleteFilter(filter)
+        setShowAutocomplete(true)
+        setShowFileAutocomplete(false)
+        setFileAutocompleteFilter('')
+      } else if (lastAtMatch && selectedProject) {
+        const filter = lastAtMatch[1]
+        setFileAutocompleteFilter(filter)
+        setShowFileAutocomplete(true)
+        setShowAutocomplete(false)
+        setAutocompleteFilter('')
+      } else {
+        setShowAutocomplete(false)
+        setAutocompleteFilter('')
+        setShowFileAutocomplete(false)
+        setFileAutocompleteFilter('')
+      }
+    },
+    [selectedProject]
+  )
 
   // Handle command selection from autocomplete
-  const handleCommandSelect = useCallback((command: SlashCommand) => {
-    if (!textareaRef.current) return
+  const handleCommandSelect = useCallback(
+    (command: SlashCommand) => {
+      if (!textareaRef.current) return
 
-    const cursorPos = textareaRef.current.selectionStart
-    const textBeforeCursor = prompt.slice(0, cursorPos)
-    const textAfterCursor = prompt.slice(cursorPos)
+      const cursorPos = textareaRef.current.selectionStart
+      const textBeforeCursor = prompt.slice(0, cursorPos)
+      const textAfterCursor = prompt.slice(cursorPos)
 
-    // Find the start of the slash command we're replacing
-    const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/\S*)$/)
-    if (slashMatch) {
-      const matchStart = textBeforeCursor.length - slashMatch[1].length
-      const newText = prompt.slice(0, matchStart) + `/${command.name} ` + textAfterCursor
-      setPrompt(newText)
+      // Find the start of the slash command we're replacing
+      const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/\S*)$/)
+      if (slashMatch) {
+        const matchStart = textBeforeCursor.length - slashMatch[1].length
+        const newText = `${prompt.slice(0, matchStart)}/${command.name} ${textAfterCursor}`
+        setPrompt(newText)
 
-      // Move cursor after the inserted command
-      const newCursorPos = matchStart + command.name.length + 2 // +2 for '/' and space
-      setTimeout(() => {
-        textareaRef.current?.focus()
-        textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
-      }, 0)
-    }
+        // Move cursor after the inserted command
+        const newCursorPos = matchStart + command.name.length + 2 // +2 for '/' and space
+        setTimeout(() => {
+          textareaRef.current?.focus()
+          textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
+        }, 0)
+      }
 
-    setShowAutocomplete(false)
-    setAutocompleteFilter('')
-  }, [prompt])
+      setShowAutocomplete(false)
+      setAutocompleteFilter('')
+    },
+    [prompt]
+  )
 
   const handleAutocompleteClose = useCallback(() => {
     setShowAutocomplete(false)
@@ -370,31 +399,34 @@ export function CreateTaskDialog({
   }, [])
 
   // Handle file path selection from autocomplete (@mentions)
-  const handleFileMentionSelect = useCallback((file: ProjectFile) => {
-    if (!textareaRef.current) return
+  const handleFileMentionSelect = useCallback(
+    (file: ProjectFile) => {
+      if (!textareaRef.current) return
 
-    const cursorPos = textareaRef.current.selectionStart
-    const textBeforeCursor = prompt.slice(0, cursorPos)
-    const textAfterCursor = prompt.slice(cursorPos)
+      const cursorPos = textareaRef.current.selectionStart
+      const textBeforeCursor = prompt.slice(0, cursorPos)
+      const textAfterCursor = prompt.slice(cursorPos)
 
-    // Find the start of the @mention we're replacing
-    const atMatch = textBeforeCursor.match(/(?:^|\s)(@\S*)$/)
-    if (atMatch) {
-      const matchStart = textBeforeCursor.length - atMatch[1].length
-      const newText = prompt.slice(0, matchStart) + `@${file.path} ` + textAfterCursor
-      setPrompt(newText)
+      // Find the start of the @mention we're replacing
+      const atMatch = textBeforeCursor.match(/(?:^|\s)(@\S*)$/)
+      if (atMatch) {
+        const matchStart = textBeforeCursor.length - atMatch[1].length
+        const newText = `${prompt.slice(0, matchStart)}@${file.path} ${textAfterCursor}`
+        setPrompt(newText)
 
-      // Move cursor after the inserted file path
-      const newCursorPos = matchStart + file.path.length + 2 // +2 for '@' and space
-      setTimeout(() => {
-        textareaRef.current?.focus()
-        textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
-      }, 0)
-    }
+        // Move cursor after the inserted file path
+        const newCursorPos = matchStart + file.path.length + 2 // +2 for '@' and space
+        setTimeout(() => {
+          textareaRef.current?.focus()
+          textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
+        }, 0)
+      }
 
-    setShowFileAutocomplete(false)
-    setFileAutocompleteFilter('')
-  }, [prompt])
+      setShowFileAutocomplete(false)
+      setFileAutocompleteFilter('')
+    },
+    [prompt]
+  )
 
   const handleFileAutocompleteClose = useCallback(() => {
     setShowFileAutocomplete(false)
@@ -543,7 +575,10 @@ export function CreateTaskDialog({
               onChange={handlePromptChange}
               onKeyDown={(e) => {
                 // Let autocomplete handle navigation keys when visible
-                if ((showAutocomplete || showFileAutocomplete) && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+                if (
+                  (showAutocomplete || showFileAutocomplete) &&
+                  ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)
+                ) {
                   return
                 }
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {

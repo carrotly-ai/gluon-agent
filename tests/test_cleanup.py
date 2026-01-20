@@ -204,19 +204,20 @@ class TestLogCleanupService:
         assert stats["orphan_deleted"] == 0
         assert stats["archived_deleted"] == 0
         assert stats["failed_deleted"] == 0
+        assert stats["completed_deleted"] == 0
         assert log_dir.exists()
 
-    def test_keep_completed_not_archived_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
-        """Test that completed but not archived run logs are kept."""
+    def test_cleanup_completed_not_archived_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
+        """Test that completed non-archived run logs are deleted after 30 days."""
         # Create a project first
         project = store.create_project(name="test-project", path=Path("/tmp/test"))
 
-        # Create a completed run (not archived)
+        # Create a completed run (not archived) completed 31 days ago
         run = create_test_run(
             store=store,
             project_id=project.id,
             status=RunStatus.COMPLETED,
-            completed_at_days_ago=60,  # Old but not archived
+            completed_at_days_ago=31,  # Past 30-day retention
         )
 
         # Create log directory for this run
@@ -227,7 +228,31 @@ class TestLogCleanupService:
         service = LogCleanupService(store=store, log_dir=temp_log_dir)
         stats = service.cleanup()
 
-        assert stats["archived_deleted"] == 0
+        assert stats["completed_deleted"] == 1
+        assert not log_dir.exists()
+
+    def test_keep_recent_completed_not_archived_logs(self, store: GluonStore, temp_log_dir: Path) -> None:
+        """Test that completed non-archived run logs less than 30 days old are kept."""
+        # Create a project first
+        project = store.create_project(name="test-project", path=Path("/tmp/test"))
+
+        # Create a completed run (not archived) completed 10 days ago
+        run = create_test_run(
+            store=store,
+            project_id=project.id,
+            status=RunStatus.COMPLETED,
+            completed_at_days_ago=10,  # Within 30-day retention
+        )
+
+        # Create log directory for this run
+        log_dir = temp_log_dir / run.id
+        log_dir.mkdir()
+        (log_dir / "stdout.log").write_text("completed logs")
+
+        service = LogCleanupService(store=store, log_dir=temp_log_dir)
+        stats = service.cleanup()
+
+        assert stats["completed_deleted"] == 0
         assert log_dir.exists()
 
     def test_no_log_directory(self, store: GluonStore, tmp_path: Path) -> None:
@@ -239,6 +264,7 @@ class TestLogCleanupService:
         assert stats["orphan_deleted"] == 0
         assert stats["archived_deleted"] == 0
         assert stats["failed_deleted"] == 0
+        assert stats["completed_deleted"] == 0
         assert stats["errors"] == 0
 
     def test_custom_retention_periods(self, store: GluonStore, temp_log_dir: Path) -> None:

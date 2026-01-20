@@ -686,9 +686,13 @@ export async function refreshAllGitStatuses(): Promise<{
 
 // ========== Slash Commands ==========
 
-/** Fetch available slash commands and skills from ~/.claude directories */
-export async function fetchCommands(): Promise<SlashCommand[]> {
-  const response = await fetchJson<SlashCommandsResponse>('/commands')
+/** Fetch available slash commands and skills.
+ * If projectId is provided, includes project-specific commands from <project>/.claude directories.
+ * Project commands take precedence over global commands with the same name.
+ */
+export async function fetchCommands(projectId?: string): Promise<SlashCommand[]> {
+  const url = projectId ? `/projects/${projectId}/commands` : '/commands'
+  const response = await fetchJson<SlashCommandsResponse>(url)
   return response.commands
 }
 
@@ -698,7 +702,7 @@ export async function fetchCommands(): Promise<SlashCommand[]> {
 export async function fetchProjectFiles(
   projectId: string,
   prefix: string = '',
-  limit: number = 50
+  limit: number = 1000
 ): Promise<{ files: ProjectFile[]; truncated: boolean }> {
   const params = new URLSearchParams()
   if (prefix) params.set('prefix', prefix)

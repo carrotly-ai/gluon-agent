@@ -32,9 +32,11 @@ import {
   createPrForRun,
   deleteQueuedMessage,
   editQueuedMessage,
+  fetchCommands,
   fetchCommitDetail,
   fetchFileDiff,
   fetchLogs,
+  fetchProjectFiles,
   fetchRun,
   fetchRunAttachments,
   fetchRunCommits,
@@ -51,15 +53,19 @@ import type {
   CommitDetail,
   FileDiff,
   ImageAttachment,
+  ProjectFile,
   Run,
   RunCommitsResponse,
   RunDetail,
   RunFilesResponse,
   RunStatus,
+  SlashCommand,
   WSMessage,
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { CommandAutocomplete } from './CommandAutocomplete'
+import { FileAutocomplete } from './FileAutocomplete'
 import { StreamingLogViewer } from './StreamingLogViewer'
 
 type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files' | 'attachments'
@@ -160,6 +166,16 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   const [resumePendingImages, setResumePendingImages] = useState<ResumePendingImage[]>([])
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingMessageText, setEditingMessageText] = useState('')
+
+  // Autocomplete state for follow-up textarea
+  const [commands, setCommands] = useState<SlashCommand[]>([])
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([])
+  const [showCommandAutocomplete, setShowCommandAutocomplete] = useState(false)
+  const [showFileAutocomplete, setShowFileAutocomplete] = useState(false)
+  const [commandFilter, setCommandFilter] = useState('')
+  const [fileFilter, setFileFilter] = useState('')
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [filesTruncated, setFilesTruncated] = useState(false)
 
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const outputContainerRef = useRef<HTMLPreElement>(null)
@@ -349,6 +365,24 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
 
     return () => clearInterval(intervalId)
   }, [runId, run?.pr_status, run?.pr_number, run, onRunUpdated])
+
+  // Load commands and files for autocomplete when run detail loads
+  useEffect(() => {
+    if (!detail?.project_id) return
+
+    // Fetch project-specific commands
+    fetchCommands(detail.project_id).then(setCommands).catch(console.error)
+
+    // Fetch project files
+    setFilesLoading(true)
+    fetchProjectFiles(detail.project_id)
+      .then(({ files, truncated }) => {
+        setProjectFiles(files)
+        setFilesTruncated(truncated)
+      })
+      .catch(console.error)
+      .finally(() => setFilesLoading(false))
+  }, [detail?.project_id])
 
   const handleCancel = async () => {
     if (!run) return
@@ -559,6 +593,96 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       setResuming(false)
     }
   }
+
+  // Handle autocomplete trigger detection
+  const handleResumePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setResumePrompt(value)
+
+    const cursorPos = e.target.selectionStart
+    const textBeforeCursor = value.slice(0, cursorPos)
+
+    // Slash command trigger: "/" at start or after whitespace
+    const slashMatch = textBeforeCursor.match(/(?:^|\s)\/(\S*)$/)
+    // File mention trigger: "@" at start or after whitespace
+    const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/)
+
+    if (slashMatch) {
+      setCommandFilter(slashMatch[1])
+      setShowCommandAutocomplete(true)
+      setShowFileAutocomplete(false)
+    } else if (atMatch) {
+      setFileFilter(atMatch[1])
+      setShowFileAutocomplete(true)
+      setShowCommandAutocomplete(false)
+    } else {
+      setShowCommandAutocomplete(false)
+      setShowFileAutocomplete(false)
+    }
+  }, [])
+
+  // Handle command selection from autocomplete
+  const handleCommandSelect = useCallback(
+    (command: SlashCommand) => {
+      if (!resumeTextareaRef.current) return
+
+      const cursorPos = resumeTextareaRef.current.selectionStart
+      const textBeforeCursor = resumePrompt.slice(0, cursorPos)
+      const textAfterCursor = resumePrompt.slice(cursorPos)
+
+      const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/\S*)$/)
+      if (slashMatch) {
+        const matchStart = textBeforeCursor.length - slashMatch[1].length
+        const newText = `${resumePrompt.slice(0, matchStart)}/${command.name} ${textAfterCursor}`
+        setResumePrompt(newText)
+
+        const newCursorPos = matchStart + command.name.length + 2
+        setTimeout(() => {
+          resumeTextareaRef.current?.focus()
+          resumeTextareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
+        }, 0)
+      }
+
+      setShowCommandAutocomplete(false)
+      setCommandFilter('')
+    },
+    [resumePrompt]
+  )
+
+  // Handle file selection from autocomplete
+  const handleFileSelect = useCallback(
+    (file: ProjectFile) => {
+      if (!resumeTextareaRef.current) return
+
+      const cursorPos = resumeTextareaRef.current.selectionStart
+      const textBeforeCursor = resumePrompt.slice(0, cursorPos)
+      const textAfterCursor = resumePrompt.slice(cursorPos)
+
+      const atMatch = textBeforeCursor.match(/(?:^|\s)(@\S*)$/)
+      if (atMatch) {
+        const matchStart = textBeforeCursor.length - atMatch[1].length
+        const newText = `${resumePrompt.slice(0, matchStart)}@${file.path} ${textAfterCursor}`
+        setResumePrompt(newText)
+
+        const newCursorPos = matchStart + file.path.length + 2
+        setTimeout(() => {
+          resumeTextareaRef.current?.focus()
+          resumeTextareaRef.current?.setSelectionRange(newCursorPos, newCursorPos)
+        }, 0)
+      }
+
+      setShowFileAutocomplete(false)
+      setFileFilter('')
+    },
+    [resumePrompt]
+  )
+
+  // Handle autocomplete close
+  const handleAutocompleteClose = useCallback(() => {
+    setShowCommandAutocomplete(false)
+    setShowFileAutocomplete(false)
+    resumeTextareaRef.current?.focus()
+  }, [])
 
   // Edit a queued message
   const handleEditQueuedMessage = async (messageId: string, newText: string) => {
@@ -1727,7 +1851,6 @@ Focus on preserving the functionality from both sides where possible.`
                                 setEditingMessageText('')
                               }
                             }}
-                            autoFocus
                             rows={1}
                             onInput={(e) => {
                               const target = e.target as HTMLTextAreaElement
@@ -1820,8 +1943,15 @@ Focus on preserving the functionality from both sides where possible.`
                       : 'Continue with follow-up... (⌘V to paste images)'
                   }
                   value={resumePrompt}
-                  onChange={(e) => setResumePrompt(e.target.value)}
+                  onChange={handleResumePromptChange}
                   onKeyDown={(e) => {
+                    // Let autocomplete handle navigation keys
+                    if (
+                      (showCommandAutocomplete || showFileAutocomplete) &&
+                      ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)
+                    ) {
+                      return
+                    }
                     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                       e.preventDefault()
                       if (resumePrompt.trim() && !resuming && !queuing) {
@@ -1841,6 +1971,24 @@ Focus on preserving the functionality from both sides where possible.`
                     target.style.height = 'auto'
                     target.style.height = `${Math.min(target.scrollHeight, 128)}px`
                   }}
+                />
+                <CommandAutocomplete
+                  commands={commands}
+                  filter={commandFilter}
+                  visible={showCommandAutocomplete}
+                  onSelect={handleCommandSelect}
+                  onClose={handleAutocompleteClose}
+                  anchorRef={resumeTextareaRef}
+                />
+                <FileAutocomplete
+                  files={projectFiles}
+                  filter={fileFilter}
+                  visible={showFileAutocomplete}
+                  onSelect={handleFileSelect}
+                  onClose={handleAutocompleteClose}
+                  anchorRef={resumeTextareaRef}
+                  loading={filesLoading}
+                  truncated={filesTruncated}
                 />
                 {isActive ? (
                   /* Active task - show Queue and Send Now buttons */

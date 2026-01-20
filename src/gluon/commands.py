@@ -153,13 +153,19 @@ def scan_skills_directory(skills_dir: Path) -> list[SlashCommand]:
     return commands
 
 
-def get_slash_commands(force_refresh: bool = False) -> list[SlashCommand]:
+def get_slash_commands(
+    project_path: Path | None = None,
+    force_refresh: bool = False,
+) -> list[SlashCommand]:
     """Get all available slash commands and skills.
 
     Scans ~/.claude/commands/ and ~/.claude/skills/ directories.
-    Results are cached for 60 seconds.
+    If project_path provided, also scans <project>/.claude/ directories.
+    Project commands take precedence over global commands with the same name.
+    Results are cached for 60 seconds (global commands only).
 
     Args:
+        project_path: Optional project directory to scan for project-specific commands
         force_refresh: If True, bypass cache and rescan directories
 
     Returns:
@@ -167,25 +173,43 @@ def get_slash_commands(force_refresh: bool = False) -> list[SlashCommand]:
     """
     global _cache
 
-    if not force_refresh and _cache.is_valid():
+    # Use cache only for global commands (no project path)
+    if project_path is None and not force_refresh and _cache.is_valid():
         return _cache.commands
 
     commands: list[SlashCommand] = []
     claude_dir = Path.home() / ".claude"
 
-    # Scan user commands
+    # Scan global commands
     commands_dir = claude_dir / "commands"
     commands.extend(scan_commands_directory(commands_dir))
 
-    # Scan user skills
+    # Scan global skills
     skills_dir = claude_dir / "skills"
     commands.extend(scan_skills_directory(skills_dir))
+
+    # Scan project-specific commands (if project provided)
+    if project_path:
+        project_claude_dir = project_path / ".claude"
+        if project_claude_dir.exists():
+            project_commands: list[SlashCommand] = []
+            project_commands.extend(scan_commands_directory(project_claude_dir / "commands"))
+            project_commands.extend(scan_skills_directory(project_claude_dir / "skills"))
+
+            # Merge: project commands override global by name
+            global_by_name = {c.name: c for c in commands}
+            for pc in project_commands:
+                global_by_name[pc.name] = pc  # Override
+            commands = list(global_by_name.values())
+
+            logger.debug(f"Added {len(project_commands)} project-specific commands from {project_claude_dir}")
 
     # Sort by name
     commands.sort(key=lambda c: c.name)
 
-    # Update cache
-    _cache = CommandCache(commands=commands, timestamp=time.time())
+    # Update cache (only for global commands)
+    if project_path is None:
+        _cache = CommandCache(commands=commands, timestamp=time.time())
 
     logger.debug(f"Scanned {len(commands)} slash commands/skills")
     return commands

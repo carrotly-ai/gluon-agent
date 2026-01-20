@@ -65,9 +65,9 @@ export function FileAutocomplete({
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const listRef = useRef<HTMLDivElement>(null)
 
-  // Filter files by path prefix (case-insensitive)
+  // Filter files by path (case-insensitive) - matches anywhere in path
   const filteredFiles = files.filter((file) =>
-    file.path.toLowerCase().startsWith(filter.toLowerCase())
+    file.path.toLowerCase().includes(filter.toLowerCase())
   )
 
   // Calculate position based on anchor element
@@ -85,7 +85,7 @@ export function FileAutocomplete({
   // Reset selection when filter changes
   useEffect(() => {
     setSelectedIndex(0)
-  }, [filter])
+  }, [])
 
   // Scroll selected item into view
   useEffect(() => {

@@ -137,8 +137,13 @@ def _get_git_ahead_behind(project_path: str | Path) -> tuple[int | None, int | N
     return None, None
 
 
-def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
+def create_app(store: GluonStore | None = None) -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    Args:
+        store: Optional GluonStore instance. If not provided, creates a new one.
+               Useful for testing with custom store configurations.
+    """
     app = FastAPI(
         title="Gluon Web Dashboard",
         description="Web interface for managing Gluon Agent task execution",
@@ -158,7 +163,8 @@ def create_app() -> FastAPI:
     )
 
     # Shared instances
-    store = GluonStore()
+    if store is None:
+        store = GluonStore()
     orchestrator = Orchestrator(store=store)
     runner = TaskRunner(store=store)
 
@@ -1544,11 +1550,31 @@ def create_app() -> FastAPI:
             ]
         )
 
+    @app.get("/api/projects/{project_id}/commands", response_model=SlashCommandsResponse)
+    async def get_project_commands(project_id: str) -> SlashCommandsResponse:
+        """Get slash commands including project-specific ones from <project>/.claude directories."""
+        project = store.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        commands = get_slash_commands(project_path=project.expanded_path)
+        return SlashCommandsResponse(
+            commands=[
+                SlashCommandResponse(
+                    name=cmd.name,
+                    type=cmd.type,
+                    description=cmd.description,
+                    argument_hint=cmd.argument_hint,
+                )
+                for cmd in commands
+            ]
+        )
+
     @app.get("/api/projects/{project_id}/files", response_model=ProjectFilesResponse)
     async def list_project_files(
         project_id: str,
         prefix: str = "",
-        limit: int = Query(default=50, ge=1, le=200),
+        limit: int = Query(default=1000, ge=1, le=2000),
     ) -> ProjectFilesResponse:
         """List files in a project for autocomplete.
 
@@ -3349,12 +3375,18 @@ def create_app() -> FastAPI:
             try:
                 logger.info("Starting log cleanup...")
                 stats = cleanup_service.cleanup()
-                total = stats["orphan_deleted"] + stats["archived_deleted"] + stats["failed_deleted"]
+                total = (
+                    stats["orphan_deleted"]
+                    + stats["archived_deleted"]
+                    + stats["failed_deleted"]
+                    + stats["completed_deleted"]
+                )
                 if total > 0 or stats["errors"] > 0:
                     logger.info(
                         f"Log cleanup complete: {stats['orphan_deleted']} orphan, "
                         f"{stats['archived_deleted']} archived, "
-                        f"{stats['failed_deleted']} failed deleted, "
+                        f"{stats['failed_deleted']} failed, "
+                        f"{stats['completed_deleted']} completed deleted, "
                         f"{stats['errors']} errors"
                     )
                 else:
