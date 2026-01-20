@@ -418,9 +418,11 @@ class RalphManager:
         Prepends loop context to original prompt to help Claude
         understand this is part of an autonomous loop.
 
-        For iterations 2+, includes the previous iteration's summary
-        from the progress file to provide context without resuming
-        the session (which would cause context rot).
+        For iterations 2+, uses the RECOMMENDATION from the previous iteration
+        as the primary focus, with the original prompt available as context.
+
+        Note: Project boundary instructions are injected via agent.py's
+        append_system_prompt, so they apply to ALL runs (not just Ralph Loops).
         """
         context_parts = [f"[Loop {loop_number}/{self.run.max_loops}]"]
 
@@ -440,6 +442,24 @@ class RalphManager:
 
         context = " ".join(context_parts)
 
+        # Extract RECOMMENDATION from previous iteration for loops 2+
+        recommendation_section = ""
+        if loop_number > 1:
+            recommendation = self._read_recommendation_from_progress()
+            if recommendation:
+                recommendation_section = f"""
+
+---
+
+## Primary Focus (from previous iteration)
+
+{recommendation}
+
+This is your immediate priority for this iteration.
+
+---
+"""
+
         # Inject previous iteration summary for fresh context sessions
         previous_summary = ""
         if loop_number > 1:
@@ -453,7 +473,7 @@ class RalphManager:
 
 {prev_content}
 
-**Note:** This is a fresh session. The above describes what was done previously. Continue from there.
+**Note:** This is a fresh session. The above describes what was done previously.
 
 ---
 """
@@ -509,7 +529,16 @@ RECOMMENDATION: <one line summary of what to do next>
 ---
 """
 
-        return f"{context}{messages_context}{previous_summary}\n\n{self.run.prompt}{status_instruction}"
+        prompt_parts = [
+            context,
+            recommendation_section,
+            messages_context,
+            previous_summary,
+            "\n\n",
+            self.run.prompt,
+            status_instruction,
+        ]
+        return "".join(prompt_parts)
 
     def _read_todo_file(self) -> str | None:
         """Read @fix_plan.md or TODO.md if present."""
@@ -588,12 +617,16 @@ RECOMMENDATION: <one line summary of what to do next>
         # Extract RALPH_STATUS block from output
         ralph_status = self._extract_ralph_status(output)
 
+        # Extract RECOMMENDATION for easy extraction by next iteration
+        recommendation = self._extract_recommendation(output)
+
         # Extract key output summary
         key_output = self._extract_key_output(output)
 
-        # Build markdown summary
+        # Build markdown summary - RECOMMENDATION at top for easy extraction
         summary = f"""## Iteration {iteration.loop_number}
 
+**Recommendation**: {recommendation or "None provided"}
 **Started**: {iteration.started_at.isoformat() if iteration.started_at else "N/A"}
 **Files Changed**: {iteration.files_changed}
 **Errors**: {iteration.has_errors}
@@ -627,6 +660,27 @@ RECOMMENDATION: <one line summary of what to do next>
                 logger.debug(f"Failed to read progress file: {e}")
         return None
 
+    def _read_recommendation_from_progress(self) -> str | None:
+        """Extract RECOMMENDATION from progress file.
+
+        Looks for the **Recommendation**: line in the progress file.
+
+        Returns:
+            The recommendation value, or None if not found or empty.
+        """
+        content = self._read_progress_file()
+        if not content:
+            return None
+        # Match **Recommendation**: <text> format
+        pattern = r"\*\*Recommendation\*\*:\s*(.+?)(?:\n|$)"
+        match = re.search(pattern, content)
+        if match:
+            rec = match.group(1).strip()
+            # Filter out placeholder values
+            if rec and rec.lower() != "none provided":
+                return rec
+        return None
+
     def _extract_ralph_status(self, output: str) -> str | None:
         """Extract RALPH_STATUS block from Claude output.
 
@@ -638,6 +692,23 @@ RECOMMENDATION: <one line summary of what to do next>
         match = re.search(pattern, output, re.DOTALL)
         if match:
             return match.group(1).strip()
+        return None
+
+    def _extract_recommendation(self, output: str) -> str | None:
+        """Extract RECOMMENDATION value from RALPH_STATUS block.
+
+        Returns:
+            The recommendation string, or None if not found/empty.
+        """
+        ralph_status = self._extract_ralph_status(output)
+        if not ralph_status:
+            return None
+        # Parse RECOMMENDATION line from the status block
+        pattern = r"RECOMMENDATION:\s*(.+?)(?:\n|$)"
+        match = re.search(pattern, ralph_status)
+        if match:
+            rec = match.group(1).strip()
+            return rec if rec else None
         return None
 
     def _extract_key_output(self, output: str, max_chars: int = 2000) -> str:

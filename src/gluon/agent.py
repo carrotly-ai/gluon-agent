@@ -371,6 +371,21 @@ class GluonAgent:
         # Always append base Gluon system prompt (environment context)
         options.append_system_prompt = GLUON_SYSTEM_PROMPT
 
+        # Add project boundary instructions with actual working directory
+        project_boundary = f"""
+## PROJECT BOUNDARY - CRITICAL
+
+**Working Directory**: `{working_dir}`
+
+**RULES:**
+1. ALL work MUST stay within this directory
+2. NEVER search for projects elsewhere (no `find /home`, no `ls ~`, no directory discovery)
+3. NEVER modify files outside this directory
+4. If a file path is unclear, assume it's relative to the working directory above
+5. Use relative paths from the project root, not absolute paths
+"""
+        options.append_system_prompt += "\n" + project_boundary
+
         # Additionally append planning prompt if force_planning is enabled
         if self.force_planning:
             options.append_system_prompt += "\n" + PLANNING_SYSTEM_PROMPT

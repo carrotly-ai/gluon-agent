@@ -112,6 +112,12 @@ RUN groupadd -g 1000 gluon && \
     chown gluon:gluon /home/gluon/.ssh/known_hosts && \
     chmod 644 /home/gluon/.ssh/known_hosts
 
+# Layer 6b: Download Chromium browser for agent-browser (as gluon user)
+# Placed early to cache browser download - only re-runs if user/npm layers change
+USER gluon
+RUN agent-browser install
+USER root
+
 WORKDIR /app
 
 # Layer 7: Python tooling (rarely changes)
@@ -137,10 +143,6 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Layer 11: Re-install in editable mode (fast - deps already cached)
 USER gluon
 RUN pip install --no-cache-dir -e '.[all]'
-
-# Layer 11b: Download Chromium browser for agent-browser (as gluon user)
-# This ensures browsers are in /home/gluon/.cache/ms-playwright
-RUN agent-browser install
 
 # Layer 12: Copy built web-ui LAST (changes most frequently with frontend work)
 # Using --link to avoid invalidating subsequent layers
