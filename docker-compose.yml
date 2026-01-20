@@ -33,6 +33,9 @@ services:
       # Cache
       - ${HOME}/.cache/gluon:/home/gluon/.cache/gluon
 
+      # Browser automation cache (agent-browser/Playwright)
+      - ${HOME}/.cache/agent-browser:/home/gluon/.cache/ms-playwright
+
     # Pass environment variables
     environment:
       # AWS credentials (passed from host)
@@ -60,6 +63,9 @@ services:
       # Gluon configuration (loaded from env_file, only override if needed)
       - GLUON_GIT_ENABLED=true
 
+      # Browser automation (agent-browser)
+      - AGENT_BROWSER_STREAM_PORT=9223
+
     # Interactive mode for CLI
     stdin_open: true
     tty: true
@@ -67,6 +73,7 @@ services:
     # Network (if needed for web dashboard)
     ports:
       - "45866:45866"  # Web dashboard
+      - "9223:9223"    # Browser streaming/preview
 
     # Allow container to reach host services (e.g., MCP servers on localhost)
     extra_hosts:
