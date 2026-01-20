@@ -21,6 +21,9 @@ services:
       - ${HOME}/.claude:/home/gluon/.claude
       - ${HOME}/.gluon:/home/gluon/.gluon
 
+      # Worktrees (persist across container restarts)
+      - ${HOME}/.gluon/worktrees:/tmp/gluon-worktrees
+
       # Projects
       - ${HOME}/workspaces:/home/gluon/workspaces
 

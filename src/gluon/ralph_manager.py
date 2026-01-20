@@ -350,6 +350,7 @@ class RalphManager:
                 prompt=prompt,
                 working_dir=self.working_dir,
                 resume_session_id=None,  # Always fresh for Ralph auto-iterations
+                ralph_mode=True,  # Enable RALPH_STATUS instructions in system prompt
             ):
                 # Capture session ID from init message
                 if hasattr(message, "metadata") and message.metadata:
@@ -448,15 +449,12 @@ class RalphManager:
             recommendation = self._read_recommendation_from_progress()
             if recommendation:
                 recommendation_section = f"""
-
 ---
-
 ## Primary Focus (from previous iteration)
 
 {recommendation}
 
 This is your immediate priority for this iteration.
-
 ---
 """
 
@@ -466,15 +464,12 @@ This is your immediate priority for this iteration.
             prev_content = self._read_progress_file()
             if prev_content:
                 previous_summary = f"""
-
 ---
-
 ## Previous Iteration Summary
 
 {prev_content}
 
 **Note:** This is a fresh session. The above describes what was done previously.
-
 ---
 """
 
@@ -484,50 +479,16 @@ This is your immediate priority for this iteration.
             messages_path = self.log_dir / "messages.jsonl"
             if messages_path.exists():
                 messages_context = f"""
-
 ---
-
 ## Previous Messages Log
 
-The full conversation history from previous loops is available at:
-`{messages_path}`
-
+The full conversation history from previous loops is available at: `{messages_path}`
 You can read this file to review detailed tool calls, outputs, and decisions from earlier iterations.
-
 ---
 """
 
-        # RALPH_STATUS instruction for structured completion signals
-        status_instruction = """
-
----
-
-**IMPORTANT: At the end of your response, you MUST include a RALPH_STATUS block:**
-
-```
----RALPH_STATUS---
-STATUS: IN_PROGRESS | COMPLETE | BLOCKED
-TASKS_COMPLETED_THIS_LOOP: <number of tasks you completed in this loop>
-FILES_MODIFIED: <number of files you modified>
-TESTS_STATUS: PASSING | FAILING | NOT_RUN
-WORK_TYPE: IMPLEMENTATION | TESTING | DOCUMENTATION | REFACTORING
-EXIT_SIGNAL: false | true
-RECOMMENDATION: <one line summary of what to do next>
----END_RALPH_STATUS---
-```
-
-**EXIT_SIGNAL is CRITICAL - it controls whether the Ralph Loop CONTINUES or STOPS:**
-- `false` = There is MORE work remaining in the original prompt/PRD → loop continues
-- `true` = The ENTIRE original task is 100% complete with NOTHING left → loop stops
-
-**IMPORTANT RULES:**
-1. If your RECOMMENDATION mentions "proceed", "continue", "next", or any future action → EXIT_SIGNAL MUST be `false`
-2. STATUS=COMPLETE means THIS ITERATION is done, NOT the entire project
-3. The most common pattern is `STATUS: COMPLETE` + `EXIT_SIGNAL: false` (iteration done, project continues)
-4. Only set `EXIT_SIGNAL: true` when there is genuinely NO remaining work whatsoever
-
----
-"""
+        # NOTE: RALPH_STATUS instructions have been moved to system prompt
+        # via RALPH_SYSTEM_PROMPT in models.py (injected when ralph_mode=True)
 
         prompt_parts = [
             context,
@@ -536,7 +497,6 @@ RECOMMENDATION: <one line summary of what to do next>
             previous_summary,
             "\n\n",
             self.run.prompt,
-            status_instruction,
         ]
         return "".join(prompt_parts)
 

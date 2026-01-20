@@ -118,7 +118,8 @@ THINKING_BUDGET_TOKENS: dict[ThinkingBudget, int] = {
 GLUON_SYSTEM_PROMPT = """
 ## Gluon Runtime Environment
 
-You are being run by **Gluon**, an orchestrator application that manages one or more concurrent coding agents. Key context:
+You are being run by **Gluon**, an orchestrator that manages concurrent coding agents.
+Key context:
 
 **Environment:**
 - Runtime: Docker container (Ubuntu-based)
@@ -127,7 +128,8 @@ You are being run by **Gluon**, an orchestrator application that manages one or 
 - MCP servers may be configured for additional tool access
 
 **Important:**
-- CRITICAL: NEVER hallucinate paths like `/home/testuser`, `/home/ralph`, `/Users/steve/Code/my-project` - these do not exist and tool calls will fail.
+- CRITICAL: NEVER hallucinate paths like `/home/testuser`, `/home/ralph`,
+  `/Users/steve/Code/my-project` - these do not exist and tool calls will fail.
 - The working directory in system context is AUTHORITATIVE - use it exactly as provided.
 - Prefer relative paths when possible. When referencing home directory, prefer `~` or `$HOME` over hardcoded paths
 - If you must use an absolute path, the home directory is `/home/gluon`
@@ -151,6 +153,36 @@ Structure your plan as:
 - ...
 
 DO NOT make any file modifications until you have presented your complete plan.
+"""
+
+
+# System prompt for Ralph Loop runs - status reporting instructions
+RALPH_SYSTEM_PROMPT = """
+## RALPH Loop Status Reporting
+
+At the end of EVERY response, you MUST include a RALPH_STATUS block:
+
+```
+---RALPH_STATUS---
+STATUS: IN_PROGRESS | COMPLETE | BLOCKED
+TASKS_COMPLETED_THIS_LOOP: <number of tasks you completed in this iteration>
+FILES_MODIFIED: <number of files you modified>
+TESTS_STATUS: PASSING | FAILING | NOT_RUN
+WORK_TYPE: IMPLEMENTATION | TESTING | DOCUMENTATION | REFACTORING
+EXIT_SIGNAL: false | true
+RECOMMENDATION: <one line summary of what to do next>
+---END_RALPH_STATUS---
+```
+
+**EXIT_SIGNAL is CRITICAL - it controls whether the Ralph Loop CONTINUES or STOPS:**
+- `false` = There is MORE work remaining in the original prompt/PRD → loop continues
+- `true` = The ENTIRE original task is 100% complete with NOTHING left → loop stops
+
+**IMPORTANT RULES:**
+1. If your RECOMMENDATION mentions "proceed", "continue", "next", or any future action → EXIT_SIGNAL MUST be `false`
+2. STATUS=COMPLETE means THIS ITERATION is done, NOT the entire project
+3. The most common pattern is `STATUS: COMPLETE` + `EXIT_SIGNAL: false` (iteration done, project continues)
+4. Only set `EXIT_SIGNAL: true` when there is genuinely NO remaining work whatsoever
 """
 
 

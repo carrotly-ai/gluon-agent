@@ -986,10 +986,10 @@ export function CreateTaskDialog({
                   <input
                     type="number"
                     min={1}
-                    max={100}
+                    max={1000}
                     value={maxLoops}
                     onChange={(e) =>
-                      setMaxLoops(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 1)))
+                      setMaxLoops(Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1)))
                     }
                     className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
                   />

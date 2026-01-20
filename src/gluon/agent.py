@@ -22,7 +22,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from gluon.models import GLUON_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT
+from gluon.models import GLUON_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT, RALPH_SYSTEM_PROMPT
 from gluon.models_config import get_model_id
 
 # Type for question handler callback
@@ -327,6 +327,7 @@ class GluonAgent:
         resume_session_id: str | None = None,
         fork_session: bool = False,
         new_session_id: str | None = None,
+        ralph_mode: bool = False,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -339,6 +340,7 @@ class GluonAgent:
             new_session_id: If provided, use this as the session ID for new sessions.
                            This helps avoid control channel conflicts with other
                            Claude processes.
+            ralph_mode: If True, append RALPH_SYSTEM_PROMPT for status reporting.
         """
         # Find MCP config (project-level takes precedence over host config)
         mcp_config = find_mcp_config(working_dir)
@@ -368,8 +370,10 @@ class GluonAgent:
         if self.max_budget_usd is not None:
             options.max_budget_usd = self.max_budget_usd
 
-        # Always append base Gluon system prompt (environment context)
-        options.append_system_prompt = GLUON_SYSTEM_PROMPT
+        # Build combined system prompt append instructions
+        # NOTE: Must use system_prompt with preset dict, NOT append_system_prompt
+        # (append_system_prompt is not a valid SDK field and was silently ignored)
+        append_parts = [GLUON_SYSTEM_PROMPT]
 
         # Add project boundary instructions with actual working directory
         project_boundary = f"""
@@ -384,11 +388,22 @@ class GluonAgent:
 4. If a file path is unclear, assume it's relative to the working directory above
 5. Use relative paths from the project root, not absolute paths
 """
-        options.append_system_prompt += "\n" + project_boundary
+        append_parts.append(project_boundary)
 
         # Additionally append planning prompt if force_planning is enabled
         if self.force_planning:
-            options.append_system_prompt += "\n" + PLANNING_SYSTEM_PROMPT
+            append_parts.append(PLANNING_SYSTEM_PROMPT)
+
+        # Append Ralph status reporting instructions for Ralph Loop runs
+        if ralph_mode:
+            append_parts.append(RALPH_SYSTEM_PROMPT)
+
+        # Use SDK-supported system_prompt with preset and append
+        options.system_prompt = {
+            "type": "preset",
+            "preset": "claude_code",
+            "append": "\n".join(append_parts),
+        }
 
         # Add can_use_tool callback if question handler is configured
         # This enables AskUserQuestion support
@@ -420,6 +435,7 @@ class GluonAgent:
         resume_session_id: str | None = None,
         images: list[Path] | None = None,
         fork_session: bool = True,
+        ralph_mode: bool = False,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -436,6 +452,7 @@ class GluonAgent:
                          concurrent execution. This prevents "Control request
                          timeout: initialize" errors when running alongside
                          other Claude sessions.
+            ralph_mode: If True, append RALPH_SYSTEM_PROMPT for status reporting.
 
         Yields:
             AgentMessage during execution
@@ -444,7 +461,7 @@ class GluonAgent:
         # Generate a unique session ID for new sessions to avoid control
         # channel conflicts with other Claude processes
         new_session_id = str(uuid.uuid4()) if not resume_session_id else None
-        options = self._build_options(working_dir, resume_session_id, fork_session, new_session_id)
+        options = self._build_options(working_dir, resume_session_id, fork_session, new_session_id, ralph_mode)
 
         # Build multimodal prompt if images provided
         if images:
