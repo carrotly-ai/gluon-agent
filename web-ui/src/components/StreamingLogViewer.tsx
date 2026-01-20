@@ -709,6 +709,73 @@ function TextMessage({
   )
 }
 
+function UserMessage({
+  msg,
+  showTimestamp = true,
+}: {
+  msg: AgentMessage
+  showTimestamp?: boolean
+}) {
+  const time = formatMessageTime(msg.timestamp)
+  const config = MESSAGE_CONFIG.user
+  const Icon = config.icon
+
+  // User prompts can be very long (Ralph Loop prompts with context)
+  // Use a higher threshold and show only 3 lines when collapsed
+  const isLong = msg.content.length > 300
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(msg.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className={cn('flex items-start gap-2 py-1.5 px-3', config.bg, config.border)}>
+      <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
+      <div className="flex-1 min-w-0">
+        <div
+          className={cn(
+            'text-body leading-relaxed whitespace-pre-wrap break-words',
+            config.color,
+            !isExpanded && isLong && 'line-clamp-3'
+          )}
+        >
+          {msg.content}
+        </div>
+        {isLong && (
+          <div className="flex items-center gap-3 mt-1">
+            <button
+              className="text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+              onClick={() => setIsExpanded(!isExpanded)}
+            >
+              {isExpanded ? 'Show less' : 'Show more'}
+            </button>
+            <button
+              className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+              onClick={handleCopy}
+              title="Copy to clipboard"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
+        )}
+      </div>
+      <span
+        className={cn(
+          'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
+          !showTimestamp && 'hidden sm:inline'
+        )}
+      >
+        {time}
+      </span>
+    </div>
+  )
+}
+
 function SystemMessage({
   msg,
   showTimestamp = true,
@@ -1027,6 +1094,9 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
               }
               if (msg.type === 'text') {
                 return <TextMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+              }
+              if (msg.type === 'user') {
+                return <UserMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
               }
               return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
             })
