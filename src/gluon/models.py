@@ -624,8 +624,8 @@ class ExecutionRun(BaseModel):
 
     @property
     def is_resumable(self) -> bool:
-        """Check if run can be resumed (review, completed, or failed with session)."""
-        resumable_statuses = (RunStatus.REVIEW, RunStatus.COMPLETED, RunStatus.FAILED)
+        """Check if run can be resumed (any non-active status with session)."""
+        resumable_statuses = (RunStatus.REVIEW, RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
         return self.status in resumable_statuses and self.claude_session_id is not None
 
     @property
