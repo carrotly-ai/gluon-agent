@@ -1825,8 +1825,8 @@ Focus on preserving the functionality from both sides where possible.`
             )}
           </div>
 
-          {/* Follow-up Section - Always visible except for cancelled runs */}
-          {run && run.status !== 'cancelled' && (
+          {/* Follow-up Section - Always visible for all run statuses */}
+          {run && (
             <div className="mt-4 p-3 bg-[var(--color-void)] border border-[rgba(163,163,163,0.1)] rounded-sm">
               {/* Queued messages list */}
               {detail?.queued_messages && detail.queued_messages.length > 0 && (
