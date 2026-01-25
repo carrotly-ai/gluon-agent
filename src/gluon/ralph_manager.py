@@ -114,6 +114,15 @@ class RalphManager:
         logger.info(f"Starting ralph loop for run {self.run.id[:8]}, max {self.run.max_loops} iterations")
 
         while self.run.loop_count < self.run.max_loops:
+            # Check for stop request by polling database for status change
+            refreshed_run = self.store.get_run(self.run.id)
+            if refreshed_run and refreshed_run.status in (RunStatus.REVIEW, RunStatus.CANCELLED):
+                logger.info(f"Stop requested for run {self.run.id[:8]}, halting loop")
+                self.run.status = refreshed_run.status
+                self.run.completion_reason = refreshed_run.completion_reason or "User requested stop"
+                self._sync_run_state()
+                break
+
             # Pre-execution checks
             if not self.circuit_breaker.can_execute():
                 reason = self.circuit_breaker.get_open_reason()

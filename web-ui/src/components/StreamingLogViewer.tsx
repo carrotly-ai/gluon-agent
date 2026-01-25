@@ -5,6 +5,7 @@
  * Shows progress indicators and token usage during active runs.
  */
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   AlertCircle,
   Check,
@@ -942,41 +943,6 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     setShowScrollButton(!isNearBottom)
   }, [])
 
-  // Auto-scroll when new messages arrive (if user hasn't scrolled up)
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    // Check if this is the initial load or new messages arrived
-    const isInitialLoad = prevMessageCountRef.current === 0 && allMessages.length > 0
-    const hasNewMessages = allMessages.length > prevMessageCountRef.current
-
-    if (isInitialLoad) {
-      // Always scroll to bottom on initial load
-      container.scrollTo({ top: container.scrollHeight })
-      shouldAutoScrollRef.current = true
-    } else if (hasNewMessages && shouldAutoScrollRef.current) {
-      // Check if still near bottom before auto-scrolling
-      // Use generous threshold (400px ~15-20 lines) to tolerate accidental trackpad gestures
-      const isNearBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 400
-      if (isNearBottom) {
-        container.scrollTo({ top: container.scrollHeight })
-      } else {
-        // User intentionally scrolled up, stop auto-scrolling
-        shouldAutoScrollRef.current = false
-      }
-    }
-
-    prevMessageCountRef.current = allMessages.length
-  }, [allMessages.length])
-
-  // Reset auto-scroll when user clicks scroll-to-bottom button
-  const scrollToBottomAndReset = useCallback(() => {
-    containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' })
-    shouldAutoScrollRef.current = true
-  }, [])
-
   const toggleToolExpanded = (idx: number) => {
     setExpandedTools((prev) => {
       const next = new Set(prev)
@@ -998,6 +964,73 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
 
   const filteredMessages =
     filter === 'all' ? allMessages : allMessages.filter((m) => m.type === filter)
+
+  // Virtual scrolling for performance with large message lists
+  const virtualizer = useVirtualizer({
+    count: filteredMessages.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 36, // Estimated row height in pixels
+    overscan: 10, // Render extra items above/below viewport
+  })
+
+  // Render individual message based on type
+  const renderMessage = useCallback(
+    (msg: AgentMessage, idx: number) => {
+      const isFirstOrLast = idx === 0 || idx === filteredMessages.length - 1
+      const msgKey = `${msg.timestamp}-${msg.type}-${idx}`
+      if (msg.type === 'tool_use') {
+        return (
+          <ToolCallMessage
+            key={msgKey}
+            msg={msg}
+            isExpanded={expandedTools.has(idx)}
+            onToggle={() => toggleToolExpanded(idx)}
+            showTimestamp={isFirstOrLast}
+          />
+        )
+      }
+      if (msg.type === 'text') {
+        return <TextMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+      }
+      if (msg.type === 'user') {
+        return <UserMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+      }
+      return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+    },
+    [expandedTools, filteredMessages.length, toggleToolExpanded]
+  )
+
+  // Auto-scroll to bottom when new messages arrive (using virtualizer)
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const isInitialLoad = prevMessageCountRef.current === 0 && filteredMessages.length > 0
+    const hasNewMessages = filteredMessages.length > prevMessageCountRef.current
+
+    if (isInitialLoad) {
+      // Always scroll to bottom on initial load
+      virtualizer.scrollToIndex(filteredMessages.length - 1, { align: 'end' })
+      shouldAutoScrollRef.current = true
+    } else if (hasNewMessages && shouldAutoScrollRef.current) {
+      // Check if still near bottom before auto-scrolling
+      const container = containerRef.current
+      const isNearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 400
+      if (isNearBottom) {
+        virtualizer.scrollToIndex(filteredMessages.length - 1, { align: 'end' })
+      } else {
+        shouldAutoScrollRef.current = false
+      }
+    }
+
+    prevMessageCountRef.current = filteredMessages.length
+  }, [filteredMessages.length, virtualizer])
+
+  // Reset auto-scroll when user clicks scroll-to-bottom button (updated for virtualizer)
+  const scrollToBottomAndResetVirtual = useCallback(() => {
+    virtualizer.scrollToIndex(filteredMessages.length - 1, { align: 'end', behavior: 'smooth' })
+    shouldAutoScrollRef.current = true
+  }, [virtualizer, filteredMessages.length])
 
   return (
     <div className="flex flex-col h-full">
@@ -1066,11 +1099,11 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         </div>
       </div>
 
-      {/* Messages list */}
+      {/* Messages list with virtual scrolling */}
       <div className="relative flex-1">
         <div
           ref={containerRef}
-          className="absolute inset-0 overflow-y-auto px-2 py-2 space-y-1"
+          className="absolute inset-0 overflow-y-auto px-2"
           onScroll={handleScroll}
         >
           {filteredMessages.length === 0 ? (
@@ -1078,35 +1111,40 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
               {isActive ? 'Waiting for messages...' : 'No messages'}
             </div>
           ) : (
-            filteredMessages.map((msg, idx) => {
-              const isFirstOrLast = idx === 0 || idx === filteredMessages.length - 1
-              const msgKey = `${msg.timestamp}-${msg.type}-${idx}`
-              if (msg.type === 'tool_use') {
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const msg = filteredMessages[virtualRow.index]
                 return (
-                  <ToolCallMessage
-                    key={msgKey}
-                    msg={msg}
-                    isExpanded={expandedTools.has(idx)}
-                    onToggle={() => toggleToolExpanded(idx)}
-                    showTimestamp={isFirstOrLast}
-                  />
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    {renderMessage(msg, virtualRow.index)}
+                  </div>
                 )
-              }
-              if (msg.type === 'text') {
-                return <TextMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
-              }
-              if (msg.type === 'user') {
-                return <UserMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
-              }
-              return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
-            })
+              })}
+            </div>
           )}
         </div>
 
         {/* Scroll to bottom button */}
         {showScrollButton && (
           <button
-            onClick={scrollToBottomAndReset}
+            onClick={scrollToBottomAndResetVirtual}
             className="absolute bottom-3 right-3 p-1.5 rounded-full bg-[var(--color-ink)] border border-[var(--color-stone)]/20 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:border-[var(--color-stone)]/40 transition-all shadow-lg"
             title="Scroll to bottom"
           >

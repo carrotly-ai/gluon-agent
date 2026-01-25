@@ -287,7 +287,6 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
               </span>
             )}
           </div>
-
         </div>
       )}
 

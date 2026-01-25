@@ -519,14 +519,22 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             )
 
         # Append message to the queue
-        queued_msg = QueuedMessage(message=body.message)
-        run.queued_messages.append(queued_msg)
-        store.update_run(run)
+        try:
+            queued_msg = QueuedMessage(message=body.message)
+            run.queued_messages.append(queued_msg)
+            store.update_run(run)
+        except Exception as e:
+            logger.exception(f"Failed to queue message for run {run_id}")
+            raise HTTPException(status_code=500, detail=f"Failed to queue message: {e!s}")
 
         # Broadcast update to WebSocket clients
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(run.project_id) or "Unknown"
-        await ws_manager.broadcast_run_update(run, project_name)
+        try:
+            project_lookup = get_project_lookup()
+            project_name = project_lookup.get(run.project_id) or "Unknown"
+            await ws_manager.broadcast_run_update(run, project_name)
+        except Exception as e:
+            # Don't fail the request - message was queued successfully
+            logger.warning(f"Failed to broadcast queue update for run {run_id}: {e}")
 
         return QueueFollowupResponse(
             run_id=run.id,

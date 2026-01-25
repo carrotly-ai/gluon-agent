@@ -493,7 +493,10 @@ export function CreateTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-hidden">
+      <DialogContent
+        className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-hidden"
+        showCloseButton={false}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
           <span className="text-body text-[var(--color-paper)] font-normal">New Task</span>
@@ -615,11 +618,8 @@ export function CreateTaskDialog({
             />
           </div>
 
-          {/* Image Attachments */}
+          {/* Image Attachments - Compact */}
           <div>
-            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-              Attachments (optional)
-            </label>
             <input
               ref={fileInputRef}
               type="file"
@@ -628,67 +628,64 @@ export function CreateTaskDialog({
               className="hidden"
               onChange={(e) => handleFileSelect(e.target.files)}
             />
-            <div
-              className={cn(
-                'border-2 border-dashed rounded-sm p-3 transition-colors cursor-pointer',
-                isDragging
-                  ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
-                  : 'border-[rgba(163,163,163,0.15)] hover:border-[rgba(163,163,163,0.3)]'
-              )}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onPaste={handlePaste}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {pendingImages.length === 0 ? (
-                <div className="flex flex-col items-center py-2 text-center">
-                  <ImageIcon className="w-6 h-6 text-[var(--color-stone)]/40 mb-1" />
-                  <span className="text-body text-[var(--color-stone)]/60">
-                    Drop images here or click to upload
-                  </span>
-                  <span className="text-caption text-[var(--color-stone)]/40 mt-0.5">
-                    PNG, JPEG, GIF, WebP • Max 50MB
-                  </span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-4 gap-2" onClick={(e) => e.stopPropagation()}>
+            {pendingImages.length === 0 ? (
+              <button
+                type="button"
+                className={cn(
+                  'w-full flex items-center gap-2 px-3 py-2 rounded-sm transition-colors',
+                  isDragging
+                    ? 'bg-[rgba(163,163,163,0.1)] border border-dashed border-[var(--color-paper)]'
+                    : 'hover:bg-[rgba(163,163,163,0.05)]'
+                )}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
+                <span className="text-body text-[var(--color-stone)]/50">Attach images</span>
+                <span className="text-caption text-[var(--color-stone)]/30 ml-auto">
+                  drag, paste, or click
+                </span>
+              </button>
+            ) : (
+              <div
+                className={cn(
+                  'border border-dashed rounded-sm p-2 transition-colors',
+                  isDragging
+                    ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
+                    : 'border-[rgba(163,163,163,0.15)]'
+                )}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <div className="grid grid-cols-5 gap-1.5">
                   {pendingImages.map((img, index) => (
                     <div key={img.preview} className="relative group">
                       <img
                         src={img.preview}
                         alt={img.file.name}
-                        className="w-full h-16 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
+                        className="w-full h-12 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
                       />
                       <button
                         type="button"
                         className="absolute top-0.5 right-0.5 p-0.5 bg-[var(--color-void)]/80 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removeImage(index)
-                        }}
+                        onClick={() => removeImage(index)}
                       >
-                        <Trash2 className="w-3 h-3 text-[var(--color-vermillion)]" />
+                        <Trash2 className="w-2.5 h-2.5 text-[var(--color-vermillion)]" />
                       </button>
-                      <span className="absolute bottom-0.5 left-0.5 right-0.5 text-[0.5rem] text-[var(--color-paper)] bg-[var(--color-void)]/80 px-1 truncate rounded-sm">
-                        {img.file.name}
-                      </span>
                     </div>
                   ))}
                   <button
                     type="button"
-                    className="h-16 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
+                    className="h-12 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
+                    <ImageIcon className="w-3 h-3 text-[var(--color-stone)]/40" />
                   </button>
                 </div>
-              )}
-            </div>
-            {pendingImages.length > 0 && (
-              <p className="text-caption text-[var(--color-stone)]/60 mt-1">
-                {pendingImages.length} image{pendingImages.length !== 1 ? 's' : ''} selected
-              </p>
+              </div>
             )}
           </div>
 

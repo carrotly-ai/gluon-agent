@@ -307,7 +307,7 @@ body {
   padding: 0.75rem;
   transition: all 0.25s ease;
   cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
 }
 
 @media (min-width: 768px) {
