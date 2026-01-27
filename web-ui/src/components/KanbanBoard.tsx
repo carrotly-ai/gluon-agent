@@ -134,9 +134,9 @@ function DroppableColumn({
         <span className="column-count">{runs.length}</span>
       </div>
 
-      {/* Cards - extra right padding ensures hover buttons aren't clipped by ScrollArea */}
+      {/* Cards */}
       <ScrollArea className="flex-1">
-        <div className="p-2 sm:p-3 sm:pr-8 space-y-2">
+        <div className="p-2 sm:p-3 space-y-2">
           {runs.length === 0 ? (
             <p className="text-caption text-center py-8 opacity-40">
               {status === 'review' ? 'No tasks awaiting review' : 'Empty'}
