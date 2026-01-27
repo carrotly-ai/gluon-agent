@@ -176,6 +176,8 @@ export function RunDetailDialog({
     }
   }, [initialTab, activeTab])
   const [loading, setLoading] = useState(false)
+  const [loadingStdout, setLoadingStdout] = useState(false)
+  const [loadingStderr, setLoadingStderr] = useState(false)
   const [commitsData, setCommitsData] = useState<RunCommitsResponse | null>(null)
   const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
   const [loadingCommits, setLoadingCommits] = useState(false)
@@ -265,18 +267,17 @@ export function RunDetailDialog({
     async function load() {
       setLoading(true)
       try {
-        const [runDetail, stdoutLogs, stderrLogs, messagesLogs] = await Promise.all([
+        // Only fetch run detail and messages initially
+        // stdout/stderr are lazy-loaded when their tabs are clicked
+        const [runDetail, messagesLogs] = await Promise.all([
           fetchRun(runId),
-          fetchLogs(runId, 'stdout').catch(() => ({ content: '' })),
-          fetchLogs(runId, 'stderr').catch(() => ({ content: '' })),
           fetchLogs(runId, 'messages').catch(() => ({ content: '' })),
         ])
         setDetail(runDetail)
-        setLogs({
-          stdout: stdoutLogs.content || '',
-          stderr: stderrLogs.content || '',
+        setLogs((prev) => ({
+          ...prev,
           messages: messagesLogs.content || '',
-        })
+        }))
 
         // Fetch session history if there's a session
         if (runDetail.session_id) {
@@ -313,22 +314,30 @@ export function RunDetailDialog({
 
     const intervalId = setInterval(async () => {
       try {
+        // Only refresh stdout/stderr if they've been loaded or are currently viewed
+        const shouldRefreshStdout = !!logs.stdout || activeTab === 'output'
+        const shouldRefreshStderr = !!logs.stderr || activeTab === 'errors'
+
         const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] =
           await Promise.all([
             fetchRun(run.id),
-            fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
-            fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
+            shouldRefreshStdout
+              ? fetchLogs(run.id, 'stdout').catch(() => ({ content: '' }))
+              : Promise.resolve(null),
+            shouldRefreshStderr
+              ? fetchLogs(run.id, 'stderr').catch(() => ({ content: '' }))
+              : Promise.resolve(null),
             fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
             // Also refresh commits and files during active runs
             fetchRunCommits(run.id).catch(() => null),
             fetchRunFiles(run.id).catch(() => null),
           ])
         setDetail(runDetail)
-        setLogs({
-          stdout: stdoutLogs.content || '',
-          stderr: stderrLogs.content || '',
+        setLogs((prev) => ({
+          stdout: stdoutLogs?.content ?? prev.stdout,
+          stderr: stderrLogs?.content ?? prev.stderr,
           messages: messagesLogs.content || '',
-        })
+        }))
         // Update commits and files if fetched successfully
         if (newCommitsData) setCommitsData(newCommitsData)
         if (newFilesData) setFilesData(newFilesData)
@@ -339,7 +348,7 @@ export function RunDetailDialog({
     }, 3000) // Refresh every 3 seconds
 
     return () => clearInterval(intervalId)
-  }, [open, run?.id, run?.status, onRunUpdated, run])
+  }, [open, run?.id, run?.status, onRunUpdated, run, logs.stdout, logs.stderr, activeTab])
 
   // Poll PR status when dialog is open with an open PR
   // This catches when user merges PR on GitHub
@@ -473,22 +482,30 @@ export function RunDetailDialog({
     try {
       // Fetch run details (which refreshes PR status from GitHub if PR is open),
       // logs, commits, and files all in parallel
+      // Only refresh stdout/stderr if they've been loaded or are currently viewed
+      const shouldRefreshStdout = !!logs.stdout || activeTab === 'output'
+      const shouldRefreshStderr = !!logs.stderr || activeTab === 'errors'
+
       const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] =
         await Promise.all([
           fetchRun(run.id),
-          fetchLogs(run.id, 'stdout').catch(() => ({ content: '' })),
-          fetchLogs(run.id, 'stderr').catch(() => ({ content: '' })),
+          shouldRefreshStdout
+            ? fetchLogs(run.id, 'stdout').catch(() => ({ content: '' }))
+            : Promise.resolve(null),
+          shouldRefreshStderr
+            ? fetchLogs(run.id, 'stderr').catch(() => ({ content: '' }))
+            : Promise.resolve(null),
           fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
           // Also refresh commits and files data
           fetchRunCommits(run.id).catch(() => null),
           fetchRunFiles(run.id).catch(() => null),
         ])
       setDetail(runDetail)
-      setLogs({
-        stdout: stdoutLogs.content || '',
-        stderr: stderrLogs.content || '',
+      setLogs((prev) => ({
+        stdout: stdoutLogs?.content ?? prev.stdout,
+        stderr: stderrLogs?.content ?? prev.stderr,
         messages: messagesLogs.content || '',
-      })
+      }))
       // Update commits and files if fetched successfully
       if (newCommitsData) {
         setCommitsData(newCommitsData)
@@ -978,6 +995,34 @@ Focus on preserving functionality from both sides where possible.`
     }
   }
 
+  // Lazy load stdout when switching to output tab
+  const loadStdout = useCallback(async () => {
+    if (!run || logs.stdout || loadingStdout) return
+    setLoadingStdout(true)
+    try {
+      const data = await fetchLogs(run.id, 'stdout')
+      setLogs((prev) => ({ ...prev, stdout: data.content || '' }))
+    } catch (err) {
+      console.error('Failed to load stdout:', err)
+    } finally {
+      setLoadingStdout(false)
+    }
+  }, [run, logs.stdout, loadingStdout])
+
+  // Lazy load stderr when switching to errors tab
+  const loadStderr = useCallback(async () => {
+    if (!run || logs.stderr || loadingStderr) return
+    setLoadingStderr(true)
+    try {
+      const data = await fetchLogs(run.id, 'stderr')
+      setLogs((prev) => ({ ...prev, stderr: data.content || '' }))
+    } catch (err) {
+      console.error('Failed to load stderr:', err)
+    } finally {
+      setLoadingStderr(false)
+    }
+  }, [run, logs.stderr, loadingStderr])
+
   // Lazy load commits when switching to commits tab
   const loadCommits = useCallback(async () => {
     if (!run || commitsData || loadingCommits) return
@@ -1022,7 +1067,11 @@ Focus on preserving functionality from both sides where possible.`
 
   // Load data when tab changes
   useEffect(() => {
-    if (activeTab === 'commits' && !commitsData && !loadingCommits) {
+    if (activeTab === 'output' && !logs.stdout && !loadingStdout) {
+      loadStdout()
+    } else if (activeTab === 'errors' && !logs.stderr && !loadingStderr) {
+      loadStderr()
+    } else if (activeTab === 'commits' && !commitsData && !loadingCommits) {
       loadCommits()
     } else if (activeTab === 'files' && !filesData && !loadingFiles) {
       loadFiles()
@@ -1037,9 +1086,15 @@ Focus on preserving functionality from both sides where possible.`
     loadAttachments,
     loadCommits,
     loadFiles,
+    loadStderr,
+    loadStdout,
     loadingAttachments,
     loadingCommits,
     loadingFiles,
+    loadingStderr,
+    loadingStdout,
+    logs.stderr,
+    logs.stdout,
   ])
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
