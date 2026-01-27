@@ -405,8 +405,6 @@ body {
     flex: 1;
     min-height: 0;
     -webkit-overflow-scrolling: touch;
-    /* Right padding ensures last column content (archive button) isn't clipped */
-    padding-right: 1rem;
   }
 
   .kanban-column-mobile {
