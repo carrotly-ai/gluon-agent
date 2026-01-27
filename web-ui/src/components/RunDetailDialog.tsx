@@ -1,4 +1,5 @@
 import {
+  Archive,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -29,6 +30,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
   answerQuestion,
+  archiveRun,
   cancelRun,
   createPrForRun,
   deleteQueuedMessage,
@@ -197,7 +199,7 @@ export function RunDetailDialog({
   const [historyLogs, setHistoryLogs] = useState<
     Record<string, { stdout: string; stderr: string }>
   >({})
-  // Archive state removed - Archive button currently disabled
+  const [archiving, setArchiving] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
   const [merging, setMerging] = useState(false)
@@ -446,6 +448,22 @@ export function RunDetailDialog({
       console.error('Failed to cancel run:', err)
     } finally {
       setCancelling(false)
+    }
+  }
+
+  const handleArchive = async () => {
+    if (!run) return
+    setArchiving(true)
+    try {
+      const updated = await archiveRun(run.id)
+      onRunUpdated(updated)
+      onOpenChange(false) // Close dialog after archiving
+      toast.success('Run archived')
+    } catch (err) {
+      console.error('Failed to archive run:', err)
+      toast.error('Failed to archive run')
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -1219,8 +1237,8 @@ Focus on preserving the functionality from both sides where possible.`
                   {cancelling ? 'Cancelling...' : 'Cancel'}
                 </button>
               )}
-              {/* Archive - for completed runs */}
-              {/* {!isActive && (
+              {/* Archive - for completed/failed/cancelled runs */}
+              {!isActive && (
                 <button
                   className="flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] border border-[var(--color-stone)]/15 hover:border-[var(--color-stone)]/30 rounded-sm transition-colors"
                   onClick={handleArchive}
@@ -1230,7 +1248,7 @@ Focus on preserving the functionality from both sides where possible.`
                   <Archive className="w-3 h-3" />
                   <span>{archiving ? '...' : 'Archive'}</span>
                 </button>
-              )} */}
+              )}
               {/* Full-screen view toggle */}
               <Link
                 to={`/runs/${run?.id}/${activeTab}`}
