@@ -175,7 +175,8 @@ export function RunDetailDialog({
       setActiveTabInternal(initialTab)
     }
   }, [initialTab, activeTab])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(false) // For refresh button only
+  const [loadingMessages, setLoadingMessages] = useState(false)
   const [loadingStdout, setLoadingStdout] = useState(false)
   const [loadingStderr, setLoadingStderr] = useState(false)
   const [commitsData, setCommitsData] = useState<RunCommitsResponse | null>(null)
@@ -264,41 +265,29 @@ export function RunDetailDialog({
 
     const runId = run.id
 
-    async function load() {
-      setLoading(true)
-      try {
-        // Only fetch run detail and messages initially
-        // stdout/stderr are lazy-loaded when their tabs are clicked
-        const [runDetail, messagesLogs] = await Promise.all([
-          fetchRun(runId),
-          fetchLogs(runId, 'messages').catch(() => ({ content: '' })),
-        ])
+    // Fire independent fetches - each updates UI as it completes
+    // Run detail - fastest, shows header immediately
+    fetchRun(runId)
+      .then((runDetail) => {
         setDetail(runDetail)
-        setLogs((prev) => ({
-          ...prev,
-          messages: messagesLogs.content || '',
-        }))
-
-        // Fetch session history if there's a session
+        // Fetch session history after we have the detail (needs session_id)
         if (runDetail.session_id) {
-          try {
-            const history = await fetchSessionHistory(runId)
-            // Filter out the current run and only show previous runs
-            const previousRuns = history.runs.filter((r) => r.id !== runId)
-            setSessionHistory(previousRuns)
-          } catch {
-            // Session history is optional, don't fail if it errors
-            setSessionHistory([])
-          }
+          fetchSessionHistory(runId)
+            .then((history) => {
+              const previousRuns = history.runs.filter((r) => r.id !== runId)
+              setSessionHistory(previousRuns)
+            })
+            .catch(() => setSessionHistory([]))
         }
-      } catch (err) {
-        console.error('Failed to load run details:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
+      })
+      .catch((err) => console.error('Failed to load run details:', err))
 
-    load()
+    // Messages - may be large, loads independently
+    setLoadingMessages(true)
+    fetchLogs(runId, 'messages')
+      .then((data) => setLogs((prev) => ({ ...prev, messages: data.content || '' })))
+      .catch(() => setLogs((prev) => ({ ...prev, messages: '' })))
+      .finally(() => setLoadingMessages(false))
   }, [
     open,
     run,
@@ -1634,34 +1623,52 @@ Focus on preserving the functionality from both sides where possible.`
               {/* Log Content */}
               <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
                 {activeTab === 'output' && (
-                  <pre
-                    ref={outputContainerRef}
-                    className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-body leading-relaxed h-full overflow-auto"
-                  >
-                    {logs.stdout || (
-                      <span className="text-[var(--color-stone)]/50 italic">No output</span>
-                    )}
-                  </pre>
+                  loadingStdout && !logs.stdout ? (
+                    <div className="flex items-center justify-center h-full min-h-[200px]">
+                      <RefreshCw className="w-5 h-5 text-[var(--color-stone)]/40 animate-spin" />
+                    </div>
+                  ) : (
+                    <pre
+                      ref={outputContainerRef}
+                      className="p-3 text-mono text-[var(--color-paper)]/70 whitespace-pre-wrap break-words text-body leading-relaxed h-full overflow-auto"
+                    >
+                      {logs.stdout || (
+                        <span className="text-[var(--color-stone)]/50 italic">No output</span>
+                      )}
+                    </pre>
+                  )
                 )}
                 {activeTab === 'errors' && (
-                  <pre
-                    className={cn(
-                      'p-3 text-mono whitespace-pre-wrap break-words text-body leading-relaxed',
-                      logs.stderr
-                        ? 'text-[var(--color-vermillion)]/90'
-                        : 'text-[var(--color-stone)]/50 italic'
-                    )}
-                  >
-                    {logs.stderr || 'No errors'}
-                  </pre>
+                  loadingStderr && !logs.stderr ? (
+                    <div className="flex items-center justify-center h-full min-h-[200px]">
+                      <RefreshCw className="w-5 h-5 text-[var(--color-stone)]/40 animate-spin" />
+                    </div>
+                  ) : (
+                    <pre
+                      className={cn(
+                        'p-3 text-mono whitespace-pre-wrap break-words text-body leading-relaxed',
+                        logs.stderr
+                          ? 'text-[var(--color-vermillion)]/90'
+                          : 'text-[var(--color-stone)]/50 italic'
+                      )}
+                    >
+                      {logs.stderr || 'No errors'}
+                    </pre>
+                  )
                 )}
                 {activeTab === 'messages' && (
                   <div className="h-full overflow-hidden">
-                    <StreamingLogViewer
-                      runId={run?.id ?? null}
-                      runStatus={(run?.status ?? 'pending') as RunStatus}
-                      initialMessages={parseMessages(logs.messages)}
-                    />
+                    {loadingMessages && !logs.messages ? (
+                      <div className="flex items-center justify-center h-full">
+                        <RefreshCw className="w-5 h-5 text-[var(--color-stone)]/40 animate-spin" />
+                      </div>
+                    ) : (
+                      <StreamingLogViewer
+                        runId={run?.id ?? null}
+                        runStatus={(run?.status ?? 'pending') as RunStatus}
+                        initialMessages={parseMessages(logs.messages)}
+                      />
+                    )}
                   </div>
                 )}
                 {activeTab === 'history' && (
