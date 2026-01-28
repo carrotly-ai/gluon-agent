@@ -94,6 +94,10 @@ class RalphManager:
         # Cache for iteration output (used by completion detection)
         self._last_iteration_output: str = ""
 
+        # Planning phase tracking for force_planning + ralph_mode
+        # When True, planning is complete and agent should execute, not re-plan
+        self.planning_complete: bool = False
+
     def _disable_supervision(self, reason: str) -> None:
         """Disable supervision when Ralph Loop completes.
 
@@ -452,12 +456,41 @@ class RalphManager:
 
         context = " ".join(context_parts)
 
+        # Phase-aware execution directive for loops 2+
+        # When planning is complete, inject strong directive to execute (not re-plan)
+        execution_directive = ""
+        if loop_number > 1 and self._check_planning_complete():
+            execution_directive = """
+---
+## EXECUTION MODE ACTIVE
+
+Planning is COMPLETE. Your TODO file exists.
+Do NOT create new plans or re-analyze.
+EXECUTE the next unchecked task in your TODO file NOW.
+---
+"""
+
         # Extract RECOMMENDATION from previous iteration for loops 2+
         recommendation_section = ""
         if loop_number > 1:
             recommendation = self._read_recommendation_from_progress()
             if recommendation:
-                recommendation_section = f"""
+                # Detect if recommendation is about execution
+                exec_keywords = ["proceed", "execute", "implement", "continue", "work on", "start", "begin", "next"]
+                is_exec_recommendation = any(kw in recommendation.lower() for kw in exec_keywords)
+
+                if is_exec_recommendation:
+                    recommendation_section = f"""
+---
+## MANDATORY DIRECTIVE
+
+**{recommendation}**
+
+This is NOT a suggestion. EXECUTE this now. Do not re-plan.
+---
+"""
+                else:
+                    recommendation_section = f"""
 ---
 ## Primary Focus (from previous iteration)
 
@@ -499,8 +532,10 @@ You can read this file to review detailed tool calls, outputs, and decisions fro
         # NOTE: RALPH_STATUS instructions have been moved to system prompt
         # via RALPH_SYSTEM_PROMPT in models.py (injected when ralph_mode=True)
 
+        # Build prompt with execution directive FIRST for highest visibility
         prompt_parts = [
             context,
+            execution_directive,  # Phase-aware directive (empty if not applicable)
             recommendation_section,
             messages_context,
             previous_summary,
@@ -519,6 +554,24 @@ You can read this file to review detailed tool calls, outputs, and decisions fro
                 except Exception:
                     pass
         return None
+
+    def _check_planning_complete(self) -> bool:
+        """Check if planning phase is complete (TODO file with unchecked tasks exists).
+
+        Once detected, caches the result since planning doesn't "undo" itself.
+
+        Returns:
+            True if planning is complete (TODO file exists with tasks)
+        """
+        if self.planning_complete:
+            return True
+
+        todo_content = self._read_todo_file()
+        if todo_content and "- [ ]" in todo_content:
+            self.planning_complete = True
+            logger.info("Planning phase complete - TODO file with tasks detected")
+
+        return self.planning_complete
 
     def _get_iteration_output(self) -> str:
         """Get output text for the current iteration.

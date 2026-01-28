@@ -22,7 +22,12 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from gluon.models import GLUON_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT, RALPH_SYSTEM_PROMPT
+from gluon.models import (
+    GLUON_SYSTEM_PROMPT,
+    PLANNING_AUTONOMOUS_PROMPT,
+    PLANNING_SYSTEM_PROMPT,
+    RALPH_SYSTEM_PROMPT,
+)
 from gluon.models_config import get_model_id
 
 # Type for question handler callback
@@ -391,8 +396,16 @@ class GluonAgent:
         append_parts.append(project_boundary)
 
         # Additionally append planning prompt if force_planning is enabled
+        # In Ralph Loop mode (autonomous), use PLANNING_AUTONOMOUS_PROMPT which
+        # instructs the agent to proceed to execution after planning without
+        # waiting for human confirmation (which would block the loop).
         if self.force_planning:
-            append_parts.append(PLANNING_SYSTEM_PROMPT)
+            if ralph_mode:
+                # Autonomous mode: proceed to execution after planning
+                append_parts.append(PLANNING_AUTONOMOUS_PROMPT)
+            else:
+                # Interactive mode: wait for human confirmation
+                append_parts.append(PLANNING_SYSTEM_PROMPT)
 
         # Append Ralph status reporting instructions for Ralph Loop runs
         if ralph_mode:

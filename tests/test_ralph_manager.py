@@ -259,11 +259,17 @@ class TestBuildLoopPrompt:
         prompt = ralph_manager._build_loop_prompt(1)
         assert "[Loop 1/10]" in prompt
 
-    def test_includes_ralph_status_instruction(self, ralph_manager):
-        """Prompt includes RALPH_STATUS instruction."""
+    def test_ralph_status_in_system_prompt_not_loop_prompt(self, ralph_manager):
+        """RALPH_STATUS instructions are in system prompt, not loop prompt.
+
+        Note: RALPH_STATUS instructions were moved to RALPH_SYSTEM_PROMPT
+        in models.py and injected via agent.py when ralph_mode=True.
+        """
         prompt = ralph_manager._build_loop_prompt(1)
-        assert "---RALPH_STATUS---" in prompt
-        assert "STATUS: IN_PROGRESS | COMPLETE | BLOCKED" in prompt
+        # RALPH_STATUS is NOT in loop prompt (it's in system prompt)
+        assert "---RALPH_STATUS---" not in prompt
+        # But the prompt should still have the basic context
+        assert "[Loop 1/10]" in prompt
 
     def test_no_previous_summary_for_loop_1(self, ralph_manager, temp_dir):
         """Loop 1 doesn't include previous summary."""
@@ -353,3 +359,115 @@ class TestSessionIdTracking:
             ralph_manager.run.claude_session_id = iteration.claude_session_id
 
         assert ralph_manager.run.claude_session_id == "session-abc-123"
+
+
+class TestPlanningPhaseTracking:
+    """Test planning phase tracking for force_planning + ralph_mode."""
+
+    def test_planning_not_complete_without_todo(self, ralph_manager):
+        """Planning is not complete when no TODO file exists."""
+        assert not ralph_manager.planning_complete
+        assert not ralph_manager._check_planning_complete()
+        assert not ralph_manager.planning_complete
+
+    def test_planning_complete_with_todo_file(self, ralph_manager, temp_dir):
+        """Planning is complete when TODO file with unchecked tasks exists."""
+        # Create a TODO file with unchecked tasks
+        todo_path = temp_dir / "TODO.md"
+        todo_path.write_text("- [ ] Task 1\n- [ ] Task 2")
+
+        assert not ralph_manager.planning_complete
+        result = ralph_manager._check_planning_complete()
+        assert result is True
+        assert ralph_manager.planning_complete is True
+
+    def test_planning_complete_cached(self, ralph_manager, temp_dir):
+        """Planning complete state is cached after first detection."""
+        # Create a TODO file
+        todo_path = temp_dir / "TODO.md"
+        todo_path.write_text("- [ ] Task 1")
+
+        ralph_manager._check_planning_complete()
+        assert ralph_manager.planning_complete is True
+
+        # Delete the file - should still return True (cached)
+        todo_path.unlink()
+        assert ralph_manager._check_planning_complete() is True
+
+    def test_planning_not_complete_with_empty_todo(self, ralph_manager, temp_dir):
+        """Planning is not complete if TODO file has no unchecked tasks."""
+        # Create a TODO file with only checked tasks
+        todo_path = temp_dir / "TODO.md"
+        todo_path.write_text("- [x] Task 1\n- [x] Task 2")
+
+        assert not ralph_manager._check_planning_complete()
+        assert not ralph_manager.planning_complete
+
+
+class TestExecutionDirective:
+    """Test execution directive injection in loop prompt."""
+
+    def test_no_directive_on_loop_1(self, ralph_manager, temp_dir):
+        """Loop 1 doesn't have execution directive even with TODO file."""
+        # Create a TODO file
+        todo_path = temp_dir / "TODO.md"
+        todo_path.write_text("- [ ] Task 1")
+
+        prompt = ralph_manager._build_loop_prompt(1)
+        assert "EXECUTION MODE ACTIVE" not in prompt
+
+    def test_directive_on_loop_2_with_planning_complete(self, ralph_manager, temp_dir):
+        """Loop 2+ has execution directive when planning is complete."""
+        # Create a TODO file
+        todo_path = temp_dir / "TODO.md"
+        todo_path.write_text("- [ ] Task 1\n- [ ] Task 2")
+
+        prompt = ralph_manager._build_loop_prompt(2)
+        assert "EXECUTION MODE ACTIVE" in prompt
+        assert "Do NOT create new plans" in prompt
+        assert "EXECUTE the next unchecked task" in prompt
+
+    def test_no_directive_on_loop_2_without_planning(self, ralph_manager):
+        """Loop 2 doesn't have directive if no TODO file exists."""
+        prompt = ralph_manager._build_loop_prompt(2)
+        assert "EXECUTION MODE ACTIVE" not in prompt
+
+
+class TestRecommendationElevation:
+    """Test recommendation elevation to MANDATORY DIRECTIVE."""
+
+    def test_execution_recommendation_elevated(self, ralph_manager, temp_dir):
+        """Recommendation with execution keywords is elevated to MANDATORY."""
+        # Create progress file with execution recommendation
+        progress_path = temp_dir / PROGRESS_FILE_NAME
+        progress_path.write_text("**Recommendation**: Proceed to implement the API endpoint")
+
+        prompt = ralph_manager._build_loop_prompt(2)
+        assert "MANDATORY DIRECTIVE" in prompt
+        assert "This is NOT a suggestion. EXECUTE this now" in prompt
+
+    def test_regular_recommendation_not_elevated(self, ralph_manager, temp_dir):
+        """Recommendation without execution keywords stays as Primary Focus."""
+        # Create progress file with non-execution recommendation
+        progress_path = temp_dir / PROGRESS_FILE_NAME
+        progress_path.write_text("**Recommendation**: Review the test coverage")
+
+        prompt = ralph_manager._build_loop_prompt(2)
+        assert "Primary Focus" in prompt
+        assert "MANDATORY DIRECTIVE" not in prompt
+
+    def test_continue_keyword_elevates_recommendation(self, ralph_manager, temp_dir):
+        """'continue' keyword in recommendation triggers elevation."""
+        progress_path = temp_dir / PROGRESS_FILE_NAME
+        progress_path.write_text("**Recommendation**: Continue working on Task 2")
+
+        prompt = ralph_manager._build_loop_prompt(2)
+        assert "MANDATORY DIRECTIVE" in prompt
+
+    def test_next_keyword_elevates_recommendation(self, ralph_manager, temp_dir):
+        """'next' keyword in recommendation triggers elevation."""
+        progress_path = temp_dir / PROGRESS_FILE_NAME
+        progress_path.write_text("**Recommendation**: Work on next feature")
+
+        prompt = ralph_manager._build_loop_prompt(2)
+        assert "MANDATORY DIRECTIVE" in prompt

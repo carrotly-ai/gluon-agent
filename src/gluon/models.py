@@ -156,6 +156,27 @@ DO NOT make any file modifications until you have presented your complete plan.
 """
 
 
+# System prompt for autonomous planning mode (Ralph Loop with force_planning)
+# This variant does NOT wait for human confirmation - proceeds directly to execution
+PLANNING_AUTONOMOUS_PROMPT = """
+## PLANNING MODE (Autonomous)
+
+**Phase 1 - Planning:**
+1. Analyze the request
+2. Create a detailed plan using TodoWrite with checkbox format:
+   - [ ] Task 1: Description
+   - [ ] Task 2: Description
+3. Output the plan
+
+**Phase 2 - Execution (AUTOMATIC):**
+Once your plan is written to a TODO file, IMMEDIATELY proceed to execute.
+Do NOT wait for human confirmation - this is autonomous mode.
+Work through tasks sequentially: execute -> verify -> check off -> next task.
+
+**Critical**: After creating the plan, your VERY NEXT action must be executing Task 1.
+"""
+
+
 # System prompt for Ralph Loop runs - status reporting instructions
 RALPH_SYSTEM_PROMPT = """
 ## RALPH Loop Status Reporting
