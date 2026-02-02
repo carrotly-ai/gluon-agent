@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
-from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, utc_now
+from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
 from gluon.ralph_manager import RalphManager
 from gluon.resume_coordinator import ResumeCoordinator
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
@@ -828,6 +828,13 @@ but explicit commits with good messages are preferred.
 
                         if item.success:
                             run.mark_review()  # All tasks go to REVIEW first
+                            # Disable supervision for completed tasks to prevent restart loop
+                            # (Ralph loops handle this separately in ralph_manager.py)
+                            if run.supervision_config is None:
+                                run.supervision_config = SupervisionConfig()
+                            run.supervision_config.enabled = False
+                            if not run.completion_reason:
+                                run.completion_reason = "Task completed successfully"
                         else:
                             run.mark_failed(item.error or "Unknown error", exit_code=1)
 

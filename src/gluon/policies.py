@@ -147,6 +147,20 @@ def _check_safety_guards(ctx: PolicyContext, config: SupervisionConfig) -> Polic
             reason="No Claude session ID - cannot resume",
         )
 
+    # Terminal PR state check - PR already merged or closed means work is done
+    if ctx.run.pr_status in ("merged", "closed"):
+        return PolicyDecision(
+            should_resume=False,
+            reason=f"PR already {ctx.run.pr_status} - task objectively complete",
+        )
+
+    # Completion reason check - task had explicit completion logic
+    if ctx.run.completion_reason:
+        return PolicyDecision(
+            should_resume=False,
+            reason=f"Task completed with reason: {ctx.run.completion_reason}",
+        )
+
     return None  # All safety guards passed
 
 
