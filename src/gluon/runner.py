@@ -90,6 +90,29 @@ class TaskRunner:
         log_dir = self.config.log_path / run_id
         return log_dir if log_dir.exists() else None
 
+    def _set_git_identity_env_vars(self) -> None:
+        """Set git identity environment variables from settings.
+
+        Git environment variables override ALL git config (system, global, local .git/config).
+        This ensures all commits made by Claude SDK subprocess use the configured identity.
+
+        Priority order (highest first):
+        1. GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL env vars (we set these)
+        2. -c user.name=X command-line flags
+        3. .git/config (local/project)
+        4. ~/.gitconfig (global)
+        5. /etc/gitconfig (system)
+        """
+        git_author_name = self.store.get_setting("git_user_name", "")
+        git_author_email = self.store.get_setting("git_user_email", "")
+
+        if git_author_name:
+            os.environ["GIT_AUTHOR_NAME"] = git_author_name
+            os.environ["GIT_COMMITTER_NAME"] = git_author_name
+        if git_author_email:
+            os.environ["GIT_AUTHOR_EMAIL"] = git_author_email
+            os.environ["GIT_COMMITTER_EMAIL"] = git_author_email
+
     async def _question_handler(self, run_id: str, questions: list[dict]) -> dict[str, str]:
         """Handle AskUserQuestion tool calls by storing questions and waiting for answers.
 
@@ -462,6 +485,18 @@ class TaskRunner:
             run.id,
         ]
 
+        # Build environment with git identity settings
+        # This ensures subprocess inherits configured git author identity
+        env = os.environ.copy()
+        git_author_name = self.store.get_setting("git_user_name", "")
+        git_author_email = self.store.get_setting("git_user_email", "")
+        if git_author_name:
+            env["GIT_AUTHOR_NAME"] = git_author_name
+            env["GIT_COMMITTER_NAME"] = git_author_name
+        if git_author_email:
+            env["GIT_AUTHOR_EMAIL"] = git_author_email
+            env["GIT_COMMITTER_EMAIL"] = git_author_email
+
         # Spawn detached process
         # On Unix, use start_new_session to detach from terminal
         # Redirect stdout/stderr to /dev/null since we capture logs ourselves
@@ -472,6 +507,7 @@ class TaskRunner:
                 stderr=devnull,
                 stdin=devnull,
                 start_new_session=True,
+                env=env,
             )
             # Store PID in run record
             run.mark_running(pid=proc.pid, log_path=self._get_log_dir(run.id))
@@ -484,6 +520,10 @@ class TaskRunner:
 
     async def _run_task(self, run: ExecutionRun) -> None:
         """Execute the actual task."""
+        # Set git identity environment variables from settings
+        # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
+        self._set_git_identity_env_vars()
+
         # Get project
         project = self.store.get_project(run.project_id)
         if not project:
@@ -1064,13 +1104,21 @@ but explicit commits with good messages are preferred.
             if add_result.returncode != 0:
                 return {"salvaged": False, "error": f"git add failed: {add_result.stderr}"}
 
-            # Commit with salvage message
+            # Commit with salvage message using configured git identity
             prompt_preview = run.prompt[:50] if run.prompt else "unknown task"
             commit_msg = (
                 f"SALVAGE: {prompt_preview}...\n\nAuto-salvaged after unexpected process termination\nRun ID: {run.id}"
             )
+
+            # Build commit command with author flag if configured
+            commit_cmd = ["git", "commit", "-m", commit_msg]
+            git_author_name = self.store.get_setting("git_user_name", "")
+            git_author_email = self.store.get_setting("git_user_email", "")
+            if git_author_name and git_author_email:
+                commit_cmd.extend(["--author", f"{git_author_name} <{git_author_email}>"])
+
             commit_result = subprocess.run(
-                ["git", "commit", "-m", commit_msg],
+                commit_cmd,
                 cwd=worktree_path,
                 capture_output=True,
                 text=True,
@@ -1310,6 +1358,11 @@ but explicit commits with good messages are preferred.
         import logging
 
         logger = logging.getLogger(__name__)
+
+        # Set git identity environment variables from settings
+        # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
+        self._set_git_identity_env_vars()
+
         logger.info(f"Starting ralph loop for run {run.id[:8]}")
 
         # Setup logging
