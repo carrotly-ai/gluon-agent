@@ -2018,6 +2018,37 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         store.set_setting(key, str(value))
         return {"key": key, "value": str(value)}
 
+    @app.get("/api/sandbox/status")
+    async def get_sandbox_status() -> dict:
+        """Get sandbox availability and configuration.
+
+        Returns information about OS-level sandboxing:
+        - Linux: bubblewrap (bwrap)
+        - macOS: sandbox-exec with Seatbelt profiles
+        """
+        import platform
+        import shutil
+
+        system = platform.system()
+
+        # Check if sandbox runtime is available
+        if system == "Linux":
+            available = shutil.which("bwrap") is not None
+            runtime = "bubblewrap"
+        elif system == "Darwin":
+            available = shutil.which("sandbox-exec") is not None
+            runtime = "sandbox-exec"
+        else:
+            available = False
+            runtime = None
+
+        return {
+            "available": available,
+            "runtime": runtime,
+            "enabled": store.get_setting("sandbox_enabled", "true") == "true",
+            "platform": system,
+        }
+
     # ========== Webhooks API (Phase: Distributed Workers) ==========
 
     @app.post("/api/webhooks/github")

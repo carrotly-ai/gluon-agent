@@ -15,6 +15,7 @@ import {
   deleteProject,
   deleteWorkspace,
   fetchProjects,
+  fetchSandboxStatus,
   fetchSettings,
   fetchWorkspaces,
   refreshAllGitStatuses,
@@ -65,20 +66,29 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [gitUserName, setGitUserName] = useState('')
   const [gitUserEmail, setGitUserEmail] = useState('')
 
+  // Sandbox settings state
+  const [sandboxEnabled, setSandboxEnabled] = useState(true)
+  const [sandboxAvailable, setSandboxAvailable] = useState(false)
+  const [sandboxRuntime, setSandboxRuntime] = useState<string | null>(null)
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [ws, prj, settings] = await Promise.all([
+      const [ws, prj, settings, sandboxStatus] = await Promise.all([
         fetchWorkspaces(),
         fetchProjects(),
         fetchSettings(),
+        fetchSandboxStatus(),
       ])
       setWorkspaces(ws)
       setProjects(prj)
       setAutoCreatePr(settings.auto_create_pr !== 'false')
       setGitUserName(settings.git_user_name || '')
       setGitUserEmail(settings.git_user_email || '')
+      setSandboxEnabled(sandboxStatus.enabled)
+      setSandboxAvailable(sandboxStatus.available)
+      setSandboxRuntime(sandboxStatus.runtime)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -175,6 +185,19 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       ])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save git identity')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
+  const handleToggleSandbox = async () => {
+    const newValue = !sandboxEnabled
+    setSettingsLoading(true)
+    try {
+      await updateSetting('sandbox_enabled', newValue ? 'true' : 'false')
+      setSandboxEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update sandbox setting')
     } finally {
       setSettingsLoading(false)
     }
@@ -631,6 +654,44 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               >
                 {settingsLoading ? 'Saving...' : 'Save'}
               </button>
+            </div>
+
+            {/* Security Sandbox */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Security Sandbox
+              </h3>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-[var(--color-paper)]">Enable Sandbox Isolation</p>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Restrict Claude Code's filesystem access to the project directory using
+                    {sandboxRuntime ? ` ${sandboxRuntime}` : ' OS-level sandboxing'}. Recommended
+                    for security.
+                  </p>
+                  {!sandboxAvailable && (
+                    <p className="text-caption text-[var(--color-vermillion)]/80 mt-1">
+                      ⚠️ Sandbox runtime not available on this system.
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleToggleSandbox}
+                  disabled={settingsLoading || !sandboxAvailable}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    sandboxEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    (settingsLoading || !sandboxAvailable) && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      sandboxEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
             </div>
           </div>
         )}

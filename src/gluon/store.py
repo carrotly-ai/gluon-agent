@@ -521,6 +521,11 @@ class GluonStore:
                     "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
                     ("git_user_email", "", now),
                 )
+                # Security sandbox setting (default enabled)
+                conn.execute(
+                    "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                    ("sandbox_enabled", "true", now),
+                )
 
             # Run migrations for existing tables
             for migration in MIGRATIONS:

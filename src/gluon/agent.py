@@ -269,6 +269,7 @@ class GluonAgent:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         force_planning: bool = False,
+        sandbox_enabled: bool = True,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -289,6 +290,8 @@ class GluonAgent:
         self.max_turns = max_turns
         self.max_budget_usd = max_budget_usd
         self.force_planning = force_planning
+        # Security sandbox (OS-level isolation via bubblewrap/sandbox-exec)
+        self.sandbox_enabled = sandbox_enabled
 
     async def _can_use_tool(
         self,
@@ -374,6 +377,15 @@ class GluonAgent:
         # Add max_budget_usd if configured
         if self.max_budget_usd is not None:
             options.max_budget_usd = self.max_budget_usd
+
+        # Add sandbox configuration if enabled
+        # Uses OS-level sandboxing (bubblewrap on Linux, sandbox-exec on macOS)
+        if self.sandbox_enabled:
+            options.sandbox = {
+                "enabled": True,
+                "autoAllowBashIfSandboxed": True,  # Auto-approve bash when sandboxed
+                "excludedCommands": ["git"],  # Git needs full access for commits/push
+            }
 
         # Build combined system prompt append instructions
         # NOTE: Must use system_prompt with preset dict, NOT append_system_prompt

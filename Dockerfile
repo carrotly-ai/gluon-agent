@@ -46,6 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     unzip \
     openssh-client \
+    bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # Layer 2: GitHub CLI (rarely changes)

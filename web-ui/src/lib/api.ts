@@ -393,6 +393,18 @@ export async function updateSetting(
   })
 }
 
+export interface SandboxStatus {
+  available: boolean
+  runtime: string | null
+  enabled: boolean
+  platform: string
+}
+
+/** Fetch sandbox availability and status */
+export async function fetchSandboxStatus(): Promise<SandboxStatus> {
+  return fetchJson<SandboxStatus>('/sandbox/status')
+}
+
 // ========== Manual PR Creation API ==========
 
 export interface CreatePrResponse {
