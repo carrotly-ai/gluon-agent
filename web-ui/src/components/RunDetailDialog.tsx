@@ -1622,8 +1622,8 @@ Focus on preserving the functionality from both sides where possible.`
 
               {/* Log Content */}
               <div className="bg-[var(--color-void)] border border-[rgba(163,163,163,0.08)] rounded-sm flex-1 min-h-[200px] overflow-auto">
-                {activeTab === 'output' && (
-                  loadingStdout && !logs.stdout ? (
+                {activeTab === 'output' &&
+                  (loadingStdout && !logs.stdout ? (
                     <div className="flex items-center justify-center h-full min-h-[200px]">
                       <RefreshCw className="w-5 h-5 text-[var(--color-stone)]/40 animate-spin" />
                     </div>
@@ -1636,10 +1636,9 @@ Focus on preserving the functionality from both sides where possible.`
                         <span className="text-[var(--color-stone)]/50 italic">No output</span>
                       )}
                     </pre>
-                  )
-                )}
-                {activeTab === 'errors' && (
-                  loadingStderr && !logs.stderr ? (
+                  ))}
+                {activeTab === 'errors' &&
+                  (loadingStderr && !logs.stderr ? (
                     <div className="flex items-center justify-center h-full min-h-[200px]">
                       <RefreshCw className="w-5 h-5 text-[var(--color-stone)]/40 animate-spin" />
                     </div>
@@ -1654,8 +1653,7 @@ Focus on preserving the functionality from both sides where possible.`
                     >
                       {logs.stderr || 'No errors'}
                     </pre>
-                  )
-                )}
+                  ))}
                 {activeTab === 'messages' && (
                   <div className="h-full overflow-hidden">
                     {loadingMessages && !logs.messages ? (
