@@ -497,6 +497,9 @@ class TaskRunner:
             env["GIT_AUTHOR_EMAIL"] = git_author_email
             env["GIT_COMMITTER_EMAIL"] = git_author_email
 
+        # Browser session isolation per run
+        env["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
+
         # Spawn detached process
         # On Unix, use start_new_session to detach from terminal
         # Redirect stdout/stderr to /dev/null since we capture logs ourselves
@@ -523,6 +526,9 @@ class TaskRunner:
         # Set git identity environment variables from settings
         # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
         self._set_git_identity_env_vars()
+
+        # Browser session isolation per run
+        os.environ["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
 
         # Get project
         project = self.store.get_project(run.project_id)
