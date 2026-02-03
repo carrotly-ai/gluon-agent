@@ -401,50 +401,56 @@ Please analyze this issue and:
         return f"Process {event_type} event for {repo}"
 
     def _get_repo_name(self, payload: dict[str, Any]) -> str | None:
-        return payload.get("repository", {}).get("name")
+        result: Any = payload.get("repository", {}).get("name")
+        return str(result) if result is not None else None
 
     def _get_branch(self, payload: dict[str, Any]) -> str | None:
-        ref = payload.get("ref", "")
-        if ref.startswith("refs/heads/"):
+        ref: Any = payload.get("ref", "")
+        if isinstance(ref, str) and ref.startswith("refs/heads/"):
             return ref[11:]
-        pr = payload.get("pull_request", {})
+        pr: Any = payload.get("pull_request", {})
         if pr:
-            return pr.get("head", {}).get("ref")
+            result: Any = pr.get("head", {}).get("ref")
+            return str(result) if result is not None else None
         return None
 
     def _get_author(self, payload: dict[str, Any]) -> str | None:
         # Try various sources
+        result: Any = None
         if "pusher" in payload:
-            return payload["pusher"].get("name")
-        if "sender" in payload:
-            return payload["sender"].get("login")
-        if "pull_request" in payload:
-            return payload["pull_request"].get("user", {}).get("login")
-        if "issue" in payload:
-            return payload["issue"].get("user", {}).get("login")
-        return None
+            result = payload["pusher"].get("name")
+        elif "sender" in payload:
+            result = payload["sender"].get("login")
+        elif "pull_request" in payload:
+            result = payload["pull_request"].get("user", {}).get("login")
+        elif "issue" in payload:
+            result = payload["issue"].get("user", {}).get("login")
+        return str(result) if result is not None else None
 
     def _get_title(self, payload: dict[str, Any]) -> str | None:
+        result: Any = None
         if "pull_request" in payload:
-            return payload["pull_request"].get("title")
-        if "issue" in payload:
-            return payload["issue"].get("title")
-        return None
+            result = payload["pull_request"].get("title")
+        elif "issue" in payload:
+            result = payload["issue"].get("title")
+        return str(result) if result is not None else None
 
     def _get_body(self, payload: dict[str, Any]) -> str | None:
+        result: Any = None
         if "pull_request" in payload:
-            return payload["pull_request"].get("body")
-        if "issue" in payload:
-            return payload["issue"].get("body")
-        if "comment" in payload:
-            return payload["comment"].get("body")
-        return None
+            result = payload["pull_request"].get("body")
+        elif "issue" in payload:
+            result = payload["issue"].get("body")
+        elif "comment" in payload:
+            result = payload["comment"].get("body")
+        return str(result) if result is not None else None
 
     def _get_url(self, payload: dict[str, Any]) -> str | None:
+        result: Any = None
         if "pull_request" in payload:
-            return payload["pull_request"].get("html_url")
-        if "issue" in payload:
-            return payload["issue"].get("html_url")
-        if "compare" in payload:
-            return payload["compare"]
-        return None
+            result = payload["pull_request"].get("html_url")
+        elif "issue" in payload:
+            result = payload["issue"].get("html_url")
+        elif "compare" in payload:
+            result = payload["compare"]
+        return str(result) if result is not None else None

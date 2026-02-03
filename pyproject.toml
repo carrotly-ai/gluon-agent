@@ -75,6 +75,7 @@ module = [
     "gluon.chat_agent",
     "gluon.web.api",
     "gluon.runner",
+    "gluon.queue.redis_queue",  # External library typing issues with redis.asyncio
 ]
 ignore_errors = true
 

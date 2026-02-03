@@ -18,8 +18,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
@@ -1587,11 +1585,7 @@ but explicit commits with good messages are preferred.
 
             # Create agent for recovery (use same model as original run)
             sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
-            recovery_agent = (
-                GluonAgent(model=run.model, sandbox_enabled=sandbox_enabled)
-                if run.model
-                else self.agent
-            )
+            recovery_agent = GluonAgent(model=run.model, sandbox_enabled=sandbox_enabled) if run.model else self.agent
 
             # Execute recovery with fresh context
             turn_count = 0

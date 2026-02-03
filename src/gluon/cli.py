@@ -1096,7 +1096,7 @@ def recover(
             orchestrator.store.update_run(run)
 
         # Execute recovery
-        agent = GluonAgent(model=run.model) if run.model else orchestrator.agent
+        agent = GluonAgent(model=run.model) if run.model else GluonAgent()
 
         console.print("[bold]Starting recovery...[/bold]\n")
 
@@ -1929,9 +1929,9 @@ def supervisor_start(
 
         # Check if it started successfully
         running, pid = is_running()
-        if running:
-            from gluon.supervisor_daemon import get_log_file
+        from gluon.supervisor_daemon import get_log_file
 
+        if running:
             console.print(f"[green]✓[/green] Supervisor started (PID: {pid})")
             console.print(f"[dim]Log file: {get_log_file()}[/dim]")
         else:
@@ -2256,8 +2256,9 @@ def cleanup(
             console.print(f"\n[yellow]Errors: {stats['errors']}[/yellow]")
 
 
-def _format_bytes(size: int) -> str:
+def _format_bytes(size_bytes: int) -> str:
     """Format bytes as human-readable string."""
+    size: float = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024:
             return f"{size:.1f} {unit}"

@@ -13,13 +13,22 @@ import logging
 import shutil
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from gluon.models import ExecutionRun, RunStatus, utc_now
 from gluon.store import GluonStore
 
 if TYPE_CHECKING:
     pass
+
+
+class DiskUsageStats(TypedDict):
+    """Type definition for disk usage statistics."""
+
+    total_bytes: int
+    run_count: int
+    top_runs: list[tuple[str, int]]
+
 
 logger = logging.getLogger(__name__)
 
@@ -228,19 +237,14 @@ class LogCleanupService:
                 total += entry.stat().st_size
         return total
 
-    def get_disk_usage(self) -> dict[str, int | list[tuple[str, int]]]:
+    def get_disk_usage(self) -> DiskUsageStats:
         """Get disk usage statistics for log directory.
 
         Returns:
-            Dictionary with:
-            {
-                "total_bytes": N,
-                "run_count": N,
-                "top_runs": [(run_id, bytes), ...]  # Top 10 by size
-            }
+            DiskUsageStats with total_bytes, run_count, and top_runs.
         """
         if not self.log_dir.exists():
-            return {"total_bytes": 0, "run_count": 0, "top_runs": []}
+            return DiskUsageStats(total_bytes=0, run_count=0, top_runs=[])
 
         run_sizes: list[tuple[str, int]] = []
         for entry in self.log_dir.iterdir():
@@ -251,8 +255,8 @@ class LogCleanupService:
         run_sizes.sort(key=lambda x: x[1], reverse=True)
         total = sum(size for _, size in run_sizes)
 
-        return {
-            "total_bytes": total,
-            "run_count": len(run_sizes),
-            "top_runs": run_sizes[:10],
-        }
+        return DiskUsageStats(
+            total_bytes=total,
+            run_count=len(run_sizes),
+            top_runs=run_sizes[:10],
+        )

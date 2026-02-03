@@ -247,7 +247,7 @@ class TestAutoAnswerHandler:
         """Test that auto-answer finds recommended option."""
         from gluon.runner import TaskRunner
 
-        runner = TaskRunner()
+        _runner = TaskRunner()  # Ensure TaskRunner can be instantiated
 
         # Simulate the auto-answer logic
         questions = [

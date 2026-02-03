@@ -384,28 +384,32 @@ class RalphManager:
                         f.write(json.dumps(msg_dict) + "\n")
 
                 # Capture output based on message type for more complete completion detection
-                if msg_type == "tool_use":
-                    # Include tool usage in output for better completion detection
-                    tool_name = message.metadata.get("tool", "unknown") if message.metadata else "unknown"
-                    output_parts.append(f"[Tool: {tool_name}]")
-                elif msg_type == "text" and hasattr(message, "content"):
-                    output_parts.append(str(message.content))
-                elif hasattr(message, "content") and message.content:
-                    # Fallback for other message types with content
-                    output_parts.append(str(message.content))
+                # Use isinstance to narrow type for proper attribute access
+                from gluon.agent import AgentMessage as AgentMsg
 
-                # Check for errors
-                if hasattr(message, "is_error") and message.is_error:
-                    result["has_errors"] = True
-                    result["error_summary"] = str(message.content)[:200]
+                if isinstance(message, AgentMsg):
+                    if msg_type == "tool_use":
+                        # Include tool usage in output for better completion detection
+                        tool_name = message.metadata.get("tool", "unknown") if message.metadata else "unknown"
+                        output_parts.append(f"[Tool: {tool_name}]")
+                    elif msg_type == "text":
+                        output_parts.append(str(message.content))
+                    elif message.content:
+                        # Fallback for other message types with content
+                        output_parts.append(str(message.content))
 
-                # Capture AgentResult when yielded (contains cost/token info)
-                if msg_type == "result" and message.metadata:
-                    result["cost_usd"] = message.metadata.get("cost", 0.0)
-                    input_tokens = message.metadata.get("input_tokens", 0) or 0
-                    output_tokens = message.metadata.get("output_tokens", 0) or 0
-                    result["tokens"] = input_tokens + output_tokens
-                    result["session_id"] = message.metadata.get("session_id")
+                    # Check for errors
+                    if hasattr(message, "is_error") and message.is_error:
+                        result["has_errors"] = True
+                        result["error_summary"] = str(message.content)[:200]
+
+                    # Capture AgentResult when yielded (contains cost/token info)
+                    if msg_type == "result" and message.metadata:
+                        result["cost_usd"] = message.metadata.get("cost", 0.0)
+                        input_tokens = message.metadata.get("input_tokens", 0) or 0
+                        output_tokens = message.metadata.get("output_tokens", 0) or 0
+                        result["tokens"] = input_tokens + output_tokens
+                        result["session_id"] = message.metadata.get("session_id")
 
                 # Also check for AgentResult object directly (from agent.py)
                 from gluon.agent import AgentResult
