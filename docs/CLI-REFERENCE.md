@@ -108,7 +108,8 @@ gluon status                              # Show overall status
 |------|-------|----------|
 | `haiku` | claude-haiku-4.5 | Fast, economical tasks |
 | `sonnet` | claude-sonnet-4.5 | Balanced performance (default) |
-| `opus` | claude-opus-4.5 | Complex, demanding tasks |
+| `opus` | claude-opus-4.6 | Complex, demanding tasks (latest) |
+| `opus-4.5` | claude-opus-4.5 | Previous generation Opus |
 
 ### Examples
 

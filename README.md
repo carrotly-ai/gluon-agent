@@ -275,7 +275,8 @@ graph TB
 |-------|----------|------|
 | **Haiku** | Quick fixes, simple tasks | `--model haiku` |
 | **Sonnet** | Most coding tasks (default) | `--model sonnet` |
-| **Opus** | Complex refactoring, architecture | `--model opus` |
+| **Opus 4.6** | Complex refactoring, architecture (latest) | `--model opus` |
+| **Opus 4.5** | Previous generation Opus | `--model opus-4.5` |
 
 ```bash
 gluon run myapp 'Fix typo' --model haiku

@@ -1,4 +1,0 @@
-- "Interal Server Error" when trying to [Queue] a follow-up message
-- After long running tasks, the UIUX is very slow to update, how might we implement some sort of streaming or infinite scroll, where we cull earlier messages as we get new ones?
-- Clickign [Stop Loop] doesnt actually stop the loop, it continues.
-- Some of the cards are overflowing off the column, but are hidden, so cannot click the [Archive] button.

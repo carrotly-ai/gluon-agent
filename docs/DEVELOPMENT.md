@@ -5,11 +5,13 @@ This guide helps future Claude Code sessions understand and extend Gluon Agent.
 ## Quick Start
 
 ```bash
-# Navigate to project
-cd ~/workspaces/tao/research/ai-orchestrator/gluon-agent
+# Clone and enter project
+git clone https://github.com/carrotly-ai/gluon-agent.git
+cd gluon-agent
 
-# Activate virtual environment
-source .venv/bin/activate
+# Create virtual environment and install
+uv venv
+uv pip install -e '.[dev]'
 
 # Or use uv directly
 uv run gluon --help
@@ -20,31 +22,61 @@ uv run gluon --help
 ```
 gluon-agent/
 ├── src/gluon/
-│   ├── __init__.py      # Package version
-│   ├── models.py        # Pydantic models (Workspace, Project, Session, ExecutionRun, etc.)
-│   ├── models_config.py # Model tier configuration
-│   ├── store.py         # SQLite persistence layer
-│   ├── agent.py         # Claude Agent SDK wrapper
-│   ├── core.py          # Orchestrator (business logic)
-│   ├── bot_core.py      # Transport-agnostic bot logic
-│   ├── chat_agent.py    # NL interpreter with MCP tools
-│   ├── git_manager.py   # Git synchronization
-│   ├── runner.py        # Background task execution
-│   ├── cli.py           # Typer CLI commands
-│   ├── bot.py           # Telegram bot (legacy, uses TelegramTransport)
-│   └── transport/       # Transport layer
-│       ├── __init__.py  # Exports base classes
-│       ├── base.py      # Transport ABC, Context, Response
-│       ├── capabilities.py  # Platform capabilities
-│       ├── telegram.py  # Telegram transport
-│       └── discord.py   # Discord transport
+│   ├── __init__.py          # Package version
+│   ├── models.py            # Pydantic models (Workspace, Project, Session, ExecutionRun, etc.)
+│   ├── models_config.py     # Model tier configuration (Opus 4.6/4.5, Sonnet, Haiku)
+│   ├── store.py             # SQLite persistence layer with auto-migrations
+│   ├── agent.py             # Claude Agent SDK wrapper
+│   ├── core.py              # Orchestrator (business logic)
+│   ├── runner.py            # Background task execution & subprocess management
+│   ├── cli.py               # Typer CLI commands
+│   ├── commands.py          # Additional CLI command groups
+│   ├── bot_core.py          # Transport-agnostic bot logic
+│   ├── chat_agent.py        # NL interpreter with MCP tools
+│   ├── git_manager.py       # Git synchronization & worktree operations
+│   ├── worktree.py          # Git worktree lifecycle management
+│   ├── image_storage.py     # Content-addressed image storage (SHA256 dedup)
+│   ├── ralph_manager.py     # Ralph loop autonomous execution orchestrator
+│   ├── circuit_breaker.py   # 3-state circuit breaker (CLOSED/HALF_OPEN/OPEN)
+│   ├── completion_detector.py # RALPH_STATUS parsing & confidence scoring
+│   ├── rate_limiter.py      # Hourly API call limits & cost caps
+│   ├── resume_coordinator.py # Auto-resume polling for REVIEW tasks
+│   ├── supervisor_daemon.py # Background supervision daemon
+│   ├── policies.py          # Supervision policies (AGGRESSIVE/CONSERVATIVE/MANUAL)
+│   ├── pr_monitor.py        # PR status monitoring
+│   ├── cleanup.py           # Resource cleanup utilities
+│   ├── files.py             # File operation helpers
+│   ├── transport/           # Transport layer
+│   │   ├── __init__.py      # Exports base classes
+│   │   ├── base.py          # Transport ABC, Context, Response
+│   │   ├── capabilities.py  # Platform capabilities
+│   │   ├── telegram.py      # Telegram transport
+│   │   └── discord.py       # Discord transport
+│   ├── web/                 # Web dashboard backend
+│   │   ├── __init__.py
+│   │   ├── api.py           # FastAPI REST + WebSocket endpoints
+│   │   ├── models.py        # Request/response Pydantic models
+│   │   ├── websocket.py     # WebSocket connection manager
+│   │   └── dist/            # Built React frontend (served by FastAPI)
+│   ├── webhooks/            # External webhook handlers
+│   │   ├── __init__.py
+│   │   ├── base.py          # Webhook handler base
+│   │   └── github.py        # GitHub webhook handler
+│   └── queue/               # Task queue system
+│       ├── __init__.py
+│       └── redis_queue.py   # Redis-backed queue
+├── web-ui/                  # React frontend (Vite + TypeScript)
+│   ├── src/
+│   │   ├── App.tsx          # Main app with routing
+│   │   ├── main.tsx         # Entry point with PWA registration
+│   │   ├── components/      # React components (Kanban, RunDetail, Settings, etc.)
+│   │   ├── hooks/           # Custom hooks (useWebSocket, useOnline, etc.)
+│   │   └── lib/             # API client, types, utilities
+│   └── package.json
 ├── tests/
-│   ├── test_models.py
-│   └── test_store.py
-├── docs/                 # This documentation
-├── pyproject.toml        # Dependencies
-├── PLAN.md               # Original implementation plan
-└── README.md             # User documentation
+├── docs/                    # This documentation
+├── pyproject.toml           # Dependencies
+└── README.md                # User documentation
 ```
 
 ## Key Patterns
