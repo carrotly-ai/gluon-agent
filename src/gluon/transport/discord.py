@@ -190,9 +190,6 @@ class DiscordTransport(Transport):
         # Channel-to-project explicit mappings (loaded from DB)
         self._channel_project_map: dict[int, str] = {}
 
-        # Message ID -> Run ID mapping for reply-based resume
-        self._message_run_map: dict[int, str] = {}
-
     @property
     def name(self) -> str:
         return "discord"
@@ -406,7 +403,9 @@ class DiscordTransport(Transport):
         # Check if this is a reply to a bot message (for session resume)
         if message.reference and message.reference.message_id:
             ref_id = message.reference.message_id
-            if ref_id in self._message_run_map:
+            # Query store for message-to-run mapping
+            mapping = self.bot_core.store.get_message_run_map("discord", str(ref_id), str(message.channel.id))
+            if mapping:
                 await self._handle_reply_resume(message, ref_id)
                 return
 
@@ -792,8 +791,14 @@ class DiscordTransport(Transport):
                             f"💬 Reply to continue"
                         )
                     )
-                    # Track this message for future resume
-                    self._message_run_map[status_msg.id] = run.id
+                    # Track this message for future resume (persisted to DB)
+                    self.bot_core.store.create_message_run_map(
+                        transport="discord",
+                        message_id=str(status_msg.id),
+                        run_id=run.id,
+                        chat_id=str(message.channel.id),
+                        user_id=ctx.user_id,
+                    )
 
             except Exception:
                 logger.exception("DM task execution failed")
@@ -819,10 +824,11 @@ class DiscordTransport(Transport):
             await message.reply("You are not authorized to use this bot.")
             return
 
-        # Look up the run by message ID
-        run_id = self._message_run_map.get(ref_message_id)
-        if not run_id:
+        # Look up the run by message ID from store
+        mapping = self.bot_core.store.get_message_run_map("discord", str(ref_message_id), str(message.channel.id))
+        if not mapping:
             return
+        run_id = mapping.run_id
 
         run = self.bot_core.store.get_run(run_id)
         if not run or not run.session_id:
@@ -883,8 +889,14 @@ class DiscordTransport(Transport):
                             f"💬 Reply to continue"
                         )
                     )
-                    # Track this message for future resume
-                    self._message_run_map[status_msg.id] = new_run.id
+                    # Track this message for future resume (persisted to DB)
+                    self.bot_core.store.create_message_run_map(
+                        transport="discord",
+                        message_id=str(status_msg.id),
+                        run_id=new_run.id,
+                        chat_id=str(message.channel.id),
+                        user_id=user_id,
+                    )
 
             except Exception:
                 logger.exception("Resume task failed")
@@ -960,8 +972,14 @@ class DiscordTransport(Transport):
                             f"💬 Reply to continue"
                         )
                     )
-                    # Track this message for future resume
-                    self._message_run_map[status_msg.id] = run.id
+                    # Track this message for future resume (persisted to DB)
+                    self.bot_core.store.create_message_run_map(
+                        transport="discord",
+                        message_id=str(status_msg.id),
+                        run_id=run.id,
+                        chat_id=str(message.channel.id),
+                        user_id=ctx.user_id,
+                    )
 
             except Exception:
                 logger.exception("Task execution failed")

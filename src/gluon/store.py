@@ -6,7 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gluon.models import (
+    CHAT_HISTORY_TTL_HOURS,
+    MESSAGE_RUN_MAP_TTL_DAYS,
     ChannelMapping,
+    ChatHistoryEntry,
     CircuitState,
     CommitFileSnapshot,
     CommitSnapshot,
@@ -16,6 +19,7 @@ from gluon.models import (
     ImageAttachment,
     Job,
     JobStatus,
+    MessageRunMapping,
     PendingQuestion,
     Project,
     QuestionStatus,
@@ -382,6 +386,37 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN snapshot_at TEXT;",
     # Task profile metadata (JSON blob)
     "ALTER TABLE execution_runs ADD COLUMN metadata TEXT;",
+    # Message-to-run mapping for reply-based resume (Chat Integration Consolidation)
+    """
+    CREATE TABLE IF NOT EXISTS message_run_map (
+        id TEXT PRIMARY KEY,
+        transport TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        UNIQUE(transport, message_id, chat_id)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_message_run_map_transport ON message_run_map(transport);",
+    "CREATE INDEX IF NOT EXISTS idx_message_run_map_lookup ON message_run_map(transport, message_id, chat_id);",
+    "CREATE INDEX IF NOT EXISTS idx_message_run_map_expires ON message_run_map(expires_at);",
+    # Chat history persistence (Chat Integration Consolidation)
+    """
+    CREATE TABLE IF NOT EXISTS chat_history (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        role TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id);",
+    "CREATE INDEX IF NOT EXISTS idx_chat_history_expires ON chat_history(expires_at);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2676,4 +2711,252 @@ class GluonStore:
             labels=json.loads(row["labels"]) if row["labels"] else None,
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Message Run Mapping CRUD ==========
+
+    def create_message_run_map(
+        self,
+        transport: str,
+        message_id: str,
+        run_id: str,
+        chat_id: str,
+        user_id: str,
+        ttl_days: int = MESSAGE_RUN_MAP_TTL_DAYS,
+    ) -> MessageRunMapping:
+        """Create a message-to-run mapping for reply-based resume.
+
+        Args:
+            transport: Transport name (e.g., "discord", "telegram")
+            message_id: Platform-specific message ID
+            run_id: ExecutionRun ID
+            chat_id: Channel/chat ID
+            user_id: User who initiated the run
+            ttl_days: Days until expiration (default: 7)
+
+        Returns:
+            Created MessageRunMapping
+        """
+        from datetime import timedelta
+
+        now = utc_now()
+        expires_at = now + timedelta(days=ttl_days)
+
+        mapping = MessageRunMapping(
+            transport=transport,
+            message_id=message_id,
+            run_id=run_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            created_at=now,
+            expires_at=expires_at,
+        )
+
+        with self._get_conn() as conn:
+            # Upsert: replace if exists
+            conn.execute(
+                """
+                INSERT INTO message_run_map
+                (id, transport, message_id, run_id, chat_id, user_id, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(transport, message_id, chat_id) DO UPDATE SET
+                    run_id = excluded.run_id,
+                    user_id = excluded.user_id,
+                    expires_at = excluded.expires_at
+                """,
+                (
+                    mapping.id,
+                    mapping.transport,
+                    mapping.message_id,
+                    mapping.run_id,
+                    mapping.chat_id,
+                    mapping.user_id,
+                    mapping.created_at.isoformat(),
+                    mapping.expires_at.isoformat(),
+                ),
+            )
+        return mapping
+
+    def get_message_run_map(
+        self,
+        transport: str,
+        message_id: str,
+        chat_id: str,
+    ) -> MessageRunMapping | None:
+        """Get message-to-run mapping by transport, message ID, and chat ID.
+
+        Only returns non-expired mappings.
+
+        Args:
+            transport: Transport name
+            message_id: Platform-specific message ID
+            chat_id: Channel/chat ID
+
+        Returns:
+            MessageRunMapping if found and not expired, None otherwise
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM message_run_map
+                WHERE transport = ? AND message_id = ? AND chat_id = ?
+                AND expires_at > ?
+                """,
+                (transport, message_id, chat_id, utc_now().isoformat()),
+            ).fetchone()
+            if row:
+                return self._row_to_message_run_map(row)
+        return None
+
+    def cleanup_expired_message_run_maps(self) -> int:
+        """Delete expired message-to-run mappings.
+
+        Returns:
+            Number of deleted mappings
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM message_run_map WHERE expires_at <= ?",
+                (utc_now().isoformat(),),
+            )
+            return cursor.rowcount
+
+    def _row_to_message_run_map(self, row: sqlite3.Row) -> MessageRunMapping:
+        """Convert database row to MessageRunMapping model."""
+        return MessageRunMapping(
+            id=row["id"],
+            transport=row["transport"],
+            message_id=row["message_id"],
+            run_id=row["run_id"],
+            chat_id=row["chat_id"],
+            user_id=row["user_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            expires_at=_parse_datetime(row["expires_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Chat History CRUD ==========
+
+    def create_chat_history(
+        self,
+        user_id: str,
+        transport: str,
+        role: str,
+        text: str,
+        ttl_hours: int = CHAT_HISTORY_TTL_HOURS,
+    ) -> ChatHistoryEntry:
+        """Create a chat history entry.
+
+        Args:
+            user_id: Universal user ID (e.g., 'telegram:123')
+            transport: Transport name
+            role: 'user' or 'assistant'
+            text: Message content
+            ttl_hours: Hours until expiration (default: 48)
+
+        Returns:
+            Created ChatHistoryEntry
+        """
+        from datetime import timedelta
+
+        now = utc_now()
+        expires_at = now + timedelta(hours=ttl_hours)
+
+        entry = ChatHistoryEntry(
+            user_id=user_id,
+            transport=transport,
+            role=role,
+            text=text,
+            created_at=now,
+            expires_at=expires_at,
+        )
+
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_history
+                (id, user_id, transport, role, text, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry.id,
+                    entry.user_id,
+                    entry.transport,
+                    entry.role,
+                    entry.text,
+                    entry.created_at.isoformat(),
+                    entry.expires_at.isoformat(),
+                ),
+            )
+        return entry
+
+    def get_chat_history(
+        self,
+        user_id: str,
+        limit: int = 10,
+    ) -> list[ChatHistoryEntry]:
+        """Get chat history for a user.
+
+        Returns most recent non-expired entries in chronological order
+        (oldest first, suitable for conversation context).
+
+        Args:
+            user_id: Universal user ID
+            limit: Maximum entries to return (default: 10)
+
+        Returns:
+            List of ChatHistoryEntry in chronological order
+        """
+        with self._get_conn() as conn:
+            # Get most recent entries, then reverse for chronological order
+            rows = conn.execute(
+                """
+                SELECT * FROM chat_history
+                WHERE user_id = ? AND expires_at > ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (user_id, utc_now().isoformat(), limit),
+            ).fetchall()
+            # Reverse to get chronological order (oldest first)
+            return [self._row_to_chat_history(row) for row in reversed(rows)]
+
+    def clear_chat_history(self, user_id: str) -> int:
+        """Clear all chat history for a user.
+
+        Args:
+            user_id: Universal user ID
+
+        Returns:
+            Number of deleted entries
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM chat_history WHERE user_id = ?",
+                (user_id,),
+            )
+            return cursor.rowcount
+
+    def cleanup_expired_chat_history(self) -> int:
+        """Delete expired chat history entries.
+
+        Returns:
+            Number of deleted entries
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM chat_history WHERE expires_at <= ?",
+                (utc_now().isoformat(),),
+            )
+            return cursor.rowcount
+
+    def _row_to_chat_history(self, row: sqlite3.Row) -> ChatHistoryEntry:
+        """Convert database row to ChatHistoryEntry model."""
+        return ChatHistoryEntry(
+            id=row["id"],
+            user_id=row["user_id"],
+            transport=row["transport"],
+            role=row["role"],
+            text=row["text"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            expires_at=_parse_datetime(row["expires_at"]),  # type: ignore[arg-type]
         )

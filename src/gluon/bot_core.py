@@ -65,7 +65,6 @@ class GluonBotCore:
         # State management (transport-agnostic)
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._message_history: dict[str, list[ChatMessage]] = {}
         self._max_history_per_user = 10
 
         # Natural language mode
@@ -87,33 +86,33 @@ class GluonBotCore:
             return True
         return user_id in allowed_users
 
-    # ========== Message History ==========
+    # ========== Message History (Store-backed) ==========
 
     def add_to_history(self, user_id: str, role: str, text: str) -> None:
         """Add a message to user's conversation history.
 
+        Persisted to database for survival across restarts.
+
         Args:
-            user_id: Universal user ID
+            user_id: Universal user ID (e.g., 'telegram:123', 'discord:456')
             role: 'user' or 'assistant'
             text: Message text
         """
-        if user_id not in self._message_history:
-            self._message_history[user_id] = []
-
-        self._message_history[user_id].append(ChatMessage(role=role, text=text))
-
-        # Trim to max history
-        if len(self._message_history[user_id]) > self._max_history_per_user:
-            self._message_history[user_id] = self._message_history[user_id][-self._max_history_per_user :]
+        # Extract transport from user_id (format: 'transport:id')
+        transport = user_id.split(":")[0] if ":" in user_id else "unknown"
+        self.store.create_chat_history(user_id, transport, role, text)
 
     def get_history(self, user_id: str) -> list[ChatMessage]:
-        """Get conversation history for a user."""
-        return self._message_history.get(user_id, [])
+        """Get conversation history for a user.
+
+        Returns non-expired entries from database in chronological order.
+        """
+        entries = self.store.get_chat_history(user_id, limit=self._max_history_per_user)
+        return [ChatMessage(role=e.role, text=e.text) for e in entries]
 
     def clear_history(self, user_id: str) -> None:
         """Clear conversation history for a user."""
-        if user_id in self._message_history:
-            del self._message_history[user_id]
+        self.store.clear_chat_history(user_id)
 
     # ========== Run Info Extraction ==========
 
