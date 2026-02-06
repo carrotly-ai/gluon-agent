@@ -6,21 +6,25 @@ from enum import Enum
 class ModelTier(str, Enum):
     """Model tiers for different task complexities."""
 
-    OPUS = "opus"
+    OPUS_46 = "opus-4.6"
+    OPUS_45 = "opus-4.5"
     SONNET = "sonnet"
     HAIKU = "haiku"
 
 
 # Model ID mappings to AWS Bedrock model IDs
 MODEL_IDS = {
-    ModelTier.OPUS: "global.anthropic.claude-opus-4-5-20251101-v1:0",
+    ModelTier.OPUS_46: "global.anthropic.claude-opus-4-6-v1",
+    ModelTier.OPUS_45: "global.anthropic.claude-opus-4-5-20251101-v1:0",
     ModelTier.SONNET: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     ModelTier.HAIKU: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 }
 
 # UI model name aliases (maps UI names to tier names)
 MODEL_ALIASES = {
-    "claude-opus-4.5": ModelTier.OPUS,
+    "claude-opus-4.6": ModelTier.OPUS_46,
+    "claude-opus-4.5": ModelTier.OPUS_45,
+    "opus": ModelTier.OPUS_46,
     "claude-sonnet-4.5": ModelTier.SONNET,
     "claude-haiku-4.5": ModelTier.HAIKU,
 }
@@ -78,6 +82,7 @@ def describe_models() -> str:
         Formatted string describing all available models
     """
     return """Available models:
-- opus   : Claude Opus 4.5 - Most capable, for complex tasks
-- sonnet : Claude Sonnet 4.5 - Balanced performance (default)
-- haiku  : Claude Haiku 4.5 - Fast and efficient, for simple tasks"""
+- opus-4.6 : Claude Opus 4.6 - Latest, most capable (default opus)
+- opus-4.5 : Claude Opus 4.5 - Previous generation
+- sonnet   : Claude Sonnet 4.5 - Balanced performance (default)
+- haiku    : Claude Haiku 4.5 - Fast and efficient, for simple tasks"""

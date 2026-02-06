@@ -50,23 +50,24 @@ const PROFILE_OPTIONS = [
   {
     value: 'deep',
     label: 'Deep',
-    description: 'Opus - Maximum reasoning (default)',
-    model: 'opus',
+    description: 'Opus 4.6 - Maximum reasoning (default)',
+    model: 'opus-4.6',
   },
   {
     value: 'planning',
     label: 'Planning',
-    description: 'Opus - Plan before executing',
-    model: 'opus',
+    description: 'Opus 4.6 - Plan before executing',
+    model: 'opus-4.6',
   },
 ]
 
 // Model options for advanced override
 const MODEL_OPTIONS = [
   { value: '', label: 'Use profile default', description: '' },
-  { value: 'haiku', label: 'Haiku', description: 'Fastest' },
-  { value: 'sonnet', label: 'Sonnet', description: 'Balanced' },
-  { value: 'opus', label: 'Opus', description: 'Highest quality' },
+  { value: 'opus-4.6', label: 'Opus 4.6', description: 'Highest quality (default)' },
+  { value: 'opus-4.5', label: 'Opus 4.5', description: 'Previous generation' },
+  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Balanced' },
+  { value: 'haiku', label: 'Haiku 4.5', description: 'Fastest' },
 ]
 
 // Thinking budget options for advanced override

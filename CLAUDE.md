@@ -12,7 +12,8 @@ IMPORTANT: We only support the following LLM models:
 
 | Name                | AWS Bedrock Model ID                                 | Purpose                                           |
 |---------------------|------------------------------------------------------|---------------------------------------------------|
-| claude-opus-4.5     | global.anthropic.claude-opus-4-5-20251101-v1:0       | Highest quality Claude model for reasoning & tasks |
+| claude-opus-4.6     | global.anthropic.claude-opus-4-6-v1                  | Latest, most capable Claude model (default opus)   |
+| claude-opus-4.5     | global.anthropic.claude-opus-4-5-20251101-v1:0       | Previous generation Opus model                     |
 | claude-sonnet-4.5   | global.anthropic.claude-sonnet-4-5-20250929-v1:0     | Fast, high-quality Claude model for general use    |
 | claude-haiku-4.5    | global.anthropic.claude-haiku-4-5-20251001-v1:0      | Lightweight, fast Claude model for low latency     |
 

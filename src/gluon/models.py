@@ -229,7 +229,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "description": "Balanced performance (default)",
     },
     TaskProfile.DEEP: {
-        "model": "opus",
+        "model": "opus-4.6",
         "max_thinking_tokens": 32000,
         "max_turns": 50,
         "max_budget_usd": DEFAULT_BUDGET_USD,
@@ -237,7 +237,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "description": "Maximum reasoning for complex tasks",
     },
     TaskProfile.PLANNING: {
-        "model": "opus",
+        "model": "opus-4.6",
         "max_thinking_tokens": 16000,
         "max_turns": 40,
         "max_budget_usd": DEFAULT_BUDGET_USD,
@@ -950,6 +950,47 @@ class ChannelMapping(BaseModel):
     project_id: str  # Project ID (FK)
     project_name: str  # Cached project name for convenience
     created_at: datetime = Field(default_factory=utc_now)
+
+
+# ========== Chat Persistence Models ==========
+
+
+# Default TTL values
+MESSAGE_RUN_MAP_TTL_DAYS = 7  # Messages older than a week unlikely to be resumed
+CHAT_HISTORY_TTL_HOURS = 48  # Conversational context is short-lived
+
+
+class MessageRunMapping(BaseModel):
+    """Maps a bot message to an execution run for reply-based resume.
+
+    When a user replies to a completion message, we use this mapping
+    to find the associated run and resume it with the new prompt.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    transport: str  # "discord", "telegram", etc.
+    message_id: str  # Platform-specific message ID
+    run_id: str  # FK to ExecutionRun
+    chat_id: str  # Channel/chat ID for scoping
+    user_id: str  # Who initiated the original run
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime  # TTL-based expiration
+
+
+class ChatHistoryEntry(BaseModel):
+    """Persisted chat history entry for natural language conversations.
+
+    Stores user/assistant messages for maintaining conversation context
+    across bot restarts.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    user_id: str  # Universal user ID (e.g., 'telegram:123', 'discord:456')
+    transport: str  # "telegram", "discord", etc.
+    role: str  # "user" or "assistant"
+    text: str  # Message content
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime  # TTL-based expiration
 
 
 # ========== Image Attachment Models (Phase 10.1) ==========

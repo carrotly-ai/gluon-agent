@@ -1,5 +1,6 @@
 """CLI interface for Gluon Agent."""
 
+import os
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -22,7 +23,7 @@ from gluon.core import (
 )
 from gluon.git_manager import GitManager
 from gluon.models import CircuitState, RunStatus
-from gluon.models_config import ModelTier, describe_models
+from gluon.models_config import MODEL_ALIASES, ModelTier, describe_models
 from gluon.runner import TaskRunner, format_duration, format_run_status
 from gluon.store import GluonStore
 
@@ -821,7 +822,7 @@ def run(
     prompt: Annotated[str, typer.Argument(help="Prompt for Claude")],
     new_session: Annotated[bool, typer.Option("--new", "-n", help="Force new session")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
-    model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model: opus-4.6/opus-4.5/sonnet/haiku")] = None,
     background: Annotated[bool, typer.Option("--background", "-b", help="Run in background")] = False,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Execute in isolated Git worktree")] = False,
     ralph: Annotated[bool, typer.Option("--ralph", "-r", help="Enable ralph loop mode")] = False,
@@ -860,12 +861,16 @@ def run(
     # Validate model if provided
     model_tier: ModelTier | None = None
     if model:
-        try:
-            model_tier = ModelTier(model.lower())
-        except ValueError:
-            console.print(f"[red]Error:[/red] Invalid model: {model}")
-            console.print(describe_models())
-            raise typer.Exit(1)
+        model_lower = model.lower()
+        if model_lower in MODEL_ALIASES:
+            model_tier = MODEL_ALIASES[model_lower]
+        else:
+            try:
+                model_tier = ModelTier(model_lower)
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid model: {model}")
+                console.print(describe_models())
+                raise typer.Exit(1)
 
     # Background execution mode
     if background:
@@ -951,7 +956,7 @@ def resume(
     project: Annotated[str, typer.Argument(help="Project name or ID")],
     prompt: Annotated[str | None, typer.Argument(help="Optional follow-up prompt")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
-    model: Annotated[str | None, typer.Option("--model", "-m", help="Model tier: opus/sonnet/haiku")] = None,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model: opus-4.6/opus-4.5/sonnet/haiku")] = None,
 ):
     """Resume the last session for a project."""
     orchestrator = get_orchestrator()
@@ -965,12 +970,16 @@ def resume(
     # Validate model if provided
     model_tier: ModelTier | None = None
     if model:
-        try:
-            model_tier = ModelTier(model.lower())
-        except ValueError:
-            console.print(f"[red]Error:[/red] Invalid model: {model}")
-            console.print(describe_models())
-            raise typer.Exit(1)
+        model_lower = model.lower()
+        if model_lower in MODEL_ALIASES:
+            model_tier = MODEL_ALIASES[model_lower]
+        else:
+            try:
+                model_tier = ModelTier(model_lower)
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid model: {model}")
+                console.print(describe_models())
+                raise typer.Exit(1)
 
     async def _resume():
         result: AgentResult | None = None
@@ -1245,19 +1254,41 @@ def bot(
     1. Message @userinfobot on Telegram
     2. It will reply with your user ID
     """
-    from gluon.bot import run_bot
+    import asyncio
+    from pathlib import Path
 
+    from dotenv import load_dotenv
+
+    from gluon.bot_core import GluonBotCore
+    from gluon.transport.telegram import run_telegram_transport
+
+    # Load .env.local for AWS Bedrock configuration
+    env_path = Path(__file__).parent.parent / ".env.local"
+    if env_path.exists():
+        load_dotenv(env_path)
+
+    # Get token
+    bot_token = token or os.environ.get("GLUON_TELEGRAM_TOKEN")
+    if not bot_token:
+        console.print("[red]Error:[/red] Telegram bot token required.")
+        console.print("Set GLUON_TELEGRAM_TOKEN environment variable or use --token.")
+        raise typer.Exit(1)
+
+    # Get allowed users from env if not provided
     allowed_users: list[int] | None = None
     if users:
         allowed_users = [int(u.strip()) for u in users.split(",") if u.strip()]
+    else:
+        users_env = os.environ.get("GLUON_TELEGRAM_USERS", "")
+        if users_env:
+            allowed_users = [int(u.strip()) for u in users_env.split(",") if u.strip()]
 
     try:
-        console.print("[bold]Starting Gluon Telegram Bot...[/bold]")
+        console.print("[bold]Starting Gluon Telegram Bot (TelegramTransport)...[/bold]")
         console.print("[dim]Press Ctrl+C to stop[/dim]")
-        run_bot(token=token, allowed_users=allowed_users)
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+
+        bot_core = GluonBotCore()
+        asyncio.run(run_telegram_transport(bot_token, bot_core, allowed_users))
     except KeyboardInterrupt:
         console.print("\n[yellow]Bot stopped.[/yellow]")
 
