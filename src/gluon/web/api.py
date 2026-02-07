@@ -20,7 +20,7 @@ from gluon.cleanup import LogCleanupService
 from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.files import get_project_files
-from gluon.models import RunStatus
+from gluon.models import RunStatus, expand_path
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
@@ -1847,15 +1847,13 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.post("/api/workspaces", response_model=WorkspaceResponse)
     async def create_workspace(body: CreateWorkspaceRequest) -> WorkspaceResponse:
         """Create a new workspace."""
-        from pathlib import Path
-
         # Check if workspace with same name exists
         existing = store.get_workspace_by_name(body.name)
         if existing:
             raise HTTPException(status_code=400, detail=f"Workspace already exists: {body.name}")
 
-        # Check if path exists
-        workspace_path = Path(body.path)
+        # Check if path exists (expand env vars like $HOME, ${HOME}, ~)
+        workspace_path = expand_path(body.path)
         if not workspace_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
 

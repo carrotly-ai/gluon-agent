@@ -34,6 +34,22 @@ Active run (invoice-copilot) with todo checklist and live output.
 ![Run in review](screenshots/gluon_project_review.png)
 Run in review (doc-summarizer) showing message history with file edits and bash commands.
 
+### Commits
+![Commits tab](screenshots/gluon_project_commits.png)
+Commits tab listing files changed with additions/deletions per file.
+
+### File Diffs
+![File diffs](screenshots/gluon_project_file_diffs.png)
+Files tab with inline unified diffs for each changed file.
+
+### Ralph Loop — Iterations
+![Ralph Loop iterations](screenshots/gluon_project_loops.png)
+Loop tab showing iteration history with files, tokens, cost, and Ralph Status exit signal.
+
+### Ralph Loop — Complete
+![Ralph Loop complete](screenshots/gluon_project_loop_complete.png)
+Completed run with Ralph Status summary, task count, file count, and verification result.
+
 ### Completed Run Summary
 ![Completed run summary](screenshots/gluon_project_summary.png)
 Rendered markdown output with resume button.

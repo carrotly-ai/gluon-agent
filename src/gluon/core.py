@@ -20,6 +20,7 @@ from gluon.models import (
     SessionStatus,
     TaskProfile,
     Workspace,
+    expand_path,
     resolve_task_options,
     utc_now,
 )
@@ -263,7 +264,7 @@ class Orchestrator:
             WorkspaceExistsError: If workspace with name already exists
             ValueError: If path doesn't exist or isn't a directory
         """
-        workspace_path = Path(path).resolve()
+        workspace_path = expand_path(path).resolve()
         if not workspace_path.exists():
             raise ValueError(f"Path does not exist: {workspace_path}")
         if not workspace_path.is_dir():

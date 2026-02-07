@@ -24,6 +24,7 @@ from gluon.core import (
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
+from gluon.models import expand_path
 from gluon.models_config import ModelTier, get_model_id
 from gluon.runner import TaskRunner, format_duration
 
@@ -296,8 +297,8 @@ class GluonChatAgent:
             if not name or not path:
                 return {"content": [{"type": "text", "text": "Error: name and path are required"}]}
 
-            # Expand ~ to home directory
-            path = os.path.expanduser(path)
+            # Expand env vars ($HOME, ${HOME}) and ~ to home directory
+            path = str(expand_path(path))
 
             try:
                 workspace, projects = orchestrator.register_workspace(name, path, auto_scan=True)
@@ -662,8 +663,8 @@ class GluonChatAgent:
             if not name or not path:
                 return {"content": [{"type": "text", "text": "Error: name and path are required"}]}
 
-            # Expand ~ to home directory
-            path = os.path.expanduser(path)
+            # Expand env vars ($HOME, ${HOME}) and ~ to home directory
+            path = str(expand_path(path))
 
             try:
                 project = orchestrator.register_project(name, path)
