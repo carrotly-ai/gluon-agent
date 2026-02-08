@@ -1,6 +1,165 @@
 # API Reference
 
-Internal Python API for Gluon Agent components.
+Internal Python API and REST endpoints for Gluon Agent.
+
+- [REST API](#rest-api-gluonwebapi) - HTTP endpoints served by the web dashboard
+- [Python API](#models-gluonmodels) - Internal models, store, agent, and orchestrator
+
+---
+
+## REST API (`gluon.web.api`)
+
+Base URL: `http://localhost:45866/api`
+
+WebSocket: `ws://localhost:45866/api/ws` (real-time run updates, log streaming)
+
+### Runs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/runs` | List all runs (supports `?project_id=`, `?status=`, `?limit=`) |
+| `GET` | `/runs/{run_id}` | Get run details |
+| `POST` | `/runs` | Create and start a new run |
+| `POST` | `/runs/{run_id}/cancel` | Cancel a running task |
+| `POST` | `/runs/{run_id}/resume` | Resume a paused/review task |
+| `POST` | `/runs/{run_id}/recover` | Recover from context overflow |
+| `POST` | `/runs/{run_id}/stop-loop` | Stop a Ralph Loop |
+| `POST` | `/runs/{run_id}/archive` | Archive a completed run |
+| `POST` | `/runs/{run_id}/unarchive` | Unarchive a run |
+| `POST` | `/runs/{run_id}/status` | Update run status |
+| `POST` | `/runs/{run_id}/pr-status` | Update PR status |
+| `POST` | `/runs/{run_id}/create-pr` | Create PR from run's branch |
+| `POST` | `/runs/{run_id}/merge` | Merge run's branch to main |
+| `POST` | `/runs/{run_id}/queue-followup` | Queue a follow-up message |
+| `PUT` | `/runs/{run_id}/queue/{message_id}` | Edit a queued message |
+| `DELETE` | `/runs/{run_id}/queue/{message_id}` | Delete a queued message |
+| `DELETE` | `/runs/{run_id}/queue` | Clear all queued messages |
+
+### Session & History
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/runs/{run_id}/session-history` | Get Claude session message history |
+| `GET` | `/runs/{run_id}/iterations` | Get Ralph Loop iteration history |
+| `GET` | `/runs/{run_id}/logs` | Get run logs (stdout/stderr/messages) |
+
+### Questions (Interactive)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/runs/{run_id}/questions` | Get pending questions from agent |
+| `POST` | `/questions/{question_id}/answer` | Answer a pending question |
+
+### Supervision
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/runs/{run_id}/supervision` | Get supervision status |
+| `POST` | `/runs/{run_id}/supervision/evaluate` | Evaluate run for auto-resume |
+| `POST` | `/runs/{run_id}/supervision/disable` | Disable supervision for a run |
+
+### Git & Commits
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/runs/{run_id}/commits` | Get commits from run's branch |
+| `GET` | `/runs/{run_id}/commits/{sha}` | Get commit details |
+| `GET` | `/runs/{run_id}/files` | Get files changed on branch |
+| `GET` | `/runs/{run_id}/files/{file_path}/diff` | Get unified diff for a file |
+| `GET` | `/projects/{project_id}/git/status` | Get git status |
+| `POST` | `/projects/{project_id}/git/refresh` | Refresh git status |
+| `POST` | `/projects/{project_id}/git/sync` | Auto-commit, fetch, and fast-forward |
+| `GET` | `/projects/{project_id}/branches` | List branches |
+| `POST` | `/projects/{project_id}/branches/rename` | Rename a branch |
+| `POST` | `/projects/{project_id}/branches/change-base` | Change base branch |
+| `DELETE` | `/projects/{project_id}/branches/{branch_name}` | Delete a branch |
+| `POST` | `/git/refresh-all` | Refresh git status for all projects |
+
+### Conflict & Rebase
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/projects/{project_id}/conflicts` | Detect merge conflicts |
+| `GET` | `/projects/{project_id}/conflicts/{file_path}` | Get 3-way conflict diff |
+| `POST` | `/projects/{project_id}/conflicts/resolve` | Resolve conflict (ours/theirs) |
+| `POST` | `/projects/{project_id}/rebase` | Start rebase onto main |
+| `POST` | `/projects/{project_id}/rebase/continue` | Continue after resolving conflicts |
+| `POST` | `/projects/{project_id}/rebase/abort` | Abort rebase |
+| `POST` | `/projects/{project_id}/rebase/skip` | Skip current commit in rebase |
+| `GET` | `/projects/{project_id}/force-push-check` | Check if force-push is safe |
+| `POST` | `/projects/{project_id}/force-push` | Perform force push (with checks) |
+
+### Projects & Workspaces
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/projects` | List all projects |
+| `GET` | `/projects/{project_id}` | Get project details |
+| `POST` | `/projects` | Create a project |
+| `DELETE` | `/projects/{project_id}` | Delete a project |
+| `GET` | `/projects/{project_id}/files` | List files in project directory |
+| `GET` | `/workspaces` | List all workspaces |
+| `POST` | `/workspaces` | Create a workspace |
+| `DELETE` | `/workspaces/{workspace_id}` | Delete a workspace |
+| `POST` | `/workspaces/{workspace_id}/scan` | Scan workspace for new projects |
+
+### Images & Attachments
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/images/upload` | Upload an image |
+| `GET` | `/images/{id}` | Get image metadata |
+| `GET` | `/images/{id}/file` | Get image file |
+| `DELETE` | `/images/{id}` | Delete an image |
+| `GET` | `/runs/{run_id}/attachments` | List images attached to a run |
+| `POST` | `/runs/{run_id}/attachments` | Attach image to a run |
+| `DELETE` | `/runs/{run_id}/attachments/{image_id}` | Remove image from a run |
+
+### Usage & Analytics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/usage/summary` | Aggregate usage (cost, tokens, run count) |
+| `GET` | `/usage/by-project` | Usage broken down by project |
+| `GET` | `/usage/by-day` | Daily usage trends |
+| `GET` | `/usage/runs` | Per-run usage breakdown |
+
+### Settings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/settings` | Get all settings |
+| `PUT` | `/settings/{key}` | Update a setting |
+
+### Webhooks
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/webhooks/github` | GitHub webhook receiver |
+| `GET` | `/webhooks` | List webhook configurations |
+| `POST` | `/webhooks` | Create a webhook |
+| `DELETE` | `/webhooks/{id}` | Delete a webhook |
+
+### System
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/status` | System status |
+| `GET` | `/version` | Version info |
+| `GET` | `/commands` | List available slash commands |
+| `GET` | `/projects/{id}/commands` | Project-specific slash commands |
+| `GET` | `/sandbox/status` | Sandbox environment status |
+
+### WebSocket
+
+Connect to `ws://localhost:45866/api/ws` for real-time updates:
+
+- Run status changes (pending → running → review → completed)
+- Live log streaming during execution
+- Pending questions from agents
+- Cost and token usage updates
+
+---
 
 ## Models (`gluon.models`)
 
@@ -103,49 +262,169 @@ PROJECT_MARKERS: list[str] = [
 class RunStatus(str, Enum):
     PENDING = "pending"       # Queued, not started
     RUNNING = "running"       # Currently executing
+    REVIEW = "review"         # Awaiting action/approval
     COMPLETED = "completed"   # Finished successfully
     FAILED = "failed"         # Error occurred
     CANCELLED = "cancelled"   # User cancelled
+```
+
+### CircuitState
+
+```python
+class CircuitState(str, Enum):
+    CLOSED = "CLOSED"         # Normal operation, execution allowed
+    HALF_OPEN = "HALF_OPEN"   # Monitoring mode, checking for recovery
+    OPEN = "OPEN"             # Execution halted, requires intervention
+```
+
+### TaskProfile
+
+```python
+class TaskProfile(str, Enum):
+    QUICK = "quick"           # Haiku, no thinking
+    STANDARD = "standard"     # Sonnet, 10K thinking tokens
+    DEEP = "deep"             # Opus 4.6, 32K thinking tokens
+    PLANNING = "planning"     # Opus 4.6, 16K thinking, force planning
+```
+
+### ThinkingBudget
+
+```python
+class ThinkingBudget(str, Enum):
+    NONE = "none"             # 0 tokens - no thinking
+    LOW = "low"               # 4,000 tokens - simple reasoning
+    MEDIUM = "medium"         # 10,000 tokens - moderate complexity
+    HIGH = "high"             # 16,000 tokens - complex analysis
+    ULTRATHINK = "ultrathink" # 32,000 tokens - maximum reasoning
+```
+
+### SupervisionPolicy
+
+```python
+class SupervisionPolicy(str, Enum):
+    AGGRESSIVE = "aggressive"     # Resume if any chance of success
+    CONSERVATIVE = "conservative" # Resume only with high confidence of progress
+    MANUAL = "manual"             # Never auto-resume (current behavior)
+```
+
+### QuestionStatus
+
+```python
+class QuestionStatus(str, Enum):
+    PENDING = "pending"           # Waiting for user response
+    ANSWERED = "answered"         # User provided answer
+    AUTO_ANSWERED = "auto_answered"  # System auto-answered (timeout/Ralph)
+    EXPIRED = "expired"           # Question timed out without answer
 ```
 
 ### ExecutionRun
 
 ```python
 class ExecutionRun(BaseModel):
+    # Core fields
     id: str                              # UUID, auto-generated
     project_id: str                      # FK to Project
-    session_id: str | None = None        # FK to Session (linked after execution)
-    pid: int | None = None               # Process ID when running
-    status: RunStatus                    # Current status
-    prompt: str                          # Task prompt
-    initiator: str | None = None         # Who started: 'telegram:123', 'discord:456', 'cli'
-    thread_id: str | None = None         # Discord/Slack thread ID for resume
+    session_id: str | None = None        # FK to Session (created when run starts)
+    claude_session_id: str | None = None # Claude SDK session ID for resume
+    pid: int | None = None               # OS process ID for cancellation
+    status: RunStatus                    # Current status (pending, running, review, completed, failed, cancelled)
+    prompt: str                          # Task prompt (may be updated on resume)
+    original_prompt: str | None = None   # Original task prompt (preserved across resumes)
+    model: str | None = None             # Requested model (e.g., "claude-haiku-4.5", "haiku")
+    initiator: str | None = None         # Who started: 'cli', 'telegram:123', 'discord:456'
+    thread_id: str | None = None         # Discord/Slack thread ID for resume detection
+    metadata: dict | None = None         # Task profile options and other metadata
     created_at: datetime                 # Auto-set on creation
     started_at: datetime | None          # When execution started
     completed_at: datetime | None        # When execution ended
     exit_code: int | None                # Exit code (0 = success)
-    log_path: Path | None                # Path to log files
-    error_message: str | None            # Error if failed
+    log_path: Path | None                # Path to log directory
+    error_message: str | None            # Error message if failed
+
+    # Cost & usage tracking
+    cost_usd: float | None = None        # Total cost in USD
+    input_tokens: int | None = None      # Input tokens used
+    output_tokens: int | None = None     # Output tokens generated
+    model_used: str | None = None        # Model tier (e.g., "sonnet", "opus")
+    max_cost_usd: float | None = None    # Optional cost cap
+
+    # Git worktree fields
+    branch_name: str | None = None       # Worktree branch name (e.g., "gluon-task/abc123")
+    source_branch: str | None = None     # Branch forked from (usually main)
+    worktree_path: str | None = None     # Worktree directory path
+    use_worktree: bool = False           # Whether worktree isolation is enabled
+    git_commit_sha: str | None = None    # SHA of final commit
+
+    # PR management
+    pr_number: int | None = None         # GitHub PR number
+    pr_url: str | None = None            # PR URL
+    pr_status: str | None = None         # 'open', 'merged', 'closed', 'draft'
+    pr_mergeable: str | None = None      # 'MERGEABLE', 'CONFLICTING', 'UNKNOWN'
+
+    # Resume tracking
+    resume_count: int = 0                # Number of times this run has been resumed
+    last_resumed_at: datetime | None = None  # When last resumed
+
+    # Context overflow recovery tracking
+    recovery_count: int = 0              # Times recovered from context overflow
+    last_recovery_at: datetime | None = None  # When last recovery happened
+    recovery_from_run_id: str | None = None  # Parent run ID if this is a recovery run
+    is_recovering: bool = False          # Currently in recovery process
+    recovery_item_count: int = 0         # Progress counter during recovery
+
+    # PR monitoring tracking
+    last_comment_id: int | None = None   # Last processed PR comment ID
+    last_check_sha: str | None = None    # Last checked commit SHA for CI
+    auto_resume_enabled: bool = True     # Allow auto-resume for this run
+    auto_resume_count: int = 0           # Number of auto-resumes (max 5)
+
+    # Ralph Loop fields
+    ralph_enabled: bool = False          # Whether Ralph Loop is active
+    loop_count: int = 0                  # Current iteration count
+    max_loops: int = 50                  # Max iterations allowed
+    circuit_state: CircuitState = CircuitState.CLOSED
+    consecutive_no_progress: int = 0     # Loops without file changes
+    consecutive_same_error: int = 0      # Loops with same error
+    last_progress_loop: int = 0          # Last loop with progress
+    last_error_hash: str | None = None   # Hash of last error for repetition detection
+    half_open_iterations: int = 0        # Iterations spent in HALF_OPEN state
+    completion_signals: int = 0          # Consecutive completion signals
+    test_only_loops: int = 0             # Consecutive test-only loops
+    completion_confidence: float = 0.0   # Confidence score 0-100
+    completion_reason: str | None = None # Why loop exited
+
+    # Rate limiting
+    calls_this_hour: int = 0             # API calls in current hour
+    hour_start: datetime | None = None   # When current hour started
+    max_calls_per_hour: int = 100        # Hourly API call limit
+
+    # Supervision fields
+    supervision_config: SupervisionConfig | None = None
+    supervision_auto_resume_count: int = 0
+    last_supervision_check_at: datetime | None = None
+    last_supervision_resume_at: datetime | None = None
+    supervision_disabled_reason: str | None = None
+
+    # Archive & queue
+    archived: bool = False               # Whether run is archived
+    archived_at: datetime | None = None  # When archived
+    queued_messages: list[QueuedMessage] = None  # Follow-up messages
+
+    # Snapshot tracking
+    changes_snapshotted: bool = False    # Whether commits/files have been snapshotted
+    snapshot_at: datetime | None = None  # When snapshot was captured
 
     @property
     def is_active(self) -> bool:
-        """Check if run is pending or running."""
+        """Check if run is pending, running, or in review."""
+
+    @property
+    def is_resumable(self) -> bool:
+        """Check if run can be resumed (has session and is in terminal state)."""
 
     @property
     def duration_seconds(self) -> float | None:
-        """Calculate run duration if completed."""
-
-    def mark_running(self, pid: int, log_path: Path) -> None:
-        """Mark run as running with process info."""
-
-    def mark_completed(self, exit_code: int = 0) -> None:
-        """Mark run as completed."""
-
-    def mark_failed(self, error: str, exit_code: int = 1) -> None:
-        """Mark run as failed."""
-
-    def mark_cancelled(self) -> None:
-        """Mark run as cancelled."""
+        """Calculate run duration if started."""
 ```
 
 ### ChannelMapping
@@ -164,7 +443,7 @@ class ChannelMapping(BaseModel):
 
 ```python
 class GitStatus(BaseModel):
-    is_git_repo: bool                    # Whether path is a git repo
+    is_git_repo: bool = False            # Whether path is a git repo
     branch: str | None = None            # Current branch name
     remote: str | None = None            # Remote name (usually 'origin')
     remote_url: str | None = None        # Remote URL
@@ -172,13 +451,317 @@ class GitStatus(BaseModel):
     uncommitted_count: int = 0           # Number of uncommitted files
     commits_ahead: int = 0               # Commits ahead of remote
     commits_behind: int = 0              # Commits behind remote
-    last_fetch_at: datetime | None       # Last fetch time
-    last_push_at: datetime | None        # Last push time
-    last_commit_at: datetime | None      # Last commit time
+    last_fetch_at: datetime | None = None  # Last fetch time
+    last_push_at: datetime | None = None    # Last push time
+    last_commit_at: datetime | None = None  # Last commit time
+    is_rebase_in_progress: bool = False  # Whether rebase is in progress
+    is_merge_in_progress: bool = False   # Whether merge is in progress
+    conflict_operation: str | None = None  # "rebase", "merge", "cherry_pick"
+    conflicted_files: list[str] = []     # Files with conflicts
+    rebase_current_step: int | None = None  # Current rebase step
+    rebase_total_steps: int | None = None   # Total rebase steps
 
     @property
     def is_diverged(self) -> bool:
-        """Check if branch has diverged from remote."""
+        """True if local and remote have diverged (both ahead and behind)."""
+
+    @property
+    def is_clean(self) -> bool:
+        """True if working tree is clean and in sync with remote."""
+
+    @property
+    def needs_pull(self) -> bool:
+        """True if behind remote and can fast-forward."""
+
+    @property
+    def needs_push(self) -> bool:
+        """True if ahead of remote."""
+
+    @property
+    def has_conflicts(self) -> bool:
+        """True if there are unresolved conflicts."""
+
+    @property
+    def has_operation_in_progress(self) -> bool:
+        """True if a rebase or merge is in progress."""
+```
+
+### GitSyncResult
+
+```python
+class GitSyncResult(BaseModel):
+    success: bool                   # Whether operation succeeded
+    action: str                     # "none", "commit", "pull", "push", "commit+push", etc.
+    message: str                    # Human-readable status message
+    error: str | None = None        # Error message if failed
+    commits_pulled: int = 0         # Number of commits pulled
+    commits_pushed: int = 0         # Number of commits pushed
+    files_committed: int = 0        # Number of files committed
+```
+
+### RalphLoopIteration
+
+```python
+class RalphLoopIteration(BaseModel):
+    id: str                          # UUID, auto-generated
+    run_id: str                      # FK to ExecutionRun
+    loop_number: int                 # 1-indexed iteration number
+    started_at: datetime             # When iteration started
+    ended_at: datetime | None = None # When iteration ended
+
+    # Execution results
+    files_changed: int = 0           # Number of git file changes
+    has_errors: bool = False         # Whether errors occurred
+    error_summary: str | None = None # First ~200 chars of error
+    output_length: int = 0           # Length of Claude output
+
+    # Analysis results
+    is_test_only: bool = False       # Only ran tests, no implementation
+    has_completion_signal: bool = False  # Claude indicated "done"
+    progress_detected: bool = False  # Files changed or meaningful work
+    confidence_score: float = 0.0    # Completion confidence 0-100
+
+    # Claude SDK info
+    claude_session_id: str | None = None
+    cost_usd: float = 0.0
+    tokens_used: int = 0
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Get duration in seconds if completed."""
+```
+
+### PendingQuestion
+
+```python
+class PendingQuestion(BaseModel):
+    id: str                          # UUID, auto-generated
+    run_id: str                      # FK to ExecutionRun
+    question_index: int = 0          # Index within questions array
+    question_text: str               # The question being asked
+    header: str                      # Short label (e.g., "Database", "UI Style")
+    options: list[dict[str, str]]    # [{label: str, description: str}, ...]
+    multi_select: bool = False       # Whether multiple options allowed
+    status: QuestionStatus           # pending, answered, auto_answered, expired
+    created_at: datetime             # When question was created
+    answered_at: datetime | None = None  # When user answered
+    expires_at: datetime | None = None   # When auto-answer kicks in
+    selected_labels: list[str] = []  # Selected option label(s)
+    answer_source: str | None = None # "user", "auto_recommended", "auto_first", "ralph"
+
+    @property
+    def is_pending(self) -> bool:
+        """Check if question is still awaiting answer."""
+
+    @property
+    def answer_string(self) -> str:
+        """Get answer as comma-separated string for SDK."""
+```
+
+### CommitSnapshot
+
+```python
+class CommitSnapshot(BaseModel):
+    id: str                          # UUID, auto-generated
+    run_id: str                      # FK to ExecutionRun
+    sha: str                         # Git commit SHA
+    message: str                     # Commit subject line
+    full_message: str | None = None  # Full commit body
+    author: str                      # Author name
+    author_email: str | None = None  # Author email
+    date: datetime                   # Commit timestamp
+    ordinal: int                     # 1-indexed order in commit list
+    created_at: datetime             # When snapshot was captured
+```
+
+### FileChangeSnapshot
+
+```python
+class FileChangeSnapshot(BaseModel):
+    id: str                          # UUID, auto-generated
+    run_id: str                      # FK to ExecutionRun
+    file_path: str                   # Path relative to repo root
+    change_type: str                 # "added", "modified", "deleted", "renamed"
+    additions: int = 0               # Lines added
+    deletions: int = 0               # Lines deleted
+    created_at: datetime             # When snapshot was captured
+```
+
+### SupervisionConfig
+
+```python
+class SupervisionConfig(BaseModel):
+    enabled: bool = True             # Whether supervision is enabled
+    policy: SupervisionPolicy        # aggressive, conservative, manual
+    max_auto_resumes: int = 5        # Maximum auto-resume attempts
+    min_time_between_resumes: int = 60  # Minimum seconds between resumes
+    auto_resume_triggers: list[str]  # ["incomplete_work", "test_only", "low_confidence"]
+```
+
+### SupervisionDecision
+
+```python
+class SupervisionDecision(BaseModel):
+    id: str                          # UUID, auto-generated
+    run_id: str                      # FK to ExecutionRun
+    timestamp: datetime              # When decision was made
+    decision: str                    # "resume", "skip", "hold", "disable"
+    reason: str                      # Human-readable explanation
+    trigger: str | None = None       # "scheduler", "manual", "pr_comment"
+    circuit_state: CircuitState | None = None
+    completion_confidence: float | None = None
+    calls_this_hour: int | None = None
+    cost_usd: float | None = None
+    auto_resume_count: int | None = None
+    policy: SupervisionPolicy | None = None
+```
+
+### QueuedMessage
+
+```python
+class QueuedMessage(BaseModel):
+    id: str                          # UUID (8 chars)
+    message: str                     # Message text
+    queued_at: datetime              # When message was queued
+```
+
+### Worker
+
+```python
+class WorkerType(str, Enum):
+    LOCAL = "local"               # Local subprocess execution
+    REMOTE = "remote"             # Remote worker via HTTP API
+
+class WorkerStatus(str, Enum):
+    HEALTHY = "healthy"           # Worker responding normally
+    UNHEALTHY = "unhealthy"       # Worker missed heartbeats
+    OFFLINE = "offline"           # Worker explicitly offline
+
+class Worker(BaseModel):
+    id: str                        # UUID, auto-generated
+    name: str                      # Human-readable name (unique)
+    type: WorkerType = WorkerType.LOCAL
+    base_url: str | None = None    # For remote workers (e.g., "http://worker1:8080")
+    api_key: str                   # API key for authentication
+    max_concurrent: int = 4        # Maximum concurrent jobs
+    status: WorkerStatus = WorkerStatus.HEALTHY
+    last_heartbeat: datetime | None = None
+    created_at: datetime           # Auto-set on creation
+    updated_at: datetime           # Updated on modifications
+    active_jobs: int = 0           # Current number of running jobs (not persisted)
+
+    @property
+    def is_available(self) -> bool:
+        """Check if worker can accept more jobs."""
+
+    @property
+    def available_slots(self) -> int:
+        """Number of available job slots."""
+```
+
+### Job
+
+```python
+class JobStatus(str, Enum):
+    QUEUED = "queued"             # Waiting in queue
+    ASSIGNED = "assigned"         # Assigned to worker, pending execution
+    RUNNING = "running"           # Currently executing
+    COMPLETED = "completed"       # Finished successfully
+    FAILED = "failed"             # Error occurred
+
+class Job(BaseModel):
+    id: str                        # UUID, auto-generated
+    run_id: str                    # FK to ExecutionRun
+    project_id: str                # FK to Project (denormalized for filtering)
+    prompt: str                    # Task prompt
+    priority: int = 5              # 1 (highest) to 10 (lowest)
+    status: JobStatus = JobStatus.QUEUED
+    worker_id: str | None = None   # FK to Worker (assigned worker)
+    created_at: datetime           # When job was created
+    assigned_at: datetime | None = None  # When assigned to worker
+    started_at: datetime | None = None   # When execution started
+    completed_at: datetime | None = None # When execution completed
+    error_message: str | None = None     # Error message if failed
+    model: str | None = None       # Requested model tier
+    use_worktree: bool = False     # Whether to use git worktree
+    session_id: str | None = None  # Session ID to resume
+    lease_expires_at: datetime | None = None  # Worker lease expiration
+
+    @property
+    def is_lease_expired(self) -> bool:
+        """Check if worker lease has expired."""
+```
+
+### ImageAttachment
+
+```python
+class ImageAttachment(BaseModel):
+    id: str                        # UUID, auto-generated
+    file_path: str                 # Relative path within storage
+    original_name: str             # User's original filename
+    mime_type: str | None = None   # e.g., "image/png"
+    size_bytes: int                # File size in bytes
+    hash: str                      # SHA256 hash for deduplication
+    created_at: datetime           # When image was uploaded
+    updated_at: datetime           # When image was updated
+
+    @property
+    def full_path(self) -> Path:
+        """Get full path to image file in storage."""
+
+    def to_markdown(self) -> str:
+        """Return markdown image reference."""
+```
+
+### WebhookConfig
+
+```python
+class WebhookConfig(BaseModel):
+    id: str                        # UUID, auto-generated
+    handler: str                   # "github", "gitlab", "bitbucket"
+    project_id: str | None = None  # FK to Project (None = match by repo name)
+    secret_key: str                # Webhook secret for signature verification
+    events: list[str] = []         # ["push", "pull_request", "issues"]
+    prompt_template: str | None = None  # Custom prompt template
+    enabled: bool = True           # Whether webhook is active
+    created_at: datetime           # When webhook was created
+    updated_at: datetime           # When webhook was updated
+    branches: list[str] | None = None  # Trigger only for these branches (None = all)
+    ignore_branches: list[str] | None = None  # Ignore these branches
+    labels: list[str] | None = None  # Only issues/PRs with these labels
+
+    def matches_branch(self, branch: str) -> bool:
+        """Check if webhook should trigger for this branch."""
+
+    def matches_event(self, event_type: str) -> bool:
+        """Check if webhook handles this event type."""
+```
+
+### MessageRunMapping
+
+```python
+class MessageRunMapping(BaseModel):
+    id: str                        # UUID, auto-generated
+    transport: str                 # "discord", "telegram", etc.
+    message_id: str                # Platform-specific message ID
+    run_id: str                    # FK to ExecutionRun
+    chat_id: str                   # Channel/chat ID for scoping
+    user_id: str                   # Who initiated the original run
+    created_at: datetime           # When mapping was created
+    expires_at: datetime           # TTL-based expiration
+```
+
+### ChatHistoryEntry
+
+```python
+class ChatHistoryEntry(BaseModel):
+    id: str                        # UUID, auto-generated
+    user_id: str                   # Universal user ID (e.g., 'telegram:123')
+    transport: str                 # "telegram", "discord", etc.
+    role: str                      # "user" or "assistant"
+    text: str                      # Message content
+    created_at: datetime           # When message was sent
+    expires_at: datetime           # TTL-based expiration
 ```
 
 ---
@@ -397,9 +980,32 @@ class GluonAgent:
         self,
         model: str = "sonnet",
         allowed_tools: list[str] | None = None,  # Default: DEFAULT_TOOLS
-        permission_mode: str = "acceptEdits",
+        permission_mode: str = "bypassPermissions",
+        cli_path: Path | str | None = None,
+        question_handler: QuestionHandler | None = None,
+        run_id: str | None = None,
+        max_thinking_tokens: int | None = None,
+        max_turns: int | None = None,
+        max_budget_usd: float | None = None,
+        force_planning: bool = False,
+        sandbox_enabled: bool = True,
     ):
-        """Initialize agent with configuration."""
+        """
+        Initialize agent with configuration.
+
+        Args:
+            model: Model tier (opus/sonnet/haiku) or full Bedrock model ID
+            allowed_tools: List of allowed tool names (default: Read, Write, Edit, Bash, Glob, Grep, Task, TodoWrite)
+            permission_mode: "bypassPermissions" or "acceptEdits"
+            cli_path: Path to Claude CLI executable
+            question_handler: Callback for handling user questions
+            run_id: Optional run ID for logging/tracking
+            max_thinking_tokens: Maximum tokens for extended thinking
+            max_turns: Maximum conversation turns
+            max_budget_usd: Cost budget cap
+            force_planning: Force plan-first workflow
+            sandbox_enabled: Enable sandbox environment
+        """
 
     async def execute(
         self,
@@ -412,15 +1018,16 @@ class GluonAgent:
 
         Yields AgentMessage objects during execution,
         then AgentResult as final yield.
-        """
 
-    async def execute_simple(
-        self,
-        working_dir: Path,
-        prompt: str,
-        resume_session_id: str | None = None,
-    ) -> AgentResult:
-        """Execute and return only final result (no streaming)."""
+        Args:
+            working_dir: Working directory for execution
+            prompt: User prompt or task description
+            resume_session_id: Optional session ID to resume from
+
+        Yields:
+            AgentMessage during execution
+            AgentResult as final result
+        """
 ```
 
 ### DEFAULT_TOOLS
@@ -436,6 +1043,25 @@ DEFAULT_TOOLS: list[str] = [
 ```python
 def find_claude_cli() -> Path | None:
     """Find Claude CLI executable in PATH or common locations."""
+```
+
+### find_mcp_config
+
+```python
+def find_mcp_config(working_dir: Path | None = None) -> Path | None:
+    """
+    Find MCP configuration file with layered precedence.
+
+    Priority:
+    1. Project-level .mcp.json (if working_dir provided)
+    2. Host's ~/.claude/.mcp.json
+
+    Args:
+        working_dir: Optional project directory to check for local .mcp.json
+
+    Returns:
+        Path to MCP config file, or None if not found
+    """
 ```
 
 ---
@@ -456,6 +1082,24 @@ class WorkspaceNotFoundError(Exception):
 
 class WorkspaceExistsError(Exception):
     """Raised when a workspace with the same name already exists."""
+
+class GitSyncError(Exception):
+    """Raised when git sync fails and cannot proceed."""
+
+class GitOperationError(Exception):
+    """Base exception for git operations."""
+
+class GitMergeConflictError(GitOperationError):
+    """Raised when a merge or rebase results in conflicts."""
+
+class GitRebaseInProgressError(GitOperationError):
+    """Raised when a rebase is already in progress."""
+
+class GitForcePushRequiredError(GitOperationError):
+    """Raised when a force push would be required."""
+
+class GitBranchNotFoundError(GitOperationError):
+    """Raised when a branch is not found."""
 ```
 
 ### Orchestrator
@@ -582,32 +1226,64 @@ class Orchestrator:
         project_name: str,
         prompt: str,
         force_new_session: bool = False,
-        model: str | None = None,
+        model: ModelTier | str | None = None,
         run_id: str | None = None,
         session_id: str | None = None,
+        use_worktree: bool = False,
+        initiator: str | None = None,
+        profile: TaskProfile | str | None = None,
+        max_thinking_tokens: int | None = None,
+        thinking_budget: str | None = None,
+        max_turns: int | None = None,
+        max_budget_usd: float | None = None,
+        force_planning: bool | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
 
-        Args:
-            project_name: Project name or ID
-            prompt: User prompt
-            force_new_session: Force new session vs auto-resume
-            model: Model tier ('opus', 'sonnet', 'haiku')
-            run_id: Optional run ID for git commit metadata
-            session_id: Specific session ID to resume
+        Automatically resumes the last session if available,
+        unless force_new_session is True.
 
-        Automatically resumes last session unless force_new_session=True.
+        Args:
+            project_name: Name or ID of the project
+            prompt: User prompt to execute
+            force_new_session: Force creation of new session
+            model: Model tier (opus/sonnet/haiku). Overrides profile's model.
+            run_id: Optional run ID to link to existing ExecutionRun
+            session_id: Specific session ID to resume (overrides auto-detection)
+            use_worktree: Execute in isolated Git worktree (default: False)
+            initiator: Source of execution (e.g., "cli:foreground", "telegram:123")
+            profile: Task profile (quick/standard/deep/planning). Defaults to standard.
+            max_thinking_tokens: Override thinking token budget directly.
+            thinking_budget: Override via preset (none/low/medium/high/ultrathink).
+            max_turns: Override max conversation turns.
+            max_budget_usd: Override max cost budget.
+            force_planning: Override planning mode (True = plan before executing).
+
+        Yields:
+            AgentMessage during execution
+            AgentResult as final yield
         """
 
     async def resume(
         self,
         project_name: str,
         prompt: str | None = None,
-        model: str | None = None,
+        model: ModelTier | str | None = None,
+        profile: TaskProfile | str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Resume the last session for a project.
+
+        Args:
+            project_name: Name or ID of the project
+            prompt: Optional new prompt (uses "Continue from where you left off." if not provided)
+            model: Model tier to use (opus/sonnet/haiku). Overrides profile's model.
+            profile: Task profile (quick/standard/deep/planning).
+
+        Yields:
+            AgentMessage during execution
+            AgentResult as final yield
 
         Raises:
             ValueError: If no resumable session exists
@@ -650,14 +1326,23 @@ class Orchestrator:
 
 ## Chat Agent (`gluon.chat_agent`)
 
+### ChatMessage
+
+```python
+@dataclass
+class ChatMessage:
+    role: str  # "user" or "assistant"
+    text: str
+```
+
 ### ChatResponse
 
 ```python
 @dataclass
 class ChatResponse:
     text: str                           # Response text
-    action_taken: str | None = None     # Tool that was called
-    action_result: dict | None = None   # Result details
+    action_taken: str | None = None     # Tool/action that was executed
+    action_result: dict | None = None   # Result details from action
 ```
 
 ### GluonChatAgent
@@ -665,20 +1350,38 @@ class ChatResponse:
 ```python
 class GluonChatAgent:
     def __init__(self, orchestrator: Orchestrator | None = None):
-        """Initialize with optional orchestrator."""
-
-    async def chat(self, message: str) -> ChatResponse:
         """
-        Process natural language message.
+        Initialize chat agent with optional orchestrator.
 
-        May set pending task for execution by caller.
+        Args:
+            orchestrator: Orchestrator instance (created if not provided)
+        """
+
+    async def chat(
+        self,
+        message: str,
+        history: list[ChatMessage] | None = None,
+        reply_context: str | None = None,
+    ) -> ChatResponse:
+        """
+        Process natural language message and return response.
+
+        Args:
+            message: The user's message
+            history: Recent conversation history (oldest first)
+            reply_context: If user is replying to a specific message, that message's text
+
+        Returns:
+            ChatResponse with text and optional pending action
+
+        May set self._pending_task if an action needs to be executed by caller.
         """
 
     def get_pending_task(self) -> dict | None:
-        """Get pending task requiring execution."""
+        """Get pending task requiring execution by caller."""
 
     def clear_pending_task(self) -> None:
-        """Clear pending task."""
+        """Clear pending task after execution."""
 ```
 
 ### MCP Tools
@@ -993,18 +1696,28 @@ class GluonBotCore:
 
 ```python
 class GitManager:
-    def __init__(
-        self,
-        store: GluonStore,
-        sync_interval: int = 300,
-    ):
-        """Initialize git manager."""
+    def __init__(self, store: GluonStore):
+        """
+        Initialize git manager.
+
+        Args:
+            store: GluonStore instance for persisting git status
+        """
 
     async def refresh_status(self, project: Project) -> GitStatus:
-        """Refresh and return git status for a project."""
+        """
+        Refresh and return git status for a project.
+
+        Queries the git repository and updates cached status in database.
+        Returns the current GitStatus.
+        """
 
     async def pre_task_sync(self, project: Project) -> GitSyncResult:
-        """Pre-task sync: auto-commit, fetch, fast-forward."""
+        """
+        Pre-task sync: auto-commit uncommitted changes, fetch, and fast-forward.
+
+        Called before task execution to ensure clean working state.
+        """
 
     async def post_task_sync(
         self,
@@ -1013,7 +1726,12 @@ class GitManager:
         session_id: str | None = None,
         run_id: str | None = None,
     ) -> GitSyncResult:
-        """Post-task sync: commit and push."""
+        """
+        Post-task sync: commit all changes and push to remote.
+
+        Called after task execution to persist changes.
+        Captures commit and file snapshots for later reference.
+        """
 
     async def start_background_sync(self) -> None:
         """Start background fetch loop for all projects."""
@@ -1022,13 +1740,4 @@ class GitManager:
         """Stop background sync."""
 ```
 
-### GitSyncResult
-
-```python
-@dataclass
-class GitSyncResult:
-    success: bool
-    action: str           # 'none', 'commit', 'fetch', 'pull', 'push'
-    message: str
-    error: str | None = None
-```
+Note: `GitSyncResult` is documented in the Models section above.
