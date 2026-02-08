@@ -5,6 +5,12 @@
 
 AI orchestrator for managing multiple Claude Code agents across projects. Run AI-powered coding tasks with session persistence, git worktree isolation, and real-time monitoring via web dashboard or chat interface (Telegram, Discord). It runs in a containerized Docker environment each instance of the agent is isolated with bubblewrap sandboxing.
 
+![Kanban board](docs/screenshots/gluon_kanban.png)
+
+![Task review](docs/screenshots/gluon_task_review.png)
+
+> See all screenshots in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)
+
 ## Why Gluon?
 
 **Run multiple AI coding agents in parallel**, each in isolated git branches, while monitoring progress from a single dashboard. Deploy with Docker for containerized execution - AI agents run in isolated environments, keeping your host system secure. Perfect for:
@@ -306,6 +312,7 @@ gluon run myapp 'Redesign database schema' --model opus
 | [Docker](docs/DOCKER.md) | Container deployment |
 | [Architecture](docs/ARCHITECTURE.md) | System architecture and data models |
 | [API Reference](docs/API.md) | REST and WebSocket API |
+| [Screenshots](docs/SCREENSHOTS.md) | Web UI and mobile PWA gallery |
 | [Development](docs/DEVELOPMENT.md) | Contributing and extending |
 
 ## Data Storage
