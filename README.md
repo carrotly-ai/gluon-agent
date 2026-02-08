@@ -22,13 +22,13 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 ## Features
 
-### Core Capabilities
+### Core Capabilities ([CLI Reference](docs/CLI-REFERENCE.md))
 - **Multi-Project Management** - Register projects and workspaces, run tasks across your entire codebase
 - **Session Resume** - Continue Claude sessions with follow-up prompts, keeping full context
 - **Unified Task Tracking** - All tasks visible across all interfaces (CLI, Web, Telegram, Discord)
 - **Model Selection** - Choose between Haiku (fast), Sonnet (balanced), or Opus (complex tasks)
 
-### Security & Isolation
+### Security & Isolation ([Docker](docs/DOCKER.md))
 - **OS-Level Sandboxing** - Each agent runs inside a [bubblewrap](https://github.com/containers/bubblewrap) sandbox (Linux) or `sandbox-exec` (macOS), restricting filesystem access to the git worktree
 - **Git Worktree Isolation** - Every task operates in its own worktree so agents never touch your main branch or other tasks' files
 - **Minimal Docker Runtime** - `python:3.12-slim-bookworm` base with non-root `gluon` user; no full host filesystem access
@@ -37,7 +37,7 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - **Sandbox-Aware Tool Approval** - When sandboxed, bash commands are auto-approved (the sandbox enforces boundaries), while git is excluded from the sandbox to allow commits and pushes
 - **Resource Limits** - Docker Compose enforces CPU and memory caps (default 8 CPU / 12 GB) to prevent runaway agents from starving the host
 
-### Web Dashboard
+### Web Dashboard ([docs](docs/WEB-DASHBOARD.md) · [screenshots](docs/SCREENSHOTS.md))
 - **Kanban Board** - Drag-and-drop task management with Queue, Running, Review, and Done columns
 - **Real-Time Log Streaming** - WebSocket-powered live log output with collapsible tool call visualization
 - **Run Details Modal** - View messages, tool calls, commits, file diffs, and attachments
@@ -53,14 +53,14 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - **Animated Offline Indicator** - Friendly visual feedback when connection lost
 - **Update Notifications** - Banner alerts when new version is available
 
-### Git Integration
+### Git Integration ([docs](docs/GIT-OPERATIONS.md))
 - **Worktree Isolation** - Each task runs in its own git branch without affecting main
 - **PR Integration** - Create PRs directly from the dashboard with one click
 - **Conflict Detection** - Automatic detection of merge conflicts with file-level details
 - **AI Conflict Resolution** - One-click to have Claude rebase and resolve merge conflicts
 - **Local & Remote Support** - Works with both GitHub repos and local-only repositories
 
-### Chat Bot Features
+### Chat Bot Features ([Telegram](docs/TELEGRAM-BOT.md) · [Discord](docs/DISCORD-BOT.md))
 - **Natural Language Interface** - Chat with Gluon using natural language commands
 - **40+ MCP Tools** - Comprehensive tools for project, git, branch, and conflict management
 - **Discord DM Support** - Run tasks via direct messages with project specifiers (`project:myapp`)
@@ -68,7 +68,7 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - **Channel Topic Config** - Configure default project and model via Discord channel topics
 - **Tool Call Visualization** - See agent tool calls in real-time during execution
 
-### Ralph Loop (Autonomous Mode)
+### Ralph Loop (Autonomous Mode) ([docs](docs/RALPH-LOOP.md))
 - **Autonomous Execution** - Claude works continuously until task completion
 - **Completion Detection** - RALPH_STATUS blocks, keyword matching, TODO file parsing
 - **Circuit Breaker** - 3-state machine prevents runaway loops (CLOSED → HALF_OPEN → OPEN)
@@ -121,7 +121,7 @@ uv pip install -e '.[discord]'       # Discord bot
 uv pip install -e '.[all]'           # All features
 ```
 
-## Quick Start
+## Quick Start ([CLI Reference](docs/CLI-REFERENCE.md))
 
 ### 1. Register a Project
 
@@ -160,7 +160,7 @@ gluon logs <run-id>
 gluon logs <run-id> -f  # Follow live
 ```
 
-## Web Dashboard
+## Web Dashboard ([docs](docs/WEB-DASHBOARD.md) · [API](docs/API.md))
 
 ```bash
 gluon web
@@ -183,7 +183,7 @@ The dashboard provides:
 - Cost and token usage
 - One-click PR creation and merge
 
-## Chat Bots
+## Chat Bots ([Telegram](docs/TELEGRAM-BOT.md) · [Discord](docs/DISCORD-BOT.md))
 
 ### Telegram
 
@@ -228,7 +228,7 @@ docker-compose up -d
 
 See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions.
 
-## Architecture
+## Architecture ([docs](docs/ARCHITECTURE.md))
 
 ```mermaid
 graph TB
@@ -362,6 +362,6 @@ This enables monitoring and managing AI coding tasks from your phone, tablet, or
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## Contributing
+## Contributing ([docs](docs/DEVELOPMENT.md))
 
 Contributions are welcome! Please read [DEVELOPMENT.md](docs/DEVELOPMENT.md) for guidelines.
