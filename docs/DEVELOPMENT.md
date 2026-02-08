@@ -318,6 +318,219 @@ class SlackTransport(Transport):
 6. Add optional dependency in `pyproject.toml`
 7. Export in `transport/__init__.py`
 
+### 8. Adding Webhook Handlers
+
+Webhook handlers process external events (e.g., GitHub PR events) and trigger tasks:
+
+```python
+# In webhooks/github.py
+
+from gluon.webhooks.base import WebhookHandler, WebhookEvent
+
+class GitHubWebhookHandler(WebhookHandler):
+    def __init__(self, secret: str | None = None):
+        self.secret = secret  # For signature validation
+
+    @property
+    def name(self) -> str:
+        return "github"
+
+    async def validate_signature(self, payload: bytes, signature: str) -> bool:
+        """Validate GitHub webhook signature (HMAC-SHA256)."""
+        if not self.secret:
+            return False
+        import hmac
+        import hashlib
+        expected = "sha256=" + hmac.new(
+            self.secret.encode(),
+            payload,
+            hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature)
+
+    async def parse_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> WebhookEvent | None:
+        """Parse GitHub webhook event."""
+        # Return None to skip this event
+        if event_type not in ("pull_request", "push"):
+            return None
+
+        repo = payload.get("repository", {}).get("name")
+        if not repo:
+            return None
+
+        prompt = self.generate_prompt(event_type, payload)
+        return WebhookEvent(
+            handler="github",
+            event_type=event_type,
+            project_hint=repo,
+            prompt=prompt,
+            source_ref=payload.get("pull_request", {}).get("head", {}).get("ref"),
+            author=payload.get("sender", {}).get("login"),
+            url=payload.get("pull_request", {}).get("html_url")
+                or payload.get("head_commit", {}).get("url"),
+        )
+
+    def _default_prompt(self, event_type: str, payload: dict[str, Any]) -> str:
+        """Generate default prompt based on event type."""
+        if event_type == "pull_request":
+            action = payload.get("action")
+            return f"GitHub PR {action}: {payload.get('pull_request', {}).get('title', 'Untitled')}"
+        elif event_type == "push":
+            return f"New commits on {payload.get('ref', 'main')}: {payload.get('head_commit', {}).get('message', '')}"
+        return "GitHub webhook event"
+
+    def _get_repo_name(self, payload: dict[str, Any]) -> str | None:
+        return payload.get("repository", {}).get("name")
+
+    def _get_branch(self, payload: dict[str, Any]) -> str | None:
+        return payload.get("pull_request", {}).get("head", {}).get("ref")
+
+    def _get_author(self, payload: dict[str, Any]) -> str | None:
+        return payload.get("sender", {}).get("login")
+
+    def _get_title(self, payload: dict[str, Any]) -> str | None:
+        return payload.get("pull_request", {}).get("title")
+
+    def _get_body(self, payload: dict[str, Any]) -> str | None:
+        return payload.get("pull_request", {}).get("body")
+
+    def _get_url(self, payload: dict[str, Any]) -> str | None:
+        return payload.get("pull_request", {}).get("html_url") \
+            or payload.get("head_commit", {}).get("url")
+```
+
+**Key steps:**
+1. Create handler subclass from `WebhookHandler` in `webhooks/`
+2. Implement all abstract methods (validation, parsing, extraction)
+3. Use `generate_prompt()` for flexible prompt templates
+4. Return `WebhookEvent | None` (None to skip)
+5. Register in web API at `/webhooks/{handler_name}`
+
+### 9. Using Model Configuration
+
+Select models for different task complexities using `models_config.py`:
+
+```python
+from gluon.models_config import ModelTier, get_model_id, describe_models
+
+# Get model ID for a specific tier
+model_id = get_model_id("opus-4.6")  # or ModelTier.OPUS_46
+model_id = get_model_id("sonnet")    # Sonnet 4.5
+model_id = get_model_id("haiku")     # Haiku 4.5
+
+# Handle UI names (from web dashboard)
+model_id = get_model_id("claude-opus-4.6")  # Resolves to opus-4.6 tier
+model_id = get_model_id("claude-haiku-4.5")
+
+# Full model IDs passed through unchanged
+model_id = get_model_id("global.anthropic.claude-opus-4-6-v1")
+
+# Show available models
+print(describe_models())
+```
+
+Available tiers:
+- `opus-4.6` - Latest Opus (most capable, default for complex tasks)
+- `opus-4.5` - Previous Opus generation
+- `sonnet` - Balanced performance (default for general tasks)
+- `haiku` - Fast and lightweight (for simple tasks)
+
+### 10. Managing Log Cleanup and Retention
+
+Configure log retention policies via `LogCleanupService`:
+
+```python
+from gluon.cleanup import LogCleanupService
+
+# Initialize service
+cleanup = LogCleanupService(store, log_dir=Path.home() / ".gluon" / "logs")
+
+# Run cleanup (removes logs based on run status and retention policy)
+removed_count, freed_bytes = cleanup.run()
+
+# Analyze disk usage
+stats = cleanup.get_disk_usage()
+print(f"Total: {stats['total_bytes']} bytes across {stats['run_count']} runs")
+for run_id, bytes_used in stats['top_runs'][:5]:
+    print(f"  {run_id}: {bytes_used} bytes")
+```
+
+**Retention policies:**
+- **Orphan logs** (no DB record): Deleted immediately
+- **Archived runs**: Logs deleted 30 days after completion
+- **Failed runs**: Logs deleted 7 days after completion
+- **Completed runs** (non-archived): Logs deleted 30 days after completion
+
+### 11. Implementing Supervision Policies
+
+Control auto-resume behavior with supervision policies:
+
+```python
+from gluon.policies import evaluate_policy, PolicyContext
+
+# Create context with run state
+ctx = PolicyContext(
+    run=execution_run,
+    circuit_state=current_circuit_state,
+    calls_this_hour=42,
+    max_calls_per_hour=100,
+    total_cost_usd=15.50,
+    max_cost_usd=50.0,
+    completion_confidence=0.75,
+    now=datetime.now(UTC),
+)
+
+# Evaluate policy
+decision = evaluate_policy(ctx)
+if decision.should_resume:
+    print(f"Resume: {decision.reason}")
+    if decision.wait_seconds > 0:
+        await asyncio.sleep(decision.wait_seconds)
+else:
+    print(f"Block: {decision.reason}")
+```
+
+**Policies** (in `models.py` `SupervisionPolicy` enum):
+- `AGGRESSIVE` - Resume on any significant progress
+- `CONSERVATIVE` - Resume only if strong confidence and safe cost
+- `MANUAL` - Require explicit user confirmation
+
+### 12. Using the Job Queue (Redis)
+
+Distribute tasks across workers with Redis queue:
+
+```python
+from gluon.queue.redis_queue import RedisJobQueue
+
+# Initialize and connect
+queue = RedisJobQueue(redis_url="redis://localhost:6379/0")
+await queue.connect()
+
+# Enqueue a job
+job_id = await queue.enqueue(
+    prompt="Analyze this codebase",
+    project_id="my-project",
+    priority=10,
+    metadata={"user_id": "user123"},
+)
+
+# Dequeue and execute (worker-side)
+job = await queue.dequeue(worker_id="worker1", timeout=5)
+if job:
+    # Process job...
+    await queue.mark_complete(job.id, result={"status": "done"})
+
+# Listen for job updates
+def on_update(update: dict):
+    print(f"Job {update['job_id']}: {update['status']}")
+
+await queue.subscribe_updates(on_update)
+```
+
 ## Testing
 
 ### Running Tests
@@ -340,11 +553,14 @@ uv run pytest -v
 
 ```python
 # tests/test_new_feature.py
+import asyncio
 import tempfile
+from datetime import datetime
 from pathlib import Path
 import pytest
 from gluon.store import GluonStore
 from gluon.core import Orchestrator
+from gluon.models import Workspace, Project, Session
 
 @pytest.fixture
 def temp_db():
@@ -358,12 +574,70 @@ def store(temp_db):
     """Create store with temp database."""
     return GluonStore(db_path=temp_db)
 
-def test_feature(store):
-    """Test description."""
+@pytest.fixture
+def orchestrator(store):
+    """Create orchestrator with temp store."""
+    return Orchestrator(store)
+
+# Synchronous test
+def test_create_project(store):
+    """Test project creation."""
     # Arrange
+    workspace = store.create_workspace(path=Path("/tmp/workspace"))
+
     # Act
+    project = store.create_project(
+        workspace_id=workspace.id,
+        name="test-project",
+        path=Path("/tmp/workspace/test-project"),
+    )
+
     # Assert
+    assert project.name == "test-project"
+    assert project.workspace_id == workspace.id
+    retrieved = store.get_project(project.id)
+    assert retrieved.id == project.id
+
+# Async test
+@pytest.mark.asyncio
+async def test_execute_task(orchestrator):
+    """Test async task execution."""
+    # Arrange
+    workspace = orchestrator.store.create_workspace(path=Path("/tmp/ws"))
+    project = orchestrator.store.create_project(
+        workspace_id=workspace.id,
+        name="async-test",
+        path=Path("/tmp/ws/async-test"),
+    )
+
+    # Act
+    run = orchestrator.create_session(
+        project_name="async-test",
+        prompt="Echo: hello",
+    )
+
+    # Assert
+    assert run.status.value in ("pending", "active")
+
+# Parametrized tests
+@pytest.mark.parametrize("model,expected", [
+    ("opus-4.6", "global.anthropic.claude-opus-4-6-v1"),
+    ("sonnet", "global.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+    ("haiku", "global.anthropic.claude-haiku-4-5-20251001-v1:0"),
+])
+def test_model_resolution(model, expected):
+    """Test model ID resolution."""
+    from gluon.models_config import get_model_id
+    assert get_model_id(model) == expected
 ```
+
+**Testing best practices:**
+- Use `pytest` fixtures for setup/teardown
+- Create fresh database per test with `temp_db`
+- Mark async tests with `@pytest.mark.asyncio`
+- Use parametrize for testing multiple inputs
+- Test error paths, not just happy paths
+- Mock external dependencies (Claude SDK, Redis, etc.)
 
 ## Common Development Tasks
 
@@ -461,6 +735,76 @@ def scan_for_projects(self) -> list[Path]:
     return projects
 ```
 
+### Integrating with Git Manager
+
+For operations that involve git workflows:
+
+```python
+from gluon.git_manager import GitManager
+from gluon.worktree import WorktreeManager
+
+# Initialize managers
+git_mgr = GitManager(project_path)
+wt_mgr = WorktreeManager(project_path)
+
+# Create isolated worktree for a run
+worktree_path = await wt_mgr.create_worktree(
+    base_branch="main",
+    worktree_id="run-123"
+)
+
+# Sync from remote
+await git_mgr.start_background_sync()
+status = await git_mgr.fetch_all()
+
+# Cleanup on completion
+await wt_mgr.cleanup_worktree(worktree_id="run-123")
+```
+
+### Working with Images and Attachments
+
+Handle image storage and retrieval:
+
+```python
+from gluon.image_storage import ImageStorage
+
+# Initialize storage
+storage = ImageStorage(base_dir=Path.home() / ".gluon" / "images")
+
+# Store image (auto SHA256 deduplication)
+image_id = storage.store_image(image_bytes)
+
+# Retrieve image
+image_bytes = storage.get_image(image_id)
+
+# Attach to run
+run.add_image_attachment(image_id, label="screenshot")
+```
+
+### Using Circuit Breaker for Safety
+
+Protect against runaway tasks with circuit breaker:
+
+```python
+from gluon.circuit_breaker import CircuitBreaker, CircuitState
+
+breaker = CircuitBreaker(
+    failure_threshold=3,
+    recovery_timeout_seconds=300,
+    half_open_max_calls=1,
+)
+
+# Check state before executing
+if breaker.state == CircuitState.OPEN:
+    raise Exception("Circuit breaker is open - task blocked")
+
+# Record result
+if task_failed:
+    breaker.record_failure()
+else:
+    breaker.record_success()
+```
+
 ## Debugging Tips
 
 ### Check Database Contents
@@ -475,6 +819,12 @@ sqlite3 ~/.gluon/gluon.db
 SELECT * FROM projects;
 SELECT * FROM sessions WHERE status = 'active';
 SELECT * FROM workspaces;
+SELECT * FROM execution_runs WHERE status = 'REVIEW' OR status = 'FAILED';
+SELECT * FROM ralph_iterations WHERE run_id = 'run-abc123';
+
+# Check disk usage
+SELECT COUNT(*) as log_count FROM execution_runs;
+SELECT AVG(cost_usd) as avg_cost FROM execution_runs WHERE status = 'COMPLETED';
 ```
 
 ### Reset Database
@@ -487,16 +837,47 @@ rm ~/.gluon/gluon.db
 uv run gluon status
 ```
 
-### Debug Claude Agent
+### Debug Claude Agent Execution
 
 ```python
-# Add logging in agent.py
+# Add logging in agent.py or chat_agent.py
 import logging
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-# Or inspect messages:
-async for msg in client.receive_response():
-    print(f"DEBUG: {type(msg).__name__}: {msg}")
+# Or inspect messages via CLI:
+uv run gluon logs <run-id> -s messages  # View structured JSON messages
+uv run gluon logs <run-id> -f           # Follow in real-time
+
+# Check run details
+uv run gluon runs --verbose
+uv run gluon runs <run-id> --detail
+```
+
+### Inspect Worktrees
+
+```bash
+# Check created worktrees
+cd ~/.gluon/worktrees
+git worktree list
+
+# Manual cleanup if needed
+git worktree prune
+```
+
+### Redis Queue Debugging
+
+```bash
+# Connect to Redis
+redis-cli -u redis://localhost:6379/0
+
+# Inspect queue state
+ZRANGE gluon:jobs:queue 0 -1 WITHSCORES  # View job queue
+SMEMBERS gluon:worker:worker1:jobs        # Jobs assigned to worker
+HGETALL gluon:job:job-abc123              # Job details
+
+# Monitor updates
+SUBSCRIBE gluon:jobs:updates
 ```
 
 ### Test Telegram Bot Locally
@@ -507,7 +888,177 @@ export GLUON_TELEGRAM_TOKEN="your-test-token"
 export GLUON_TELEGRAM_USERS="your-user-id"
 
 # Run with debug output
-uv run gluon bot
+PYTHONASYNCDEBUG=1 uv run gluon bot
+
+# Check bot logs
+tail -f ~/.gluon/logs/*/stdout.log
+```
+
+### Monitor Web Dashboard
+
+```bash
+# Start web server
+uv run gluon web
+
+# View API logs
+tail -f ~/.gluon/supervisor.log
+
+# Test endpoints
+curl http://localhost:8000/api/projects
+curl http://localhost:8000/api/runs?status=ACTIVE
+```
+
+### Check Supervisor Daemon
+
+```bash
+# Check if running
+uv run gluon supervisor status
+
+# View daemon logs
+tail -f ~/.gluon/supervisor.log
+
+# Kill and restart
+uv run gluon supervisor stop
+uv run gluon supervisor start --foreground  # Run in foreground for debugging
+```
+
+### Inspect Completion Detection
+
+```python
+from gluon.completion_detector import parse_ralph_status
+
+# Test status parsing
+status = parse_ralph_status("RALPH_STATUS: COMPLETE with high confidence")
+print(f"Complete: {status.is_complete}, Confidence: {status.confidence}")
+```
+
+## Advanced Patterns
+
+### RALPH Loop (Autonomous Execution)
+
+For autonomous multi-turn task execution:
+
+```python
+from gluon.ralph_manager import RalphLoopManager
+
+# Initialize RALPH manager
+ralph = RalphLoopManager(
+    orchestrator=orchestrator,
+    max_iterations=10,
+    max_cost_per_loop=10.0,
+)
+
+# Run autonomous loop
+iterations = await ralph.run(
+    project_id="my-project",
+    initial_prompt="Implement feature X",
+    supervision_config=SupervisionConfig(
+        policy=SupervisionPolicy.AGGRESSIVE,
+        auto_resume=True,
+    ),
+)
+
+# Access iteration results
+for iteration in iterations:
+    print(f"Iteration {iteration.number}:")
+    print(f"  Status: {iteration.status}")
+    print(f"  Cost: ${iteration.cost_usd}")
+    print(f"  Output: {iteration.output}")
+```
+
+### Rate Limiting and Cost Controls
+
+Prevent runaway costs with rate limiting:
+
+```python
+from gluon.rate_limiter import RateLimiter
+
+limiter = RateLimiter(
+    max_calls_per_hour=100,
+    max_cost_per_hour=50.0,
+)
+
+# Check before executing
+remaining = limiter.calls_remaining_this_hour()
+if remaining <= 0:
+    raise Exception("Rate limit exceeded")
+
+# Record cost after execution
+limiter.record_call(cost_usd=1.50)
+
+# Get usage stats
+stats = limiter.get_hourly_stats()
+print(f"Used: {stats['calls']} calls, ${stats['cost']:.2f}")
+```
+
+### Resume Coordination
+
+Auto-resume REVIEW tasks with smart polling:
+
+```python
+from gluon.resume_coordinator import ResumeCoordinator
+
+coordinator = ResumeCoordinator(
+    store=store,
+    check_interval_seconds=10,
+    policy_engine=policy_engine,
+)
+
+# Start background polling
+coordinator.start()
+
+# Manually trigger review resolution (after user approves in UI)
+await coordinator.resolve_review(
+    run_id="run-abc123",
+    action="RESUME",  # or "CANCEL"
+    user_notes="Looks good, proceed",
+)
+
+# Stop polling
+coordinator.stop()
+```
+
+### PR Monitoring and Status Updates
+
+Track PR status for run completion:
+
+```python
+from gluon.pr_monitor import PRMonitor
+
+monitor = PRMonitor(orchestrator=orchestrator)
+
+# Register PR for monitoring
+await monitor.watch_pr(
+    run_id="run-abc123",
+    repo_owner="carrotly-ai",
+    repo_name="gluon-agent",
+    pr_number=42,
+)
+
+# Check status periodically
+status = await monitor.check_pr_status(run_id="run-abc123")
+print(f"PR status: {status.state}")  # OPEN, CLOSED, MERGED
+
+# Webhook will auto-update run status on PR events
+```
+
+### Distributed Task Execution with Supervisor
+
+Run tasks in background with automatic supervision:
+
+```bash
+# Start supervisor daemon (runs in background)
+uv run gluon supervisor start
+
+# Submit task for background execution
+uv run gluon run myproject "fix the bug" --background
+
+# Supervisor auto-resumes REVIEW tasks based on policy
+# View status in UI or CLI
+uv run gluon runs --active
+
+# Supervisor logs
+tail -f ~/.gluon/supervisor.log
 ```
 
 ## Code Style
@@ -530,7 +1081,7 @@ uv run mypy src/gluon
 
 ## Dependencies
 
-Key dependencies and their purposes:
+Core dependencies and their purposes:
 
 | Package | Purpose |
 |---------|---------|
@@ -538,22 +1089,26 @@ Key dependencies and their purposes:
 | `typer` | CLI framework |
 | `rich` | Beautiful terminal output |
 | `pydantic` | Data validation |
-| `python-telegram-bot` | Telegram bot (optional) |
-| `discord.py` | Discord bot (optional) |
+| `python-telegram-bot` | Telegram bot transport |
 | `python-dotenv` | Environment variables |
 | `anyio` | Async runtime |
+| `redis[hiredis]` | Job queue and task distribution |
 
 **Optional Dependencies:**
 ```bash
-# Install with Telegram support
-pip install 'gluon-agent[telegram]'
-
 # Install with Discord support
 pip install 'gluon-agent[discord]'
 
-# Install with all transports
+# Install with web dashboard
+pip install 'gluon-agent[web]'
+
+# Install with all features
 pip install 'gluon-agent[all]'
 ```
+
+**Web dashboard** requires:
+- `fastapi>=0.115.0` - REST API and WebSocket
+- `uvicorn[standard]>=0.32.0` - ASGI server
 
 ## Environment Setup
 
@@ -562,20 +1117,40 @@ pip install 'gluon-agent[all]'
 - Claude Code CLI installed and authenticated
 - `uv` package manager
 - AWS credentials for Bedrock (for Claude models)
+- Git with configured user.name and user.email
 
 ### For Telegram Bot
 - Telegram bot token from @BotFather
 - User IDs for access control
-- Environment: `GLUON_TELEGRAM_TOKEN`, `GLUON_TELEGRAM_USERS`
+- Environment variables:
+  - `GLUON_TELEGRAM_TOKEN` - Bot token
+  - `GLUON_TELEGRAM_USERS` - Comma-separated allowed user IDs
 
 ### For Discord Bot
 - Discord bot token from Discord Developer Portal
 - Guild (server) ID
 - Enable MESSAGE CONTENT INTENT in bot settings
-- Environment: `GLUON_DISCORD_TOKEN`, `GLUON_DISCORD_GUILD`, `GLUON_DISCORD_USERS`
+- Environment variables:
+  - `GLUON_DISCORD_TOKEN` - Bot token
+  - `GLUON_DISCORD_GUILD` - Guild (server) ID
+  - `GLUON_DISCORD_USERS` - Comma-separated allowed user IDs
 
-### Files
-- `~/.gluon/gluon.db` - SQLite database
-- `~/.gluon/logs/` - Background run logs
-- `~/.gluon/.env` - Global environment config
-- `.env.local` - Local environment overrides
+### For Web Dashboard (FastAPI)
+- Redis connection (for job queue)
+- Environment variables:
+  - `GLUON_REDIS_URL` - Redis connection URL (default: redis://localhost:6379/0)
+  - `GLUON_UVICORN_HOST` - Server host (default: 0.0.0.0)
+  - `GLUON_UVICORN_PORT` - Server port (default: 8000)
+
+### For Webhooks
+- Webhook secret for signature validation
+- Environment variables:
+  - `GLUON_GITHUB_WEBHOOK_SECRET` - GitHub webhook signing key
+
+### Storage & Logging
+- `~/.gluon/gluon.db` - SQLite database (auto-initialized)
+- `~/.gluon/logs/` - Background run logs (organized by run_id)
+- `~/.gluon/supervisor.pid` - Supervisor daemon PID file
+- `~/.gluon/supervisor.log` - Supervisor daemon logs
+- `~/.claude/` - Claude CLI credentials (auto-mounted in Docker)
+- `~/.aws/` - AWS credentials for Bedrock access

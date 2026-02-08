@@ -1,6 +1,6 @@
 # Discord Bot
 
-Run Gluon as a Discord bot with channel-based project mapping, DM support, and real-time task streaming.
+Run Gluon as a Discord bot with channel-based project mapping, DM support, real-time task streaming, and message-based session resume.
 
 ## Installation
 
@@ -21,8 +21,10 @@ pip install 'gluon-agent[all]'
 5. Enable "MESSAGE CONTENT INTENT" in Bot settings
 6. Go to "OAuth2" → "URL Generator"
 7. Select scopes: `bot`, `applications.commands`
-8. Select permissions: `Send Messages`, `Create Public Threads`, `Read Message History`
+8. Select permissions: `Send Messages`, `Read Message History`
 9. Copy the generated URL and open it to invite the bot to your server
+
+Note: `Create Public Threads` is optional - message-based resume uses message replies instead.
 
 ## Run the Bot
 
@@ -43,7 +45,8 @@ gluon discord --token "token" --guild 123456789
 
 ## Commands
 
-Mention the bot (`@GluonBot`) in channels or send direct messages:
+### Channel Commands
+Mention the bot (`@GluonBot`) in channels:
 
 | Command | Description |
 |---------|-------------|
@@ -51,24 +54,57 @@ Mention the bot (`@GluonBot`) in channels or send direct messages:
 | `@GluonBot projects` | List registered projects |
 | `@GluonBot runs` | List your runs |
 | `@GluonBot status` | Show overall status |
-| `@GluonBot cancel [run_id]` | Cancel a run |
+| `@GluonBot models` | List available models |
+| `@GluonBot cancel [run_id]` | Cancel a run (or last active if not specified) |
+| `@GluonBot help` | Show command help |
 | `@GluonBot <any task>` | Execute task on the linked project |
+
+### Direct Message (DM) Commands
+Send commands directly to the bot (no @mention required):
+
+| Command | Description |
+|---------|-------------|
+| `project:myapp <task>` | Run task on specified project (task mode) |
+| `<any message>` | Chat naturally (chat mode) |
+| `projects` | List registered projects |
+| `runs` | List your runs |
+| `status` | Show overall status |
+| `models` | List available models |
+| `cancel [run_id]` | Cancel a run |
+| `clear` | Clear conversation history |
+| `help` | Show DM-specific help |
 
 ## Direct Messages (DM Support)
 
-You can interact with Gluon via direct messages. Since DMs aren't associated with a channel, use project specifiers:
+Gluon DMs support two modes:
+
+### Task Mode
+Execute a task on a specific project using project specifiers:
 
 ```
 # Project prefix syntax
 project:myapp Fix the login bug
 p:myapp Add user authentication
 
-# Flag syntax
+# Flag syntax (also supported)
 Fix the login bug --project myapp
 Fix the login bug -p myapp
 ```
 
-DM conversations maintain chat mode context, allowing natural follow-up questions without repeating the project name.
+### Chat Mode
+Chat naturally without a project specifier. The chat agent will:
+- Answer questions about your projects
+- Help with planning and analysis
+- Suggest tasks if appropriate
+- Maintain conversation history across messages
+
+```
+What projects do I have?
+Help me plan the authentication feature
+What would fix this bug?
+```
+
+Chat conversations maintain context, allowing natural follow-up questions. Use `clear` to reset history.
 
 ## Model Selection
 
@@ -88,25 +124,31 @@ Specify model tier using the `--model` or `-m` flag in your prompt:
 
 ## Channel Topic Configuration
 
-Configure default project and model by adding markers to your channel topic:
+Configure default project and model by adding flags to your channel topic:
 
 ```
-Project: myapp | Model: opus
+--project myapp --model opus
 ```
 
 Supported formats:
-- `Project: myapp` or `project:myapp`
-- `Model: opus` or `model:opus`
+- `--project myapp` or `-p myapp`
+- `--model opus` or `-m opus`
 
-This allows the channel to auto-link to a project and use a specific model without explicit flags.
+Examples:
+```
+Our dev channel --project myapp --model sonnet
+Production fixes --project prod-api -m opus
+```
+
+This allows the channel to auto-link to a project and use a specific model without explicit flags in every message.
 
 ## Channel-Project Mapping
 
-Discord channels map to projects in multiple ways:
+Discord channels map to projects in multiple ways (in priority order):
 
-1. **Channel topic** - Set `project:myapp` in the channel topic (see above)
-2. **Auto-match** - Channel name matches project name (e.g., `#myapp` → `myapp` project)
-3. **Explicit link** - Use `@GluonBot link <project>` to bind any channel
+1. **Channel topic** - Set `--project myapp` in the channel topic (see Channel Topic Configuration above)
+2. **Explicit link** - Use `@GluonBot link <project>` to bind any channel (persisted in DB)
+3. **Auto-match** - Channel name matches project name (e.g., `#myapp` → `myapp` project)
 
 Once linked, all @mentions execute tasks on that project automatically.
 
@@ -141,21 +183,28 @@ flowchart TD
 Task execution uses Discord's reply feature for session continuity:
 
 - Initial message shows task status and run ID
-- Progress updates sent as follow-up messages
+- Progress updates sent as follow-up messages (every 2 seconds)
+- Tool calls are displayed in real-time (e.g., `🔧 Bash(command...)`)
 - Completion message is edited with final status and "💬 Reply to continue" hint
 - **Reply to any completion message to resume that session**
+
+The session persistence is tracked in the database, so you can:
+- Resume across multiple replies
+- Resume even after the bot restarts
+- Maintain conversation context
 
 ```mermaid
 flowchart TD
     subgraph "Discord Channel: #myapp"
-        MSG1["🚀 Starting task on myapp<br/>Run: abc12345<br/>Status: Running..."]
-        MSG1 -->|progress| P1["Agent output..."]
-        P1 -->|edited| MSG2["✅ myapp - abc12345<br/><i>Fix the login bug...</i><br/>💬 Reply to continue"]
+        MSG1["🚀 Starting task on myapp (sonnet)<br/>Run: abc12345<br/>Status: Running..."]
+        MSG1 -->|progress| P1["🔧 Bash(npm test...)<br/>🔧 Edit(src/app.ts)"]
+        P1 -->|edited| MSG2["✅ myapp (sonnet) - abc12345<br/><i>Fix the login bug...</i><br/>💬 Reply to continue"]
 
         subgraph "Resume Flow"
             MSG2 -->|user replies| REPLY["↩️ Also add tests"]
-            REPLY --> MSG3["🔄 Resuming session on myapp<br/>Run: def67890"]
-            MSG3 -->|edited| MSG4["✅ myapp - def67890<br/><i>Also add tests</i><br/>💬 Reply to continue"]
+            REPLY --> MSG3["🔄 Resuming session on myapp<br/>Run: def67890<br/>Status: Running..."]
+            MSG3 -->|progress| P2["🔧 Bash(npm test...)"]
+            P2 -->|edited| MSG4["✅ myapp - def67890<br/><i>Also add tests</i><br/>💬 Reply to continue"]
         end
     end
 
@@ -222,17 +271,24 @@ sequenceDiagram
 
 ## Real-Time Tool Call Display
 
-During task execution, the bot displays agent tool calls in real-time:
+During task execution, the bot displays agent tool calls in real-time for visibility:
 
 ```
-🔄 Running task on myapp...
-🔧 Bash: Running tests
-🔧 Edit: Fixing test file
-🔧 Bash: Running tests again
-✅ Task completed!
+🔧 `Bash(npm test)`
+🔧 `Edit(src/app.ts)`
+🔧 `Read(package.json)`
+🔧 `Bash(git diff)`
 ```
 
-This provides visibility into what the agent is doing without overwhelming the chat with full output.
+Common tool displays:
+- `🔧 Bash(command...)` - Bash command execution
+- `🔧 Edit(filepath)` - File editing
+- `🔧 Read(filepath)` - File reading
+- `🔧 Glob(pattern)` - File pattern search
+- `🔧 Grep(search...)` - Content search
+- `🔧 Write(filepath)` - File writing
+
+Updates are sent approximately every 2 seconds to keep you informed of agent progress without overwhelming the chat.
 
 ## Multi-Transport Mode
 

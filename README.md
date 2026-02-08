@@ -20,6 +20,14 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 - Managing a backlog of AI-assisted tasks across multiple projects
 - Teams wanting visibility into AI-assisted development work
 
+## No really, why the name Gluon?
+
+Because every team needs a fundamental force for getting things (and code) to stick together.
+
+In physics, a gluon is a massless, spin-1 gauge boson — in plain speak, it's the subatomic “glue” holding quarks together, keeping protons, neutrons, and the heart of atoms from flying apart like a badly managed project. Gluons do the heavy lifting in quantum chromodynamics, ensuring that the universe, as well as your software, doesn’t unravel at the seams.
+
+So, like its namesake, Gluon binds together your scattered projects and tasks, orchestrating collaboration with the (strong) force of a particle accelerator and the finesse of quantum mechanics. Strong interaction? That's our vibe.
+
 ## Features
 
 ### Core Capabilities ([CLI Reference](docs/CLI-REFERENCE.md))
@@ -357,6 +365,10 @@ Run Gluon on a home server (e.g., Mac mini) and access it securely from anywhere
 3. Access the dashboard from any device via your Tailscale IP: `http://your-server:45866`
 
 This enables monitoring and managing AI coding tasks from your phone, tablet, or laptop while on the go - with the PWA providing a native app-like experience on mobile.
+
+## Credits & Inspiration
+
+I was an early user of Vibe Kanban ([https://www.vibekanban.com](https://www.vibekanban.com)) and was inspired by the concept of a Kanban board for AI-assisted development. I wanted to create a similar experience for Gluon, but with a focus on multi-project orchestration.
 
 ## License
 
