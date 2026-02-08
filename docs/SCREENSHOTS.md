@@ -20,39 +20,39 @@ New run dialog with slash command autocomplete.
 File picker, profile selection, and execution options (git worktree, Ralph Loop, cost limit).
 ![New run with options](screenshots/gluon_new_autocomplete.png)
 
-## Run Details
+## Task Details
 
-### Active Run — Live Stream
-Active run (sales-forecaster) showing live message stream with tool calls and task list.
-![Active run streaming](screenshots/gluon_project_running.png)
+### Active Task — Live Stream
+Active task (sales-forecaster) showing live message stream with tool calls and task list.
+![Active task streaming](screenshots/gluon_task_running.png)
 
-### Active Run — Todo Checklist
-Active run (invoice-copilot) with todo checklist and live output.
-![Active run with todos](screenshots/gluon_project_todo.png)
+### Active Task — Todo Checklist
+Active task (invoice-copilot) with todo checklist and live output.
+![Active task with todos](screenshots/gluon_task_todo.png)
 
-### Run in Review
-Run in review (doc-summarizer) showing message history with file edits and bash commands.
-![Run in review](screenshots/gluon_project_review.png)
+### Task in Review
+Task in review (doc-summarizer) showing message history with file edits and bash commands.
+![Task in review](screenshots/gluon_task_review.png)
 
 ### Commits
 Commits tab listing files changed with additions/deletions per file.
-![Commits tab](screenshots/gluon_project_commits.png)
+![Commits tab](screenshots/gluon_task_commits.png)
 
 ### File Diffs
 Files tab with inline unified diffs for each changed file.
-![File diffs](screenshots/gluon_project_file_diffs.png)
+![File diffs](screenshots/gluon_task_file_diffs.png)
 
 ### Ralph Loop — Iterations
 Loop tab showing iteration history with files, tokens, cost, and Ralph Status exit signal.
-![Ralph Loop iterations](screenshots/gluon_project_loops.png)
+![Ralph Loop iterations](screenshots/gluon_task_loops.png)
 
 ### Ralph Loop — Complete
-Completed run with Ralph Status summary, task count, file count, and verification result.
-![Ralph Loop complete](screenshots/gluon_project_loop_complete.png)
+Completed task with Ralph Status summary, task count, file count, and verification result.
+![Ralph Loop complete](screenshots/gluon_task_loop_complete.png)
 
-### Completed Run Summary
+### Completed Task Summary
 Rendered markdown output with resume button.
-![Completed run summary](screenshots/gluon_project_summary.png)
+![Completed task summary](screenshots/gluon_task_summary.png)
 
 ## Settings
 
@@ -71,3 +71,25 @@ All projects listed with workspace labels and git branches.
 ### Preferences
 Git worktree, author identity, and sandbox isolation settings.
 ![Preferences](screenshots/gluon_settings.png)
+
+## Mobile PWA
+
+### Kanban Board
+Task cards with Active/Review/Done tabs, loop progress, and cost per run.
+![Mobile kanban](screenshots/gluon_pwa_kanban.jpg)
+
+### Cost Dashboard
+Summary stats (today, weekly, avg/run, avg/day) with per-project cost breakdown.
+![Mobile costs](screenshots/gluon_pwa_costs.jpg)
+
+### New Task
+New task form with project selector, prompt input, profile picker, git worktree and Ralph Loop toggles.
+![Mobile new task](screenshots/gluon_pwa_new_task.jpg)
+
+### Task Review
+Completed task with rendered markdown output, tool call count, and message stream.
+![Mobile task review](screenshots/gluon_pwa_task_review.jpg)
+
+### Settings
+Workspaces tab showing projects with git branch status.
+![Mobile settings](screenshots/gluon_pwa_settings.jpg)
