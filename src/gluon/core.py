@@ -545,6 +545,7 @@ class Orchestrator:
                 max_turns=task_options["max_turns"],
                 max_budget_usd=task_options["max_budget_usd"],
                 force_planning=task_options["force_planning"],
+                user_id=initiator,
             )
 
             # Execute via agent with log file writing

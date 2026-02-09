@@ -1734,16 +1734,11 @@ class GluonChatAgent:
                 action_result=None,
             )
 
-        # Also add to PATH as fallback for SDK internals
-        cli_dir = str(cli_path.parent)
-        current_path = os.environ.get("PATH", "")
-        if cli_dir not in current_path:
-            os.environ["PATH"] = f"{cli_dir}:{current_path}"
-
         # Use Haiku for chat agent (fast, efficient for simple conversational tasks)
         haiku_model = get_model_id(ModelTier.HAIKU)
 
         options = ClaudeAgentOptions(
+            cli_path=str(cli_path),
             system_prompt=SYSTEM_PROMPT,
             mcp_servers={"gluon": server},
             allowed_tools=[
