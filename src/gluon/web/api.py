@@ -1798,8 +1798,6 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         project_path = Path(resolved)
         if not project_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
-        if not project_path.is_dir():
-            raise HTTPException(status_code=400, detail="Path is not a directory")
 
         # Create project
         project = store.create_project(
@@ -1867,8 +1865,6 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         workspace_path = Path(resolved)
         if not workspace_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
-        if not workspace_path.is_dir():
-            raise HTTPException(status_code=400, detail="Path is not a directory")
 
         # Create workspace
         workspace = store.create_workspace(name=body.name, path=workspace_path)
