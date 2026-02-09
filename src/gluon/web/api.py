@@ -1790,8 +1790,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if existing:
             raise HTTPException(status_code=400, detail=f"Project already exists: {body.name}")
 
-        # Check if path exists
-        project_path = Path(body.path)
+        # Resolve and validate path (os.path.realpath breaks CodeQL taint chain)
+        resolved = os.path.realpath(body.path)
+        home_dir = os.path.realpath(str(Path.home()))
+        if not (resolved.startswith(home_dir + os.sep) or resolved == home_dir):
+            raise HTTPException(status_code=400, detail="Path must be under home directory")
+        project_path = Path(resolved)
         if not project_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
 
@@ -1852,8 +1856,13 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if existing:
             raise HTTPException(status_code=400, detail=f"Workspace already exists: {body.name}")
 
-        # Check if path exists (expand env vars like $HOME, ${HOME}, ~)
-        workspace_path = expand_path(body.path)
+        # Resolve and validate path (expand env vars like $HOME, ${HOME}, ~)
+        # os.path.realpath breaks CodeQL taint chain for py/path-injection
+        resolved = os.path.realpath(str(expand_path(body.path)))
+        home_dir = os.path.realpath(str(Path.home()))
+        if not (resolved.startswith(home_dir + os.sep) or resolved == home_dir):
+            raise HTTPException(status_code=400, detail="Path must be under home directory")
+        workspace_path = Path(resolved)
         if not workspace_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
 
@@ -3503,8 +3512,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             if full_path.startswith("api"):
                 raise HTTPException(status_code=404)
 
-            # Try to serve static file first
-            file_path = dist_dir / full_path
+            # Sanitise user path to prevent traversal (os.path.normpath is a
+            # CodeQL-recognised sanitiser for py/path-injection)
+            safe_path = os.path.normpath(full_path)
+            if os.path.isabs(safe_path) or safe_path.startswith(".."):
+                raise HTTPException(status_code=404)
+            file_path = dist_dir / safe_path
             if file_path.is_file():
                 return FileResponse(file_path)
 
