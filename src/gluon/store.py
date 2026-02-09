@@ -1497,9 +1497,11 @@ class GluonStore:
         """List iterations for a ralph-enabled run."""
         with self._get_conn() as conn:
             query = "SELECT * FROM ralph_loop_iterations WHERE run_id = ? ORDER BY loop_number"
-            if limit:
-                query += f" LIMIT {limit}"
-            rows = conn.execute(query, (run_id,)).fetchall()
+            params: list[str | int] = [run_id]
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
+            rows = conn.execute(query, params).fetchall()
         return [self._row_to_ralph_iteration(row) for row in rows]
 
     def get_ralph_iteration(self, iteration_id: str) -> RalphLoopIteration | None:
@@ -1760,9 +1762,11 @@ class GluonStore:
         """List supervision decisions for a run, most recent first."""
         with self._get_conn() as conn:
             query = "SELECT * FROM supervision_decisions WHERE run_id = ? ORDER BY timestamp DESC"
-            if limit:
-                query += f" LIMIT {limit}"
-            rows = conn.execute(query, (run_id,)).fetchall()
+            params: list[str | int] = [run_id]
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
+            rows = conn.execute(query, params).fetchall()
         return [self._row_to_supervision_decision(row) for row in rows]
 
     def get_latest_supervision_decision(self, run_id: str) -> "SupervisionDecision | None":

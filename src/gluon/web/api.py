@@ -1790,10 +1790,14 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if existing:
             raise HTTPException(status_code=400, detail=f"Project already exists: {body.name}")
 
-        # Check if path exists
-        project_path = Path(body.path)
+        # Resolve and validate path
+        project_path = Path(body.path).resolve()
+        if not str(project_path).startswith(str(Path.home())):
+            raise HTTPException(status_code=400, detail="Path must be under home directory")
         if not project_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
+        if not project_path.is_dir():
+            raise HTTPException(status_code=400, detail="Path is not a directory")
 
         # Create project
         project = store.create_project(
@@ -1852,10 +1856,14 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if existing:
             raise HTTPException(status_code=400, detail=f"Workspace already exists: {body.name}")
 
-        # Check if path exists (expand env vars like $HOME, ${HOME}, ~)
-        workspace_path = expand_path(body.path)
+        # Resolve and validate path (expand env vars like $HOME, ${HOME}, ~)
+        workspace_path = expand_path(body.path).resolve()
+        if not str(workspace_path).startswith(str(Path.home())):
+            raise HTTPException(status_code=400, detail="Path must be under home directory")
         if not workspace_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
+        if not workspace_path.is_dir():
+            raise HTTPException(status_code=400, detail="Path is not a directory")
 
         # Create workspace
         workspace = store.create_workspace(name=body.name, path=workspace_path)
@@ -3503,9 +3511,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             if full_path.startswith("api"):
                 raise HTTPException(status_code=404)
 
-            # Try to serve static file first
-            file_path = dist_dir / full_path
-            if file_path.is_file():
+            # Try to serve static file first (resolve to prevent path traversal)
+            file_path = (dist_dir / full_path).resolve()
+            if file_path.is_file() and str(file_path).startswith(str(dist_dir.resolve())):
                 return FileResponse(file_path)
 
             # Fallback to index.html for SPA routing
