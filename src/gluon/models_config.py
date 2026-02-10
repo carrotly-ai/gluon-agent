@@ -29,6 +29,15 @@ MODEL_ALIASES = {
     "claude-haiku-4.5": ModelTier.HAIKU,
 }
 
+# Fallback tier mapping: model → next tier down for graceful degradation
+# When primary model hits rate limits or is unavailable, SDK falls back automatically
+FALLBACK_TIERS: dict[ModelTier, ModelTier | None] = {
+    ModelTier.OPUS_46: ModelTier.SONNET,
+    ModelTier.OPUS_45: ModelTier.SONNET,
+    ModelTier.SONNET: ModelTier.HAIKU,
+    ModelTier.HAIKU: None,  # No fallback for cheapest model
+}
+
 # Default model for general tasks
 DEFAULT_MODEL = ModelTier.SONNET
 
@@ -72,6 +81,49 @@ def get_model_id(tier: ModelTier | str) -> str:
                 )
 
     return MODEL_IDS[tier]
+
+
+def get_fallback_model_id(model: str) -> str | None:
+    """
+    Get the fallback model ID for graceful degradation.
+
+    Maps a model (tier name, alias, or full Bedrock ID) to its fallback tier's
+    Bedrock model ID. Returns None if no fallback exists.
+
+    Args:
+        model: Model tier, UI name, or full Bedrock model ID
+
+    Returns:
+        Fallback Bedrock model ID, or None if no fallback
+    """
+    # Resolve to a ModelTier
+    tier: ModelTier | None = None
+
+    if isinstance(model, ModelTier):
+        tier = model
+    else:
+        model_lower = model.lower()
+        # Check if it's a full Bedrock ID - reverse lookup
+        for t, bedrock_id in MODEL_IDS.items():
+            if bedrock_id == model:
+                tier = t
+                break
+
+        if tier is None:
+            # Check UI aliases
+            if model_lower in MODEL_ALIASES:
+                tier = MODEL_ALIASES[model_lower]
+            else:
+                try:
+                    tier = ModelTier(model_lower)
+                except ValueError:
+                    return None
+
+    fallback_tier = FALLBACK_TIERS.get(tier)
+    if fallback_tier is None:
+        return None
+
+    return MODEL_IDS[fallback_tier]
 
 
 def describe_models() -> str:

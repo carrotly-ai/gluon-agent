@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
     SystemMessage,
     TextBlock,
@@ -22,13 +23,14 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from gluon.agent_hooks import build_hooks
 from gluon.models import (
     GLUON_SYSTEM_PROMPT,
     PLANNING_AUTONOMOUS_PROMPT,
     PLANNING_SYSTEM_PROMPT,
     RALPH_SYSTEM_PROMPT,
 )
-from gluon.models_config import get_model_id
+from gluon.models_config import get_fallback_model_id, get_model_id
 
 # Type for question handler callback
 # Args: run_id, questions (list of question dicts from AskUserQuestion)
@@ -44,22 +46,43 @@ class ContextOverflowError(Exception):
     pass
 
 
+class RateLimitError(Exception):
+    """Raised when API returns 429 (rate limited / throttled)."""
+
+    pass
+
+
+class ModelUnavailableError(Exception):
+    """Raised when the requested model is not found or not available."""
+
+    pass
+
+
+class AuthenticationError(Exception):
+    """Raised when API returns 401/403 (invalid credentials or insufficient permissions)."""
+
+    pass
+
+
 def _classify_api_error(error: Exception) -> Exception:
     """
     Classify API errors for appropriate handling.
 
-    Detects context overflow errors (400 "input too long") to enable
-    graceful recovery via fresh session.
+    Detects specific error categories to enable targeted recovery:
+    - ContextOverflowError: 400 "input too long" → fresh session recovery
+    - RateLimitError: 429 → backoff/retry (SDK fallback_model helps here)
+    - ModelUnavailableError: model not found → try different model
+    - AuthenticationError: 401/403 → re-authenticate
 
     Args:
         error: The original exception
 
     Returns:
-        ContextOverflowError if it's a context overflow, otherwise original error
+        Classified exception subtype, or the original error if unrecognised
     """
     error_str = str(error).lower()
 
-    # Check for various forms of context overflow error messages
+    # Context overflow (400 "input too long")
     is_context_overflow = (
         ("400" in error_str and "too long" in error_str)
         or ("400" in error_str and "input" in error_str and "long" in error_str)
@@ -67,15 +90,53 @@ def _classify_api_error(error: Exception) -> Exception:
         or ("context" in error_str and "exceeded" in error_str)
         or ("token" in error_str and "limit" in error_str and "exceeded" in error_str)
     )
-
     if is_context_overflow:
         return ContextOverflowError(str(error))
+
+    # Rate limiting (429)
+    if "429" in error_str or "rate limit" in error_str or "throttl" in error_str:
+        return RateLimitError(str(error))
+
+    # Model unavailable
+    if ("model" in error_str and ("not found" in error_str or "not available" in error_str)) or (
+        "no access" in error_str and "model" in error_str
+    ):
+        return ModelUnavailableError(str(error))
+
+    # Authentication errors (401/403)
+    if (
+        "401" in error_str
+        or "403" in error_str
+        or "unauthorized" in error_str
+        or "forbidden" in error_str
+        or ("credentials" in error_str and ("invalid" in error_str or "expired" in error_str))
+    ):
+        return AuthenticationError(str(error))
 
     return error
 
 
 # Default tools available to Claude Code agents
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "TodoWrite"]
+
+# Dangerous command patterns blocked via PermissionResultDeny
+DANGEROUS_PATTERNS = [
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf $HOME",
+    "git push --force origin main",
+    "git push --force origin master",
+    "git push -f origin main",
+    "git push -f origin master",
+    "DROP TABLE",
+    "DROP DATABASE",
+    "DELETE FROM",
+    "chmod 777",
+    ":(){ :|:& };:",  # Fork bomb
+    "> /dev/sda",
+    "mkfs.",
+    "dd if=/dev/zero of=/dev/",
+]
 
 # Default MCP config locations (checked in order of priority)
 MCP_CONFIG_PATHS = [
@@ -270,6 +331,7 @@ class GluonAgent:
         max_budget_usd: float | None = None,
         force_planning: bool = False,
         sandbox_enabled: bool = True,
+        user_id: str | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -292,18 +354,31 @@ class GluonAgent:
         self.force_planning = force_planning
         # Security sandbox (OS-level isolation via bubblewrap/sandbox-exec)
         self.sandbox_enabled = sandbox_enabled
+        # User identifier for SDK-level attribution and tracking
+        self.user_id = user_id
 
     async def _can_use_tool(
         self,
         tool_name: str,
         input_data: dict[str, Any],
         context: ToolPermissionContext,
-    ) -> PermissionResultAllow:
+    ) -> PermissionResultAllow | PermissionResultDeny:
         """Handle tool permission requests from Claude SDK.
 
-        For most tools, we allow immediately (bypassPermissions behavior).
-        For AskUserQuestion, we invoke the question handler to get answers.
+        Safety guardrails: blocks dangerous bash commands via PermissionResultDeny.
+        AskUserQuestion: invokes the question handler to get answers.
+        All other tools: allowed immediately (bypassPermissions behavior).
         """
+        # Safety guardrail: block dangerous bash commands
+        if tool_name == "Bash":
+            cmd = input_data.get("command", "")
+            for pattern in DANGEROUS_PATTERNS:
+                if pattern.lower() in cmd.lower():
+                    logger.warning(f"Blocked dangerous command: {cmd[:100]}")
+                    return PermissionResultDeny(
+                        message=f"Blocked dangerous command matching pattern: {pattern}",
+                    )
+
         # Special handling for AskUserQuestion tool
         if tool_name == "AskUserQuestion" and self.question_handler and self.run_id:
             questions = input_data.get("questions", [])
@@ -369,6 +444,40 @@ class GluonAgent:
             mcp_servers=mcp_config if mcp_config else {},
             max_thinking_tokens=thinking_tokens,
         )
+
+        # Pass CLI path directly to SDK instead of mutating os.environ["PATH"]
+        if self.cli_path:
+            options.cli_path = str(self.cli_path)
+
+        # Set fallback model for graceful degradation on rate limits / model unavailable
+        fallback = get_fallback_model_id(self.model)
+        if fallback:
+            options.fallback_model = fallback
+
+        # Load CLAUDE.md from target project (but not user/local settings to avoid leakage)
+        options.setting_sources = ["project"]
+
+        # Set user identifier for SDK-level attribution
+        if self.user_id:
+            options.user = self.user_id
+
+        # Pass custom environment variables to the SDK subprocess
+        # This avoids mutating os.environ globally
+        sdk_env: dict[str, str] = {}
+        if self.cli_path:
+            cli_dir = str(self.cli_path.parent)
+            current_path = os.environ.get("PATH", "")
+            if cli_dir not in current_path:
+                sdk_env["PATH"] = f"{cli_dir}:{current_path}"
+        if sdk_env:
+            options.env = sdk_env
+
+        # Route SDK stderr debug output through structured logging
+        _sdk_logger = logging.getLogger("claude_sdk")
+        options.stderr = lambda line: _sdk_logger.debug("sdk_stderr: %s", line.rstrip())
+
+        # Wire SDK hooks for structured tool-use logging
+        options.hooks = build_hooks()
 
         # Add max_turns if configured
         if self.max_turns is not None:
@@ -513,12 +622,6 @@ class GluonAgent:
                     f"Checked: PATH, {', '.join(str(p) for p in CLAUDE_CLI_PATHS)}"
                 )
 
-            # Also add to PATH as fallback for SDK internals
-            cli_dir = str(self.cli_path.parent)
-            current_path = os.environ.get("PATH", "")
-            if cli_dir not in current_path:
-                os.environ["PATH"] = f"{cli_dir}:{current_path}"
-
             async with ClaudeSDKClient(options=options) as client:
                 # Build query based on prompt type
                 if isinstance(prompt, MultimodalPrompt) and prompt.images:
@@ -602,7 +705,6 @@ class GluonAgent:
             classified_error = _classify_api_error(e)
 
             if isinstance(classified_error, ContextOverflowError):
-                # Context overflow is recoverable - emit special message
                 yield AgentMessage(
                     type="error",
                     content=f"Context overflow: {error_msg}",
@@ -610,6 +712,33 @@ class GluonAgent:
                         "exception": "ContextOverflowError",
                         "recoverable": True,
                         "session_id": claude_session_id,
+                    },
+                )
+            elif isinstance(classified_error, RateLimitError):
+                yield AgentMessage(
+                    type="error",
+                    content=f"Rate limited: {error_msg}",
+                    metadata={
+                        "exception": "RateLimitError",
+                        "recoverable": True,
+                    },
+                )
+            elif isinstance(classified_error, ModelUnavailableError):
+                yield AgentMessage(
+                    type="error",
+                    content=f"Model unavailable: {error_msg}",
+                    metadata={
+                        "exception": "ModelUnavailableError",
+                        "recoverable": False,
+                    },
+                )
+            elif isinstance(classified_error, AuthenticationError):
+                yield AgentMessage(
+                    type="error",
+                    content=f"Authentication error: {error_msg}",
+                    metadata={
+                        "exception": "AuthenticationError",
+                        "recoverable": False,
                     },
                 )
             else:

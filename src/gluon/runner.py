@@ -651,6 +651,7 @@ but explicit commits with good messages are preferred.
                     max_budget_usd=run.max_cost_usd,
                     force_planning=force_planning,
                     sandbox_enabled=sandbox_enabled,
+                    user_id=run.initiator,
                 )
 
                 # Execute via agent with images as base64 content blocks
@@ -1406,6 +1407,7 @@ but explicit commits with good messages are preferred.
                 question_handler=auto_handler,
                 run_id=run.id,
                 sandbox_enabled=sandbox_enabled,
+                user_id=run.initiator,
             )
 
             # Create and execute ralph manager
@@ -1585,7 +1587,11 @@ but explicit commits with good messages are preferred.
 
             # Create agent for recovery (use same model as original run)
             sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
-            recovery_agent = GluonAgent(model=run.model, sandbox_enabled=sandbox_enabled) if run.model else self.agent
+            recovery_agent = (
+                GluonAgent(model=run.model, sandbox_enabled=sandbox_enabled, user_id=run.initiator)
+                if run.model
+                else self.agent
+            )
 
             # Execute recovery with fresh context
             turn_count = 0
