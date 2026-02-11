@@ -43,6 +43,7 @@ export function CommandAutocomplete({
   }, [visible, anchorRef])
 
   // Reset selection when filter changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filter is a prop — changes trigger re-render
   useEffect(() => {
     setSelectedIndex(0)
   }, [filter])

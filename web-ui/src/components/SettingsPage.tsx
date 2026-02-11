@@ -229,7 +229,8 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
     }
   }
 
-  const gitIdentityDirty = gitUserName !== initialGitUserName || gitUserEmail !== initialGitUserEmail
+  const gitIdentityDirty =
+    gitUserName !== initialGitUserName || gitUserEmail !== initialGitUserEmail
 
   // Group projects by workspace
   const projectsByWorkspace = projects.reduce(
@@ -686,7 +687,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 )}
               >
                 {savedKey === 'git_identity' && <Check className="w-3 h-3 inline mr-1" />}
-                {savingKey === 'git_identity' ? 'Saving...' : savedKey === 'git_identity' ? 'Saved' : 'Save'}
+                {savingKey === 'git_identity'
+                  ? 'Saving...'
+                  : savedKey === 'git_identity'
+                    ? 'Saved'
+                    : 'Save'}
               </button>
             </div>
 
@@ -715,7 +720,8 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   className={cn(
                     'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
                     sandboxEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
-                    (savingKey === 'sandbox' || !sandboxAvailable) && 'opacity-50 cursor-not-allowed'
+                    (savingKey === 'sandbox' || !sandboxAvailable) &&
+                      'opacity-50 cursor-not-allowed'
                   )}
                 >
                   <span
