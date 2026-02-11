@@ -943,7 +943,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     setShowScrollButton(!isNearBottom)
   }, [])
 
-  const toggleToolExpanded = (idx: number) => {
+  const toggleToolExpanded = useCallback((idx: number) => {
     setExpandedTools((prev) => {
       const next = new Set(prev)
       if (next.has(idx)) {
@@ -953,7 +953,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       }
       return next
     })
-  }
+  }, [])
 
   // Count message types for filter badges
   const counts = {

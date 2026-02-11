@@ -538,6 +538,9 @@ class Orchestrator:
             # Get model ID from resolved options
             model_id = get_model_id(task_options["model"])
 
+            # Read experimental feature settings
+            agent_teams_enabled = self.store.get_setting("agent_teams_enabled", "false") == "true"
+
             # Create agent with resolved options
             agent = GluonAgent(
                 model=model_id,
@@ -545,7 +548,7 @@ class Orchestrator:
                 max_turns=task_options["max_turns"],
                 max_budget_usd=task_options["max_budget_usd"],
                 force_planning=task_options["force_planning"],
-                user_id=initiator,
+                agent_teams_enabled=agent_teams_enabled,
             )
 
             # Execute via agent with log file writing

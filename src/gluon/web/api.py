@@ -407,6 +407,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             ralph_enabled=body.ralph_enabled,
             max_loops=body.max_loops,
             max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
+            # Per-task overrides
+            agent_teams=body.agent_teams,
         )
 
         project_lookup = get_project_lookup()

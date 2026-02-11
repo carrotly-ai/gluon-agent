@@ -95,6 +95,47 @@ gluon ralph status <run_id>
 gluon supervisor start
 ```
 
+### Agent Teams (Experimental)
+
+Leverage Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) capability to have a lead agent coordinate multiple subagents working in parallel on different parts of a task. Gluon tracks subagent lifecycle via SDK hooks and keeps the session alive until all team members finish, then prompts the lead agent to synthesize results.
+
+**How it works:**
+1. You submit a prompt that describes a multi-part task
+2. Claude spawns subagents via the `Task` tool, each working on a portion concurrently
+3. Gluon's `SubagentTracker` monitors start/stop events to know when team members finish
+4. The lead agent synthesizes results from all subagents into a cohesive output
+
+**Enable globally** via the web dashboard settings, or **per-task** via the API:
+
+```bash
+# Per-task via API
+curl -X POST http://localhost:45866/api/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"project_id": "myapp", "prompt": "...", "agent_teams": true}'
+```
+
+**Prompt structure for best results:**
+
+Agent teams work best when the prompt clearly decomposes into parallel subtasks. Structure prompts with explicit deliverables that subagents can own independently:
+
+```
+Refactor the authentication module:
+
+1. **API layer** — Update route handlers in src/api/auth.py to use the new token format
+2. **Database layer** — Migrate the sessions table schema and update the ORM models
+3. **Tests** — Add integration tests covering the new token flow and session expiry
+
+Each area can be worked on independently. Coordinate at the end to ensure consistency.
+```
+
+Tips:
+- List 2-5 distinct subtasks that can run concurrently without blocking each other
+- Mention shared files or interfaces that subagents should be aware of
+- End with a synthesis instruction so the lead agent knows to reconcile the work
+- Pair with `--model opus` for the lead agent to get better task decomposition
+
+> See the [Claude Code Agent Teams documentation](https://code.claude.com/docs/en/agent-teams) for full details on how the underlying SDK orchestrates subagents.
+
 ### Additional Features
 - **Image Attachments** - Paste screenshots/diagrams for AI context (Cmd+V in resume prompt)
 - **Usage Tracking** - Monitor costs, tokens, and usage per project
@@ -314,6 +355,7 @@ gluon run myapp 'Redesign database schema' --model opus
 | [CLI Reference](docs/CLI-REFERENCE.md) | Complete CLI command reference |
 | [Web Dashboard](docs/WEB-DASHBOARD.md) | Dashboard features and API |
 | [Ralph Loop](docs/RALPH-LOOP.md) | Autonomous execution mode and supervision |
+| [Agent Teams](https://code.claude.com/docs/en/agent-teams) | Claude Code multi-agent coordination (external) |
 | [Git Operations](docs/GIT-OPERATIONS.md) | Worktrees, PR integration, conflict resolution |
 | [Telegram Bot](docs/TELEGRAM-BOT.md) | Telegram setup and commands |
 | [Discord Bot](docs/DISCORD-BOT.md) | Discord setup and commands |

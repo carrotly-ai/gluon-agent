@@ -49,6 +49,7 @@ export function QuestionModal({ runId: _runId, questions, onAnswer, onClose }: Q
   }, [currentQuestion?.expires_at])
 
   // Reset selection when question changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset selection when active question changes
   useEffect(() => {
     setSelected([])
   }, [currentQuestion?.id])
