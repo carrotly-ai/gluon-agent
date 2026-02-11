@@ -61,6 +61,16 @@ class SubagentTracker:
                 self.all_done.set()
             logger.info("subagent_stopped", extra={"active_subagents": self._count})
 
+    async def reset(self) -> None:
+        """Reset tracker to initial state (no active subagents).
+
+        Called after team synthesis to clear stale counts from nested/orphaned
+        subagents whose SubagentStop hooks never fired.
+        """
+        async with self._lock:
+            self._count = 0
+            self.all_done.set()
+
     @property
     def active_count(self) -> int:
         return self._count

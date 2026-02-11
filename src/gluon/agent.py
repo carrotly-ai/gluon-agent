@@ -564,6 +564,8 @@ class GluonAgent:
 
     # Maximum seconds to wait for agent team subagents to finish
     _TEAM_WAIT_TIMEOUT: int = 300  # 5 minutes
+    # Safety cap on team synthesis rounds to prevent infinite re-prompting
+    _MAX_TEAM_SYNTHESIS_ROUNDS: int = 3
 
     async def execute(
         self,
@@ -660,6 +662,7 @@ class GluonAgent:
                     await client.query(text)
 
                 # ---- Multi-turn loop ----
+                synthesis_rounds = 0
                 while True:
                     # Process one turn (query already issued above or at bottom of loop)
                     async for msg in client.receive_response():
@@ -717,6 +720,13 @@ class GluonAgent:
 
                     # Check 1: Are team subagents still running?
                     if tracker and tracker.active_count > 0:
+                        if synthesis_rounds >= self._MAX_TEAM_SYNTHESIS_ROUNDS:
+                            logger.warning(
+                                "Max synthesis rounds (%d) reached, exiting",
+                                self._MAX_TEAM_SYNTHESIS_ROUNDS,
+                            )
+                            break
+
                         logger.info(
                             "Waiting for %d active subagent(s) to finish",
                             tracker.active_count,
@@ -732,6 +742,11 @@ class GluonAgent:
                                 self._TEAM_WAIT_TIMEOUT,
                                 tracker.active_count,
                             )
+
+                        # Reset tracker — clears stale counts from nested/orphaned subagents
+                        await tracker.reset()
+                        synthesis_rounds += 1
+
                         # Nudge the lead agent to synthesize team results
                         await client.query(
                             "Your agent team teammates have completed their work. "
@@ -740,7 +755,7 @@ class GluonAgent:
                         yield AgentMessage(
                             type="system",
                             content="team_synthesis",
-                            metadata={"active_subagents_remaining": tracker.active_count},
+                            metadata={"synthesis_round": synthesis_rounds},
                         )
                         continue
 
