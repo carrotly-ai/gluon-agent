@@ -1,5 +1,6 @@
 """Claude Agent SDK wrapper for Gluon."""
 
+import asyncio
 import base64
 import logging
 import mimetypes
@@ -23,7 +24,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from gluon.agent_hooks import build_hooks
+from gluon.agent_hooks import SubagentTracker, build_hooks
 from gluon.models import (
     GLUON_SYSTEM_PROMPT,
     PLANNING_AUTONOMOUS_PROMPT,
@@ -331,7 +332,7 @@ class GluonAgent:
         max_budget_usd: float | None = None,
         force_planning: bool = False,
         sandbox_enabled: bool = True,
-        user_id: str | None = None,
+        agent_teams_enabled: bool = False,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -354,8 +355,8 @@ class GluonAgent:
         self.force_planning = force_planning
         # Security sandbox (OS-level isolation via bubblewrap/sandbox-exec)
         self.sandbox_enabled = sandbox_enabled
-        # User identifier for SDK-level attribution and tracking
-        self.user_id = user_id
+        # Experimental: coordinated multi-agent teams
+        self.agent_teams_enabled = agent_teams_enabled
 
     async def _can_use_tool(
         self,
@@ -411,6 +412,7 @@ class GluonAgent:
         fork_session: bool = False,
         new_session_id: str | None = None,
         ralph_mode: bool = False,
+        subagent_tracker: SubagentTracker | None = None,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -457,10 +459,6 @@ class GluonAgent:
         # Load CLAUDE.md from target project (but not user/local settings to avoid leakage)
         options.setting_sources = ["project"]
 
-        # Set user identifier for SDK-level attribution
-        if self.user_id:
-            options.user = self.user_id
-
         # Pass custom environment variables to the SDK subprocess
         # This avoids mutating os.environ globally
         sdk_env: dict[str, str] = {}
@@ -469,6 +467,8 @@ class GluonAgent:
             current_path = os.environ.get("PATH", "")
             if cli_dir not in current_path:
                 sdk_env["PATH"] = f"{cli_dir}:{current_path}"
+        if self.agent_teams_enabled:
+            sdk_env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
         if sdk_env:
             options.env = sdk_env
 
@@ -476,8 +476,8 @@ class GluonAgent:
         _sdk_logger = logging.getLogger("claude_sdk")
         options.stderr = lambda line: _sdk_logger.debug("sdk_stderr: %s", line.rstrip())
 
-        # Wire SDK hooks for structured tool-use logging
-        options.hooks = build_hooks()
+        # Wire SDK hooks for structured tool-use logging (and team tracking when enabled)
+        options.hooks = build_hooks(tracker=subagent_tracker)
 
         # Add max_turns if configured
         if self.max_turns is not None:
@@ -562,6 +562,9 @@ class GluonAgent:
 
         return options
 
+    # Maximum seconds to wait for agent team subagents to finish
+    _TEAM_WAIT_TIMEOUT: int = 300  # 5 minutes
+
     async def execute(
         self,
         working_dir: Path,
@@ -570,9 +573,14 @@ class GluonAgent:
         images: list[Path] | None = None,
         fork_session: bool = True,
         ralph_mode: bool = False,
+        follow_up_queue: asyncio.Queue[str] | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
+
+        Keeps the SDK session alive across multiple turns to support:
+        1. Agent teams — waits for SubagentStop hooks before exiting
+        2. In-session follow-ups — consumes messages from *follow_up_queue*
 
         Yields AgentMessage objects during execution, then yields
         a final AgentResult with session metadata.
@@ -587,15 +595,28 @@ class GluonAgent:
                          timeout: initialize" errors when running alongside
                          other Claude sessions.
             ralph_mode: If True, append RALPH_SYSTEM_PROMPT for status reporting.
+            follow_up_queue: Optional queue of follow-up prompts.  When provided
+                            the session stays alive and consumes follow-ups
+                            in-process instead of spawning new subprocesses.
 
         Yields:
             AgentMessage during execution
             AgentResult as final yield
         """
+        # Track agent team lifecycle when teams are enabled
+        tracker = SubagentTracker() if self.agent_teams_enabled else None
+
         # Generate a unique session ID for new sessions to avoid control
         # channel conflicts with other Claude processes
         new_session_id = str(uuid.uuid4()) if not resume_session_id else None
-        options = self._build_options(working_dir, resume_session_id, fork_session, new_session_id, ralph_mode)
+        options = self._build_options(
+            working_dir,
+            resume_session_id,
+            fork_session,
+            new_session_id,
+            ralph_mode,
+            subagent_tracker=tracker,
+        )
 
         # Build multimodal prompt if images provided
         if images:
@@ -623,9 +644,9 @@ class GluonAgent:
                 )
 
             async with ClaudeSDKClient(options=options) as client:
-                # Build query based on prompt type
+                # ---- Initial query ----
                 if isinstance(prompt, MultimodalPrompt) and prompt.images:
-                    # Use async generator for multimodal content
+
                     async def multimodal_query():
                         content_blocks = prompt.to_content_blocks()
                         yield {
@@ -635,67 +656,112 @@ class GluonAgent:
 
                     await client.query(multimodal_query())
                 else:
-                    # Simple string prompt
                     text = prompt.text if isinstance(prompt, MultimodalPrompt) else prompt
                     await client.query(text)
 
-                async for msg in client.receive_response():
-                    # Extract session ID from system init message
-                    if isinstance(msg, SystemMessage):
-                        # Check for init message with session_id in data
-                        if hasattr(msg, "subtype") and msg.subtype == "init":
-                            if hasattr(msg, "data") and isinstance(msg.data, dict):
-                                session_from_data = msg.data.get("session_id")
-                                if session_from_data:
-                                    claude_session_id = session_from_data
-                        # Also check direct session_id attribute
-                        if hasattr(msg, "session_id") and msg.session_id:
-                            claude_session_id = msg.session_id
+                # ---- Multi-turn loop ----
+                while True:
+                    # Process one turn (query already issued above or at bottom of loop)
+                    async for msg in client.receive_response():
+                        if isinstance(msg, SystemMessage):
+                            if hasattr(msg, "subtype") and msg.subtype == "init":
+                                if hasattr(msg, "data") and isinstance(msg.data, dict):
+                                    session_from_data = msg.data.get("session_id")
+                                    if session_from_data:
+                                        claude_session_id = session_from_data
+                            if hasattr(msg, "session_id") and msg.session_id:
+                                claude_session_id = msg.session_id
+                            yield AgentMessage(
+                                type="system",
+                                content=getattr(msg, "subtype", ""),
+                                metadata={"session_id": claude_session_id},
+                            )
+
+                        elif isinstance(msg, AssistantMessage):
+                            total_turns += 1
+                            for block in msg.content:
+                                if isinstance(block, TextBlock):
+                                    yield AgentMessage(type="text", content=block.text)
+                                elif isinstance(block, ToolUseBlock):
+                                    yield AgentMessage(
+                                        type="tool_use",
+                                        content=f"Using tool: {block.name}",
+                                        metadata={
+                                            "tool": block.name,
+                                            "id": block.id,
+                                            "input": block.input,
+                                        },
+                                    )
+
+                        elif isinstance(msg, ResultMessage):
+                            total_cost_usd = getattr(msg, "total_cost_usd", 0.0) or 0.0
+                            total_turns = getattr(msg, "num_turns", 0) or total_turns
+                            usage = getattr(msg, "usage", None) or {}
+                            input_tokens = usage.get("input_tokens")
+                            output_tokens = usage.get("output_tokens")
+                            if hasattr(msg, "session_id") and msg.session_id:
+                                claude_session_id = msg.session_id
+                            yield AgentMessage(
+                                type="result",
+                                content="Execution complete",
+                                metadata={
+                                    "cost": total_cost_usd,
+                                    "input_tokens": input_tokens,
+                                    "output_tokens": output_tokens,
+                                    "session_id": claude_session_id,
+                                    "stop_reason": getattr(msg, "stop_reason", None),
+                                },
+                            )
+
+                    # ---- Turn complete — decide whether to continue ----
+
+                    # Check 1: Are team subagents still running?
+                    if tracker and tracker.active_count > 0:
+                        logger.info(
+                            "Waiting for %d active subagent(s) to finish",
+                            tracker.active_count,
+                        )
+                        try:
+                            await asyncio.wait_for(
+                                tracker.all_done.wait(),
+                                timeout=self._TEAM_WAIT_TIMEOUT,
+                            )
+                        except TimeoutError:
+                            logger.warning(
+                                "Subagent wait timed out after %ds with %d still active",
+                                self._TEAM_WAIT_TIMEOUT,
+                                tracker.active_count,
+                            )
+                        # Nudge the lead agent to synthesize team results
+                        await client.query(
+                            "Your agent team teammates have completed their work. "
+                            "Synthesize their results and continue with the next phase."
+                        )
                         yield AgentMessage(
                             type="system",
-                            content=getattr(msg, "subtype", ""),
-                            metadata={"session_id": claude_session_id},
+                            content="team_synthesis",
+                            metadata={"active_subagents_remaining": tracker.active_count},
                         )
+                        continue
 
-                    # Handle assistant messages (text and tool use)
-                    elif isinstance(msg, AssistantMessage):
-                        total_turns += 1
-                        for block in msg.content:
-                            if isinstance(block, TextBlock):
-                                yield AgentMessage(type="text", content=block.text)
-                            elif isinstance(block, ToolUseBlock):
-                                yield AgentMessage(
-                                    type="tool_use",
-                                    content=f"Using tool: {block.name}",
-                                    metadata={
-                                        "tool": block.name,
-                                        "id": block.id,
-                                        "input": block.input,
-                                    },
-                                )
+                    # Check 2: Any follow-up messages queued?
+                    if follow_up_queue is not None:
+                        try:
+                            followup = follow_up_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        else:
+                            logger.info("Processing in-session follow-up")
+                            yield AgentMessage(
+                                type="system",
+                                content="follow_up",
+                                metadata={"prompt": followup},
+                            )
+                            await client.query(followup)
+                            continue
 
-                    # Handle result message (final)
-                    elif isinstance(msg, ResultMessage):
-                        total_cost_usd = getattr(msg, "total_cost_usd", 0.0) or 0.0
-                        total_turns = getattr(msg, "num_turns", 0) or total_turns
-                        # Extract token usage from ResultMessage.usage dict
-                        usage = getattr(msg, "usage", None) or {}
-                        input_tokens = usage.get("input_tokens")
-                        output_tokens = usage.get("output_tokens")
-                        # Extract session_id from ResultMessage
-                        if hasattr(msg, "session_id") and msg.session_id:
-                            claude_session_id = msg.session_id
-                        yield AgentMessage(
-                            type="result",
-                            content="Execution complete",
-                            metadata={
-                                "cost": total_cost_usd,
-                                "input_tokens": input_tokens,
-                                "output_tokens": output_tokens,
-                                "session_id": claude_session_id,
-                                "stop_reason": getattr(msg, "stop_reason", None),
-                            },
-                        )
+                    # Nothing more to do — exit the multi-turn loop
+                    break
 
         except Exception as e:
             success = False

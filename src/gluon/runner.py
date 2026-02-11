@@ -67,6 +67,9 @@ class TaskRunner:
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
         self._active_tasks: dict[str, asyncio.Task] = {}
 
+        # Per-run follow-up queues (process-local, used by multi-turn execute loop)
+        self._active_queues: dict[str, asyncio.Queue[str]] = {}
+
         # Supervision coordinator (lazy initialized)
         self._supervisor: ResumeCoordinator | None = None
 
@@ -246,6 +249,7 @@ class TaskRunner:
         profile: str | None = None,
         thinking_budget: str | None = None,
         force_planning: bool | None = None,
+        agent_teams: bool | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -313,6 +317,8 @@ class TaskRunner:
         run.metadata["max_thinking_tokens"] = task_options["max_thinking_tokens"]
         run.metadata["max_turns"] = task_options["max_turns"]
         run.metadata["force_planning"] = task_options["force_planning"]
+        if agent_teams is not None:
+            run.metadata["agent_teams"] = agent_teams
         self.store.update_run(run)
 
         if wait:
@@ -641,6 +647,13 @@ but explicit commits with good messages are preferred.
 
                 # Read sandbox setting (default enabled for security)
                 sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
+                # Per-task override from metadata, fall back to global setting
+                agent_teams_override = metadata.get("agent_teams")
+                agent_teams_enabled = (
+                    agent_teams_override
+                    if agent_teams_override is not None
+                    else self.store.get_setting("agent_teams_enabled", "false") == "true"
+                )
 
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
@@ -651,197 +664,219 @@ but explicit commits with good messages are preferred.
                     max_budget_usd=run.max_cost_usd,
                     force_planning=force_planning,
                     sandbox_enabled=sandbox_enabled,
-                    user_id=run.initiator,
+                    agent_teams_enabled=agent_teams_enabled,
                 )
 
+                # Create follow-up queue so the multi-turn loop can
+                # process in-session follow-ups without spawning subprocesses
+                follow_up_queue: asyncio.Queue[str] = asyncio.Queue()
+                self._active_queues[run.id] = follow_up_queue
+
+                # Drain any DB-queued messages that arrived before we started
+                self._drain_db_queue_into(run, follow_up_queue)
+
+                # Background task: poll DB for follow-ups queued by the web API
+                db_poller = asyncio.create_task(self._poll_db_followups(run.id, follow_up_queue))
+
                 # Execute via agent with images as base64 content blocks
-                async for item in agent.execute(
-                    working_dir=working_dir,
-                    prompt=effective_prompt,
-                    resume_session_id=run.claude_session_id,
-                    images=image_paths if image_paths else None,
-                ):
-                    if isinstance(item, AgentMessage):
-                        # Log message
-                        msg_dict = {
-                            "timestamp": datetime.now(UTC).isoformat(),
-                            "type": item.type,
-                            "content": item.content,
-                            "metadata": item.metadata,
-                        }
-                        messages_file.write(json.dumps(msg_dict) + "\n")
-                        messages_file.flush()
+                try:
+                    async for item in agent.execute(
+                        working_dir=working_dir,
+                        prompt=effective_prompt,
+                        resume_session_id=run.claude_session_id,
+                        images=image_paths if image_paths else None,
+                        follow_up_queue=follow_up_queue,
+                    ):
+                        if isinstance(item, AgentMessage):
+                            # Log message
+                            msg_dict = {
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "type": item.type,
+                                "content": item.content,
+                                "metadata": item.metadata,
+                            }
+                            messages_file.write(json.dumps(msg_dict) + "\n")
+                            messages_file.flush()
 
-                        # Also write text to stdout
-                        if item.type == "text":
-                            stdout_file.write(item.content + "\n")
-                            stdout_file.flush()
-                            turn_count += 1
-                        elif item.type == "tool_use":
-                            tool_count += 1
-                        elif item.type == "error":
-                            stderr_file.write(item.content + "\n")
-                            stderr_file.flush()
-
-                            # Check for context overflow - trigger auto-recovery
-                            metadata = item.metadata or {}
-                            if metadata.get("exception") == "ContextOverflowError":
-                                stdout_file.write("\n⚠️ Context overflow detected - initiating auto-recovery...\n")
+                            # Also write text to stdout
+                            if item.type == "text":
+                                stdout_file.write(item.content + "\n")
                                 stdout_file.flush()
-
-                                # Extract recovery state and attempt recovery
-                                recovery_result = await self._handle_context_overflow_recovery(
-                                    run=run,
-                                    working_dir=working_dir,
-                                    stdout_file=stdout_file,
-                                    stderr_file=stderr_file,
-                                    messages_file=messages_file,
-                                    progress_path=progress_path,
-                                    tokens_path=tokens_path,
-                                    start_time=start_time,
-                                )
-
-                                if recovery_result:
-                                    # Recovery succeeded - mark as review (not failed)
-                                    run.mark_review()
-                                    self.store.update_run(run)
-                                    return  # Exit without marking as failed
-
-                        # Update progress.json for WebSocket streaming
-                        progress_data = {
-                            "turns": turn_count,
-                            "tool_calls": tool_count,
-                            "elapsed_seconds": round(time.time() - start_time, 1),
-                        }
-                        progress_path.write_text(json.dumps(progress_data))
-
-                    elif isinstance(item, AgentResult):
-                        # AgentResult summary - update run record (don't write to messages.jsonl
-                        # since AgentMessage type="result" already logged the completion)
-                        # Update run with Claude session ID for future resume
-                        run.claude_session_id = item.claude_session_id
-                        # Store cost tracking data (accumulate for resumed runs)
-                        if is_resumed and run.cost_usd is not None:
-                            run.cost_usd = (run.cost_usd or 0) + (item.total_cost_usd or 0)
-                            run.input_tokens = (run.input_tokens or 0) + (item.input_tokens or 0)
-                            run.output_tokens = (run.output_tokens or 0) + (item.output_tokens or 0)
-                        else:
-                            run.cost_usd = item.total_cost_usd
-                            run.input_tokens = item.input_tokens
-                            run.output_tokens = item.output_tokens
-                        run.model_used = item.model_used
-
-                        # Update tokens.json for WebSocket streaming
-                        tokens_data = {
-                            "input_tokens": run.input_tokens or 0,
-                            "output_tokens": run.output_tokens or 0,
-                            "estimated_cost_usd": run.cost_usd or 0,
-                        }
-                        tokens_path.write_text(json.dumps(tokens_data))
-
-                        # Final progress update
-                        turn_count = item.total_turns or turn_count
-                        progress_data = {
-                            "turns": turn_count,
-                            "tool_calls": tool_count,
-                            "elapsed_seconds": round(time.time() - start_time, 1),
-                        }
-                        progress_path.write_text(json.dumps(progress_data))
-
-                        # Determine working path (worktree or project)
-                        working_path = Path(run.worktree_path) if run.worktree_path else project.expanded_path
-
-                        # Capture git info (branch, commit, PR) after task completion
-                        try:
-                            git_info = await self.git_manager.capture_run_git_info(working_path)
-                            run.branch_name = git_info.get("branch_name")
-                            run.git_commit_sha = git_info.get("git_commit_sha")
-                            run.pr_number = git_info.get("pr_number")
-                            run.pr_url = git_info.get("pr_url")
-                            run.pr_status = git_info.get("pr_status")
-                        except Exception as git_err:
-                            # Don't fail the run if git capture fails
-                            stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
-
-                        # For worktree runs: auto-commit any uncommitted changes, then push and create PR
-                        auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
-                        if run.use_worktree and run.branch_name and item.success:
-                            # Safety net: auto-commit any uncommitted changes
-                            try:
-                                prompt_preview = run.prompt[:60]
-                                ellipsis = "..." if len(run.prompt) > 60 else ""
-                                commit_msg = (
-                                    f"chore: {prompt_preview}{ellipsis}\n\n"
-                                    f"Auto-committed by Gluon Agent\nRun ID: {run.id}"
-                                )
-                                commit_result = await self.git_manager.auto_commit_changes(
-                                    path=working_path,
-                                    message=commit_msg,
-                                    run_id=run.id,
-                                )
-                                if commit_result.get("committed"):
-                                    stdout_file.write(f"\n✓ Auto-committed {commit_result['files_count']} file(s)\n")
-                                    stdout_file.flush()
-                            except Exception as commit_err:
-                                stderr_file.write(f"Warning: Auto-commit failed: {commit_err}\n")
+                                turn_count += 1
+                            elif item.type == "tool_use":
+                                tool_count += 1
+                            elif item.type == "error":
+                                stderr_file.write(item.content + "\n")
                                 stderr_file.flush()
 
-                            # Push branch and create PR if enabled
-                            if auto_create_pr:
+                                # Check for context overflow - trigger auto-recovery
+                                metadata = item.metadata or {}
+                                if metadata.get("exception") == "ContextOverflowError":
+                                    stdout_file.write("\n⚠️ Context overflow detected - initiating auto-recovery...\n")
+                                    stdout_file.flush()
+
+                                    # Extract recovery state and attempt recovery
+                                    recovery_result = await self._handle_context_overflow_recovery(
+                                        run=run,
+                                        working_dir=working_dir,
+                                        stdout_file=stdout_file,
+                                        stderr_file=stderr_file,
+                                        messages_file=messages_file,
+                                        progress_path=progress_path,
+                                        tokens_path=tokens_path,
+                                        start_time=start_time,
+                                    )
+
+                                    if recovery_result:
+                                        # Recovery succeeded - mark as review (not failed)
+                                        run.mark_review()
+                                        self.store.update_run(run)
+                                        return  # Exit without marking as failed
+
+                            # Update progress.json for WebSocket streaming
+                            progress_data = {
+                                "turns": turn_count,
+                                "tool_calls": tool_count,
+                                "elapsed_seconds": round(time.time() - start_time, 1),
+                            }
+                            progress_path.write_text(json.dumps(progress_data))
+
+                        elif isinstance(item, AgentResult):
+                            # AgentResult summary - update run record (don't write to messages.jsonl
+                            # since AgentMessage type="result" already logged the completion)
+                            # Update run with Claude session ID for future resume
+                            run.claude_session_id = item.claude_session_id
+                            # Store cost tracking data (accumulate for resumed runs)
+                            if is_resumed and run.cost_usd is not None:
+                                run.cost_usd = (run.cost_usd or 0) + (item.total_cost_usd or 0)
+                                run.input_tokens = (run.input_tokens or 0) + (item.input_tokens or 0)
+                                run.output_tokens = (run.output_tokens or 0) + (item.output_tokens or 0)
+                            else:
+                                run.cost_usd = item.total_cost_usd
+                                run.input_tokens = item.input_tokens
+                                run.output_tokens = item.output_tokens
+                            run.model_used = item.model_used
+
+                            # Update tokens.json for WebSocket streaming
+                            tokens_data = {
+                                "input_tokens": run.input_tokens or 0,
+                                "output_tokens": run.output_tokens or 0,
+                                "estimated_cost_usd": run.cost_usd or 0,
+                            }
+                            tokens_path.write_text(json.dumps(tokens_data))
+
+                            # Final progress update
+                            turn_count = item.total_turns or turn_count
+                            progress_data = {
+                                "turns": turn_count,
+                                "tool_calls": tool_count,
+                                "elapsed_seconds": round(time.time() - start_time, 1),
+                            }
+                            progress_path.write_text(json.dumps(progress_data))
+
+                            # Determine working path (worktree or project)
+                            working_path = Path(run.worktree_path) if run.worktree_path else project.expanded_path
+
+                            # Capture git info (branch, commit, PR) after task completion
+                            try:
+                                git_info = await self.git_manager.capture_run_git_info(working_path)
+                                run.branch_name = git_info.get("branch_name")
+                                run.git_commit_sha = git_info.get("git_commit_sha")
+                                run.pr_number = git_info.get("pr_number")
+                                run.pr_url = git_info.get("pr_url")
+                                run.pr_status = git_info.get("pr_status")
+                            except Exception as git_err:
+                                # Don't fail the run if git capture fails
+                                stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
+
+                            # For worktree runs: auto-commit uncommitted changes, push and create PR
+                            auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
+                            if run.use_worktree and run.branch_name and item.success:
+                                # Safety net: auto-commit any uncommitted changes
                                 try:
-                                    pr_result = await self.git_manager.push_branch_and_create_pr(
-                                        project_path=working_path,
-                                        branch_name=run.branch_name,
-                                        prompt=run.prompt,
+                                    prompt_preview = run.prompt[:60]
+                                    ellipsis = "..." if len(run.prompt) > 60 else ""
+                                    commit_msg = (
+                                        f"chore: {prompt_preview}{ellipsis}\n\n"
+                                        f"Auto-committed by Gluon Agent\nRun ID: {run.id}"
+                                    )
+                                    commit_result = await self.git_manager.auto_commit_changes(
+                                        path=working_path,
+                                        message=commit_msg,
                                         run_id=run.id,
                                     )
-                                    if pr_result.get("pushed"):
-                                        stdout_file.write(f"\n✓ Pushed branch {run.branch_name} to remote\n")
-                                    if pr_result.get("pr_url"):
-                                        run.pr_number = pr_result.get("pr_number")
-                                        run.pr_url = pr_result.get("pr_url")
-                                        run.pr_status = pr_result.get("pr_status")
-                                        stdout_file.write(f"✓ Created PR: {run.pr_url}\n")
-                                    elif pr_result.get("error"):
-                                        stderr_file.write(f"Warning: PR creation: {pr_result['error']}\n")
-                                    stdout_file.flush()
-                                except Exception as pr_err:
-                                    stderr_file.write(f"Warning: Failed to push/create PR: {pr_err}\n")
+                                    if commit_result.get("committed"):
+                                        stdout_file.write(
+                                            f"\n✓ Auto-committed {commit_result['files_count']} file(s)\n"
+                                        )
+                                        stdout_file.flush()
+                                except Exception as commit_err:
+                                    stderr_file.write(f"Warning: Auto-commit failed: {commit_err}\n")
                                     stderr_file.flush()
 
-                        # Capture commit/file snapshots before status change
-                        # This preserves data even after branch merge/deletion
-                        if run.branch_name and not run.changes_snapshotted:
-                            try:
-                                commits, files, commit_files = await self.git_manager.capture_branch_snapshots(
-                                    path=working_path,
-                                    run_id=run.id,
-                                    branch_name=run.branch_name,
-                                    base_branch=run.source_branch or "main",
-                                )
-                                if commits or files:
-                                    self.store.save_run_snapshots(run.id, commits, files, commit_files)
-                                    run.changes_snapshotted = True
-                                    run.snapshot_at = utc_now()
-                                    stdout_file.write(
-                                        f"\n✓ Captured {len(commits)} commits, {len(files)} files for persistence\n"
-                                    )
-                                    stdout_file.flush()
-                            except Exception as snap_err:
-                                stderr_file.write(f"Warning: Failed to capture snapshots: {snap_err}\n")
-                                stderr_file.flush()
+                                # Push branch and create PR if enabled
+                                if auto_create_pr:
+                                    try:
+                                        pr_result = await self.git_manager.push_branch_and_create_pr(
+                                            project_path=working_path,
+                                            branch_name=run.branch_name,
+                                            prompt=run.prompt,
+                                            run_id=run.id,
+                                        )
+                                        if pr_result.get("pushed"):
+                                            stdout_file.write(f"\n✓ Pushed branch {run.branch_name} to remote\n")
+                                        if pr_result.get("pr_url"):
+                                            run.pr_number = pr_result.get("pr_number")
+                                            run.pr_url = pr_result.get("pr_url")
+                                            run.pr_status = pr_result.get("pr_status")
+                                            stdout_file.write(f"✓ Created PR: {run.pr_url}\n")
+                                        elif pr_result.get("error"):
+                                            stderr_file.write(f"Warning: PR creation: {pr_result['error']}\n")
+                                        stdout_file.flush()
+                                    except Exception as pr_err:
+                                        stderr_file.write(f"Warning: Failed to push/create PR: {pr_err}\n")
+                                        stderr_file.flush()
 
-                        if item.success:
-                            run.mark_review()  # All tasks go to REVIEW first
-                            # Disable supervision for completed tasks to prevent restart loop
-                            # (Ralph loops handle this separately in ralph_manager.py)
-                            if run.supervision_config is None:
-                                run.supervision_config = SupervisionConfig()
-                            run.supervision_config.enabled = False
-                            if not run.completion_reason:
-                                run.completion_reason = "Task completed successfully"
-                        else:
-                            run.mark_failed(item.error or "Unknown error", exit_code=1)
+                            # Capture commit/file snapshots before status change
+                            # This preserves data even after branch merge/deletion
+                            if run.branch_name and not run.changes_snapshotted:
+                                try:
+                                    commits, files, commit_files = await self.git_manager.capture_branch_snapshots(
+                                        path=working_path,
+                                        run_id=run.id,
+                                        branch_name=run.branch_name,
+                                        base_branch=run.source_branch or "main",
+                                    )
+                                    if commits or files:
+                                        self.store.save_run_snapshots(run.id, commits, files, commit_files)
+                                        run.changes_snapshotted = True
+                                        run.snapshot_at = utc_now()
+                                        stdout_file.write(
+                                            f"\n✓ Captured {len(commits)} commits, {len(files)} files for persistence\n"
+                                        )
+                                        stdout_file.flush()
+                                except Exception as snap_err:
+                                    stderr_file.write(f"Warning: Failed to capture snapshots: {snap_err}\n")
+                                    stderr_file.flush()
+
+                            if item.success:
+                                run.mark_review()  # All tasks go to REVIEW first
+                                # Disable supervision for completed tasks to prevent restart loop
+                                if run.supervision_config is None:
+                                    run.supervision_config = SupervisionConfig()
+                                run.supervision_config.enabled = False
+                                if not run.completion_reason:
+                                    run.completion_reason = "Task completed successfully"
+                            else:
+                                run.mark_failed(item.error or "Unknown error", exit_code=1)
+                finally:
+                    # Stop DB poller and clean up queue
+                    db_poller.cancel()
+                    try:
+                        await db_poller
+                    except asyncio.CancelledError:
+                        pass
+                    self._active_queues.pop(run.id, None)
 
         except asyncio.CancelledError:
             run.mark_cancelled()
@@ -853,16 +888,62 @@ but explicit commits with good messages are preferred.
             # Clean up active task tracking
             if run.id in self._active_tasks:
                 del self._active_tasks[run.id]
+            # Ensure queue is removed even on unexpected exit
+            self._active_queues.pop(run.id, None)
 
         # Check for queued follow-up message and auto-resume if present
         await self._handle_queued_followup(run)
 
-    async def _handle_queued_followup(self, run: ExecutionRun) -> None:
-        """Check for queued follow-up messages and auto-resume if present.
+    def _drain_db_queue_into(self, run: ExecutionRun, queue: asyncio.Queue[str]) -> None:
+        """Move any DB-queued messages into the asyncio queue (one-shot).
 
-        This is called after task completion (normal or ralph loop) to check
-        if the user queued follow-up messages while the task was running.
-        If so, we process them sequentially, clearing each from the queue.
+        Called at task start so messages queued before the execute loop began
+        are available immediately without waiting for the next poll cycle.
+        """
+        refreshed = self.store.get_run(run.id)
+        if not refreshed or not refreshed.queued_messages:
+            return
+
+        for msg in list(refreshed.queued_messages):
+            queue.put_nowait(msg.message)
+        refreshed.queued_messages.clear()
+        self.store.update_run(refreshed)
+        logger.info(
+            "Drained %d queued message(s) into follow-up queue for run %s",
+            queue.qsize(),
+            run.id[:8],
+        )
+
+    async def _poll_db_followups(self, run_id: str, queue: asyncio.Queue[str], interval: float = 2.0) -> None:
+        """Background coroutine that polls the DB for follow-ups queued by the web API.
+
+        The web API writes to `run.queued_messages` in the database.  This
+        poller drains those messages into the asyncio queue so the multi-turn
+        execute loop can pick them up without blocking.
+
+        Runs until cancelled (by the finally block in _run_task).
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                run = self.store.get_run(run_id)
+                if not run or not run.queued_messages:
+                    continue
+                for msg in list(run.queued_messages):
+                    await queue.put(msg.message)
+                run.queued_messages.clear()
+                self.store.update_run(run)
+                logger.info("Polled %d follow-up(s) for run %s", queue.qsize(), run_id[:8])
+            except Exception:
+                logger.debug("DB follow-up poll error for run %s", run_id[:8], exc_info=True)
+
+    async def _handle_queued_followup(self, run: ExecutionRun) -> None:
+        """Fallback: check for queued follow-up messages and auto-resume if present.
+
+        This is called after task completion (normal or ralph loop) as a safety net.
+        Most follow-ups are now handled in-session by the multi-turn execute loop
+        and the DB poller.  This handles any that remain (e.g. queued after the
+        execute loop exited but before the run was marked complete).
         """
         # Refresh run from database to get latest state
         run = self.store.get_run(run.id)
@@ -1402,12 +1483,19 @@ but explicit commits with good messages are preferred.
 
             auto_handler = partial(self._auto_answer_handler, run.id)
             sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
+            ralph_metadata = run.metadata or {}
+            agent_teams_override = ralph_metadata.get("agent_teams")
+            agent_teams_enabled = (
+                agent_teams_override
+                if agent_teams_override is not None
+                else self.store.get_setting("agent_teams_enabled", "false") == "true"
+            )
             agent = GluonAgent(
                 model=run.model or self.agent.model,
                 question_handler=auto_handler,
                 run_id=run.id,
                 sandbox_enabled=sandbox_enabled,
-                user_id=run.initiator,
+                agent_teams_enabled=agent_teams_enabled,
             )
 
             # Create and execute ralph manager
@@ -1587,8 +1675,19 @@ but explicit commits with good messages are preferred.
 
             # Create agent for recovery (use same model as original run)
             sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
+            recovery_metadata = run.metadata or {}
+            agent_teams_override = recovery_metadata.get("agent_teams")
+            agent_teams_enabled = (
+                agent_teams_override
+                if agent_teams_override is not None
+                else self.store.get_setting("agent_teams_enabled", "false") == "true"
+            )
             recovery_agent = (
-                GluonAgent(model=run.model, sandbox_enabled=sandbox_enabled, user_id=run.initiator)
+                GluonAgent(
+                    model=run.model,
+                    sandbox_enabled=sandbox_enabled,
+                    agent_teams_enabled=agent_teams_enabled,
+                )
                 if run.model
                 else self.agent
             )

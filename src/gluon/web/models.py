@@ -122,6 +122,8 @@ class CreateRunRequest(BaseModel):
     ralph_enabled: bool = Field(default=False, description="Enable ralph loop for autonomous execution")
     max_loops: int = Field(default=50, description="Maximum loop iterations (1-100)")
     max_cost_usd: float | None = Field(default=None, description="Optional cost limit in USD")
+    # Per-task overrides
+    agent_teams: bool | None = Field(default=None, description="Override global agent teams setting")
 
 
 class LogResponse(BaseModel):

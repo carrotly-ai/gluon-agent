@@ -62,14 +62,20 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
 
   // Settings state
   const [autoCreatePr, setAutoCreatePr] = useState(true)
-  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [savedKey, setSavedKey] = useState<string | null>(null)
   const [gitUserName, setGitUserName] = useState('')
   const [gitUserEmail, setGitUserEmail] = useState('')
+  const [initialGitUserName, setInitialGitUserName] = useState('')
+  const [initialGitUserEmail, setInitialGitUserEmail] = useState('')
 
   // Sandbox settings state
   const [sandboxEnabled, setSandboxEnabled] = useState(true)
   const [sandboxAvailable, setSandboxAvailable] = useState(false)
   const [sandboxRuntime, setSandboxRuntime] = useState<string | null>(null)
+
+  // Experimental features
+  const [agentTeamsEnabled, setAgentTeamsEnabled] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -86,9 +92,12 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setAutoCreatePr(settings.auto_create_pr !== 'false')
       setGitUserName(settings.git_user_name || '')
       setGitUserEmail(settings.git_user_email || '')
+      setInitialGitUserName(settings.git_user_name || '')
+      setInitialGitUserEmail(settings.git_user_email || '')
       setSandboxEnabled(sandboxStatus.enabled)
       setSandboxAvailable(sandboxStatus.available)
       setSandboxRuntime(sandboxStatus.runtime)
+      setAgentTeamsEnabled(settings.agent_teams_enabled === 'true')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -165,43 +174,62 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
 
   const handleToggleAutoCreatePr = async () => {
     const newValue = !autoCreatePr
-    setSettingsLoading(true)
+    setSavingKey('auto_create_pr')
     try {
       await updateSetting('auto_create_pr', newValue ? 'true' : 'false')
       setAutoCreatePr(newValue)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update setting')
     } finally {
-      setSettingsLoading(false)
+      setSavingKey(null)
     }
   }
 
   const handleSaveGitIdentity = async () => {
-    setSettingsLoading(true)
+    setSavingKey('git_identity')
     try {
       await Promise.all([
         updateSetting('git_user_name', gitUserName),
         updateSetting('git_user_email', gitUserEmail),
       ])
+      setInitialGitUserName(gitUserName)
+      setInitialGitUserEmail(gitUserEmail)
+      setSavedKey('git_identity')
+      setTimeout(() => setSavedKey(null), 2000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save git identity')
     } finally {
-      setSettingsLoading(false)
+      setSavingKey(null)
     }
   }
 
   const handleToggleSandbox = async () => {
     const newValue = !sandboxEnabled
-    setSettingsLoading(true)
+    setSavingKey('sandbox')
     try {
       await updateSetting('sandbox_enabled', newValue ? 'true' : 'false')
       setSandboxEnabled(newValue)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update sandbox setting')
     } finally {
-      setSettingsLoading(false)
+      setSavingKey(null)
     }
   }
+
+  const handleToggleAgentTeams = async () => {
+    const newValue = !agentTeamsEnabled
+    setSavingKey('agent_teams')
+    try {
+      await updateSetting('agent_teams_enabled', newValue ? 'true' : 'false')
+      setAgentTeamsEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const gitIdentityDirty = gitUserName !== initialGitUserName || gitUserEmail !== initialGitUserEmail
 
   // Group projects by workspace
   const projectsByWorkspace = projects.reduce(
@@ -580,9 +608,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
         {/* Preferences Tab */}
         {tab === 'preferences' && (
           <div className="space-y-6">
+            {/* Git (merged card) */}
             <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
-                Git Worktree Settings
+                Git
               </h3>
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -594,11 +623,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 </div>
                 <button
                   onClick={handleToggleAutoCreatePr}
-                  disabled={settingsLoading}
+                  disabled={savingKey === 'auto_create_pr'}
                   className={cn(
                     'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
                     autoCreatePr ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
-                    settingsLoading && 'opacity-50 cursor-wait'
+                    savingKey === 'auto_create_pr' && 'opacity-50 cursor-wait'
                   )}
                 >
                   <span
@@ -609,17 +638,15 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   />
                 </button>
               </div>
-            </div>
 
-            {/* Git Author Identity */}
-            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
-              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
-                Git Author Identity
-              </h3>
-              <p className="text-caption text-[var(--color-stone)]/70">
-                Configure the author name and email used for commits made by Gluon. This is required
-                for services like Vercel that verify commit authors.
-              </p>
+              <div className="border-t border-[rgba(163,163,163,0.08)]" />
+
+              <div>
+                <p className="text-title text-[var(--color-paper)]">Author Identity</p>
+                <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                  Configure the name and email used for commits made by Gluon.
+                </p>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
@@ -649,10 +676,17 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               <button
                 type="button"
                 onClick={handleSaveGitIdentity}
-                disabled={settingsLoading}
-                className="px-3 py-1.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-colors"
+                disabled={savingKey === 'git_identity' || !gitIdentityDirty}
+                className={cn(
+                  'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                  savedKey === 'git_identity'
+                    ? 'bg-[var(--color-jade)] text-white'
+                    : 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90',
+                  'disabled:opacity-50'
+                )}
               >
-                {settingsLoading ? 'Saving...' : 'Save'}
+                {savedKey === 'git_identity' && <Check className="w-3 h-3 inline mr-1" />}
+                {savingKey === 'git_identity' ? 'Saving...' : savedKey === 'git_identity' ? 'Saved' : 'Save'}
               </button>
             </div>
 
@@ -677,17 +711,50 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 </div>
                 <button
                   onClick={handleToggleSandbox}
-                  disabled={settingsLoading || !sandboxAvailable}
+                  disabled={savingKey === 'sandbox' || !sandboxAvailable}
                   className={cn(
                     'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
                     sandboxEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
-                    (settingsLoading || !sandboxAvailable) && 'opacity-50 cursor-not-allowed'
+                    (savingKey === 'sandbox' || !sandboxAvailable) && 'opacity-50 cursor-not-allowed'
                   )}
                 >
                   <span
                     className={cn(
                       'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
                       sandboxEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Experimental Features */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Experimental Features
+              </h3>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-[var(--color-paper)]">Agent Teams</p>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Enable coordinated multi-agent teams where Claude Code instances share task
+                    lists and communicate directly. This is an experimental Claude Code feature and
+                    may change without notice.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleAgentTeams}
+                  disabled={savingKey === 'agent_teams'}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    agentTeamsEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    savingKey === 'agent_teams' && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      agentTeamsEnabled && 'translate-x-5'
                     )}
                   />
                 </button>

@@ -109,6 +109,8 @@ export interface CreateRunRequest {
   ralph_enabled?: boolean
   max_loops?: number
   max_cost_usd?: number
+  // Per-task overrides
+  agent_teams?: boolean
 }
 
 /** API response for log content */
