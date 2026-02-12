@@ -417,6 +417,8 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id);",
     "CREATE INDEX IF NOT EXISTS idx_chat_history_expires ON chat_history(expires_at);",
+    # Screenshot interception: add source column to run_images
+    "ALTER TABLE run_images ADD COLUMN source TEXT DEFAULT 'user';",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2283,15 +2285,21 @@ class GluonStore:
 
     # ========== Run-Image Association ==========
 
-    def attach_image_to_run(self, run_id: str, image_id: str) -> None:
-        """Attach an image to a run."""
+    def attach_image_to_run(self, run_id: str, image_id: str, source: str = "user") -> None:
+        """Attach an image to a run.
+
+        Args:
+            run_id: Run UUID
+            image_id: Image UUID
+            source: Origin of the image — "user" (uploaded) or "screenshot" (agent-browser)
+        """
         with self._get_conn() as conn:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO run_images (run_id, image_id, created_at)
-                VALUES (?, ?, ?)
+                INSERT OR IGNORE INTO run_images (run_id, image_id, created_at, source)
+                VALUES (?, ?, ?, ?)
                 """,
-                (run_id, image_id, utc_now().isoformat()),
+                (run_id, image_id, utc_now().isoformat(), source),
             )
 
     def detach_image_from_run(self, run_id: str, image_id: str) -> bool:
@@ -2304,18 +2312,24 @@ class GluonStore:
             return cursor.rowcount > 0
 
     def list_images_for_run(self, run_id: str) -> list[ImageAttachment]:
-        """List all images attached to a run."""
+        """List all images attached to a run, including source."""
         with self._get_conn() as conn:
             rows = conn.execute(
                 """
-                SELECT i.* FROM images i
+                SELECT i.*, ri.source FROM images i
                 JOIN run_images ri ON i.id = ri.image_id
                 WHERE ri.run_id = ?
                 ORDER BY ri.created_at ASC
                 """,
                 (run_id,),
             ).fetchall()
-            return [self._row_to_image(row) for row in rows]
+            results = []
+            for row in rows:
+                img = self._row_to_image(row)
+                # Attach source from the join (may be None for old rows)
+                img.source = row["source"] or "user"
+                results.append(img)
+            return results
 
     def count_image_references(self, image_id: str) -> int:
         """Count how many runs reference an image."""

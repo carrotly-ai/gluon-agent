@@ -654,6 +654,8 @@ The container includes `agent-browser` and Chromium for headless browser automat
 - Test web applications
 - Extract data from dynamic content
 
+**Agents are guided by a system prompt** to use `agent-browser` directly — they will not attempt to run `npx playwright install` or use `mcp_scraper` for localhost pages.
+
 ### Browser Cache
 
 The Playwright/Chromium browser cache is mounted to persist across restarts:
@@ -681,7 +683,27 @@ Configure with environment variable:
 
 ### System Dependencies
 
-The Dockerfile includes Chromium system dependencies (libnss3, libxkbcommon0, fonts, etc.) needed for headless browser automation in Docker.
+The Dockerfile includes Chromium system dependencies (libnss3, libxkbcommon0, etc.) needed for headless browser automation in Docker.
+
+### System Fonts
+
+The Docker image includes a comprehensive set of fonts for high-quality screenshot rendering:
+
+| Package | Coverage |
+|---------|----------|
+| `fonts-liberation` | Metrically equivalent to Arial, Times New Roman, Courier New |
+| `fonts-noto-color-emoji` | Color emoji rendering |
+| `fonts-noto-cjk` | Chinese, Japanese, Korean characters |
+| `fonts-dejavu-core` | Extended Latin, Greek, Cyrillic |
+| `fonts-freefont-ttf` | Wide Unicode coverage |
+
+The font cache is built at image build time (`fc-cache -fv`) for fast rendering.
+
+### Screenshot Interception
+
+When an agent runs `agent-browser screenshot <path>`, Gluon's PostToolUse hook automatically captures the file and stores it as a run attachment. Screenshots appear in:
+- The **Messages** tab as inline clickable thumbnails
+- The **Images** tab with a "SCREENSHOT" badge
 
 ## Performance Tuning
 

@@ -24,8 +24,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from gluon.agent_hooks import SubagentTracker, build_hooks
+from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, build_hooks
 from gluon.models import (
+    AGENT_BROWSER_SYSTEM_PROMPT,
     GLUON_SYSTEM_PROMPT,
     PLANNING_AUTONOMOUS_PROMPT,
     PLANNING_SYSTEM_PROMPT,
@@ -413,6 +414,7 @@ class GluonAgent:
         new_session_id: str | None = None,
         ralph_mode: bool = False,
         subagent_tracker: SubagentTracker | None = None,
+        screenshot_collector: ScreenshotCollector | None = None,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -477,7 +479,7 @@ class GluonAgent:
         options.stderr = lambda line: _sdk_logger.debug("sdk_stderr: %s", line.rstrip())
 
         # Wire SDK hooks for structured tool-use logging (and team tracking when enabled)
-        options.hooks = build_hooks(tracker=subagent_tracker)
+        options.hooks = build_hooks(tracker=subagent_tracker, screenshot_collector=screenshot_collector)
 
         # Add max_turns if configured
         if self.max_turns is not None:
@@ -515,6 +517,9 @@ class GluonAgent:
 5. Use relative paths from the project root, not absolute paths
 """
         append_parts.append(project_boundary)
+
+        # Always append agent-browser instructions (available in Docker)
+        append_parts.append(AGENT_BROWSER_SYSTEM_PROMPT)
 
         # Additionally append planning prompt if force_planning is enabled
         # In Ralph Loop mode (autonomous), use PLANNING_AUTONOMOUS_PROMPT which
@@ -576,6 +581,7 @@ class GluonAgent:
         fork_session: bool = True,
         ralph_mode: bool = False,
         follow_up_queue: asyncio.Queue[str] | None = None,
+        screenshot_collector: ScreenshotCollector | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -618,6 +624,7 @@ class GluonAgent:
             new_session_id,
             ralph_mode,
             subagent_tracker=tracker,
+            screenshot_collector=screenshot_collector,
         )
 
         # Build multimodal prompt if images provided

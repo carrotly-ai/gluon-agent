@@ -411,6 +411,13 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             agent_teams=body.agent_teams,
         )
 
+        # Store dev_port in metadata if provided
+        if body.dev_port is not None:
+            if run.metadata is None:
+                run.metadata = {}
+            run.metadata["dev_port"] = body.dev_port
+            store.update_run(run)
+
         project_lookup = get_project_lookup()
         response = run_to_response(run, project_lookup)
 
@@ -2401,6 +2408,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             mime_type=image.mime_type,
             size_bytes=image.size_bytes,
             hash=image.hash,
+            source=getattr(image, "source", "user"),
             created_at=image.created_at.isoformat(),
         )
 

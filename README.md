@@ -136,6 +136,12 @@ Tips:
 
 > See the [Claude Code Agent Teams documentation](https://code.claude.com/docs/en/agent-teams) for full details on how the underlying SDK orchestrates subagents.
 
+### Browser Automation & Screenshots
+- **agent-browser** - Pre-installed Chromium for headless browser automation (open, click, type, screenshot)
+- **Screenshot Interception** - Screenshots captured via `agent-browser screenshot` are automatically stored as run attachments
+- **Inline Screenshot Messages** - Screenshots appear as clickable thumbnails in both the Messages and Images tabs
+- **System Fonts** - Docker image includes Liberation, Noto CJK, DejaVu, and FreeFonts for high-quality screenshot rendering
+
 ### Additional Features
 - **Image Attachments** - Paste screenshots/diagrams for AI context (Cmd+V in resume prompt)
 - **Usage Tracking** - Monitor costs, tokens, and usage per project

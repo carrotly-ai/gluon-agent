@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
+from gluon.agent_hooks import ScreenshotCollector
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
@@ -504,6 +506,11 @@ class TaskRunner:
         # Browser session isolation per run
         env["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
 
+        # Allocate a dev port for agent-browser / dev server usage
+        run_meta = run.metadata or {}
+        dev_port = str(run_meta.get("dev_port") or random.randint(3100, 3999))
+        env["GLUON_DEV_PORT"] = dev_port
+
         # Spawn detached process
         # On Unix, use start_new_session to detach from terminal
         # Redirect stdout/stderr to /dev/null since we capture logs ourselves
@@ -667,6 +674,23 @@ but explicit commits with good messages are preferred.
                     agent_teams_enabled=agent_teams_enabled,
                 )
 
+                # Create screenshot collector for intercepting agent-browser screenshots
+                def _screenshot_message_writer(msg: dict) -> None:
+                    messages_file.write(json.dumps(msg) + "\n")
+                    messages_file.flush()
+
+                screenshot_collector = ScreenshotCollector(
+                    run_id=run.id,
+                    working_dir=working_dir,
+                    image_service=self.image_service,
+                    store=self.store,
+                    message_callback=_screenshot_message_writer,
+                )
+
+                # Allocate a dev port for agent-browser / dev server usage
+                dev_port = str(metadata.get("dev_port") or random.randint(3100, 3999))
+                os.environ["GLUON_DEV_PORT"] = dev_port
+
                 # Create follow-up queue so the multi-turn loop can
                 # process in-session follow-ups without spawning subprocesses
                 follow_up_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -686,6 +710,7 @@ but explicit commits with good messages are preferred.
                         resume_session_id=run.claude_session_id,
                         images=image_paths if image_paths else None,
                         follow_up_queue=follow_up_queue,
+                        screenshot_collector=screenshot_collector,
                     ):
                         if isinstance(item, AgentMessage):
                             # Log message
@@ -884,6 +909,18 @@ but explicit commits with good messages are preferred.
         except Exception as e:
             run.mark_failed(str(e), exit_code=1)
         finally:
+            # Kill any dev server left on GLUON_DEV_PORT to prevent orphaned processes
+            dev_port = os.environ.get("GLUON_DEV_PORT")
+            if dev_port:
+                try:
+                    subprocess.run(
+                        ["fuser", "-k", f"{dev_port}/tcp"],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+
             self.store.update_run(run)
             # Clean up active task tracking
             if run.id in self._active_tasks:
@@ -1118,6 +1155,13 @@ but explicit commits with good messages are preferred.
             # Check if process exists (signal 0 doesn't kill)
             os.kill(run.pid, 0)
         except ProcessLookupError:
+            # Process is gone — re-read from DB to check if task completed
+            # between our check (avoids race where task finishes + process exits
+            # before we can observe both)
+            fresh_run = self.store.get_run(run.id)
+            if fresh_run and fresh_run.status != RunStatus.RUNNING:
+                return fresh_run  # Task completed normally, process exited after DB update
+
             # Process is gone unexpectedly - attempt to salvage uncommitted work
             logger.warning(
                 f"Process for run {run.id[:8]} terminated unexpectedly (pid={run.pid}, worktree={run.worktree_path})"
