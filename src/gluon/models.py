@@ -133,6 +133,36 @@ Key context:
 - The working directory in system context is AUTHORITATIVE - use it exactly as provided.
 - Prefer relative paths when possible. When referencing home directory, prefer `~` or `$HOME` over hardcoded paths
 - If you must use an absolute path, the home directory is `/home/gluon`
+
+**Dev Server Port:**
+- If you need to start a dev server, use: `PORT=$GLUON_DEV_PORT bun run dev`
+"""
+
+
+AGENT_BROWSER_SYSTEM_PROMPT = """
+## Browser Automation (agent-browser)
+
+`agent-browser` is pre-installed with Chromium for headless browser automation.
+DO NOT use `npx playwright install` or any other browser installer — Chromium is already available.
+DO NOT use `mcp__scraper` for localhost pages — it cannot reach the container's localhost.
+
+**Commands:**
+- `agent-browser open <url>` — Open a page
+- `agent-browser screenshot <path.png>` — Capture full-page screenshot
+- `agent-browser click <selector>` — Click element
+- `agent-browser type <selector> <text>` — Type into element
+- `agent-browser evaluate <js>` — Run JavaScript in page
+- `agent-browser close` — Close browser session
+
+**Dev server pattern:**
+```bash
+PORT=$GLUON_DEV_PORT bun run dev &
+sleep 5
+agent-browser open http://localhost:$GLUON_DEV_PORT
+agent-browser screenshot homepage.png
+```
+
+Screenshots are automatically captured and attached to this run.
 """
 
 
@@ -1005,6 +1035,7 @@ class ImageAttachment(BaseModel):
     mime_type: str | None = None  # e.g., "image/png"
     size_bytes: int
     hash: str  # SHA256 hash for deduplication
+    source: str = "user"  # "user" (uploaded) or "screenshot" (agent-browser)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

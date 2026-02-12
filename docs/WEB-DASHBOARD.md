@@ -108,10 +108,10 @@ The run details dialog provides a comprehensive view of each task with multiple 
 |-----|----------|
 | **Output** | Streaming log viewer with live updates, auto-scroll, tool call visualization |
 | **Errors** | Filtered error messages with stack traces and context |
-| **Messages** | Full message history filterable by type (All/Tools/Text/Errors), expandable tool calls with parameters and results |
+| **Messages** | Full message history filterable by type (All/Tools/Text/Errors), expandable tool calls with parameters and results, inline screenshot thumbnails |
 | **Commits** | Expandable commit list showing author, timestamp, message, and files changed; click commits for detailed diff view |
 | **Files** | All files changed on branch with additions/deletions counts; inline diff viewer for each file |
-| **Attachments** | Image gallery with preview thumbnails; upload new images or view attached screenshots |
+| **Attachments** | Image gallery with square preview thumbnails; upload new images or view auto-captured screenshots (badged with SCREENSHOT label) |
 | **Loop** | Ralph iteration progress (when ralph loop enabled), showing iteration count, status, cost, safety metrics |
 | **History** | Session history showing all related runs in the conversation thread |
 
@@ -219,6 +219,21 @@ flowchart LR
 - **Worktree Copy** - Images copied to `.gluon-images/` in worktree for AI visibility
 - **Gallery View** - View all images attached to a run in the attachments tab
 - **Supported Formats** - PNG, JPEG, GIF, WebP (max 50MB each)
+
+### Screenshot Interception
+
+When an agent uses `agent-browser screenshot <path>`, Gluon automatically:
+
+1. **Captures** the screenshot file from the agent's working directory via a PostToolUse hook
+2. **Stores** it in the image storage service (SHA256-deduplicated)
+3. **Attaches** it to the run with a `screenshot` source badge
+4. **Injects** a `screenshot` message into `messages.jsonl` so it appears inline in the Messages tab
+
+Screenshots are visible in two places:
+- **Messages tab** — Clickable thumbnail inline with the message stream (harvest-colored border)
+- **Images tab** — Square thumbnail in the image grid with a "SCREENSHOT" badge
+
+The agent is guided by a system prompt to use `agent-browser` directly (Chromium is pre-installed in Docker) rather than attempting to install browsers or use `mcp_scraper` for localhost pages.
 
 ## Usage Tracking
 
@@ -427,6 +442,7 @@ The `StreamingLogViewer` component provides:
 | `tool_result` | ✅/❌ | Tool execution result |
 | `system` | ⚙️ | System messages |
 | `error` | 🔴 | Error messages |
+| `screenshot` | 📷 | Screenshot captured via agent-browser (clickable thumbnail) |
 
 ### Subscribing to Logs
 

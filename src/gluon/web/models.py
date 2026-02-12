@@ -124,6 +124,7 @@ class CreateRunRequest(BaseModel):
     max_cost_usd: float | None = Field(default=None, description="Optional cost limit in USD")
     # Per-task overrides
     agent_teams: bool | None = Field(default=None, description="Override global agent teams setting")
+    dev_port: int | None = Field(default=None, description="Dev server port (auto-assigned if not set)")
 
 
 class LogResponse(BaseModel):
@@ -473,6 +474,7 @@ class ImageResponse(BaseModel):
     mime_type: str | None = Field(default=None, description="MIME type")
     size_bytes: int = Field(description="File size in bytes")
     hash: str = Field(description="SHA256 content hash")
+    source: str = Field(default="user", description="Origin: 'user' (uploaded) or 'screenshot' (agent-browser)")
     created_at: str = Field(description="Creation timestamp")
 
     class Config:

@@ -35,6 +35,7 @@ gluon-agent/
 │   ├── chat_agent.py        # NL interpreter with MCP tools
 │   ├── git_manager.py       # Git synchronization & worktree operations
 │   ├── worktree.py          # Git worktree lifecycle management
+│   ├── agent_hooks.py       # SDK hooks: tool logging, subagent tracking, screenshot interception
 │   ├── image_storage.py     # Content-addressed image storage (SHA256 dedup)
 │   ├── ralph_manager.py     # Ralph loop autonomous execution orchestrator
 │   ├── circuit_breaker.py   # 3-state circuit breaker (CLOSED/HALF_OPEN/OPEN)

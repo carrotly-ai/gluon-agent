@@ -560,6 +560,7 @@ export interface ImageAttachment {
   mime_type: string | null
   size_bytes: number
   hash: string
+  source?: 'user' | 'screenshot'
   created_at: string
 }
 

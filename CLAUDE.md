@@ -125,6 +125,7 @@ CLI (cli.py) ──────────────────────�
 | `src/gluon/models.py` | Pydantic models: Workspace, Project, Session, ExecutionRun, ChannelMapping |
 | `src/gluon/store.py` | SQLite persistence with CRUD for all entities |
 | `src/gluon/agent.py` | GluonAgent wrapping claude-agent-sdk |
+| `src/gluon/agent_hooks.py` | SDK hooks: tool logging, subagent tracking, screenshot interception |
 | `src/gluon/core.py` | Orchestrator coordinating store + agent |
 | `src/gluon/runner.py` | Background task execution with subprocess management |
 | `src/gluon/chat_agent.py` | Natural language interface using Claude + MCP tools |

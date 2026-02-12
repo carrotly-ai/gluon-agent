@@ -8,6 +8,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   AlertCircle,
+  Camera,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -30,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
+import { getImageFileUrl } from '@/lib/api'
 import { formatMessageTime } from '@/lib/timestamps'
 import type { RunStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -86,6 +88,13 @@ const MESSAGE_CONFIG: Record<
     bg: 'bg-[var(--color-indigo)]/5',
     border: 'border-l-2 border-l-[var(--color-indigo)]/50',
     label: 'You',
+  },
+  screenshot: {
+    icon: Camera,
+    color: 'text-[var(--color-harvest)]',
+    bg: 'bg-[rgba(245,166,35,0.06)]',
+    border: 'border-l-2 border-l-[var(--color-harvest)]/50',
+    label: 'Screenshot',
   },
 }
 
@@ -145,12 +154,15 @@ type MessageFilter = 'all' | 'tool_use' | 'text' | 'error'
 // Convert AgentMessageData to the format MessagesPanel expects
 interface AgentMessage {
   timestamp: string
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
+  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user' | 'screenshot'
   content: string
   metadata?: {
     tool?: string
     tool_id?: string
     input?: unknown
+    image_id?: string
+    original_name?: string
+    size_bytes?: number
   }
 }
 
@@ -804,6 +816,49 @@ function SystemMessage({
   )
 }
 
+function ScreenshotMessage({
+  msg,
+  showTimestamp = true,
+}: {
+  msg: AgentMessage
+  showTimestamp?: boolean
+}) {
+  const imageId = msg.metadata?.image_id
+  const time = formatMessageTime(msg.timestamp)
+  const config = MESSAGE_CONFIG.screenshot
+
+  return (
+    <div className={cn('flex items-start gap-3 py-2 px-3', config.bg, config.border)}>
+      <Camera className={cn('w-3 h-3 shrink-0 mt-0.5', config.color)} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-body text-[var(--color-harvest)] uppercase tracking-wider">
+            Screenshot
+          </span>
+          <span className="text-body text-[var(--color-paper)]/60">{msg.content}</span>
+        </div>
+        {imageId && (
+          <a
+            href={getImageFileUrl(imageId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-48 aspect-[4/3] rounded-sm overflow-hidden border border-[rgba(163,163,163,0.15)] hover:border-[var(--color-harvest)]/50 transition-colors"
+          >
+            <img
+              src={getImageFileUrl(imageId)}
+              alt={msg.content}
+              className="w-full h-full object-cover"
+            />
+          </a>
+        )}
+      </div>
+      {showTimestamp && (
+        <span className="text-body text-[var(--color-stone)]/40 font-mono shrink-0">{time}</span>
+      )}
+    </div>
+  )
+}
+
 // Progress indicator component
 function ProgressIndicator({
   progress,
@@ -994,6 +1049,9 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       }
       if (msg.type === 'user') {
         return <UserMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+      }
+      if (msg.type === 'screenshot') {
+        return <ScreenshotMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
       }
       return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
     },

@@ -96,6 +96,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     fonts-liberation \
     fonts-noto-color-emoji \
+    fonts-noto-cjk \
+    fonts-dejavu-core \
+    fonts-freefont-ttf \
+    fontconfig \
+    && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
 # Layer 5c: agent-browser CLI (global install only)

@@ -192,6 +192,7 @@ export function RunDetailDialog({
   const [loadingFileDiff, setLoadingFileDiff] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [loadingAttachments, setLoadingAttachments] = useState(false)
+  const [lightboxImage, setLightboxImage] = useState<ImageAttachment | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
@@ -2098,26 +2099,29 @@ Focus on preserving the functionality from both sides where possible.`
                         {/* Image grid */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                           {attachments.map((image) => (
-                            <div
+                            <button
                               key={image.id}
-                              className="group relative rounded-sm overflow-hidden border border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]"
+                              type="button"
+                              onClick={() => setLightboxImage(image)}
+                              className="group relative aspect-square rounded-sm overflow-hidden border border-[rgba(163,163,163,0.1)] bg-[var(--color-void)] text-left cursor-pointer"
                             >
                               <img
                                 src={getImageFileUrl(image.id)}
                                 alt={image.original_name}
-                                className="w-full h-24 object-cover"
+                                className="w-full h-full object-cover"
                               />
+                              {/* Screenshot badge */}
+                              {image.source === 'screenshot' && (
+                                <span className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-[var(--color-harvest)]/80 text-white rounded-sm">
+                                  Screenshot
+                                </span>
+                              )}
                               {/* Hover overlay with actions */}
                               <div className="absolute inset-0 bg-[var(--color-void)]/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                                <a
-                                  href={getImageFileUrl(image.id)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm hover:bg-[var(--color-paper)]/20 transition-colors"
-                                >
-                                  <Download className="w-3 h-3" />
-                                  View
-                                </a>
+                                <span className="flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm">
+                                  <Maximize2 className="w-3 h-3" />
+                                  Expand
+                                </span>
                               </div>
                               {/* File info footer */}
                               <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-[var(--color-void)]/90">
@@ -2128,9 +2132,53 @@ Focus on preserving the functionality from both sides where possible.`
                                   {formatFileSize(image.size_bytes)}
                                 </p>
                               </div>
-                            </div>
+                            </button>
                           ))}
                         </div>
+                        {/* Lightbox overlay */}
+                        {lightboxImage && (
+                          <button
+                            type="button"
+                            className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-8 cursor-default border-none"
+                            onClick={() => setLightboxImage(null)}
+                            onKeyDown={(e) => e.key === 'Escape' && setLightboxImage(null)}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setLightboxImage(null)
+                              }}
+                              className="absolute top-4 right-4 p-2 text-white/70 hover:text-white transition-colors"
+                            >
+                              <X className="w-6 h-6" />
+                            </button>
+                            <img
+                              src={getImageFileUrl(lightboxImage.id)}
+                              alt={lightboxImage.original_name}
+                              className="max-w-full max-h-full object-contain rounded"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 text-white/80 text-body">
+                              <span>{lightboxImage.original_name}</span>
+                              {lightboxImage.source === 'screenshot' && (
+                                <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-[var(--color-harvest)]/80 rounded-sm">
+                                  Screenshot
+                                </span>
+                              )}
+                              <a
+                                href={getImageFileUrl(lightboxImage.id)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 hover:text-white transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Download className="w-3 h-3" />
+                                Open
+                              </a>
+                            </div>
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/50">
