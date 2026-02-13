@@ -209,6 +209,35 @@ Map these ports when you need web access or browser preview:
 docker run -p 45866:45866 -p 9223:9223 gluon-agent:latest
 ```
 
+## HTTPS/SSL Configuration
+
+The web dashboard supports optional HTTPS, useful for browser features (clipboard, notifications) that require a secure context on non-localhost origins.
+
+### Setup
+
+1. Place SSL certificates in `~/.gluon/ssl/` (already accessible via the `~/.gluon` volume mount):
+   ```bash
+   ls ~/.gluon/ssl/
+   # ix.tail101c2a.ts.net.crt  ix.tail101c2a.ts.net.key
+   ```
+
+2. Add to `.env.local` (paths are inside the container):
+   ```bash
+   GLUON_SSL_CERTFILE=/home/gluon/.gluon/ssl/ix.tail101c2a.ts.net.crt
+   GLUON_SSL_KEYFILE=/home/gluon/.gluon/ssl/ix.tail101c2a.ts.net.key
+   ```
+
+3. Restart:
+   ```bash
+   docker compose up -d
+   ```
+
+The dashboard is now available at `https://<host>:45866`. WebSocket connections automatically upgrade to `wss://`.
+
+### Without HTTPS
+
+Leave `GLUON_SSL_CERTFILE` and `GLUON_SSL_KEYFILE` unset — the dashboard serves HTTP as before.
+
 ## Resource Limits
 
 For optimal performance with concurrent Claude agents, set resource limits in `docker-compose.yml`:

@@ -237,6 +237,11 @@ from gluon.core import ProjectNotFoundError, ProjectExistsError, WorkspaceNotFou
 - `GLUON_DISCORD_GUILD` - Discord guild (server) ID
 - `GLUON_DISCORD_USERS` - Comma-separated allowed user IDs
 
+**Web Dashboard HTTPS (optional):**
+- `GLUON_SSL_CERTFILE` - Path to SSL certificate file (e.g., `/home/gluon/.gluon/ssl/cert.crt`)
+- `GLUON_SSL_KEYFILE` - Path to SSL private key file (e.g., `/home/gluon/.gluon/ssl/key.key`)
+- Both must be set to enable HTTPS; if unset, serves HTTP
+
 Data stored at `~/.gluon/gluon.db`
 
 ## Adding a New Transport

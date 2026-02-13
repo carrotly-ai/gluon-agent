@@ -1379,7 +1379,7 @@ def serve(
     Configure each transport with environment variables:
     - Telegram: GLUON_TELEGRAM_TOKEN, GLUON_TELEGRAM_USERS
     - Discord: GLUON_DISCORD_TOKEN, GLUON_DISCORD_GUILD, GLUON_DISCORD_USERS
-    - Web: No configuration needed (runs on --web-port, default 45866)
+    - Web: GLUON_SSL_CERTFILE, GLUON_SSL_KEYFILE (optional, for HTTPS)
     """
     import os
 
@@ -1449,8 +1449,39 @@ def serve(
             from gluon.web import create_app
 
             web_app = create_app()
-            web_server = uvicorn.Server(uvicorn.Config(web_app, host="0.0.0.0", port=web_port, log_level="warning"))
-            console.print(f"[green]✓[/green] Web dashboard configured (port {web_port})")
+
+            # Optional HTTPS via SSL certificates
+            ssl_certfile = os.environ.get("GLUON_SSL_CERTFILE")
+            ssl_keyfile = os.environ.get("GLUON_SSL_KEYFILE")
+
+            ssl_enabled = False
+            if ssl_certfile and ssl_keyfile:
+                cert_path = Path(ssl_certfile)
+                key_path = Path(ssl_keyfile)
+                if not cert_path.exists():
+                    console.print(f"[red]Error:[/red] SSL certificate not found: {ssl_certfile}")
+                    raise typer.Exit(1)
+                if not key_path.exists():
+                    console.print(f"[red]Error:[/red] SSL key not found: {ssl_keyfile}")
+                    raise typer.Exit(1)
+                ssl_enabled = True
+            elif ssl_certfile or ssl_keyfile:
+                console.print(
+                    "[yellow]⚠[/yellow] HTTPS skipped: both GLUON_SSL_CERTFILE and GLUON_SSL_KEYFILE must be set"
+                )
+
+            config_kwargs: dict[str, Any] = {
+                "host": "0.0.0.0",
+                "port": web_port,
+                "log_level": "warning",
+            }
+            if ssl_enabled:
+                config_kwargs["ssl_certfile"] = ssl_certfile
+                config_kwargs["ssl_keyfile"] = ssl_keyfile
+
+            web_server = uvicorn.Server(uvicorn.Config(web_app, **config_kwargs))
+            protocol = "HTTPS" if ssl_enabled else "HTTP"
+            console.print(f"[green]✓[/green] Web dashboard configured ({protocol}, port {web_port})")
         except ImportError:
             console.print("[red]Error:[/red] Web dashboard dependencies not installed.")
             console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
