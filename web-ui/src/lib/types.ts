@@ -111,6 +111,7 @@ export interface CreateRunRequest {
   max_cost_usd?: number
   // Per-task overrides
   agent_teams?: boolean
+  model_transition?: string
 }
 
 /** API response for log content */
@@ -299,7 +300,18 @@ export interface LogLineMessage extends WebSocketMessage {
 
 /** Agent message from messages.jsonl - text, tool_use, error, result, user, etc. */
 export interface AgentMessageData {
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
+  type:
+    | 'text'
+    | 'tool_use'
+    | 'system'
+    | 'error'
+    | 'result'
+    | 'user'
+    | 'mcp_status'
+    | 'notification'
+    | 'screenshot'
+    | 'thinking'
+    | 'tool_result'
   content: string
   metadata?: Record<string, unknown>
   timestamp?: string

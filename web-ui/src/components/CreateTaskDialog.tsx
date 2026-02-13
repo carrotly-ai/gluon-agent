@@ -81,6 +81,21 @@ const THINKING_OPTIONS = [
   { value: 'ultrathink', label: 'Ultrathink', description: '32k tokens' },
 ]
 
+// Model transition options (only shown when Planning profile is selected)
+const MODEL_TRANSITION_OPTIONS = [
+  { value: '', label: 'None (single model)', description: 'Use one model throughout' },
+  {
+    value: 'opus-to-sonnet',
+    label: 'Opus \u2192 Sonnet',
+    description: 'Plan with Opus, implement with Sonnet',
+  },
+  {
+    value: 'opus-to-haiku',
+    label: 'Opus \u2192 Haiku',
+    description: 'Plan with Opus, implement with Haiku',
+  },
+]
+
 const DEFAULT_PROFILE = 'deep'
 const PROFILE_STORAGE_KEY = 'gluon-profile'
 const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
@@ -160,6 +175,8 @@ export function CreateTaskDialog({
   const [maxBudgetOverride, setMaxBudgetOverride] = useState<string>('')
   const [advancedModelDropdownOpen, setAdvancedModelDropdownOpen] = useState(false)
   const [advancedThinkingDropdownOpen, setAdvancedThinkingDropdownOpen] = useState(false)
+  const [modelTransition, setModelTransition] = useState('')
+  const [modelTransitionDropdownOpen, setModelTransitionDropdownOpen] = useState(false)
 
   // Image upload state
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
@@ -482,6 +499,7 @@ export function CreateTaskDialog({
         max_loops: ralphEnabled ? maxLoops : undefined,
         max_cost_usd: ralphEnabled && costValue && costValue > 0 ? costValue : undefined,
         agent_teams: agentTeams || undefined,
+        model_transition: modelTransition || undefined,
       })
 
       // Upload and attach images
@@ -508,6 +526,9 @@ export function CreateTaskDialog({
   const selectedProfileOption = PROFILE_OPTIONS.find((p) => p.value === profile)
   const selectedAdvancedModelOption = MODEL_OPTIONS.find((m) => m.value === modelOverride)
   const selectedAdvancedThinkingOption = THINKING_OPTIONS.find((t) => t.value === thinkingOverride)
+  const selectedModelTransitionOption = MODEL_TRANSITION_OPTIONS.find(
+    (t) => t.value === modelTransition
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -747,6 +768,10 @@ export function CreateTaskDialog({
                       onClick={() => {
                         setProfile(option.value)
                         setProfileDropdownOpen(false)
+                        // Clear model transition when switching away from Planning
+                        if (option.value !== 'planning') {
+                          setModelTransition('')
+                        }
                       }}
                     >
                       {option.label}
@@ -924,6 +949,74 @@ export function CreateTaskDialog({
                     />
                   </div>
                 </div>
+
+                {/* Model Transition (only shown for Planning profile) */}
+                {profile === 'planning' && (
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                      Model Transition
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                        onClick={() =>
+                          setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)
+                        }
+                      >
+                        <span
+                          className={
+                            modelTransition
+                              ? 'text-[var(--color-paper)]'
+                              : 'text-[var(--color-stone)]/60'
+                          }
+                        >
+                          {selectedModelTransitionOption?.label || 'None (single model)'}
+                          {selectedModelTransitionOption?.description &&
+                            modelTransition && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {selectedModelTransitionOption.description}
+                              </span>
+                            )}
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                            modelTransitionDropdownOpen && 'rotate-180'
+                          )}
+                        />
+                      </button>
+
+                      {modelTransitionDropdownOpen && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                          {MODEL_TRANSITION_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={cn(
+                                'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                modelTransition === option.value
+                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                  : 'text-[var(--color-stone)]'
+                              )}
+                              onClick={() => {
+                                setModelTransition(option.value)
+                                setModelTransitionDropdownOpen(false)
+                              }}
+                            >
+                              {option.label}
+                              {option.description && (
+                                <span className="ml-2 text-[var(--color-stone)]/60">
+                                  {option.description}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

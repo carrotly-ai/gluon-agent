@@ -125,6 +125,10 @@ class CreateRunRequest(BaseModel):
     # Per-task overrides
     agent_teams: bool | None = Field(default=None, description="Override global agent teams setting")
     dev_port: int | None = Field(default=None, description="Dev server port (auto-assigned if not set)")
+    model_transition: str | None = Field(
+        default=None,
+        description="Model transition strategy: opus-to-sonnet, opus-to-haiku",
+    )
 
 
 class LogResponse(BaseModel):
