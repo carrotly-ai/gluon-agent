@@ -1260,7 +1260,6 @@ def bot(
     from dotenv import load_dotenv
 
     from gluon.bot_core import GluonBotCore
-    from gluon.transport.telegram import run_telegram_transport
 
     # Load .env.local for AWS Bedrock configuration
     env_path = Path(__file__).parent.parent / ".env.local"
@@ -1288,7 +1287,20 @@ def bot(
         console.print("[dim]Press Ctrl+C to stop[/dim]")
 
         bot_core = GluonBotCore()
-        asyncio.run(run_telegram_transport(bot_token, bot_core, allowed_users))
+
+        async def _run_telegram():
+            from gluon.transport.telegram import TelegramTransport
+
+            transport = TelegramTransport(bot_token, bot_core, allowed_users)
+            bot_core.notifier.transports[transport.name] = transport
+            await transport.start()
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(_run_telegram())
     except KeyboardInterrupt:
         console.print("\n[yellow]Bot stopped.[/yellow]")
 
@@ -1320,7 +1332,7 @@ def discord_bot(
     import os
 
     try:
-        from gluon.transport.discord import DiscordTransport, run_discord_transport
+        from gluon.transport.discord import DiscordTransport
 
         _ = DiscordTransport  # Verify import succeeded
     except ImportError:
@@ -1356,7 +1368,15 @@ def discord_bot(
         console.print("[dim]Press Ctrl+C to stop[/dim]")
 
         bot_core = GluonBotCore()
-        anyio.run(run_discord_transport, bot_token, guild_id, bot_core, allowed_users)
+
+        async def _run_discord():
+            from gluon.transport.discord import DiscordTransport
+
+            transport = DiscordTransport(bot_token, guild_id, bot_core, allowed_users)
+            bot_core.notifier.transports[transport.name] = transport
+            await transport.start()
+
+        anyio.run(_run_discord)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -1492,6 +1512,10 @@ def serve(
         console.print("[red]Error:[/red] No services configured.")
         console.print("Check that required environment variables are set for your transports.")
         raise typer.Exit(1)
+
+    # Register transports with notifier so run notifications can reach channels
+    for _, transport in transports_to_run:
+        bot_core.notifier.transports[transport.name] = transport
 
     async def _run_all():
         """Run all configured transports concurrently."""

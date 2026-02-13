@@ -14,6 +14,7 @@ from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.git_manager import GitManager
 from gluon.models import ExecutionRun, TaskProfile, ThinkingBudget
 from gluon.models_config import ModelTier
+from gluon.notifier import NotificationDispatcher
 from gluon.runner import format_duration, format_run_status
 from gluon.store import GluonStore
 from gluon.transport import TransportContext, TransportResponse
@@ -45,6 +46,7 @@ class GluonBotCore:
         orchestrator: Orchestrator | None = None,
         git_manager: GitManager | None = None,
         max_concurrent: int = 16,
+        notifier: NotificationDispatcher | None = None,
     ):
         """Initialize the bot core.
 
@@ -53,12 +55,15 @@ class GluonBotCore:
             orchestrator: Orchestrator instance
             git_manager: Git manager instance
             max_concurrent: Maximum concurrent tasks
+            notifier: Notification dispatcher for run status changes
         """
         self.store = store or GluonStore()
         self.git_manager = git_manager or GitManager(store=self.store)
+        self.notifier = notifier or NotificationDispatcher(store=self.store)
         self.orchestrator = orchestrator or Orchestrator(
             store=self.store,
             git_manager=self.git_manager,
+            notifier=self.notifier,
         )
         self.chat_agent = GluonChatAgent(self.orchestrator)
 

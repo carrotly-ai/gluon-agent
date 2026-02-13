@@ -21,6 +21,7 @@ from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.files import get_project_files
 from gluon.models import RunStatus, expand_path
+from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
@@ -165,8 +166,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     # Shared instances
     if store is None:
         store = GluonStore()
-    orchestrator = Orchestrator(store=store)
-    runner = TaskRunner(store=store)
+    notifier = NotificationDispatcher(store=store)
+    orchestrator = Orchestrator(store=store, notifier=notifier)
+    runner = TaskRunner(store=store, notifier=notifier)
+
+    # Store notifier on app.state so transports can register later
+    app.state.notifier = notifier
 
     # Build project lookup helper
     def get_project_lookup() -> dict[str, str]:

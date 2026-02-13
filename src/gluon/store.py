@@ -1980,6 +1980,15 @@ class GluonStore:
                 rows = conn.execute("SELECT * FROM channel_mappings ORDER BY transport, created_at DESC").fetchall()
             return [self._row_to_channel_mapping(row) for row in rows]
 
+    def list_channel_mappings_for_project(self, project_id: str) -> list[ChannelMapping]:
+        """List channel mappings for a specific project."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM channel_mappings WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+            return [self._row_to_channel_mapping(row) for row in rows]
+
     def delete_channel_mapping(self, transport: str, channel_id: str) -> bool:
         """Delete a channel mapping."""
         with self._get_conn() as conn:

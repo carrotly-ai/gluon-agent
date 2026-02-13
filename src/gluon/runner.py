@@ -24,6 +24,7 @@ from gluon.agent_hooks import ScreenshotCollector
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
+from gluon.notifier import NotificationDispatcher
 from gluon.ralph_manager import RalphManager
 from gluon.resume_coordinator import ResumeCoordinator
 from gluon.store import DEFAULT_LOG_PATH, GluonStore
@@ -60,10 +61,12 @@ class TaskRunner:
         store: GluonStore | None = None,
         agent: GluonAgent | None = None,
         config: RunnerConfig | None = None,
+        notifier: NotificationDispatcher | None = None,
     ):
         self.store = store or GluonStore()
         self.agent = agent or GluonAgent()
         self.config = config or RunnerConfig()
+        self.notifier = notifier
         self.git_manager = GitManager(self.store)
         self.image_service = ImageStorageService(self.store)
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
@@ -537,6 +540,8 @@ class TaskRunner:
 
     async def _run_task(self, run: ExecutionRun) -> None:
         """Execute the actual task."""
+        old_status = run.status
+
         # Set git identity environment variables from settings
         # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
         self._set_git_identity_env_vars()
@@ -940,6 +945,14 @@ but explicit commits with good messages are preferred.
                     pass
 
             self.store.update_run(run)
+
+            # Notify mapped channels of status change
+            if self.notifier and run.status != old_status:
+                try:
+                    await self.notifier.notify(run, old_status, run.status)
+                except Exception:
+                    logger.debug("Notification dispatch failed", exc_info=True)
+
             # Clean up active task tracking
             if run.id in self._active_tasks:
                 del self._active_tasks[run.id]
@@ -1518,6 +1531,8 @@ but explicit commits with good messages are preferred.
 
         logger = logging.getLogger(__name__)
 
+        old_status = run.status
+
         # Set git identity environment variables from settings
         # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
         self._set_git_identity_env_vars()
@@ -1674,9 +1689,16 @@ but explicit commits with good messages are preferred.
             with open(stdout_path, "a") as f:
                 f.write(f"\n\nRALPH LOOP ERROR: {e}\n")
 
+        # Notify mapped channels of status change
+        final_run = locals().get("updated_run", run)
+        if self.notifier and final_run.status != old_status:
+            try:
+                await self.notifier.notify(final_run, old_status, final_run.status)
+            except Exception:
+                logger.debug("Notification dispatch failed (ralph)", exc_info=True)
+
         # Check for queued follow-up message and auto-resume if present
         # Use updated_run if available (success path), otherwise use run (error path)
-        final_run = locals().get("updated_run", run)
         await self._handle_queued_followup(final_run)
 
     async def _handle_context_overflow_recovery(

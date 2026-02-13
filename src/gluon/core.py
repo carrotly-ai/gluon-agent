@@ -30,6 +30,7 @@ from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 
 if TYPE_CHECKING:
     from gluon.git_manager import GitManager
+    from gluon.notifier import NotificationDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +144,11 @@ class Orchestrator:
         self,
         store: GluonStore | None = None,
         git_manager: GitManager | None = None,
+        notifier: NotificationDispatcher | None = None,
     ):
         self.store = store or GluonStore()
         self.git_manager = git_manager
+        self.notifier = notifier
 
     # ========== Project Management ==========
 
@@ -593,6 +596,7 @@ class Orchestrator:
 
             # Update ExecutionRun with result
             if result:
+                old_status = run.status
                 run.cost_usd = result.total_cost_usd
                 run.input_tokens = result.input_tokens
                 run.output_tokens = result.output_tokens
@@ -606,6 +610,12 @@ class Orchestrator:
 
                 self.store.update_run(run)
                 await _broadcast_run_event("updated", run, project.name)
+
+                if self.notifier and run.status != old_status:
+                    try:
+                        await self.notifier.notify(run, old_status, run.status)
+                    except Exception:
+                        logger.debug("Notification dispatch failed", exc_info=True)
 
             # Update session with result
             if result:
@@ -646,9 +656,16 @@ class Orchestrator:
         except Exception as e:
             # Mark run as failed if exception occurs
             if run:
+                exc_old_status = run.status
                 run.mark_failed(str(e), exit_code=1)
                 self.store.update_run(run)
                 await _broadcast_run_event("updated", run, project.name)
+
+                if self.notifier and run.status != exc_old_status:
+                    try:
+                        await self.notifier.notify(run, exc_old_status, run.status)
+                    except Exception:
+                        logger.debug("Notification dispatch failed", exc_info=True)
             raise
 
         finally:
