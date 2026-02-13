@@ -771,10 +771,12 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               </h3>
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-title text-[var(--color-paper)]">Extended Context (1M tokens)</p>
+                  <p className="text-title text-[var(--color-paper)]">
+                    Extended Context (1M tokens)
+                  </p>
                   <p className="text-caption text-[var(--color-stone)]/70 mt-1">
-                    Enable the 1M token context window beta. Useful for large codebases
-                    that exceed the default context limit.
+                    Enable the 1M token context window beta. Useful for large codebases that exceed
+                    the default context limit.
                   </p>
                 </div>
                 <button
@@ -782,7 +784,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   disabled={savingKey === 'extended_context'}
                   className={cn(
                     'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
-                    extendedContextEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    extendedContextEnabled
+                      ? 'bg-[var(--color-jade)]'
+                      : 'bg-[var(--color-stone)]/30',
                     savingKey === 'extended_context' && 'opacity-50 cursor-wait'
                   )}
                 >
@@ -801,8 +805,8 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 <div>
                   <p className="text-title text-[var(--color-paper)]">File Checkpointing</p>
                   <p className="text-caption text-[var(--color-stone)]/70 mt-1">
-                    Enable file checkpointing for session rewind support. Creates restore
-                    points during agent execution.
+                    Enable file checkpointing for session rewind support. Creates restore points
+                    during agent execution.
                   </p>
                 </div>
                 <button
@@ -810,7 +814,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   disabled={savingKey === 'file_checkpointing'}
                   className={cn(
                     'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
-                    fileCheckpointingEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    fileCheckpointingEnabled
+                      ? 'bg-[var(--color-jade)]'
+                      : 'bg-[var(--color-stone)]/30',
                     savingKey === 'file_checkpointing' && 'opacity-50 cursor-wait'
                   )}
                 >
@@ -839,9 +845,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     Show browser notifications when the agent completes tasks or needs attention.
                   </p>
                   <p className="text-caption text-[var(--color-amber)]/70 mt-1">
-                    Browser notifications require HTTPS for non-localhost access. If accessing
-                    Gluon over a local network address, notifications will not work until
-                    HTTPS is configured.
+                    Browser notifications require HTTPS for non-localhost access. If accessing Gluon
+                    over a local network address, notifications will not work until HTTPS is
+                    configured.
                   </p>
                 </div>
                 <button

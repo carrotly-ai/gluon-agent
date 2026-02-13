@@ -960,9 +960,7 @@ export function CreateTaskDialog({
                       <button
                         type="button"
                         className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                        onClick={() =>
-                          setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)
-                        }
+                        onClick={() => setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)}
                       >
                         <span
                           className={
@@ -972,12 +970,11 @@ export function CreateTaskDialog({
                           }
                         >
                           {selectedModelTransitionOption?.label || 'None (single model)'}
-                          {selectedModelTransitionOption?.description &&
-                            modelTransition && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {selectedModelTransitionOption.description}
-                              </span>
-                            )}
+                          {selectedModelTransitionOption?.description && modelTransition && (
+                            <span className="ml-2 text-[var(--color-stone)]/60">
+                              {selectedModelTransitionOption.description}
+                            </span>
+                          )}
                         </span>
                         <ChevronDown
                           className={cn(
