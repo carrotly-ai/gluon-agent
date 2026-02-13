@@ -53,6 +53,14 @@ body {
     color 0.2s ease;
 }
 
+/* iOS PWA safe area - push content below status bar / Dynamic Island */
+@media all and (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    min-height: calc(100vh + env(safe-area-inset-top));
+  }
+}
+
 #root {
   min-height: 100vh;
 }
