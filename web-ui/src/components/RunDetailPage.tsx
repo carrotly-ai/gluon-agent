@@ -64,6 +64,7 @@ import type {
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 import { StreamingLogViewer } from './StreamingLogViewer'
@@ -1783,35 +1784,33 @@ Focus on preserving the functionality from both sides where possible.`
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                       {attachments.map((image) => (
-                        <div
+                        <ImageLightbox
                           key={image.id}
-                          className="group relative rounded-sm overflow-hidden border border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]"
+                          src={getImageFileUrl(image.id)}
+                          alt={image.original_name}
                         >
-                          <img
-                            src={getImageFileUrl(image.id)}
-                            alt={image.original_name}
-                            className="w-full h-24 object-cover"
-                          />
-                          <div className="absolute inset-0 bg-[var(--color-void)]/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                            <a
-                              href={getImageFileUrl(image.id)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1.5 px-2 py-1 text-[0.5rem] uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm hover:bg-[var(--color-paper)]/20 transition-colors"
-                            >
-                              <Download className="w-3 h-3" />
-                              View
-                            </a>
+                          <div className="group relative rounded-sm overflow-hidden border border-[rgba(163,163,163,0.1)] bg-[var(--color-void)] cursor-pointer">
+                            <img
+                              src={getImageFileUrl(image.id)}
+                              alt={image.original_name}
+                              className="w-full h-24 object-cover"
+                            />
+                            <div className="absolute inset-0 bg-[var(--color-void)]/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                              <span className="flex items-center gap-1.5 px-2 py-1 text-[0.5rem] uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm">
+                                <Download className="w-3 h-3" />
+                                View
+                              </span>
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-[var(--color-void)]/90">
+                              <p className="text-[0.5rem] text-[var(--color-paper)]/80 truncate">
+                                {image.original_name}
+                              </p>
+                              <p className="text-[0.5rem] text-[var(--color-stone)]/60">
+                                {formatFileSize(image.size_bytes)}
+                              </p>
+                            </div>
                           </div>
-                          <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-[var(--color-void)]/90">
-                            <p className="text-[0.5rem] text-[var(--color-paper)]/80 truncate">
-                              {image.original_name}
-                            </p>
-                            <p className="text-[0.5rem] text-[var(--color-stone)]/60">
-                              {formatFileSize(image.size_bytes)}
-                            </p>
-                          </div>
-                        </div>
+                        </ImageLightbox>
                       ))}
                     </div>
                   </div>

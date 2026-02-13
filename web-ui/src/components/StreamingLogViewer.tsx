@@ -33,6 +33,7 @@ import remarkGfm from 'remark-gfm'
 import { useNotifications } from '@/hooks/useNotifications'
 import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
 import { getImageFileUrl } from '@/lib/api'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { formatMessageTime } from '@/lib/timestamps'
 import type { RunStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -864,18 +865,15 @@ function ScreenshotMessage({
           <span className="text-body text-[var(--color-paper)]/60">{msg.content}</span>
         </div>
         {imageId && (
-          <a
-            href={getImageFileUrl(imageId)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-48 aspect-[4/3] rounded-sm overflow-hidden border border-[rgba(163,163,163,0.15)] hover:border-[var(--color-harvest)]/50 transition-colors"
-          >
-            <img
-              src={getImageFileUrl(imageId)}
-              alt={msg.content}
-              className="w-full h-full object-cover"
-            />
-          </a>
+          <ImageLightbox src={getImageFileUrl(imageId)} alt={msg.content}>
+            <div className="block w-48 aspect-[4/3] rounded-sm overflow-hidden border border-[rgba(163,163,163,0.15)] hover:border-[var(--color-harvest)]/50 transition-colors cursor-pointer">
+              <img
+                src={getImageFileUrl(imageId)}
+                alt={msg.content}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </ImageLightbox>
         )}
       </div>
       {showTimestamp && (
