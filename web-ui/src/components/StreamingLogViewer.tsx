@@ -30,6 +30,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useNotifications } from '@/hooks/useNotifications'
 import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
 import { getImageFileUrl } from '@/lib/api'
 import { formatMessageTime } from '@/lib/timestamps'
@@ -96,6 +97,20 @@ const MESSAGE_CONFIG: Record<
     border: 'border-l-2 border-l-[var(--color-harvest)]/50',
     label: 'Screenshot',
   },
+  mcp_status: {
+    icon: Zap,
+    color: 'text-[var(--color-sky)]',
+    bg: '',
+    border: 'border-l-2 border-l-[var(--color-sky)]/30',
+    label: 'MCP',
+  },
+  notification: {
+    icon: Flag,
+    color: 'text-[var(--color-sky)]',
+    bg: 'bg-[rgba(56,189,248,0.06)]',
+    border: 'border-l-2 border-l-[var(--color-sky)]/50',
+    label: 'Notification',
+  },
 }
 
 // Helper to get primary parameter from tool input
@@ -154,7 +169,18 @@ type MessageFilter = 'all' | 'tool_use' | 'text' | 'error'
 // Convert AgentMessageData to the format MessagesPanel expects
 interface AgentMessage {
   timestamp: string
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user' | 'screenshot'
+  type:
+    | 'text'
+    | 'tool_use'
+    | 'system'
+    | 'error'
+    | 'result'
+    | 'user'
+    | 'screenshot'
+    | 'mcp_status'
+    | 'notification'
+    | 'thinking'
+    | 'tool_result'
   content: string
   metadata?: {
     tool?: string
@@ -940,6 +966,32 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     tokens,
     clear,
   } = useRunLogStream(isActive ? runId : null)
+
+  // Browser notifications for SDK notification events
+  const { show: showNotification, requestPermission } = useNotifications()
+
+  // Request notification permission on mount
+  useEffect(() => {
+    requestPermission()
+  }, [requestPermission])
+
+  // Fire browser notification when notification messages arrive
+  const prevNotificationCountRef = useRef(0)
+  useEffect(() => {
+    if (streamedMessages.length <= prevNotificationCountRef.current) {
+      prevNotificationCountRef.current = streamedMessages.length
+      return
+    }
+    // Check new messages for notifications
+    const newMessages = streamedMessages.slice(prevNotificationCountRef.current)
+    prevNotificationCountRef.current = streamedMessages.length
+    for (const msg of newMessages) {
+      if (msg.type === 'notification') {
+        const title = (msg.metadata?.title as string) || 'Gluon Agent'
+        showNotification(title, msg.content)
+      }
+    }
+  }, [streamedMessages, showNotification])
 
   const [filter, setFilter] = useState<MessageFilter>('all')
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set())

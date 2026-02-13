@@ -409,6 +409,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
             # Per-task overrides
             agent_teams=body.agent_teams,
+            model_transition=body.model_transition,
         )
 
         # Store dev_port in metadata if provided

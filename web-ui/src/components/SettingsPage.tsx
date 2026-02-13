@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  Bell,
   Check,
   FolderOpen,
   GitBranch,
@@ -77,6 +78,12 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   // Experimental features
   const [agentTeamsEnabled, setAgentTeamsEnabled] = useState(false)
 
+  // SDK 0.1.35 feature settings
+  const [extendedContextEnabled, setExtendedContextEnabled] = useState(false)
+  const [fileCheckpointingEnabled, setFileCheckpointingEnabled] = useState(false)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+  const [disallowedTools, setDisallowedTools] = useState<string[]>([])
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -98,6 +105,14 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setSandboxAvailable(sandboxStatus.available)
       setSandboxRuntime(sandboxStatus.runtime)
       setAgentTeamsEnabled(settings.agent_teams_enabled === 'true')
+      setExtendedContextEnabled(settings.extended_context_enabled === 'true')
+      setFileCheckpointingEnabled(settings.file_checkpointing_enabled === 'true')
+      setNotificationsEnabled(settings.notifications_enabled !== 'false') // default true
+      try {
+        setDisallowedTools(JSON.parse(settings.disallowed_tools || '[]'))
+      } catch {
+        setDisallowedTools([])
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -222,6 +237,60 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
     try {
       await updateSetting('agent_teams_enabled', newValue ? 'true' : 'false')
       setAgentTeamsEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const handleToggleExtendedContext = async () => {
+    const newValue = !extendedContextEnabled
+    setSavingKey('extended_context')
+    try {
+      await updateSetting('extended_context_enabled', newValue ? 'true' : 'false')
+      setExtendedContextEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const handleToggleFileCheckpointing = async () => {
+    const newValue = !fileCheckpointingEnabled
+    setSavingKey('file_checkpointing')
+    try {
+      await updateSetting('file_checkpointing_enabled', newValue ? 'true' : 'false')
+      setFileCheckpointingEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const handleToggleNotifications = async () => {
+    const newValue = !notificationsEnabled
+    setSavingKey('notifications')
+    try {
+      await updateSetting('notifications_enabled', newValue ? 'true' : 'false')
+      setNotificationsEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const handleToggleDisallowedTool = async (tool: string) => {
+    const newList = disallowedTools.includes(tool)
+      ? disallowedTools.filter((t) => t !== tool)
+      : [...disallowedTools, tool]
+    setSavingKey('disallowed_tools')
+    try {
+      await updateSetting('disallowed_tools', JSON.stringify(newList))
+      setDisallowedTools(newList)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update setting')
     } finally {
@@ -695,14 +764,168 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               </button>
             </div>
 
-            {/* Security Sandbox */}
+            {/* Agent Configuration */}
             <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
-                Security Sandbox
+                Agent Configuration
               </h3>
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-title text-[var(--color-paper)]">Enable Sandbox Isolation</p>
+                  <p className="text-title text-[var(--color-paper)]">
+                    Extended Context (1M tokens)
+                  </p>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Enable the 1M token context window beta. Useful for large codebases that exceed
+                    the default context limit.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleExtendedContext}
+                  disabled={savingKey === 'extended_context'}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    extendedContextEnabled
+                      ? 'bg-[var(--color-jade)]'
+                      : 'bg-[var(--color-stone)]/30',
+                    savingKey === 'extended_context' && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      extendedContextEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+
+              <div className="border-t border-[rgba(163,163,163,0.08)]" />
+
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-[var(--color-paper)]">File Checkpointing</p>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Enable file checkpointing for session rewind support. Creates restore points
+                    during agent execution.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleFileCheckpointing}
+                  disabled={savingKey === 'file_checkpointing'}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    fileCheckpointingEnabled
+                      ? 'bg-[var(--color-jade)]'
+                      : 'bg-[var(--color-stone)]/30',
+                    savingKey === 'file_checkpointing' && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      fileCheckpointingEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Notifications */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Notifications
+              </h3>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-[var(--color-stone)]/80" />
+                    <p className="text-title text-[var(--color-paper)]">Browser Notifications</p>
+                  </div>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Show browser notifications when the agent completes tasks or needs attention.
+                  </p>
+                  <p className="text-caption text-[var(--color-amber)]/70 mt-1">
+                    Browser notifications require HTTPS for non-localhost access. If accessing Gluon
+                    over a local network address, notifications will not work until HTTPS is
+                    configured.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleNotifications}
+                  disabled={savingKey === 'notifications'}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    notificationsEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    savingKey === 'notifications' && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      notificationsEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Tool Restrictions */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Tool Restrictions
+              </h3>
+              <div>
+                <p className="text-title text-[var(--color-paper)]">Disallowed Tools</p>
+                <p className="text-caption text-[var(--color-stone)]/70 mt-1 mb-3">
+                  Block specific tools from being used by the agent. Click a tool to toggle its
+                  restriction.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Bash',
+                    'Read',
+                    'Write',
+                    'Edit',
+                    'MultiEdit',
+                    'Glob',
+                    'Grep',
+                    'WebFetch',
+                    'WebSearch',
+                    'NotebookEdit',
+                    'TodoWrite',
+                    'Task',
+                  ].map((tool) => {
+                    const isBlocked = disallowedTools.includes(tool)
+                    return (
+                      <button
+                        key={tool}
+                        onClick={() => handleToggleDisallowedTool(tool)}
+                        disabled={savingKey === 'disallowed_tools'}
+                        className={cn(
+                          'px-2.5 py-1 text-caption rounded-sm border transition-colors',
+                          isBlocked
+                            ? 'bg-[var(--color-vermillion)]/15 border-[var(--color-vermillion)]/40 text-[var(--color-vermillion)]'
+                            : 'bg-transparent border-[rgba(163,163,163,0.15)] text-[var(--color-stone)]/70 hover:border-[rgba(163,163,163,0.3)] hover:text-[var(--color-stone)]',
+                          savingKey === 'disallowed_tools' && 'opacity-50 cursor-wait'
+                        )}
+                      >
+                        {isBlocked && <X className="w-3 h-3 inline mr-1" />}
+                        {tool}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Security */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Security
+              </h3>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-[var(--color-paper)]">Sandbox Isolation</p>
                   <p className="text-caption text-[var(--color-stone)]/70 mt-1">
                     Restrict Claude Code's filesystem access to the project directory using
                     {sandboxRuntime ? ` ${sandboxRuntime}` : ' OS-level sandboxing'}. Recommended
@@ -710,7 +933,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   </p>
                   {!sandboxAvailable && (
                     <p className="text-caption text-[var(--color-vermillion)]/80 mt-1">
-                      ⚠️ Sandbox runtime not available on this system.
+                      Sandbox runtime not available on this system.
                     </p>
                   )}
                 </div>
@@ -737,7 +960,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
             {/* Experimental Features */}
             <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
-                Experimental Features
+                Experimental
               </h3>
               <div className="flex items-center justify-between gap-4">
                 <div>

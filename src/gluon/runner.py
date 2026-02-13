@@ -252,6 +252,7 @@ class TaskRunner:
         thinking_budget: str | None = None,
         force_planning: bool | None = None,
         agent_teams: bool | None = None,
+        model_transition: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -321,6 +322,8 @@ class TaskRunner:
         run.metadata["force_planning"] = task_options["force_planning"]
         if agent_teams is not None:
             run.metadata["agent_teams"] = agent_teams
+        if model_transition:
+            run.metadata["model_transition"] = model_transition
         self.store.update_run(run)
 
         if wait:
@@ -662,6 +665,16 @@ but explicit commits with good messages are preferred.
                     else self.store.get_setting("agent_teams_enabled", "false") == "true"
                 )
 
+                # SDK 0.1.35 feature settings
+                extended_context = self.store.get_setting("extended_context_enabled", "false") == "true"
+                file_checkpointing = self.store.get_setting("file_checkpointing_enabled", "false") == "true"
+                disallowed_tools_json = self.store.get_setting("disallowed_tools", "[]")
+                try:
+                    disallowed_tools = json.loads(disallowed_tools_json)
+                except (json.JSONDecodeError, TypeError):
+                    disallowed_tools = []
+                model_transition = metadata.get("model_transition")
+
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
                     question_handler=question_handler,
@@ -672,6 +685,10 @@ but explicit commits with good messages are preferred.
                     force_planning=force_planning,
                     sandbox_enabled=sandbox_enabled,
                     agent_teams_enabled=agent_teams_enabled,
+                    extended_context_enabled=extended_context,
+                    file_checkpointing_enabled=file_checkpointing,
+                    disallowed_tools=disallowed_tools or None,
+                    model_transition=model_transition,
                 )
 
                 # Create screenshot collector for intercepting agent-browser screenshots
@@ -711,6 +728,7 @@ but explicit commits with good messages are preferred.
                         images=image_paths if image_paths else None,
                         follow_up_queue=follow_up_queue,
                         screenshot_collector=screenshot_collector,
+                        notification_callback=_screenshot_message_writer,
                     ):
                         if isinstance(item, AgentMessage):
                             # Log message

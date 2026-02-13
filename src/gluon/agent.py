@@ -15,12 +15,18 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    ClaudeSDKError,
+    CLIConnectionError,
+    CLINotFoundError,
     PermissionResultAllow,
     PermissionResultDeny,
+    ProcessError,
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
     ToolPermissionContext,
+    ToolResultBlock,
     ToolUseBlock,
 )
 
@@ -32,7 +38,7 @@ from gluon.models import (
     PLANNING_SYSTEM_PROMPT,
     RALPH_SYSTEM_PROMPT,
 )
-from gluon.models_config import get_fallback_model_id, get_model_id
+from gluon.models_config import ModelTier, get_fallback_model_id, get_model_id
 
 # Type for question handler callback
 # Args: run_id, questions (list of question dicts from AskUserQuestion)
@@ -334,6 +340,10 @@ class GluonAgent:
         force_planning: bool = False,
         sandbox_enabled: bool = True,
         agent_teams_enabled: bool = False,
+        extended_context_enabled: bool = False,
+        file_checkpointing_enabled: bool = False,
+        disallowed_tools: list[str] | None = None,
+        model_transition: str | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -358,6 +368,11 @@ class GluonAgent:
         self.sandbox_enabled = sandbox_enabled
         # Experimental: coordinated multi-agent teams
         self.agent_teams_enabled = agent_teams_enabled
+        # SDK 0.1.35 features
+        self.extended_context_enabled = extended_context_enabled
+        self.file_checkpointing_enabled = file_checkpointing_enabled
+        self.disallowed_tools = disallowed_tools
+        self.model_transition = model_transition
 
     async def _can_use_tool(
         self,
@@ -415,6 +430,7 @@ class GluonAgent:
         ralph_mode: bool = False,
         subagent_tracker: SubagentTracker | None = None,
         screenshot_collector: ScreenshotCollector | None = None,
+        notification_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -479,7 +495,11 @@ class GluonAgent:
         options.stderr = lambda line: _sdk_logger.debug("sdk_stderr: %s", line.rstrip())
 
         # Wire SDK hooks for structured tool-use logging (and team tracking when enabled)
-        options.hooks = build_hooks(tracker=subagent_tracker, screenshot_collector=screenshot_collector)
+        options.hooks = build_hooks(
+            tracker=subagent_tracker,
+            screenshot_collector=screenshot_collector,
+            notification_callback=notification_callback,
+        )
 
         # Add max_turns if configured
         if self.max_turns is not None:
@@ -488,6 +508,21 @@ class GluonAgent:
         # Add max_budget_usd if configured
         if self.max_budget_usd is not None:
             options.max_budget_usd = self.max_budget_usd
+
+        # SDK 0.1.35: Extended context beta (1M token context window)
+        if self.extended_context_enabled:
+            options.betas = ["context-1m-2025-08-07"]
+
+        # SDK 0.1.35: File checkpointing for session rewind support
+        if self.file_checkpointing_enabled:
+            options.enable_file_checkpointing = True
+            if options.extra_args is None:
+                options.extra_args = {}
+            options.extra_args["replay-user-messages"] = None
+
+        # SDK 0.1.35: Disallowed tools restriction
+        if self.disallowed_tools:
+            options.disallowed_tools = self.disallowed_tools
 
         # Add sandbox configuration if enabled
         # Uses OS-level sandboxing (bubblewrap on Linux, sandbox-exec on macOS)
@@ -561,7 +596,9 @@ class GluonAgent:
             # channel conflicts with other Claude processes (including
             # interactive Claude sessions running in the terminal)
             if new_session_id:
-                options.extra_args = {"session-id": new_session_id}
+                if options.extra_args is None:
+                    options.extra_args = {}
+                options.extra_args["session-id"] = new_session_id
             if fork_session:
                 options.fork_session = True
 
@@ -582,6 +619,7 @@ class GluonAgent:
         ralph_mode: bool = False,
         follow_up_queue: asyncio.Queue[str] | None = None,
         screenshot_collector: ScreenshotCollector | None = None,
+        notification_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -625,6 +663,7 @@ class GluonAgent:
             ralph_mode,
             subagent_tracker=tracker,
             screenshot_collector=screenshot_collector,
+            notification_callback=notification_callback,
         )
 
         # Build multimodal prompt if images provided
@@ -653,6 +692,20 @@ class GluonAgent:
                 )
 
             async with ClaudeSDKClient(options=options) as client:
+                # ---- MCP health check ----
+                try:
+                    mcp_status = await client.get_mcp_status()
+                    servers = mcp_status.get("mcpServers", [])
+                    if servers:
+                        summary_parts = [f"{s['name']} ({s['status']})" for s in servers]
+                        yield AgentMessage(
+                            type="mcp_status",
+                            content=f"MCP servers: {', '.join(summary_parts)}",
+                            metadata={"servers": servers},
+                        )
+                except Exception:
+                    logger.debug("MCP status check skipped", exc_info=True)
+
                 # ---- Initial query ----
                 if isinstance(prompt, MultimodalPrompt) and prompt.images:
 
@@ -670,28 +723,42 @@ class GluonAgent:
 
                 # ---- Multi-turn loop ----
                 synthesis_rounds = 0
+                model_used: str | None = None
+                model_switched = False  # Track whether model transition has fired
                 while True:
                     # Process one turn (query already issued above or at bottom of loop)
                     async for msg in client.receive_response():
                         if isinstance(msg, SystemMessage):
-                            if hasattr(msg, "subtype") and msg.subtype == "init":
-                                if hasattr(msg, "data") and isinstance(msg.data, dict):
-                                    session_from_data = msg.data.get("session_id")
-                                    if session_from_data:
-                                        claude_session_id = session_from_data
-                            if hasattr(msg, "session_id") and msg.session_id:
-                                claude_session_id = msg.session_id
+                            if msg.subtype == "init" and isinstance(msg.data, dict):
+                                session_from_data = msg.data.get("session_id")
+                                if session_from_data:
+                                    claude_session_id = session_from_data
                             yield AgentMessage(
                                 type="system",
-                                content=getattr(msg, "subtype", ""),
+                                content=msg.subtype,
                                 metadata={"session_id": claude_session_id},
                             )
 
                         elif isinstance(msg, AssistantMessage):
                             total_turns += 1
+                            # Track the actual model used (useful for fallback visibility)
+                            if msg.model:
+                                model_used = msg.model
+                            # Handle API-level errors reported on the message
+                            if msg.error:
+                                yield AgentMessage(
+                                    type="error",
+                                    content=f"API error: {msg.error}",
+                                    metadata={"error_type": msg.error, "model": msg.model},
+                                )
                             for block in msg.content:
                                 if isinstance(block, TextBlock):
                                     yield AgentMessage(type="text", content=block.text)
+                                elif isinstance(block, ThinkingBlock):
+                                    yield AgentMessage(
+                                        type="thinking",
+                                        content=block.thinking,
+                                    )
                                 elif isinstance(block, ToolUseBlock):
                                     yield AgentMessage(
                                         type="tool_use",
@@ -702,24 +769,55 @@ class GluonAgent:
                                             "input": block.input,
                                         },
                                     )
+                                    # Detect planning completion for model transition
+                                    if self.model_transition and not model_switched and block.name == "ExitPlanMode":
+                                        transition_map = {
+                                            "opus-to-sonnet": ModelTier.SONNET,
+                                            "opus-to-haiku": ModelTier.HAIKU,
+                                        }
+                                        target_tier = transition_map.get(self.model_transition)
+                                        if target_tier:
+                                            target_id = get_model_id(target_tier)
+                                            await client.set_model(target_id)
+                                            model_switched = True
+                                            yield AgentMessage(
+                                                type="system",
+                                                content=f"Model switched to {target_tier.value} for implementation",
+                                                metadata={
+                                                    "model_transition": self.model_transition,
+                                                    "new_model": target_id,
+                                                },
+                                            )
+                                elif isinstance(block, ToolResultBlock):
+                                    yield AgentMessage(
+                                        type="tool_result",
+                                        content=str(block.content) if block.content else "",
+                                        metadata={
+                                            "tool_use_id": block.tool_use_id,
+                                            "is_error": block.is_error,
+                                        },
+                                    )
 
                         elif isinstance(msg, ResultMessage):
-                            total_cost_usd = getattr(msg, "total_cost_usd", 0.0) or 0.0
-                            total_turns = getattr(msg, "num_turns", 0) or total_turns
-                            usage = getattr(msg, "usage", None) or {}
+                            total_cost_usd = msg.total_cost_usd or 0.0
+                            total_turns = msg.num_turns or total_turns
+                            usage = msg.usage or {}
                             input_tokens = usage.get("input_tokens")
                             output_tokens = usage.get("output_tokens")
-                            if hasattr(msg, "session_id") and msg.session_id:
+                            if msg.session_id:
                                 claude_session_id = msg.session_id
                             yield AgentMessage(
                                 type="result",
-                                content="Execution complete",
+                                content=msg.result or "Execution complete",
                                 metadata={
                                     "cost": total_cost_usd,
                                     "input_tokens": input_tokens,
                                     "output_tokens": output_tokens,
                                     "session_id": claude_session_id,
-                                    "stop_reason": getattr(msg, "stop_reason", None),
+                                    "duration_ms": msg.duration_ms,
+                                    "duration_api_ms": msg.duration_api_ms,
+                                    "is_error": msg.is_error,
+                                    "model_used": model_used,
                                 },
                             )
 
@@ -785,13 +883,27 @@ class GluonAgent:
                     # Nothing more to do — exit the multi-turn loop
                     break
 
-        except Exception as e:
+        except CLINotFoundError as e:
             success = False
             error_msg = str(e)
-
-            # Classify the error for appropriate handling
+            yield AgentMessage(
+                type="error",
+                content=f"CLI not found: {error_msg}",
+                metadata={"exception": "CLINotFoundError", "recoverable": False},
+            )
+        except CLIConnectionError as e:
+            success = False
+            error_msg = str(e)
+            yield AgentMessage(
+                type="error",
+                content=f"Connection error: {error_msg}",
+                metadata={"exception": "CLIConnectionError", "recoverable": True},
+            )
+        except ProcessError as e:
+            success = False
+            error_msg = str(e)
+            # ProcessError includes exit_code and stderr — classify further
             classified_error = _classify_api_error(e)
-
             if isinstance(classified_error, ContextOverflowError):
                 yield AgentMessage(
                     type="error",
@@ -806,27 +918,52 @@ class GluonAgent:
                 yield AgentMessage(
                     type="error",
                     content=f"Rate limited: {error_msg}",
-                    metadata={
-                        "exception": "RateLimitError",
-                        "recoverable": True,
-                    },
+                    metadata={"exception": "RateLimitError", "recoverable": True},
                 )
             elif isinstance(classified_error, ModelUnavailableError):
                 yield AgentMessage(
                     type="error",
                     content=f"Model unavailable: {error_msg}",
-                    metadata={
-                        "exception": "ModelUnavailableError",
-                        "recoverable": False,
-                    },
+                    metadata={"exception": "ModelUnavailableError", "recoverable": False},
                 )
             elif isinstance(classified_error, AuthenticationError):
                 yield AgentMessage(
                     type="error",
                     content=f"Authentication error: {error_msg}",
+                    metadata={"exception": "AuthenticationError", "recoverable": False},
+                )
+            else:
+                yield AgentMessage(
+                    type="error",
+                    content=f"Process error: {error_msg}",
                     metadata={
-                        "exception": "AuthenticationError",
-                        "recoverable": False,
+                        "exception": "ProcessError",
+                        "exit_code": e.exit_code,
+                    },
+                )
+        except ClaudeSDKError as e:
+            success = False
+            error_msg = str(e)
+            yield AgentMessage(
+                type="error",
+                content=f"SDK error: {error_msg}",
+                metadata={"exception": type(e).__name__},
+            )
+        except Exception as e:
+            success = False
+            error_msg = str(e)
+
+            # Classify non-SDK errors (e.g., wrapped API errors)
+            classified_error = _classify_api_error(e)
+            recoverable_types = (ContextOverflowError, RateLimitError, ModelUnavailableError, AuthenticationError)
+            if isinstance(classified_error, recoverable_types):
+                yield AgentMessage(
+                    type="error",
+                    content=f"{type(classified_error).__name__}: {error_msg}",
+                    metadata={
+                        "exception": type(classified_error).__name__,
+                        "recoverable": isinstance(classified_error, (ContextOverflowError, RateLimitError)),
+                        "session_id": claude_session_id,
                     },
                 )
             else:
@@ -836,7 +973,7 @@ class GluonAgent:
                     metadata={"exception": type(e).__name__},
                 )
 
-        # Yield final result
+        # Yield final result (model_used tracks actual model from response, falls back to configured)
         yield AgentResult(
             claude_session_id=claude_session_id,
             total_cost_usd=total_cost_usd,
@@ -845,7 +982,7 @@ class GluonAgent:
             error=error_msg,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            model_used=self.model,
+            model_used=model_used or self.model,
         )
 
     async def execute_simple(

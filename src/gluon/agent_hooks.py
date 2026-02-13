@@ -25,6 +25,10 @@ from claude_agent_sdk import (
     HookContext,
     HookInput,
     HookMatcher,
+    PostToolUseHookInput,
+    PreToolUseHookInput,
+    SubagentStartHookInput,
+    SubagentStopHookInput,
 )
 from claude_agent_sdk.types import AsyncHookJSONOutput, SyncHookJSONOutput
 
@@ -98,7 +102,7 @@ class SubagentTracker:
 
 
 async def log_pre_tool_use(
-    input_data: HookInput,
+    input_data: PreToolUseHookInput | HookInput,
     tool_use_id: str | None,
     context: HookContext,
 ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
@@ -119,7 +123,7 @@ async def log_pre_tool_use(
 
 
 async def log_post_tool_use(
-    input_data: HookInput,
+    input_data: PostToolUseHookInput | HookInput,
     tool_use_id: str | None,
     context: HookContext,
 ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
@@ -140,7 +144,7 @@ def _make_on_subagent_start(tracker: SubagentTracker):
     """Create a SubagentStart hook callback bound to *tracker*."""
 
     async def on_subagent_start(
-        input_data: HookInput,
+        input_data: SubagentStartHookInput | HookInput,
         tool_use_id: str | None,
         context: HookContext,
     ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
@@ -160,7 +164,7 @@ def _make_on_subagent_stop(tracker: SubagentTracker):
     """Create a SubagentStop hook callback bound to *tracker*."""
 
     async def on_subagent_stop(
-        input_data: HookInput,
+        input_data: SubagentStopHookInput | HookInput,
         tool_use_id: str | None,
         context: HookContext,
     ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
@@ -201,7 +205,7 @@ def _make_screenshot_interceptor(collector: ScreenshotCollector):
     """Create a PostToolUse hook that intercepts agent-browser screenshot output."""
 
     async def on_post_bash(
-        input_data: HookInput,
+        input_data: PostToolUseHookInput | HookInput,
         tool_use_id: str | None,
         context: HookContext,
     ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
@@ -305,6 +309,39 @@ def _make_screenshot_interceptor(collector: ScreenshotCollector):
 
 
 # ---------------------------------------------------------------------------
+# Notification hook
+# ---------------------------------------------------------------------------
+
+
+def _make_notification_handler(message_callback: Callable[[dict[str, Any]], None]):
+    """Create a Notification hook callback that writes to messages.jsonl."""
+
+    async def on_notification(
+        input_data: HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
+        message = input_data.get("message", "")
+        title = input_data.get("title", "Claude Code")
+        notification_type = input_data.get("notification_type", "info")
+        logger.info(
+            "sdk_notification",
+            extra={"title": title, "type": notification_type},
+        )
+        message_callback(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "type": "notification",
+                "content": message,
+                "metadata": {"title": title, "notification_type": notification_type},
+            }
+        )
+        return {}
+
+    return on_notification
+
+
+# ---------------------------------------------------------------------------
 # Public builder
 # ---------------------------------------------------------------------------
 
@@ -312,6 +349,7 @@ def _make_screenshot_interceptor(collector: ScreenshotCollector):
 def build_hooks(
     tracker: SubagentTracker | None = None,
     screenshot_collector: ScreenshotCollector | None = None,
+    notification_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, list[Any]]:
     """Build hooks dict for ClaudeAgentOptions.hooks.
 
@@ -321,6 +359,9 @@ def build_hooks(
                  registered so execute() can wait for all teammates to finish.
         screenshot_collector: Optional ScreenshotCollector for intercepting
                  agent-browser screenshot commands and saving them as attachments.
+        notification_callback: Optional callback for SDK notification events.
+                 When provided, a Notification hook is registered that writes
+                 notification messages to messages.jsonl for WebSocket streaming.
     """
     post_tool_hooks: list[Any] = [log_post_tool_use]
     if screenshot_collector is not None:
@@ -334,5 +375,8 @@ def build_hooks(
     if tracker is not None:
         hooks["SubagentStart"] = [HookMatcher(hooks=[_make_on_subagent_start(tracker)])]
         hooks["SubagentStop"] = [HookMatcher(hooks=[_make_on_subagent_stop(tracker)])]
+
+    if notification_callback is not None:
+        hooks["Notification"] = [HookMatcher(hooks=[_make_notification_handler(notification_callback)])]
 
     return hooks
