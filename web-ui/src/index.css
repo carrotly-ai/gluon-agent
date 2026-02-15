@@ -60,15 +60,6 @@ body {
     padding-top: env(safe-area-inset-top);
     min-height: calc(100vh + env(safe-area-inset-top));
   }
-
-  /* Fixed-position overlays ignore body padding, so they need their own safe-area insets */
-  .lightbox-overlay {
-    padding-top: env(safe-area-inset-top);
-  }
-
-  .lightbox-close {
-    top: calc(1rem + env(safe-area-inset-top)) !important;
-  }
 }
 
 #root {
@@ -458,6 +449,11 @@ body {
   @media (max-width: 767px) {
     .dialog-content {
       padding-top: env(safe-area-inset-top) !important;
+    }
+
+    /* Radix close [X] button is absolute-positioned, so padding doesn't help — offset it directly */
+    .dialog-content > [data-slot="dialog-close"] {
+      top: calc(1rem + env(safe-area-inset-top)) !important;
     }
   }
 
