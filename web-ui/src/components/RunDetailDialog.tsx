@@ -26,6 +26,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
   answerQuestion,
@@ -68,7 +69,6 @@ import type {
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { ImageLightbox } from '@/components/ImageLightbox'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 import { LoopProgressTab } from './LoopProgressTab'

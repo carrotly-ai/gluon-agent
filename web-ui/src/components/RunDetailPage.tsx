@@ -26,6 +26,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import {
   cancelRun,
@@ -64,7 +65,6 @@ import type {
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { ImageLightbox } from '@/components/ImageLightbox'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 import { StreamingLogViewer } from './StreamingLogViewer'

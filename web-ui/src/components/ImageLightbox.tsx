@@ -64,7 +64,7 @@ export function ImageLightbox({ src, alt, children }: ImageLightboxProps) {
               </a>
             </div>
           </div>,
-          document.body,
+          document.body
         )}
     </>
   )
