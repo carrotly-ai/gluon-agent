@@ -443,6 +443,23 @@ body {
   }
 }
 
+/* PWA safe area for fixed-position modals (dialogs & lightbox) */
+@media all and (display-mode: standalone) {
+  @media (max-width: 767px) {
+    .dialog-content {
+      padding-top: env(safe-area-inset-top) !important;
+    }
+  }
+
+  .lightbox-overlay {
+    padding-top: calc(env(safe-area-inset-top) + 1rem);
+  }
+
+  .lightbox-close {
+    top: calc(env(safe-area-inset-top) + 1rem);
+  }
+}
+
 /* Header responsive */
 .header-stats {
   display: none;

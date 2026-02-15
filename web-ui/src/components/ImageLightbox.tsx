@@ -30,7 +30,7 @@ export function ImageLightbox({ src, alt, children }: ImageLightboxProps) {
       {open &&
         createPortal(
           <div
-            className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4"
+            className="lightbox-overlay fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4"
             onClick={close}
           >
             <button
@@ -39,7 +39,7 @@ export function ImageLightbox({ src, alt, children }: ImageLightboxProps) {
                 e.stopPropagation()
                 close()
               }}
-              className="absolute top-4 right-4 p-2 text-white/70 hover:text-white transition-colors z-10"
+              className="lightbox-close absolute top-4 right-4 p-2 text-white/70 hover:text-white transition-colors z-10"
               aria-label="Close"
             >
               <X className="w-6 h-6" />

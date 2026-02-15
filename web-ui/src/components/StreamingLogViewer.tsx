@@ -826,11 +826,27 @@ function SystemMessage({
   const time = formatMessageTime(msg.timestamp)
   const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
   const Icon = config.icon
+  const isResult = msg.type === 'result'
 
   return (
-    <div className={cn('flex items-center gap-2 py-1.5 px-3', config.bg, config.border)}>
-      <Icon className={cn('w-2.5 h-2.5 shrink-0', config.color)} />
-      <span className={cn('text-body flex-1', config.color)}>{msg.content}</span>
+    <div
+      className={cn(
+        'flex gap-2 py-1.5 px-3',
+        isResult ? 'items-start' : 'items-center',
+        config.bg,
+        config.border
+      )}
+    >
+      <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
+      {isResult ? (
+        <div className={cn('text-body flex-1 min-w-0 leading-relaxed', config.color)}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {msg.content}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <span className={cn('text-body flex-1', config.color)}>{msg.content}</span>
+      )}
       <span
         className={cn(
           'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
