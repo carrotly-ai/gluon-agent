@@ -835,7 +835,11 @@ def run(
     ] = None,
     thinking: Annotated[
         str | None,
-        typer.Option("--thinking", help="Thinking budget: none/low/medium/high/ultrathink"),
+        typer.Option("--thinking", help="Thinking budget: none/low/medium/high/ultrathink/adaptive"),
+    ] = None,
+    effort: Annotated[
+        str | None,
+        typer.Option("--effort", help="Reasoning effort: low/medium/high"),
     ] = None,
     planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,
 ):
@@ -890,6 +894,7 @@ def run(
                 profile=profile,
                 thinking_budget=thinking,
                 force_planning=planning if planning else None,
+                effort=effort,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
@@ -921,6 +926,8 @@ def run(
             console.print(f"[bold]Model:[/bold] {model_tier.value}")
         if thinking:
             console.print(f"[bold]Thinking:[/bold] {thinking}")
+        if effort:
+            console.print(f"[bold]Effort:[/bold] {effort}")
         if planning:
             console.print("[bold]Planning:[/bold] enabled (plan before executing)")
         if worktree:
@@ -937,6 +944,7 @@ def run(
             profile=profile,
             thinking_budget=thinking,
             force_planning=planning if planning else None,
+            effort=effort,
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:

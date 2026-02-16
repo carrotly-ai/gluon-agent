@@ -90,7 +90,10 @@ export interface RunDetail extends Run {
 export type TaskProfile = 'quick' | 'standard' | 'deep' | 'planning'
 
 /** Thinking budget options */
-export type ThinkingBudget = 'none' | 'low' | 'medium' | 'high' | 'ultrathink'
+export type ThinkingBudget = 'none' | 'low' | 'medium' | 'high' | 'ultrathink' | 'adaptive'
+
+/** Effort level options */
+export type EffortLevel = 'low' | 'medium' | 'high'
 
 /** Request body for creating a new run */
 export interface CreateRunRequest {
@@ -101,6 +104,7 @@ export interface CreateRunRequest {
   model?: string
   model_override?: string
   thinking_override?: ThinkingBudget
+  effort_override?: EffortLevel
   max_budget_override?: number
   force_planning?: boolean
   // Existing options

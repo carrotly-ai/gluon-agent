@@ -410,6 +410,7 @@ class Orchestrator:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         force_planning: bool | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -431,10 +432,11 @@ class Orchestrator:
             initiator: Source of execution (e.g., "cli:foreground", "telegram:123")
             profile: Task profile (quick/standard/deep/planning). Defaults to standard.
             max_thinking_tokens: Override thinking token budget directly.
-            thinking_budget: Override via preset (none/low/medium/high/ultrathink).
+            thinking_budget: Override via preset (none/low/medium/high/ultrathink/adaptive).
             max_turns: Override max conversation turns.
             max_budget_usd: Override max cost budget.
             force_planning: Override planning mode (True = plan before executing).
+            effort: Override reasoning effort (low/medium/high).
 
         Yields:
             AgentMessage during execution
@@ -536,6 +538,7 @@ class Orchestrator:
                 max_turns=max_turns,
                 max_budget_usd=max_budget_usd,
                 force_planning=force_planning,
+                effort=effort,
             )
 
             # Get model ID from resolved options
@@ -551,6 +554,7 @@ class Orchestrator:
                 max_turns=task_options["max_turns"],
                 max_budget_usd=task_options["max_budget_usd"],
                 force_planning=task_options["force_planning"],
+                effort=task_options.get("effort"),
                 agent_teams_enabled=agent_teams_enabled,
             )
 
