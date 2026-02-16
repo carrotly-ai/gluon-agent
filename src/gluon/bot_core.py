@@ -250,6 +250,7 @@ class GluonBotCore:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         force_planning: bool | None = None,
+        effort: str | None = None,
     ) -> None:
         """Execute a Gluon task with streaming updates.
 
@@ -314,6 +315,7 @@ class GluonBotCore:
                     max_turns=max_turns,
                     max_budget_usd=max_budget_usd,
                     force_planning=force_planning,
+                    effort=effort,
                 )
 
                 async for item in execution:

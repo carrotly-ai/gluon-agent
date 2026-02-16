@@ -22,6 +22,7 @@ import {
   uploadAndAttachImage,
 } from '@/lib/api'
 import type {
+  EffortLevel,
   Project,
   ProjectFile,
   ProjectWithWorkspace,
@@ -79,6 +80,15 @@ const THINKING_OPTIONS = [
   { value: 'medium', label: 'Medium', description: '10k tokens' },
   { value: 'high', label: 'High', description: '16k tokens' },
   { value: 'ultrathink', label: 'Ultrathink', description: '32k tokens' },
+  { value: 'adaptive', label: 'Adaptive', description: 'CLI decides' },
+]
+
+// Effort level options for advanced override
+const EFFORT_OPTIONS = [
+  { value: '', label: 'Use profile default', description: '' },
+  { value: 'low', label: 'Low', description: 'Fast, simple reasoning' },
+  { value: 'medium', label: 'Medium', description: 'Balanced depth' },
+  { value: 'high', label: 'High', description: 'Maximum reasoning' },
 ]
 
 // Model transition options (only shown when Planning profile is selected)
@@ -139,7 +149,7 @@ function getLastRalphEnabledSetting(): boolean {
 function getLastRalphMaxLoops(): number {
   if (typeof window === 'undefined') return 10
   const stored = sessionStorage.getItem(RALPH_MAX_LOOPS_STORAGE_KEY)
-  return stored ? parseInt(stored, 10) : 10
+  return stored ? parseInt(stored, 10) : 100
 }
 
 // Pending image (uploaded before run creation)
@@ -175,6 +185,8 @@ export function CreateTaskDialog({
   const [maxBudgetOverride, setMaxBudgetOverride] = useState<string>('')
   const [advancedModelDropdownOpen, setAdvancedModelDropdownOpen] = useState(false)
   const [advancedThinkingDropdownOpen, setAdvancedThinkingDropdownOpen] = useState(false)
+  const [effortOverride, setEffortOverride] = useState('')
+  const [advancedEffortDropdownOpen, setAdvancedEffortDropdownOpen] = useState(false)
   const [modelTransition, setModelTransition] = useState('')
   const [modelTransitionDropdownOpen, setModelTransitionDropdownOpen] = useState(false)
 
@@ -491,6 +503,7 @@ export function CreateTaskDialog({
         model: modelOverride || profileConfig?.model || 'sonnet',
         model_override: modelOverride || undefined,
         thinking_override: thinkingOverride ? (thinkingOverride as ThinkingBudget) : undefined,
+        effort_override: effortOverride ? (effortOverride as EffortLevel) : undefined,
         max_budget_override: budgetOverrideValue,
         force_planning: profile === 'planning',
         // Existing options
@@ -526,6 +539,7 @@ export function CreateTaskDialog({
   const selectedProfileOption = PROFILE_OPTIONS.find((p) => p.value === profile)
   const selectedAdvancedModelOption = MODEL_OPTIONS.find((m) => m.value === modelOverride)
   const selectedAdvancedThinkingOption = THINKING_OPTIONS.find((t) => t.value === thinkingOverride)
+  const selectedAdvancedEffortOption = EFFORT_OPTIONS.find((e) => e.value === effortOverride)
   const selectedModelTransitionOption = MODEL_TRANSITION_OPTIONS.find(
     (t) => t.value === modelTransition
   )
@@ -801,6 +815,170 @@ export function CreateTaskDialog({
 
             {showAdvanced && (
               <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
+                {/* Worktree Toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
+                    <div>
+                      <span className="text-body text-[var(--color-paper)]">Use Git Worktree</span>
+                      <p className="text-caption text-[var(--color-stone)]/60">
+                        Run in isolated branch
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                      useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
+                    )}
+                    onClick={() => setUseWorktree(!useWorktree)}
+                  >
+                    <span
+                      className={cn(
+                        'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                        useWorktree
+                          ? 'bg-[var(--color-void)]'
+                          : 'bg-[var(--color-stone)]'
+                      )}
+                      style={{ left: useWorktree ? '22px' : '2px' }}
+                    />
+                  </button>
+                </div>
+
+                {/* Ralph Loop Toggle */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <RefreshCw
+                        className={cn(
+                          'w-4 h-4 transition-colors',
+                          ralphEnabled
+                            ? 'text-[var(--color-sky)]'
+                            : 'text-[var(--color-stone)]/60'
+                        )}
+                      />
+                      <div>
+                        <span className="text-body text-[var(--color-paper)]">
+                          Enable Ralph Loop
+                        </span>
+                        <p className="text-caption text-[var(--color-stone)]/60">
+                          Autonomous execution until complete
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={cn(
+                        'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                        ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                      )}
+                      onClick={() => setRalphEnabled(!ralphEnabled)}
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                          ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                        )}
+                        style={{ left: ralphEnabled ? '22px' : '2px' }}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Ralph Options (shown when enabled) */}
+                  {ralphEnabled && (
+                    <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
+                      <div className="flex items-center justify-between">
+                        <label className="text-body text-[var(--color-stone)]">
+                          Max Iterations
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={maxLoops}
+                          onChange={(e) =>
+                            setMaxLoops(
+                              Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1))
+                            )
+                          }
+                          className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-body text-[var(--color-stone)]">
+                          Cost Limit (USD)
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-body text-[var(--color-stone)]/60">$</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="optional"
+                            value={maxCostUsd}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                setMaxCostUsd(value)
+                              }
+                            }}
+                            className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Agent Teams Toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users
+                      className={cn(
+                        'w-4 h-4 transition-colors',
+                        agentTeams
+                          ? 'text-[var(--color-sky)]'
+                          : 'text-[var(--color-stone)]/60'
+                      )}
+                    />
+                    <div>
+                      <span className="text-body text-[var(--color-paper)]">
+                        Enable Agent Teams
+                      </span>
+                      <p className="text-caption text-[var(--color-stone)]/60">
+                        Coordinated multi-agent collaboration
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                      agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                    )}
+                    onClick={() => {
+                      const enabling = !agentTeams
+                      setAgentTeams(enabling)
+                      if (enabling && !prompt.trim()) {
+                        setPrompt(AGENT_TEAMS_TEMPLATE)
+                        setTimeout(() => {
+                          textareaRef.current?.focus()
+                          textareaRef.current?.setSelectionRange(0, 0)
+                          textareaRef.current?.scrollTo(0, 0)
+                        }, 0)
+                      }
+                    }}
+                  >
+                    <span
+                      className={cn(
+                        'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                        agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                      )}
+                      style={{ left: agentTeams ? '22px' : '2px' }}
+                    />
+                  </button>
+                </div>
+
                 {/* Model Override */}
                 <div>
                   <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
@@ -927,6 +1105,69 @@ export function CreateTaskDialog({
                   </div>
                 </div>
 
+                {/* Effort Override */}
+                <div>
+                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                    Effort Level
+                  </label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                      onClick={() => setAdvancedEffortDropdownOpen(!advancedEffortDropdownOpen)}
+                    >
+                      <span
+                        className={
+                          effortOverride
+                            ? 'text-[var(--color-paper)]'
+                            : 'text-[var(--color-stone)]/60'
+                        }
+                      >
+                        {selectedAdvancedEffortOption?.label || 'Use profile default'}
+                        {selectedAdvancedEffortOption?.description && (
+                          <span className="ml-2 text-[var(--color-stone)]/60">
+                            {selectedAdvancedEffortOption.description}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                          advancedEffortDropdownOpen && 'rotate-180'
+                        )}
+                      />
+                    </button>
+
+                    {advancedEffortDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                        {EFFORT_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={cn(
+                              'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                              effortOverride === option.value
+                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                : 'text-[var(--color-stone)]'
+                            )}
+                            onClick={() => {
+                              setEffortOverride(option.value)
+                              setAdvancedEffortDropdownOpen(false)
+                            }}
+                          >
+                            {option.label}
+                            {option.description && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {option.description}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Max Budget Override */}
                 <div>
                   <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
@@ -1016,158 +1257,6 @@ export function CreateTaskDialog({
                 )}
               </div>
             )}
-          </div>
-
-          {/* Worktree Toggle */}
-          <div className="flex items-center justify-between py-2">
-            <div className="flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
-              <div>
-                <span className="text-title text-[var(--color-paper)]">Use Git Worktree</span>
-                <p className="text-caption text-[var(--color-stone)]/60">Run in isolated branch</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              className={cn(
-                'relative w-10 h-5 rounded-full transition-colors',
-                useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
-              )}
-              onClick={() => setUseWorktree(!useWorktree)}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                  useWorktree
-                    ? 'left-5.5 bg-[var(--color-void)]'
-                    : 'left-0.5 bg-[var(--color-stone)]'
-                )}
-                style={{ left: useWorktree ? '22px' : '2px' }}
-              />
-            </button>
-          </div>
-
-          {/* Ralph Loop Toggle */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between py-2">
-              <div className="flex items-center gap-2">
-                <RefreshCw
-                  className={cn(
-                    'w-4 h-4 transition-colors',
-                    ralphEnabled ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                  )}
-                />
-                <div>
-                  <span className="text-title text-[var(--color-paper)]">Enable Ralph Loop</span>
-                  <p className="text-caption text-[var(--color-stone)]/60">
-                    Autonomous execution until complete
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className={cn(
-                  'relative w-10 h-5 rounded-full transition-colors',
-                  ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
-                )}
-                onClick={() => setRalphEnabled(!ralphEnabled)}
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                    ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
-                  )}
-                  style={{ left: ralphEnabled ? '22px' : '2px' }}
-                />
-              </button>
-            </div>
-
-            {/* Ralph Options (shown when enabled) */}
-            {ralphEnabled && (
-              <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
-                {/* Max Loops */}
-                <div className="flex items-center justify-between">
-                  <label className="text-body text-[var(--color-stone)]">Max Iterations</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={maxLoops}
-                    onChange={(e) =>
-                      setMaxLoops(Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1)))
-                    }
-                    className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
-                  />
-                </div>
-
-                {/* Max Cost */}
-                <div className="flex items-center justify-between">
-                  <label className="text-body text-[var(--color-stone)]">Cost Limit (USD)</label>
-                  <div className="flex items-center gap-1">
-                    <span className="text-body text-[var(--color-stone)]/60">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="optional"
-                      value={maxCostUsd}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                          setMaxCostUsd(value)
-                        }
-                      }}
-                      className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Agent Teams Toggle */}
-          <div className="flex items-center justify-between py-2">
-            <div className="flex items-center gap-2">
-              <Users
-                className={cn(
-                  'w-4 h-4 transition-colors',
-                  agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                )}
-              />
-              <div>
-                <span className="text-title text-[var(--color-paper)]">Enable Agent Teams</span>
-                <p className="text-caption text-[var(--color-stone)]/60">
-                  Coordinated multi-agent collaboration
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              className={cn(
-                'relative w-10 h-5 rounded-full transition-colors',
-                agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
-              )}
-              onClick={() => {
-                const enabling = !agentTeams
-                setAgentTeams(enabling)
-                if (enabling && !prompt.trim()) {
-                  setPrompt(AGENT_TEAMS_TEMPLATE)
-                  // Focus textarea so user can edit the template
-                  setTimeout(() => {
-                    textareaRef.current?.focus()
-                    textareaRef.current?.setSelectionRange(0, 0)
-                    textareaRef.current?.scrollTo(0, 0)
-                  }, 0)
-                }
-              }}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                  agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
-                )}
-                style={{ left: agentTeams ? '22px' : '2px' }}
-              />
-            </button>
           </div>
 
           {/* Error */}

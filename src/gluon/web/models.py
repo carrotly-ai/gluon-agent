@@ -104,7 +104,11 @@ class CreateRunRequest(BaseModel):
     profile: str = Field(default="standard", description="Task profile: quick/standard/deep/planning")
     thinking_override: str | None = Field(
         default=None,
-        description="Override thinking budget: none/low/medium/high/ultrathink",
+        description="Override thinking budget: none/low/medium/high/ultrathink/adaptive",
+    )
+    effort_override: str | None = Field(
+        default=None,
+        description="Override reasoning effort: low/medium/high",
     )
     model_override: str | None = Field(
         default=None,

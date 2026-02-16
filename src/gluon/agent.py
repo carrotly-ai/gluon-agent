@@ -344,6 +344,7 @@ class GluonAgent:
         file_checkpointing_enabled: bool = False,
         disallowed_tools: list[str] | None = None,
         model_transition: str | None = None,
+        effort: str | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -364,6 +365,8 @@ class GluonAgent:
         self.max_turns = max_turns
         self.max_budget_usd = max_budget_usd
         self.force_planning = force_planning
+        # Reasoning effort level (low/medium/high) — passed to CLI via --effort
+        self.effort = effort
         # Security sandbox (OS-level isolation via bubblewrap/sandbox-exec)
         self.sandbox_enabled = sandbox_enabled
         # Experimental: coordinated multi-agent teams
@@ -454,6 +457,7 @@ class GluonAgent:
         effective_tools = None if mcp_config else self.allowed_tools
 
         # Use configured thinking tokens, default to 10000 if not set
+        # -1 is the sentinel for "adaptive" — don't set max_thinking_tokens, let CLI decide
         thinking_tokens = self.max_thinking_tokens if self.max_thinking_tokens is not None else 10000
 
         options = ClaudeAgentOptions(
@@ -462,8 +466,12 @@ class GluonAgent:
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
-            max_thinking_tokens=thinking_tokens,
+            max_thinking_tokens=thinking_tokens if thinking_tokens >= 0 else None,
         )
+
+        # Pass effort level to CLI via extra_args (--effort low/medium/high)
+        if self.effort:
+            options.extra_args["effort"] = self.effort
 
         # Pass CLI path directly to SDK instead of mutating os.environ["PATH"]
         if self.cli_path:

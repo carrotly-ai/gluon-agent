@@ -102,15 +102,17 @@ class ThinkingBudget(str, Enum):
     MEDIUM = "medium"  # 10,000 tokens - moderate complexity
     HIGH = "high"  # 16,000 tokens - complex analysis
     ULTRATHINK = "ultrathink"  # 32,000 tokens - maximum reasoning
+    ADAPTIVE = "adaptive"  # Let the CLI decide (no max_thinking_tokens set)
 
 
-# Thinking budget token values
+# Thinking budget token values (-1 = sentinel for adaptive/unset)
 THINKING_BUDGET_TOKENS: dict[ThinkingBudget, int] = {
     ThinkingBudget.NONE: 0,
     ThinkingBudget.LOW: 4000,
     ThinkingBudget.MEDIUM: 10000,
     ThinkingBudget.HIGH: 16000,
     ThinkingBudget.ULTRATHINK: 32000,
+    ThinkingBudget.ADAPTIVE: -1,
 }
 
 
@@ -248,6 +250,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "max_turns": 10,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
+        "effort": "low",
         "description": "Fast responses for simple tasks",
     },
     TaskProfile.STANDARD: {
@@ -256,6 +259,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "max_turns": 30,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
+        "effort": "medium",
         "description": "Balanced performance (default)",
     },
     TaskProfile.DEEP: {
@@ -264,6 +268,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "max_turns": 50,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
+        "effort": "high",
         "description": "Maximum reasoning for complex tasks",
     },
     TaskProfile.PLANNING: {
@@ -272,6 +277,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "max_turns": 40,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": True,
+        "effort": "high",
         "description": "Plan before executing",
     },
 }
@@ -285,6 +291,7 @@ def resolve_task_options(
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     force_planning: bool | None = None,
+    effort: str | None = None,
 ) -> dict[str, Any]:
     """
     Resolve task options from profile and overrides.
@@ -297,6 +304,7 @@ def resolve_task_options(
         max_turns: Override profile's max turns
         max_budget_usd: Override profile's cost budget
         force_planning: Override profile's planning mode
+        effort: Override reasoning effort (low/medium/high)
 
     Returns:
         Dict with resolved options:
@@ -305,6 +313,7 @@ def resolve_task_options(
         - max_turns: int | None
         - max_budget_usd: float | None
         - force_planning: bool
+        - effort: str | None
     """
     # Resolve profile enum
     if profile is None:
@@ -346,12 +355,17 @@ def resolve_task_options(
     if force_planning is not None:
         config["force_planning"] = force_planning
 
+    # Effort: explicit override wins, otherwise use profile default
+    if effort is not None:
+        config["effort"] = effort
+
     return {
         "model": config["model"],
         "max_thinking_tokens": config["max_thinking_tokens"],
         "max_turns": config.get("max_turns"),
         "max_budget_usd": config.get("max_budget_usd"),
         "force_planning": config["force_planning"],
+        "effort": config.get("effort"),
     }
 
 
