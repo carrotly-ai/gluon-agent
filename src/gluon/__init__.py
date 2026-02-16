@@ -1,6 +1,6 @@
 """Gluon Agent - AI orchestrator for managing multiple Claude Code agents."""
 
-__version__ = "0.2.1"
+__version__ = "0.4.2"
 
 from gluon.models import Project, Session, SessionStatus
 
