@@ -88,7 +88,8 @@ const EFFORT_OPTIONS = [
   { value: '', label: 'Use profile default', description: '' },
   { value: 'low', label: 'Low', description: 'Fast, simple reasoning' },
   { value: 'medium', label: 'Medium', description: 'Balanced depth' },
-  { value: 'high', label: 'High', description: 'Maximum reasoning' },
+  { value: 'high', label: 'High', description: 'Deep reasoning' },
+  { value: 'max', label: 'Max', description: 'Maximum reasoning effort' },
 ]
 
 // Model transition options (only shown when Planning profile is selected)

@@ -108,7 +108,7 @@ class CreateRunRequest(BaseModel):
     )
     effort_override: str | None = Field(
         default=None,
-        description="Override reasoning effort: low/medium/high",
+        description="Override reasoning effort: low/medium/high/max",
     )
     model_override: str | None = Field(
         default=None,

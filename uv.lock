@@ -277,18 +277,18 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.1.36"
+version = "0.1.37"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "mcp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/66/79/c241e2c15779c04c36894fb84559068f9f1a8391f615c32e9e8b1db93e81/claude_agent_sdk-0.1.36.tar.gz", hash = "sha256:3c0a7322210c4a24177ca57d2a46ee74a641f5cf1ba4007f44b57b6d370abe5a", size = 61609, upload-time = "2026-02-13T20:08:48.558Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/12/c5b09c7fe50cc54bf3a4316059c0e2fb7653fb739f6fb35c9a2e8a363493/claude_agent_sdk-0.1.37.tar.gz", hash = "sha256:5a021582b8b44ca735415b85a2dd8732490f22bc3d51452ede82d7f2db4ee592", size = 61610, upload-time = "2026-02-16T21:50:42.115Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/ff/908fb18784e8116637fd2ecfdf398a88739142afc5e73cc175cbff92d15c/claude_agent_sdk-0.1.36-py3-none-macosx_11_0_arm64.whl", hash = "sha256:e805d4201e435420a2a1757e8798738705c0129cca7c94954fa6b3ac4d68d7fe", size = 54805683, upload-time = "2026-02-13T20:08:32.602Z" },
-    { url = "https://files.pythonhosted.org/packages/90/90/9ac0dacff94c1cdf9f139521cf5578bff02463f92fe5866f86ccf55371b9/claude_agent_sdk-0.1.36-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:f398c091b9051e765eb54da40af43102b00dfd3c6628a31ce276d9afb5f665a1", size = 69557700, upload-time = "2026-02-13T20:08:37.179Z" },
-    { url = "https://files.pythonhosted.org/packages/d5/66/2b309f3b38aabb3d9b77742b2261c82db6de7ce4d9bedba46afbcc6b8597/claude_agent_sdk-0.1.36-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:d0b7c67ee298551a31f22a671bdce972207a4276b320e17b4b526b754442e862", size = 70136851, upload-time = "2026-02-13T20:08:41.719Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/4a/80b8d179477be8e373854615a6806997a512a8ac953f8e6795712ae2ebaf/claude_agent_sdk-0.1.36-py3-none-win_amd64.whl", hash = "sha256:6c0c133abe5a64a5f7a8f54e5d52828173c8993a1781e633355e6dce741a7a3f", size = 72666927, upload-time = "2026-02-13T20:08:46.025Z" },
+    { url = "https://files.pythonhosted.org/packages/51/61/fdc15695a89cc1f3c4b0e0d714593e00a89094b95fc5dcbec6972a602197/claude_agent_sdk-0.1.37-py3-none-macosx_11_0_arm64.whl", hash = "sha256:c810592bfb2927ba619d01c5588ead0c052452a51052a548fda885ca0dbca7ab", size = 54799463, upload-time = "2026-02-16T21:50:28.258Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/3f/8057bd6f2dc6a077c32b9065336ced45c18aff602575c656b492b95b2428/claude_agent_sdk-0.1.37-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:61e821ba330ffc66fe9870c1ae3a76b05f69ac47da4446928ca6fe0569e1d42e", size = 69543239, upload-time = "2026-02-16T21:50:31.642Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/7f/d13c843edea7418747127dc5d511968c5f83709737e296e54be40098299e/claude_agent_sdk-0.1.37-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:9814fbf52dd6a3aa070da023187184cf6fc679e88d8b3fd69d72dac55f8cc319", size = 70142154, upload-time = "2026-02-16T21:50:35.353Z" },
+    { url = "https://files.pythonhosted.org/packages/62/37/4ef55c5202246ac7c9319bc0b11896be5fd976051eff35109b95a039b76f/claude_agent_sdk-0.1.37-py3-none-win_amd64.whl", hash = "sha256:0934f5eba7598b613ce386cc57b985c7a9f6f1c4a1fba94e587ad84130374258", size = 72673142, upload-time = "2026-02-16T21:50:39.531Z" },
 ]
 
 [[package]]
@@ -561,7 +561,7 @@ wheels = [
 
 [[package]]
 name = "gluon-agent"
-version = "0.4.1"
+version = "0.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -604,7 +604,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'all'", specifier = ">=3.13.3" },
     { name = "aiohttp", marker = "extra == 'discord'", specifier = ">=3.13.3" },
     { name = "anyio", specifier = ">=4.0.0" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.36" },
+    { name = "claude-agent-sdk", specifier = ">=0.1.37" },
     { name = "discord-py", marker = "extra == 'all'", specifier = ">=2.3.0" },
     { name = "discord-py", marker = "extra == 'discord'", specifier = ">=2.3.0" },
     { name = "fastapi", marker = "extra == 'all'", specifier = ">=0.115.0" },
