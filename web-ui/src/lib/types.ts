@@ -93,7 +93,7 @@ export type TaskProfile = 'quick' | 'standard' | 'deep' | 'planning'
 export type ThinkingBudget = 'none' | 'low' | 'medium' | 'high' | 'ultrathink' | 'adaptive'
 
 /** Effort level options */
-export type EffortLevel = 'low' | 'medium' | 'high'
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
 
 /** Request body for creating a new run */
 export interface CreateRunRequest {

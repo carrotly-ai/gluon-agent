@@ -365,7 +365,7 @@ class GluonAgent:
         self.max_turns = max_turns
         self.max_budget_usd = max_budget_usd
         self.force_planning = force_planning
-        # Reasoning effort level (low/medium/high) — passed to CLI via --effort
+        # Reasoning effort level (low/medium/high/max) — native SDK field
         self.effort = effort
         # Security sandbox (OS-level isolation via bubblewrap/sandbox-exec)
         self.sandbox_enabled = sandbox_enabled
@@ -469,9 +469,9 @@ class GluonAgent:
             max_thinking_tokens=thinking_tokens if thinking_tokens >= 0 else None,
         )
 
-        # Pass effort level to CLI via extra_args (--effort low/medium/high)
+        # Set reasoning effort level via native SDK field
         if self.effort:
-            options.extra_args["effort"] = self.effort
+            options.effort = self.effort
 
         # Pass CLI path directly to SDK instead of mutating os.environ["PATH"]
         if self.cli_path:
