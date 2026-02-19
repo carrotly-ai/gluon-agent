@@ -838,9 +838,7 @@ export function CreateTaskDialog({
                     <span
                       className={cn(
                         'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                        useWorktree
-                          ? 'bg-[var(--color-void)]'
-                          : 'bg-[var(--color-stone)]'
+                        useWorktree ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
                       )}
                       style={{ left: useWorktree ? '22px' : '2px' }}
                     />
@@ -854,9 +852,7 @@ export function CreateTaskDialog({
                       <RefreshCw
                         className={cn(
                           'w-4 h-4 transition-colors',
-                          ralphEnabled
-                            ? 'text-[var(--color-sky)]'
-                            : 'text-[var(--color-stone)]/60'
+                          ralphEnabled ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
                         )}
                       />
                       <div>
@@ -937,9 +933,7 @@ export function CreateTaskDialog({
                     <Users
                       className={cn(
                         'w-4 h-4 transition-colors',
-                        agentTeams
-                          ? 'text-[var(--color-sky)]'
-                          : 'text-[var(--color-stone)]/60'
+                        agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
                       )}
                     />
                     <div>
