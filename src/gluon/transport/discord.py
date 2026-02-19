@@ -24,14 +24,15 @@ logger = logging.getLogger(__name__)
 # Model aliases for convenience
 MODEL_ALIASES: dict[str, str] = {
     "opus": "claude-opus-4.5",
-    "sonnet": "claude-sonnet-4.5",
+    "sonnet": "claude-sonnet-4.6",
     "haiku": "claude-haiku-4.5",
     "claude-opus-4.5": "claude-opus-4.5",
-    "claude-sonnet-4.5": "claude-sonnet-4.5",
+    "claude-sonnet-4.6": "claude-sonnet-4.6",
+    "claude-sonnet-4.5": "claude-sonnet-4.6",
     "claude-haiku-4.5": "claude-haiku-4.5",
 }
 
-DEFAULT_MODEL = "claude-sonnet-4.5"
+DEFAULT_MODEL = "claude-sonnet-4.6"
 
 
 def parse_model_flag(text: str) -> tuple[str, str | None]:
@@ -559,7 +560,7 @@ class DiscordTransport(Transport):
         text = (
             "**Available Models:**\n"
             "- `opus` / `claude-opus-4.5` - Highest quality, best for complex reasoning\n"
-            "- `sonnet` / `claude-sonnet-4.5` - Fast, high-quality (default)\n"
+            "- `sonnet` / `claude-sonnet-4.6` - Fast, high-quality (default)\n"
             "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost\n\n"
             "**Usage:** `@gluon <task> --model opus`\n"
             "**Short form:** `@gluon <task> -m haiku`"

@@ -420,7 +420,7 @@ from gluon.models_config import ModelTier, get_model_id, describe_models
 
 # Get model ID for a specific tier
 model_id = get_model_id("opus-4.6")  # or ModelTier.OPUS_46
-model_id = get_model_id("sonnet")    # Sonnet 4.5
+model_id = get_model_id("sonnet")    # Sonnet 4.6
 model_id = get_model_id("haiku")     # Haiku 4.5
 
 # Handle UI names (from web dashboard)
@@ -623,7 +623,7 @@ async def test_execute_task(orchestrator):
 # Parametrized tests
 @pytest.mark.parametrize("model,expected", [
     ("opus-4.6", "global.anthropic.claude-opus-4-6-v1"),
-    ("sonnet", "global.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+    ("sonnet", "global.anthropic.claude-sonnet-4-6"),
     ("haiku", "global.anthropic.claude-haiku-4-5-20251001-v1:0"),
 ])
 def test_model_resolution(model, expected):
