@@ -128,7 +128,7 @@ gluon status                              # Show overall status
 | Tier | Model | Use Case |
 |------|-------|----------|
 | `haiku` | claude-haiku-4.5 | Fast, economical tasks |
-| `sonnet` | claude-sonnet-4.5 | Balanced performance (default) |
+| `sonnet` | claude-sonnet-4.6 | Balanced performance (default) |
 | `opus-4.6` | claude-opus-4.6 | Complex, demanding tasks (latest, default opus) |
 | `opus-4.5` | claude-opus-4.5 | Previous generation Opus |
 | `opus` | claude-opus-4.6 | Alias for opus-4.6 |

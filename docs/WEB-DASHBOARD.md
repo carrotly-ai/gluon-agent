@@ -140,7 +140,7 @@ The "New Task" dialog provides a powerful interface for creating tasks with adva
 | Profile | Model | Use Case |
 |---------|-------|----------|
 | Quick | Haiku 4.5 | Fast responses, low cost |
-| Standard | Sonnet 4.5 | Balanced quality/speed (default) |
+| Standard | Sonnet 4.6 | Balanced quality/speed (default) |
 | Deep | Opus 4.6 | Maximum reasoning, complex tasks |
 | Planning | Opus 4.6 | Plan before execution mode |
 
@@ -268,7 +268,7 @@ The Usage page (`/usage`) displays:
 | `cost_usd` | Total API cost for the run |
 | `input_tokens` | Tokens sent to Claude |
 | `output_tokens` | Tokens received from Claude |
-| `model_used` | Model name (opus-4.6, sonnet-4.5, haiku-4.5, etc.) |
+| `model_used` | Model name (opus-4.6, sonnet-4.6, haiku-4.5, etc.) |
 | `created_at` | Run creation timestamp |
 
 ### API Endpoints

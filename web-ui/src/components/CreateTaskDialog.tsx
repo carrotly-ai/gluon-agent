@@ -68,7 +68,7 @@ const MODEL_OPTIONS = [
   { value: '', label: 'Use profile default', description: '' },
   { value: 'opus-4.6', label: 'Opus 4.6', description: 'Highest quality (default)' },
   { value: 'opus-4.5', label: 'Opus 4.5', description: 'Previous generation' },
-  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Balanced' },
+  { value: 'sonnet', label: 'Sonnet 4.6', description: 'Balanced' },
   { value: 'haiku', label: 'Haiku 4.5', description: 'Fastest' },
 ]
 

@@ -16,7 +16,7 @@ class ModelTier(str, Enum):
 MODEL_IDS = {
     ModelTier.OPUS_46: "global.anthropic.claude-opus-4-6-v1",
     ModelTier.OPUS_45: "global.anthropic.claude-opus-4-5-20251101-v1:0",
-    ModelTier.SONNET: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    ModelTier.SONNET: "global.anthropic.claude-sonnet-4-6",
     ModelTier.HAIKU: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 }
 
@@ -25,6 +25,7 @@ MODEL_ALIASES = {
     "claude-opus-4.6": ModelTier.OPUS_46,
     "claude-opus-4.5": ModelTier.OPUS_45,
     "opus": ModelTier.OPUS_46,
+    "claude-sonnet-4.6": ModelTier.SONNET,
     "claude-sonnet-4.5": ModelTier.SONNET,
     "claude-haiku-4.5": ModelTier.HAIKU,
 }
@@ -136,5 +137,5 @@ def describe_models() -> str:
     return """Available models:
 - opus-4.6 : Claude Opus 4.6 - Latest, most capable (default opus)
 - opus-4.5 : Claude Opus 4.5 - Previous generation
-- sonnet   : Claude Sonnet 4.5 - Balanced performance (default)
+- sonnet   : Claude Sonnet 4.6 - Balanced performance (default)
 - haiku    : Claude Haiku 4.5 - Fast and efficient, for simple tasks"""

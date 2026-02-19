@@ -96,6 +96,6 @@ class TestParseModelFlag:
 
     def test_full_model_name(self):
         """Test full model name."""
-        cleaned, model = parse_model_flag("fix bug --model claude-sonnet-4.5")
-        assert model == "claude-sonnet-4.5"
+        cleaned, model = parse_model_flag("fix bug --model claude-sonnet-4.6")
+        assert model == "claude-sonnet-4.6"
         assert cleaned == "fix bug"
