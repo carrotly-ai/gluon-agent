@@ -150,6 +150,9 @@ graph TB
 
 # Node.js memory limit (leave headroom for subprocesses)
 -e NODE_OPTIONS=--max-old-space-size=6144
+
+# Vercel CLI integration (optional)
+-e VERCEL_TOKEN=your-vercel-token
 ```
 
 ### GitHub / Git Authentication
@@ -353,6 +356,7 @@ AWS_PROFILE=default
 GH_TOKEN=ghp_xxxxxxxxxxxxx
 GIT_USER_EMAIL=your-email@example.com
 GIT_USER_NAME="Your Name"
+VERCEL_TOKEN=                           # Optional: Vercel API token for deployment management
 EOF
 
 # Build and start services

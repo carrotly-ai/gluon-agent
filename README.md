@@ -403,6 +403,7 @@ gluon run myapp 'Redesign database schema' --model opus
 | `GH_TOKEN` | GitHub token for HTTPS authentication (replaces SSH) |
 | `GIT_USER_NAME` | Git commit author name |
 | `GIT_USER_EMAIL` | Git commit author email |
+| `VERCEL_TOKEN` | Vercel API token (optional, used as fallback when not set in Settings UI) |
 
 ## Remote Access
 
