@@ -69,6 +69,9 @@ services:
       # Browser automation (agent-browser)
       - AGENT_BROWSER_STREAM_PORT=9223
 
+      # Vercel CLI (optional, loaded from .env.local or host)
+      - VERCEL_TOKEN
+
       # SSL/HTTPS (optional - set both in .env.local to enable HTTPS for web dashboard)
       # GLUON_SSL_CERTFILE and GLUON_SSL_KEYFILE are loaded via env_file
 

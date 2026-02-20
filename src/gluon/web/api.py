@@ -2030,7 +2030,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.get("/api/settings")
     async def get_all_settings() -> dict[str, str]:
         """Get all settings as key-value pairs."""
-        return store.get_all_settings()
+        settings = store.get_all_settings()
+        # Expose whether VERCEL_TOKEN is available from environment (without leaking the value)
+        settings["_vercel_token_from_env"] = "true" if os.environ.get("VERCEL_TOKEN") else "false"
+        return settings
 
     @app.put("/api/settings/{key}")
     async def update_setting(key: str, body: dict) -> dict[str, str]:
@@ -2040,6 +2043,29 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Missing 'value' in request body")
         store.set_setting(key, str(value))
         return {"key": key, "value": str(value)}
+
+    @app.post("/api/vercel/test")
+    async def test_vercel_token(body: dict) -> dict:
+        """Test a Vercel API token by calling `vercel whoami`."""
+        token = (body.get("token") or "").strip() or os.environ.get("VERCEL_TOKEN", "")
+        if not token:
+            raise HTTPException(status_code=400, detail="No token provided and VERCEL_TOKEN not set")
+
+        try:
+            result = subprocess.run(
+                ["vercel", "whoami", f"--token={token}"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                return {"valid": True, "account": result.stdout.strip()}
+            else:
+                return {"valid": False, "error": result.stderr.strip() or "Invalid token"}
+        except FileNotFoundError:
+            return {"valid": False, "error": "Vercel CLI not installed"}
+        except subprocess.TimeoutExpired:
+            return {"valid": False, "error": "Request timed out"}
 
     @app.get("/api/sandbox/status")
     async def get_sandbox_status() -> dict:

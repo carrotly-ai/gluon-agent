@@ -708,6 +708,18 @@ export async function fetchCommands(projectId?: string): Promise<SlashCommand[]>
   return response.commands
 }
 
+// ========== Vercel CLI ==========
+
+/** Test a Vercel API token by calling vercel whoami */
+export async function testVercelToken(
+  token: string
+): Promise<{ valid: boolean; account?: string; error?: string }> {
+  return fetchJson('/vercel/test', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
 // ========== Project Files (Autocomplete) ==========
 
 /** Fetch files in a project for autocomplete */

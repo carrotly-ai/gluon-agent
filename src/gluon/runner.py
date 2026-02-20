@@ -687,7 +687,7 @@ but explicit commits with good messages are preferred.
 
                 # Vercel CLI integration (optional)
                 vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
-                vercel_token = self.store.get_setting("vercel_token", "") or None
+                vercel_token = self.store.get_setting("vercel_token", "") or os.environ.get("VERCEL_TOKEN") or None
 
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
@@ -1581,7 +1581,7 @@ but explicit commits with good messages are preferred.
             )
             # Vercel CLI integration (optional)
             vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
-            vercel_token = self.store.get_setting("vercel_token", "") or None
+            vercel_token = self.store.get_setting("vercel_token", "") or os.environ.get("VERCEL_TOKEN") or None
 
             agent = GluonAgent(
                 model=run.model or self.agent.model,
@@ -1786,7 +1786,7 @@ but explicit commits with good messages are preferred.
             )
             # Vercel CLI integration (optional)
             vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
-            vercel_token = self.store.get_setting("vercel_token", "") or None
+            vercel_token = self.store.get_setting("vercel_token", "") or os.environ.get("VERCEL_TOKEN") or None
 
             recovery_agent = (
                 GluonAgent(

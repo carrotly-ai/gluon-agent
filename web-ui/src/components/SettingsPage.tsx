@@ -4,6 +4,7 @@ import {
   Check,
   FolderOpen,
   GitBranch,
+  Loader2,
   Plus,
   RefreshCw,
   Settings,
@@ -21,6 +22,7 @@ import {
   fetchWorkspaces,
   refreshAllGitStatuses,
   scanWorkspace,
+  testVercelToken,
   updateSetting,
 } from '@/lib/api'
 import type { Project, ScanResultResponse, Workspace } from '@/lib/types'
@@ -88,6 +90,13 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [vercelCliEnabled, setVercelCliEnabled] = useState(false)
   const [vercelToken, setVercelToken] = useState('')
   const [initialVercelToken, setInitialVercelToken] = useState('')
+  const [vercelTokenFromEnv, setVercelTokenFromEnv] = useState(false)
+  const [vercelTesting, setVercelTesting] = useState(false)
+  const [vercelTestResult, setVercelTestResult] = useState<{
+    valid: boolean
+    account?: string
+    error?: string
+  } | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -121,6 +130,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setVercelCliEnabled(settings.vercel_cli_enabled === 'true')
       setVercelToken(settings.vercel_token || '')
       setInitialVercelToken(settings.vercel_token || '')
+      setVercelTokenFromEnv(settings._vercel_token_from_env === 'true')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -330,6 +340,19 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setError(err instanceof Error ? err.message : 'Failed to save Vercel token')
     } finally {
       setSavingKey(null)
+    }
+  }
+
+  const handleTestVercelToken = async () => {
+    setVercelTesting(true)
+    setVercelTestResult(null)
+    try {
+      const result = await testVercelToken(vercelToken)
+      setVercelTestResult(result)
+    } catch (err) {
+      setVercelTestResult({ valid: false, error: err instanceof Error ? err.message : 'Test failed' })
+    } finally {
+      setVercelTesting(false)
     }
   }
 
@@ -901,30 +924,78 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     <input
                       type="password"
                       value={vercelToken}
-                      onChange={(e) => setVercelToken(e.target.value)}
-                      placeholder="Enter your Vercel API token"
+                      onChange={(e) => {
+                        setVercelToken(e.target.value)
+                        setVercelTestResult(null)
+                      }}
+                      placeholder={
+                        vercelTokenFromEnv
+                          ? 'Using token from environment (VERCEL_TOKEN)'
+                          : 'Enter your Vercel API token'
+                      }
                       className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
                     />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSaveVercelToken}
-                    disabled={savingKey === 'vercel_token' || !vercelTokenDirty}
-                    className={cn(
-                      'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
-                      savedKey === 'vercel_token'
-                        ? 'bg-[var(--color-jade)] text-white'
-                        : 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90',
-                      'disabled:opacity-50'
+                    {!vercelToken && vercelTokenFromEnv && (
+                      <p className="text-caption text-[var(--color-sky)]/80 mt-1">
+                        Using token from environment variable
+                      </p>
                     )}
-                  >
-                    {savedKey === 'vercel_token' && <Check className="w-3 h-3 inline mr-1" />}
-                    {savingKey === 'vercel_token'
-                      ? 'Saving...'
-                      : savedKey === 'vercel_token'
-                        ? 'Saved'
-                        : 'Save'}
-                  </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveVercelToken}
+                      disabled={savingKey === 'vercel_token' || !vercelTokenDirty}
+                      className={cn(
+                        'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                        savedKey === 'vercel_token'
+                          ? 'bg-[var(--color-jade)] text-white'
+                          : 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90',
+                        'disabled:opacity-50'
+                      )}
+                    >
+                      {savedKey === 'vercel_token' && <Check className="w-3 h-3 inline mr-1" />}
+                      {savingKey === 'vercel_token'
+                        ? 'Saving...'
+                        : savedKey === 'vercel_token'
+                          ? 'Saved'
+                          : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTestVercelToken}
+                      disabled={vercelTesting}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors border',
+                        vercelTesting
+                          ? 'bg-[rgba(163,163,163,0.1)] border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
+                          : vercelTestResult?.valid
+                            ? 'bg-[rgba(34,197,94,0.15)] border-[rgba(34,197,94,0.3)] text-green-400'
+                            : vercelTestResult && !vercelTestResult.valid
+                              ? 'bg-[rgba(199,62,58,0.15)] border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
+                              : 'border-[rgba(163,163,163,0.2)] text-[var(--color-stone)] hover:bg-[rgba(163,163,163,0.1)]'
+                      )}
+                    >
+                      {vercelTesting ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Testing...</span>
+                        </>
+                      ) : vercelTestResult?.valid ? (
+                        <>
+                          <Check className="w-3 h-3" />
+                          <span>{vercelTestResult.account}</span>
+                        </>
+                      ) : vercelTestResult && !vercelTestResult.valid ? (
+                        <>
+                          <X className="w-3 h-3" />
+                          <span>{vercelTestResult.error}</span>
+                        </>
+                      ) : (
+                        <span>Test</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
