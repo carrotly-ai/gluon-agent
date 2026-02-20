@@ -48,6 +48,11 @@ docker exec -it gluon-agent-dev bash
 **Container name:** `gluon-agent-dev` (not `gluon-agent`)
 **Port:** 45866
 
+**After any significant changes** (dependency upgrades, new features, bug fixes), rebuild and redeploy locally:
+```bash
+docker compose build && docker compose up -d
+```
+
 ## Commands
 
 ```bash
