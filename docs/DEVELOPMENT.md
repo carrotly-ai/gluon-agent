@@ -74,7 +74,7 @@ gluon-agent/
 │   │   ├── hooks/           # Custom hooks (useWebSocket, useOnline, etc.)
 │   │   └── lib/             # API client, types, utilities
 │   └── package.json
-├── tests/
+├── tests/                   # 970+ tests (33 files)
 ├── docs/                    # This documentation
 ├── pyproject.toml           # Dependencies
 └── README.md                # User documentation
@@ -534,6 +534,8 @@ await queue.subscribe_updates(on_update)
 
 ## Testing
 
+The project has **970+ tests** across 33 files covering models, store, core orchestrator, agent config, runner utilities, bot core helpers, API endpoints, WebSocket manager, error classification, resume coordinator, policies, and CLI commands.
+
 ### Running Tests
 
 ```bash
@@ -543,6 +545,9 @@ uv run pytest
 # Run specific test file
 uv run pytest tests/test_store.py
 
+# Run single test by name
+uv run pytest tests/test_store.py::TestProjectCRUD::test_create_project -v
+
 # With coverage
 uv run pytest --cov=src/gluon
 
@@ -550,75 +555,55 @@ uv run pytest --cov=src/gluon
 uv run pytest -v
 ```
 
+### Shared Fixtures
+
+`tests/conftest.py` provides shared fixtures used across all test files:
+
+```python
+# Shared store fixture — use this instead of defining per-file
+@pytest.fixture
+def store(tmp_path: Path) -> GluonStore:
+    return GluonStore(tmp_path / "test.db")
+
+# Pre-built workspace and project fixtures
+@pytest.fixture
+def temp_store(tmp_path: Path) -> GluonStore: ...
+@pytest.fixture
+def test_workspace(temp_store: GluonStore) -> Workspace: ...
+@pytest.fixture
+def project_with_path(temp_store, test_workspace, tmp_path): ...
+```
+
 ### Testing Patterns
 
 ```python
 # tests/test_new_feature.py
-import asyncio
-import tempfile
-from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import pytest
+
+from gluon.models import Project, RunStatus
 from gluon.store import GluonStore
-from gluon.core import Orchestrator
-from gluon.models import Workspace, Project, Session
 
-@pytest.fixture
-def temp_db():
-    """Create temporary database for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.db"
-        yield db_path
 
-@pytest.fixture
-def store(temp_db):
-    """Create store with temp database."""
-    return GluonStore(db_path=temp_db)
+# Use the shared `store` fixture from conftest.py — no need to define it here
 
-@pytest.fixture
-def orchestrator(store):
-    """Create orchestrator with temp store."""
-    return Orchestrator(store)
+class TestNewFeature:
+    def test_create_project(self, store: GluonStore, tmp_path: Path):
+        project_dir = tmp_path / "test-project"
+        project_dir.mkdir()
+        project = store.create_project(name="test-project", path=project_dir)
+        assert project.name == "test-project"
 
-# Synchronous test
-def test_create_project(store):
-    """Test project creation."""
-    # Arrange
-    workspace = store.create_workspace(path=Path("/tmp/workspace"))
+        retrieved = store.get_project(project.id)
+        assert retrieved is not None
+        assert retrieved.id == project.id
 
-    # Act
-    project = store.create_project(
-        workspace_id=workspace.id,
-        name="test-project",
-        path=Path("/tmp/workspace/test-project"),
-    )
+    def test_error_case(self, store: GluonStore):
+        with pytest.raises(Exception):
+            store.get_project("nonexistent")
 
-    # Assert
-    assert project.name == "test-project"
-    assert project.workspace_id == workspace.id
-    retrieved = store.get_project(project.id)
-    assert retrieved.id == project.id
-
-# Async test
-@pytest.mark.asyncio
-async def test_execute_task(orchestrator):
-    """Test async task execution."""
-    # Arrange
-    workspace = orchestrator.store.create_workspace(path=Path("/tmp/ws"))
-    project = orchestrator.store.create_project(
-        workspace_id=workspace.id,
-        name="async-test",
-        path=Path("/tmp/ws/async-test"),
-    )
-
-    # Act
-    run = orchestrator.create_session(
-        project_name="async-test",
-        prompt="Echo: hello",
-    )
-
-    # Assert
-    assert run.status.value in ("pending", "active")
 
 # Parametrized tests
 @pytest.mark.parametrize("model,expected", [
@@ -627,18 +612,18 @@ async def test_execute_task(orchestrator):
     ("haiku", "global.anthropic.claude-haiku-4-5-20251001-v1:0"),
 ])
 def test_model_resolution(model, expected):
-    """Test model ID resolution."""
     from gluon.models_config import get_model_id
     assert get_model_id(model) == expected
 ```
 
 **Testing best practices:**
+- Use shared `store` fixture from `conftest.py` — never define local store fixtures
 - Use `pytest` fixtures for setup/teardown
-- Create fresh database per test with `temp_db`
-- Mark async tests with `@pytest.mark.asyncio`
+- Use `tmp_path` (pytest built-in) for temp directories
 - Use parametrize for testing multiple inputs
 - Test error paths, not just happy paths
 - Mock external dependencies (Claude SDK, Redis, etc.)
+- Use `MagicMock`/`patch` for bot core and orchestrator tests
 
 ## Common Development Tasks
 
