@@ -84,6 +84,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [disallowedTools, setDisallowedTools] = useState<string[]>([])
 
+  // Vercel CLI integration
+  const [vercelCliEnabled, setVercelCliEnabled] = useState(false)
+  const [vercelToken, setVercelToken] = useState('')
+  const [initialVercelToken, setInitialVercelToken] = useState('')
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -113,6 +118,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       } catch {
         setDisallowedTools([])
       }
+      setVercelCliEnabled(settings.vercel_cli_enabled === 'true')
+      setVercelToken(settings.vercel_token || '')
+      setInitialVercelToken(settings.vercel_token || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -297,6 +305,35 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setSavingKey(null)
     }
   }
+
+  const handleToggleVercelCli = async () => {
+    const newValue = !vercelCliEnabled
+    setSavingKey('vercel_cli')
+    try {
+      await updateSetting('vercel_cli_enabled', newValue ? 'true' : 'false')
+      setVercelCliEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const handleSaveVercelToken = async () => {
+    setSavingKey('vercel_token')
+    try {
+      await updateSetting('vercel_token', vercelToken)
+      setInitialVercelToken(vercelToken)
+      setSavedKey('vercel_token')
+      setTimeout(() => setSavedKey(null), 2000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save Vercel token')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const vercelTokenDirty = vercelToken !== initialVercelToken
 
   const gitIdentityDirty =
     gitUserName !== initialGitUserName || gitUserEmail !== initialGitUserEmail
@@ -828,6 +865,68 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   />
                 </button>
               </div>
+
+              <div className="border-t border-[rgba(163,163,163,0.08)]" />
+
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-[var(--color-paper)]">Vercel CLI</p>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Enable Vercel CLI for deployment management. Requires a Vercel API token.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleVercelCli}
+                  disabled={savingKey === 'vercel_cli'}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    vercelCliEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    savingKey === 'vercel_cli' && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      vercelCliEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+              {vercelCliEnabled && (
+                <div className="pl-0 space-y-3">
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                      API Token
+                    </label>
+                    <input
+                      type="password"
+                      value={vercelToken}
+                      onChange={(e) => setVercelToken(e.target.value)}
+                      placeholder="Enter your Vercel API token"
+                      className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveVercelToken}
+                    disabled={savingKey === 'vercel_token' || !vercelTokenDirty}
+                    className={cn(
+                      'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                      savedKey === 'vercel_token'
+                        ? 'bg-[var(--color-jade)] text-white'
+                        : 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90',
+                      'disabled:opacity-50'
+                    )}
+                  >
+                    {savedKey === 'vercel_token' && <Check className="w-3 h-3 inline mr-1" />}
+                    {savingKey === 'vercel_token'
+                      ? 'Saving...'
+                      : savedKey === 'vercel_token'
+                        ? 'Saved'
+                        : 'Save'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Notifications */}

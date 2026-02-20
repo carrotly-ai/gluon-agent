@@ -107,6 +107,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Browser binaries downloaded later as gluon user
 RUN npm install -g agent-browser
 
+# Layer 5d: Vercel CLI (optional, activated via settings)
+RUN npm install -g vercel
+
 # Layer 6: Create non-root user and directories (rarely changes)
 RUN groupadd -g 1000 gluon && \
     useradd -m -u 1000 -g gluon -s /bin/bash gluon && \

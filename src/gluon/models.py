@@ -141,6 +141,25 @@ Key context:
 """
 
 
+VERCEL_SYSTEM_PROMPT = """
+## Vercel CLI
+
+The Vercel CLI is available. The user's Vercel API token is set in the environment as VERCEL_TOKEN.
+
+Key commands:
+- `vercel list` — List recent deployments
+- `vercel inspect <url>` — Deployment details
+- `vercel logs <url>` — View runtime logs (live, 5-min window)
+- `vercel deploy --prod` — Deploy to production
+- `vercel promote <url>` — Promote deployment to production
+- `vercel rollback` — Rollback to previous production deployment
+- `vercel env ls` — List environment variables
+- `vercel env pull` — Pull env vars to local .env
+
+Build logs are only available in the Vercel Dashboard, not the CLI.
+"""
+
+
 AGENT_BROWSER_SYSTEM_PROMPT = """
 ## Browser Automation (agent-browser)
 

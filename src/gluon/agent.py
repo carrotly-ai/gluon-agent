@@ -37,6 +37,7 @@ from gluon.models import (
     PLANNING_AUTONOMOUS_PROMPT,
     PLANNING_SYSTEM_PROMPT,
     RALPH_SYSTEM_PROMPT,
+    VERCEL_SYSTEM_PROMPT,
 )
 from gluon.models_config import ModelTier, get_fallback_model_id, get_model_id
 
@@ -345,6 +346,8 @@ class GluonAgent:
         disallowed_tools: list[str] | None = None,
         model_transition: str | None = None,
         effort: str | None = None,
+        vercel_cli_enabled: bool = False,
+        vercel_token: str | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -376,6 +379,8 @@ class GluonAgent:
         self.file_checkpointing_enabled = file_checkpointing_enabled
         self.disallowed_tools = disallowed_tools
         self.model_transition = model_transition
+        self.vercel_cli_enabled = vercel_cli_enabled
+        self.vercel_token = vercel_token
 
     async def _can_use_tool(
         self,
@@ -563,6 +568,11 @@ class GluonAgent:
 
         # Always append agent-browser instructions (available in Docker)
         append_parts.append(AGENT_BROWSER_SYSTEM_PROMPT)
+
+        # Append Vercel CLI instructions when enabled with a valid token
+        if self.vercel_cli_enabled and self.vercel_token:
+            append_parts.append(VERCEL_SYSTEM_PROMPT)
+            sdk_env["VERCEL_TOKEN"] = self.vercel_token
 
         # Additionally append planning prompt if force_planning is enabled
         # In Ralph Loop mode (autonomous), use PLANNING_AUTONOMOUS_PROMPT which

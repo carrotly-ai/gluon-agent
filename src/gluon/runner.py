@@ -685,6 +685,10 @@ but explicit commits with good messages are preferred.
                 model_transition = metadata.get("model_transition")
                 effort = metadata.get("effort")
 
+                # Vercel CLI integration (optional)
+                vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
+                vercel_token = self.store.get_setting("vercel_token", "") or None
+
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
                     question_handler=question_handler,
@@ -700,6 +704,8 @@ but explicit commits with good messages are preferred.
                     disallowed_tools=disallowed_tools or None,
                     model_transition=model_transition,
                     effort=effort,
+                    vercel_cli_enabled=vercel_cli_enabled,
+                    vercel_token=vercel_token,
                 )
 
                 # Create screenshot collector for intercepting agent-browser screenshots
@@ -1573,12 +1579,18 @@ but explicit commits with good messages are preferred.
                 if agent_teams_override is not None
                 else self.store.get_setting("agent_teams_enabled", "false") == "true"
             )
+            # Vercel CLI integration (optional)
+            vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
+            vercel_token = self.store.get_setting("vercel_token", "") or None
+
             agent = GluonAgent(
                 model=run.model or self.agent.model,
                 question_handler=auto_handler,
                 run_id=run.id,
                 sandbox_enabled=sandbox_enabled,
                 agent_teams_enabled=agent_teams_enabled,
+                vercel_cli_enabled=vercel_cli_enabled,
+                vercel_token=vercel_token,
             )
 
             # Create and execute ralph manager
@@ -1772,11 +1784,17 @@ but explicit commits with good messages are preferred.
                 if agent_teams_override is not None
                 else self.store.get_setting("agent_teams_enabled", "false") == "true"
             )
+            # Vercel CLI integration (optional)
+            vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
+            vercel_token = self.store.get_setting("vercel_token", "") or None
+
             recovery_agent = (
                 GluonAgent(
                     model=run.model,
                     sandbox_enabled=sandbox_enabled,
                     agent_teams_enabled=agent_teams_enabled,
+                    vercel_cli_enabled=vercel_cli_enabled,
+                    vercel_token=vercel_token,
                 )
                 if run.model
                 else self.agent
