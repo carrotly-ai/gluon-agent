@@ -1,6 +1,5 @@
 """Tests for parse_channel_topic() from Discord transport."""
 
-
 from gluon.transport.discord import parse_channel_topic
 
 

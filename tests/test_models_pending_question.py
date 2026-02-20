@@ -1,6 +1,5 @@
 """Tests for PendingQuestion methods."""
 
-
 from gluon.models import PendingQuestion, QuestionStatus
 
 

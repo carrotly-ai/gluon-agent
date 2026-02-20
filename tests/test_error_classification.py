@@ -1,6 +1,5 @@
 """Tests for _classify_api_error() in agent.py."""
 
-
 from gluon.agent import (
     AuthenticationError,
     ContextOverflowError,

@@ -103,9 +103,7 @@ class TestExtractRunInfoFromMessage:
 
 class TestResolveProject:
     def test_direct_hint_found(self, bot_core: GluonBotCore):
-        bot_core.orchestrator.get_project.return_value = Project(
-            name="myapp", path="/tmp/myapp"
-        )
+        bot_core.orchestrator.get_project.return_value = Project(name="myapp", path="/tmp/myapp")
         result = bot_core.resolve_project("myapp")
         assert result == "myapp"
 
@@ -124,9 +122,7 @@ class TestResolveProject:
         assert result is None
 
     def test_hint_preferred_over_channel(self, bot_core: GluonBotCore):
-        bot_core.orchestrator.get_project.return_value = Project(
-            name="myapp", path="/tmp/myapp"
-        )
+        bot_core.orchestrator.get_project.return_value = Project(name="myapp", path="/tmp/myapp")
         result = bot_core.resolve_project("myapp", channel_name="other-channel")
         assert result == "myapp"
         # Only called once because hint succeeded
@@ -297,9 +293,7 @@ class TestTaskRegistration:
 class TestHistory:
     def test_add_to_history(self, bot_core: GluonBotCore):
         bot_core.add_to_history("telegram:123", "user", "hello")
-        bot_core.store.create_chat_history.assert_called_once_with(
-            "telegram:123", "telegram", "user", "hello"
-        )
+        bot_core.store.create_chat_history.assert_called_once_with("telegram:123", "telegram", "user", "hello")
 
     def test_get_history(self, bot_core: GluonBotCore):
         entry = MagicMock()

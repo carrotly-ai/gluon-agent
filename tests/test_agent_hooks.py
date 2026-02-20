@@ -1,6 +1,5 @@
 """Tests for SubagentTracker lifecycle from agent_hooks.py."""
 
-
 import pytest
 
 from gluon.agent_hooks import SubagentTracker

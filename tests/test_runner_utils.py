@@ -109,13 +109,15 @@ class TestParseCompletedTasks:
         p = tmp_path / "messages.jsonl"
         lines = [
             json.dumps({"type": "tool_use", "metadata": {"tool": "Read"}}),
-            json.dumps({
-                "type": "tool_use",
-                "metadata": {
-                    "tool": "TodoWrite",
-                    "input": {"todos": [{"content": "done", "status": "completed"}]},
-                },
-            }),
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "metadata": {
+                        "tool": "TodoWrite",
+                        "input": {"todos": [{"content": "done", "status": "completed"}]},
+                    },
+                }
+            ),
         ]
         p.write_text("\n".join(lines) + "\n")
         assert runner._parse_completed_tasks(p) == ["done"]
