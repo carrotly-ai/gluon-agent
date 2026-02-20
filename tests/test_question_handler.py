@@ -9,13 +9,6 @@ from gluon.store import GluonStore
 
 
 @pytest.fixture
-def store(tmp_path):
-    """Create a temporary store for testing."""
-    db_path = tmp_path / "test.db"
-    return GluonStore(db_path=db_path)
-
-
-@pytest.fixture
 def sample_project(store: GluonStore, tmp_path):
     """Create a sample project for testing."""
 

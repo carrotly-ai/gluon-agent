@@ -99,3 +99,38 @@ class TestParseModelFlag:
         cleaned, model = parse_model_flag("fix bug --model claude-sonnet-4.6")
         assert model == "claude-sonnet-4.6"
         assert cleaned == "fix bug"
+
+    def test_sonnet_shorthand_resolves_to_46(self):
+        """Test --model sonnet resolves to claude-sonnet-4.6 (updated alias)."""
+        cleaned, model = parse_model_flag("fix bug --model sonnet")
+        assert model == "claude-sonnet-4.6"
+        assert cleaned == "fix bug"
+
+    def test_opus_shorthand_resolves_to_45(self):
+        """Test --model opus resolves to claude-opus-4.5."""
+        cleaned, model = parse_model_flag("fix bug --model opus")
+        assert model == "claude-opus-4.5"
+        assert cleaned == "fix bug"
+
+    def test_claude_sonnet_45_alias_maps_to_46(self):
+        """Test claude-sonnet-4.5 backwards compat alias maps to 4.6."""
+        cleaned, model = parse_model_flag("fix bug --model claude-sonnet-4.5")
+        assert model == "claude-sonnet-4.6"
+        assert cleaned == "fix bug"
+
+    def test_empty_prompt_after_flag(self):
+        """Test that extracting flag from entire message yields empty string."""
+        cleaned, model = parse_model_flag("--model haiku")
+        assert model == "claude-haiku-4.5"
+        assert cleaned == ""
+
+    def test_flag_at_start_of_message(self):
+        """Test flag at beginning of message."""
+        cleaned, model = parse_model_flag("--model sonnet fix the bug")
+        assert model == "claude-sonnet-4.6"
+        assert cleaned == "fix the bug"
+
+    def test_multiple_flags_first_matched(self):
+        """Test that only the first --model flag is matched."""
+        cleaned, model = parse_model_flag("fix bug --model haiku --model opus")
+        assert model == "claude-haiku-4.5"

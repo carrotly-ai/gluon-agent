@@ -5,7 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from gluon.models import ExecutionRun, Project, RunStatus, Session, SessionStatus
+from gluon.models import (
+    TASK_PROFILES,
+    THINKING_BUDGET_TOKENS,
+    CircuitState,
+    ExecutionRun,
+    Project,
+    RunStatus,
+    Session,
+    SessionStatus,
+    SupervisionPolicy,
+    TaskProfile,
+    ThinkingBudget,
+)
 
 
 class TestProject:
@@ -204,3 +216,116 @@ class TestExecutionRun:
         # With session ID - resumable
         run.claude_session_id = "session-123"
         assert run.is_resumable is True
+
+    def test_prepare_for_resume_resets_status(self):
+        """Test prepare_for_resume resets status but preserves session ID."""
+        run = ExecutionRun(
+            project_id="test",
+            prompt="original prompt",
+            claude_session_id="session-123",
+        )
+        run.status = RunStatus.COMPLETED
+        run.exit_code = 0
+        run.error_message = None
+        original_id = run.id
+
+        run.prepare_for_resume("new prompt")
+
+        assert run.status == RunStatus.RUNNING
+        assert run.prompt == "new prompt"
+        assert run.claude_session_id == "session-123"  # Preserved
+        assert run.id == original_id  # Preserved
+        assert run.completed_at is None  # Reset
+        assert run.exit_code is None  # Reset
+        assert run.resume_count == 1
+        assert run.last_resumed_at is not None
+
+    def test_prepare_for_resume_increments_count(self):
+        """Test that resume_count increments on each resume."""
+        run = ExecutionRun(project_id="test", prompt="test")
+        run.prepare_for_resume("resume 1")
+        assert run.resume_count == 1
+        run.prepare_for_resume("resume 2")
+        assert run.resume_count == 2
+
+
+class TestThinkingBudgetEnum:
+    """Tests for ThinkingBudget enum values."""
+
+    def test_all_values(self):
+        assert ThinkingBudget.NONE.value == "none"
+        assert ThinkingBudget.LOW.value == "low"
+        assert ThinkingBudget.MEDIUM.value == "medium"
+        assert ThinkingBudget.HIGH.value == "high"
+        assert ThinkingBudget.ULTRATHINK.value == "ultrathink"
+        assert ThinkingBudget.ADAPTIVE.value == "adaptive"
+
+    def test_from_string(self):
+        assert ThinkingBudget("adaptive") == ThinkingBudget.ADAPTIVE
+        assert ThinkingBudget("none") == ThinkingBudget.NONE
+
+
+class TestThinkingBudgetTokens:
+    """Tests for THINKING_BUDGET_TOKENS mapping."""
+
+    def test_adaptive_is_sentinel(self):
+        assert THINKING_BUDGET_TOKENS[ThinkingBudget.ADAPTIVE] == -1
+
+    def test_non_adaptive_are_positive(self):
+        for budget, tokens in THINKING_BUDGET_TOKENS.items():
+            if budget != ThinkingBudget.ADAPTIVE and budget != ThinkingBudget.NONE:
+                assert tokens > 0, f"{budget} should have positive tokens"
+
+    def test_none_is_zero(self):
+        assert THINKING_BUDGET_TOKENS[ThinkingBudget.NONE] == 0
+
+    def test_all_budgets_have_mapping(self):
+        for budget in ThinkingBudget:
+            assert budget in THINKING_BUDGET_TOKENS
+
+    def test_ordering(self):
+        assert THINKING_BUDGET_TOKENS[ThinkingBudget.LOW] < THINKING_BUDGET_TOKENS[ThinkingBudget.MEDIUM]
+        assert THINKING_BUDGET_TOKENS[ThinkingBudget.MEDIUM] < THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH]
+        assert THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH] < THINKING_BUDGET_TOKENS[ThinkingBudget.ULTRATHINK]
+
+
+class TestTaskProfileEnum:
+    """Tests for TaskProfile enum values."""
+
+    def test_all_values(self):
+        assert TaskProfile.QUICK.value == "quick"
+        assert TaskProfile.STANDARD.value == "standard"
+        assert TaskProfile.DEEP.value == "deep"
+        assert TaskProfile.PLANNING.value == "planning"
+
+
+class TestTaskProfiles:
+    """Tests for TASK_PROFILES dict."""
+
+    @pytest.mark.parametrize("profile", list(TaskProfile))
+    def test_each_profile_has_required_keys(self, profile: TaskProfile):
+        config = TASK_PROFILES[profile]
+        required_keys = {"model", "max_thinking_tokens", "max_turns", "max_budget_usd", "force_planning", "effort"}
+        assert required_keys.issubset(set(config.keys())), f"Profile {profile} missing keys"
+
+    def test_all_profiles_present(self):
+        for profile in TaskProfile:
+            assert profile in TASK_PROFILES
+
+
+class TestCircuitStateEnum:
+    """Tests for CircuitState enum values."""
+
+    def test_all_values(self):
+        assert CircuitState.CLOSED.value == "CLOSED"
+        assert CircuitState.HALF_OPEN.value == "HALF_OPEN"
+        assert CircuitState.OPEN.value == "OPEN"
+
+
+class TestSupervisionPolicyEnum:
+    """Tests for SupervisionPolicy enum values."""
+
+    def test_all_values(self):
+        assert SupervisionPolicy.AGGRESSIVE.value == "aggressive"
+        assert SupervisionPolicy.CONSERVATIVE.value == "conservative"
+        assert SupervisionPolicy.MANUAL.value == "manual"

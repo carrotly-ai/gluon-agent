@@ -1207,7 +1207,7 @@ class GluonStore:
                     run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
                     run.supervision_disabled_reason,
                     # Queued messages (JSON array)
-                    json.dumps([m.model_dump() for m in run.queued_messages]) if run.queued_messages else None,
+                    json.dumps([m.model_dump(mode="json") for m in run.queued_messages]) if run.queued_messages else None,
                     # Snapshot tracking
                     1 if run.changes_snapshotted else 0,
                     run.snapshot_at.isoformat() if run.snapshot_at else None,

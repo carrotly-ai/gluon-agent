@@ -4,15 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from gluon.models import SessionStatus
+from gluon.models import RunStatus, SessionStatus
 from gluon.store import GluonStore
-
-
-@pytest.fixture
-def store(tmp_path: Path) -> GluonStore:
-    """Create a store with a temporary database."""
-    db_path = tmp_path / "test.db"
-    return GluonStore(db_path)
 
 
 @pytest.fixture
@@ -216,3 +209,147 @@ class TestSessionCRUD:
         assert session1.id in ids
         assert session2.id in ids
         assert session3.id not in ids
+
+
+class TestExecutionRunCRUD:
+    """Tests for execution run CRUD operations."""
+
+    def test_create_run(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "fix the bug")
+
+        assert run.id is not None
+        assert run.project_id == project.id
+        assert run.prompt == "fix the bug"
+        assert run.status == RunStatus.PENDING
+        assert run.created_at is not None
+
+    def test_create_run_with_optional_fields(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(
+            project.id,
+            "add tests",
+            initiator="telegram:123",
+            model="claude-sonnet-4.6",
+        )
+
+        assert run.initiator == "telegram:123"
+        assert run.model == "claude-sonnet-4.6"
+
+    def test_get_run(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        created = store.create_run(project.id, "test prompt")
+
+        retrieved = store.get_run(created.id)
+        assert retrieved is not None
+        assert retrieved.id == created.id
+        assert retrieved.prompt == "test prompt"
+
+    def test_get_run_nonexistent(self, store: GluonStore):
+        assert store.get_run("nonexistent-id") is None
+
+    def test_get_run_by_short_id(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test")
+        short_id = run.id[:8]
+
+        retrieved = store.get_run_by_short_id(short_id)
+        assert retrieved is not None
+        assert retrieved.id == run.id
+
+    def test_get_run_by_short_id_too_short(self, store: GluonStore):
+        result = store.get_run_by_short_id("ab")
+        assert result is None
+
+    def test_update_run(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test")
+        run.status = RunStatus.RUNNING
+        run.cost_usd = 0.05
+        store.update_run(run)
+
+        retrieved = store.get_run(run.id)
+        assert retrieved is not None
+        assert retrieved.status == RunStatus.RUNNING
+        assert retrieved.cost_usd == pytest.approx(0.05)
+
+    def test_list_runs(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        store.create_run(project.id, "task 1")
+        store.create_run(project.id, "task 2")
+        store.create_run(project.id, "task 3")
+
+        runs = store.list_runs()
+        assert len(runs) == 3
+
+    def test_list_runs_by_project(self, store: GluonStore, tmp_path: Path):
+        path1 = tmp_path / "p1"
+        path2 = tmp_path / "p2"
+        path1.mkdir()
+        path2.mkdir()
+
+        p1 = store.create_project("proj1", path1)
+        p2 = store.create_project("proj2", path2)
+        store.create_run(p1.id, "task for p1")
+        store.create_run(p2.id, "task for p2")
+
+        runs = store.list_runs(project_id=p1.id)
+        assert len(runs) == 1
+        assert runs[0].project_id == p1.id
+
+    def test_list_runs_by_status(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run1 = store.create_run(project.id, "task 1")
+        store.create_run(project.id, "task 2")
+
+        run1.status = RunStatus.RUNNING
+        store.update_run(run1)
+
+        running_runs = store.list_runs(statuses=[RunStatus.RUNNING])
+        assert len(running_runs) == 1
+        assert running_runs[0].id == run1.id
+
+    def test_list_runs_with_limit(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        for i in range(10):
+            store.create_run(project.id, f"task {i}")
+
+        runs = store.list_runs(limit=5)
+        assert len(runs) == 5
+
+    def test_list_active_runs(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run1 = store.create_run(project.id, "pending task")  # PENDING
+        run2 = store.create_run(project.id, "running task")
+        run2.status = RunStatus.RUNNING
+        store.update_run(run2)
+        run3 = store.create_run(project.id, "done task")
+        run3.status = RunStatus.COMPLETED
+        store.update_run(run3)
+
+        active = store.list_active_runs()
+        active_ids = [r.id for r in active]
+        assert run1.id in active_ids
+        assert run2.id in active_ids
+        assert run3.id not in active_ids
+
+    def test_update_run_status(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test")
+
+        updated = store.update_run_status(run.id, RunStatus.CANCELLED)
+        assert updated is not None
+        assert updated.status == RunStatus.CANCELLED
+        assert updated.completed_at is not None
+
+    def test_delete_run(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test")
+
+        result = store.delete_run(run.id)
+        assert result is True
+        assert store.get_run(run.id) is None
+
+    def test_delete_run_nonexistent(self, store: GluonStore):
+        result = store.delete_run("nonexistent")
+        assert result is False

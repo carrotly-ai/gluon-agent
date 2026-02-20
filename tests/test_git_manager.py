@@ -12,13 +12,6 @@ from gluon.store import GluonStore
 
 
 @pytest.fixture
-def store(tmp_path: Path):
-    """Create a temporary store for testing."""
-    db_path = tmp_path / "test.db"
-    return GluonStore(db_path=db_path)
-
-
-@pytest.fixture
 def git_manager(store: GluonStore):
     """Create a GitManager instance."""
     return GitManager(store=store)

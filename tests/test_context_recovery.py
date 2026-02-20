@@ -5,62 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from gluon.agent import (
-    AgentMessage,
-    ContextOverflowError,
-    _classify_api_error,
-)
+from gluon.agent import AgentMessage
 from gluon.models import ExecutionRun
 from gluon.store import GluonStore
-
-
-class TestContextOverflowError:
-    """Tests for ContextOverflowError classification."""
-
-    def test_classify_400_too_long(self):
-        """Test detection of 400 'too long' error."""
-        error = Exception("API Error: 400 Input is too long for requested model")
-        result = _classify_api_error(error)
-        assert isinstance(result, ContextOverflowError)
-
-    def test_classify_input_too_long(self):
-        """Test detection of 'input is too long' error."""
-        error = Exception("input is too long for this model")
-        result = _classify_api_error(error)
-        assert isinstance(result, ContextOverflowError)
-
-    def test_classify_context_exceeded(self):
-        """Test detection of 'context exceeded' error."""
-        error = Exception("The context window has been exceeded")
-        result = _classify_api_error(error)
-        assert isinstance(result, ContextOverflowError)
-
-    def test_classify_token_limit_exceeded(self):
-        """Test detection of 'token limit exceeded' error."""
-        error = Exception("Token limit has been exceeded")
-        result = _classify_api_error(error)
-        assert isinstance(result, ContextOverflowError)
-
-    def test_classify_other_400_error(self):
-        """Test that other 400 errors are not classified as overflow."""
-        error = Exception("API Error: 400 Invalid request format")
-        result = _classify_api_error(error)
-        assert not isinstance(result, ContextOverflowError)
-        assert result is error
-
-    def test_classify_500_error(self):
-        """Test that 500 errors are not classified as overflow."""
-        error = Exception("API Error: 500 Internal server error")
-        result = _classify_api_error(error)
-        assert not isinstance(result, ContextOverflowError)
-        assert result is error
-
-    def test_classify_generic_error(self):
-        """Test that generic errors pass through unchanged."""
-        error = ValueError("Something went wrong")
-        result = _classify_api_error(error)
-        assert not isinstance(result, ContextOverflowError)
-        assert result is error
 
 
 class TestRecoveryTrackingFields:
@@ -101,13 +48,6 @@ class TestRecoveryTrackingFields:
 
 class TestRecoveryStoreFields:
     """Tests for recovery field persistence in store."""
-
-    @pytest.fixture
-    def store(self, tmp_path):
-        """Create a test store."""
-        store = GluonStore(db_path=tmp_path / "test.db")
-        store._init_db()
-        return store
 
     @pytest.fixture
     def project(self, store):

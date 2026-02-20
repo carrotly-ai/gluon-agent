@@ -18,13 +18,6 @@ def temp_log_dir(tmp_path: Path) -> Path:
     return log_dir
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> GluonStore:
-    """Create a temporary store."""
-    db_path = tmp_path / "test.db"
-    return GluonStore(db_path=db_path)
-
-
 def create_test_run(
     store: GluonStore,
     project_id: str,

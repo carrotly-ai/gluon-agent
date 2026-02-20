@@ -12,13 +12,6 @@ from gluon.store import GluonStore
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> GluonStore:
-    """Create a store with a temporary database."""
-    db_path = tmp_path / "test.db"
-    return GluonStore(db_path)
-
-
-@pytest.fixture
 def project_path(tmp_path: Path) -> Path:
     """Create a temporary project directory."""
     project_dir = tmp_path / "test-project"
