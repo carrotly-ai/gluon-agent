@@ -709,6 +709,7 @@ class GluonAgent:
         total_turns: int = 0
         input_tokens: int | None = None
         output_tokens: int | None = None
+        model_used: str | None = None
         success = True
         error_msg: str | None = None
 
@@ -752,7 +753,6 @@ class GluonAgent:
 
                 # ---- Multi-turn loop ----
                 synthesis_rounds = 0
-                model_used: str | None = None
                 model_switched = False  # Track whether model transition has fired
                 while True:
                     # Process one turn (query already issued above or at bottom of loop)
