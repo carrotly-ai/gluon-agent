@@ -37,6 +37,8 @@ import type {
   RunFilesResponse,
   RunImagesResponse,
   RunStatus,
+  // Todo Tracking types
+  RunTodosResponse,
   RunUsageItem,
   ScanResultResponse,
   SessionHistoryResponse,
@@ -240,6 +242,13 @@ export async function answerQuestion(
     method: 'POST',
     body: JSON.stringify({ selected_labels: selectedLabels }),
   })
+}
+
+// ========== Todo Tracking API ==========
+
+/** Fetch the latest todo tracking state for a run */
+export async function fetchRunTodos(runId: string): Promise<RunTodosResponse> {
+  return fetchJson<RunTodosResponse>(`/runs/${runId}/todos`)
 }
 
 /** Fetch all projects */

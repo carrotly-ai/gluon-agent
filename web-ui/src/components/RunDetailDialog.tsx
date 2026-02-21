@@ -13,6 +13,7 @@ import {
   GitMerge,
   GitPullRequest,
   Image as ImageIcon,
+  ListChecks,
   Maximize2,
   Minus,
   Pencil,
@@ -72,6 +73,7 @@ import { cn } from '@/lib/utils'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 import { LoopProgressTab } from './LoopProgressTab'
+import { TodoTab } from './TodoTab'
 import { QuestionModal } from './QuestionModal'
 import { StreamingLogViewer } from './StreamingLogViewer'
 
@@ -84,6 +86,7 @@ type TabType =
   | 'files'
   | 'attachments'
   | 'loop'
+  | 'todos'
 
 interface RunDetailDialogProps {
   run: Run | null
@@ -1603,6 +1606,18 @@ Focus on preserving the functionality from both sides where possible.`
                       )}
                     </button>
                   )}
+                  <button
+                    className={cn(
+                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
+                      activeTab === 'todos'
+                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                    )}
+                    onClick={() => setActiveTab('todos')}
+                  >
+                    <ListChecks className="w-3 h-3" />
+                    Todos
+                  </button>
                 </div>
                 <button
                   className={cn(
@@ -2153,6 +2168,7 @@ Focus on preserving the functionality from both sides where possible.`
                     }}
                   />
                 )}
+                {activeTab === 'todos' && detail && <TodoTab run={detail} />}
               </div>
             </div>
 

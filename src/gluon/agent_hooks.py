@@ -429,6 +429,7 @@ def build_hooks(
     tracker: SubagentTracker | None = None,
     screenshot_collector: ScreenshotCollector | None = None,
     notification_callback: Callable[[dict[str, Any]], None] | None = None,
+    todo_collector: TodoCollector | None = None,
 ) -> dict[str, list[Any]]:
     """Build hooks dict for ClaudeAgentOptions.hooks.
 
@@ -441,10 +442,14 @@ def build_hooks(
         notification_callback: Optional callback for SDK notification events.
                  When provided, a Notification hook is registered that writes
                  notification messages to messages.jsonl for WebSocket streaming.
+        todo_collector: Optional TodoCollector for mirroring TodoWrite tool calls
+                 to the Gluon store. Read-only observer for dashboard visibility.
     """
     post_tool_hooks: list[Any] = [log_post_tool_use]
     if screenshot_collector is not None:
         post_tool_hooks.append(_make_screenshot_interceptor(screenshot_collector))
+    if todo_collector is not None:
+        post_tool_hooks.append(_make_todo_mirror_hook(todo_collector))
 
     hooks: dict[str, list[Any]] = {
         "PreToolUse": [HookMatcher(hooks=[log_pre_tool_use])],

@@ -838,6 +838,29 @@ class SlashCommandsResponse(BaseModel):
     commands: list[SlashCommandResponse] = Field(description="Available slash commands")
 
 
+# ========== Todo Tracking Models ==========
+
+
+class TodoItemResponse(BaseModel):
+    """A single todo item from a TodoWrite snapshot."""
+
+    content: str = Field(description="Task description (imperative form)")
+    status: str = Field(description="Status: pending, in_progress, or completed")
+    active_form: str = Field(description="Present continuous form of the task")
+
+
+class RunTodosResponse(BaseModel):
+    """Response model for todo tracking state of a run."""
+
+    run_id: str
+    todos: list[TodoItemResponse] = Field(default_factory=list)
+    todo_count: int = Field(default=0, description="Total number of todos")
+    completed_count: int = Field(default=0, description="Number completed")
+    in_progress_count: int = Field(default=0, description="Number in progress")
+    pending_count: int = Field(default=0, description="Number pending")
+    captured_at: str | None = Field(default=None, description="ISO timestamp of latest snapshot")
+
+
 # ========== Project File Autocomplete Models ==========
 
 

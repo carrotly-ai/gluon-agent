@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
-from gluon.agent_hooks import ScreenshotCollector
+from gluon.agent_hooks import ScreenshotCollector, TodoCollector
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
@@ -721,6 +721,13 @@ but explicit commits with good messages are preferred.
                     message_callback=_screenshot_message_writer,
                 )
 
+                # Create todo collector for mirroring TodoWrite calls to the store
+                todo_collector = TodoCollector(
+                    run_id=run.id,
+                    store=self.store,
+                    message_callback=_screenshot_message_writer,
+                )
+
                 # Allocate a dev port for agent-browser / dev server usage
                 dev_port = str(metadata.get("dev_port") or random.randint(3100, 3999))
                 os.environ["GLUON_DEV_PORT"] = dev_port
@@ -746,6 +753,7 @@ but explicit commits with good messages are preferred.
                         follow_up_queue=follow_up_queue,
                         screenshot_collector=screenshot_collector,
                         notification_callback=_screenshot_message_writer,
+                        todo_collector=todo_collector,
                     ):
                         if isinstance(item, AgentMessage):
                             # Log message

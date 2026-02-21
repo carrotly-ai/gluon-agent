@@ -35,7 +35,7 @@ from claude_agent_sdk.types import (
     ThinkingConfigEnabled,
 )
 
-from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, build_hooks
+from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, TodoCollector, build_hooks
 from gluon.models import (
     AGENT_BROWSER_SYSTEM_PROMPT,
     GLUON_SYSTEM_PROMPT,
@@ -444,6 +444,7 @@ class GluonAgent:
         subagent_tracker: SubagentTracker | None = None,
         screenshot_collector: ScreenshotCollector | None = None,
         notification_callback: Callable[[dict[str, Any]], None] | None = None,
+        todo_collector: TodoCollector | None = None,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -523,6 +524,7 @@ class GluonAgent:
             tracker=subagent_tracker,
             screenshot_collector=screenshot_collector,
             notification_callback=notification_callback,
+            todo_collector=todo_collector,
         )
 
         # Add max_turns if configured
@@ -649,6 +651,7 @@ class GluonAgent:
         follow_up_queue: asyncio.Queue[str] | None = None,
         screenshot_collector: ScreenshotCollector | None = None,
         notification_callback: Callable[[dict[str, Any]], None] | None = None,
+        todo_collector: TodoCollector | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -673,6 +676,7 @@ class GluonAgent:
             follow_up_queue: Optional queue of follow-up prompts.  When provided
                             the session stays alive and consumes follow-ups
                             in-process instead of spawning new subprocesses.
+            todo_collector: Optional TodoCollector for mirroring TodoWrite calls.
 
         Yields:
             AgentMessage during execution
@@ -693,6 +697,7 @@ class GluonAgent:
             subagent_tracker=tracker,
             screenshot_collector=screenshot_collector,
             notification_callback=notification_callback,
+            todo_collector=todo_collector,
         )
 
         # Build multimodal prompt if images provided
