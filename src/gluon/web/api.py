@@ -1811,9 +1811,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         home_dir = os.path.realpath(str(Path.home()))
         if not (resolved.startswith(home_dir + os.sep) or resolved == home_dir):
             raise HTTPException(status_code=400, detail="Path must be under home directory")
-        project_path = Path(resolved)
-        if not project_path.exists():
+        if not os.path.exists(resolved):
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
+        project_path = Path(resolved)
 
         # Create project
         project = store.create_project(
@@ -1878,9 +1878,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         home_dir = os.path.realpath(str(Path.home()))
         if not (resolved.startswith(home_dir + os.sep) or resolved == home_dir):
             raise HTTPException(status_code=400, detail="Path must be under home directory")
-        workspace_path = Path(resolved)
-        if not workspace_path.exists():
+        if not os.path.exists(resolved):
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
+        workspace_path = Path(resolved)
 
         # Create workspace
         workspace = store.create_workspace(name=body.name, path=workspace_path)
@@ -3560,7 +3560,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             safe_path = os.path.normpath(full_path)
             if os.path.isabs(safe_path) or safe_path.startswith(".."):
                 raise HTTPException(status_code=404)
-            file_path = dist_dir / safe_path
+            file_path = (dist_dir / safe_path).resolve()
+            # Ensure resolved path stays within dist_dir
+            if not str(file_path).startswith(str(dist_dir.resolve())):
+                raise HTTPException(status_code=404)
             if file_path.is_file():
                 return FileResponse(file_path)
 
