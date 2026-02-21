@@ -776,7 +776,7 @@ but explicit commits with good messages are preferred.
                                     stdout_file.flush()
 
                                     # Extract recovery state and attempt recovery
-                                    recovery_result = await self._handle_context_overflow_recovery(
+                                    recovery_result = await self._handle_auto_recovery(
                                         run=run,
                                         working_dir=working_dir,
                                         stdout_file=stdout_file,
@@ -930,7 +930,36 @@ but explicit commits with good messages are preferred.
                                 if not run.completion_reason:
                                     run.completion_reason = "Task completed successfully"
                             else:
-                                run.mark_failed(item.error or "Unknown error", exit_code=1)
+                                # If this was a resume attempt, try fresh-start recovery
+                                # before giving up. Recovery creates a new session in the
+                                # same worktree with a summary of previous progress.
+                                recovered = False
+                                if is_resumed and run.recovery_count < 2:
+                                    try:
+                                        stdout_file.write(
+                                            f"\n⚠️ Resume failed: {item.error}\nAttempting fresh-start recovery...\n"
+                                        )
+                                        stdout_file.flush()
+                                        recovered = await self._handle_auto_recovery(
+                                            run=run,
+                                            working_dir=working_dir,
+                                            stdout_file=stdout_file,
+                                            stderr_file=stderr_file,
+                                            messages_file=messages_file,
+                                            progress_path=progress_path,
+                                            tokens_path=tokens_path,
+                                            start_time=start_time,
+                                        )
+                                    except Exception as recovery_err:
+                                        stderr_file.write(f"Recovery failed: {recovery_err}\n")
+                                        stderr_file.flush()
+
+                                if recovered:
+                                    run.mark_review()
+                                    self.store.update_run(run)
+                                    return
+                                else:
+                                    run.mark_failed(item.error or "Unknown error", exit_code=1)
                 finally:
                     # Stop DB poller and clean up queue
                     db_poller.cancel()
@@ -1458,6 +1487,7 @@ but explicit commits with good messages are preferred.
             "completed_work": [],
             "last_tool_used": None,
             "total_cost_usd": run.cost_usd or 0,
+            "failure_reason": run.error_message,
         }
 
         # Parse messages.jsonl for progress
@@ -1721,7 +1751,7 @@ but explicit commits with good messages are preferred.
         # Use updated_run if available (success path), otherwise use run (error path)
         await self._handle_queued_followup(final_run)
 
-    async def _handle_context_overflow_recovery(
+    async def _handle_auto_recovery(
         self,
         run: ExecutionRun,
         working_dir: Path,
@@ -1733,10 +1763,15 @@ but explicit commits with good messages are preferred.
         start_time: float,
     ) -> bool:
         """
-        Handle context overflow by initiating auto-recovery.
+        Handle automatic recovery by starting a fresh session with progress summary.
+
+        Triggered by context overflow or resume/fork failures. Extracts completed
+        work from logs, creates a new agent, and calls resume_with_fresh_context()
+        with a summary prompt so the fresh session can continue where the previous
+        one left off.
 
         Args:
-            run: The execution run that hit context overflow
+            run: The execution run that needs recovery
             working_dir: Working directory for the run
             stdout_file: Open file handle for stdout logging
             stderr_file: Open file handle for stderr logging
