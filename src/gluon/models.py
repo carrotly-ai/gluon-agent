@@ -265,8 +265,8 @@ DEFAULT_BUDGET_USD = float(os.environ.get("DEFAULT_RALPH_COST_LIMIT", "1000.0"))
 TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     TaskProfile.QUICK: {
         "model": "haiku",
-        "max_thinking_tokens": 0,
-        "max_turns": 10,
+        "max_thinking_tokens": -1,
+        "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
         "effort": "low",
@@ -275,7 +275,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     TaskProfile.STANDARD: {
         "model": "sonnet",
         "max_thinking_tokens": -1,
-        "max_turns": 30,
+        "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
         "effort": "medium",
@@ -284,7 +284,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     TaskProfile.DEEP: {
         "model": "opus-4.6",
         "max_thinking_tokens": -1,
-        "max_turns": 50,
+        "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
         "effort": "high",
@@ -293,7 +293,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     TaskProfile.PLANNING: {
         "model": "opus-4.6",
         "max_thinking_tokens": -1,
-        "max_turns": 40,
+        "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": True,
         "effort": "high",

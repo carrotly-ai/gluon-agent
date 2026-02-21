@@ -370,7 +370,7 @@ class GluonAgent:
         self.run_id = run_id
         # Task profile options
         self.max_thinking_tokens = max_thinking_tokens
-        self.max_turns = max_turns
+        self.max_turns = max_turns if max_turns is not None else 5000
         self.max_budget_usd = max_budget_usd
         self.force_planning = force_planning
         # Reasoning effort level (low/medium/high/max) — native SDK field
