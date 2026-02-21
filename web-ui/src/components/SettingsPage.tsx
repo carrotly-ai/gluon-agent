@@ -350,7 +350,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       const result = await testVercelToken(vercelToken)
       setVercelTestResult(result)
     } catch (err) {
-      setVercelTestResult({ valid: false, error: err instanceof Error ? err.message : 'Test failed' })
+      setVercelTestResult({
+        valid: false,
+        error: err instanceof Error ? err.message : 'Test failed',
+      })
     } finally {
       setVercelTesting(false)
     }

@@ -5,3 +5,13 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: biome check (web-ui)
+        entry: bash -c 'cd web-ui && bun run check'
+        language: system
+        files: ^web-ui/src/
+        types_or: [ts, tsx, javascript, jsx, json]
+        pass_filenames: false

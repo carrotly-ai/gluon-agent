@@ -68,10 +68,11 @@ RUN curl -fsSL https://bun.sh/install | bash \
     && ln -s /opt/bun/bin/bun /usr/local/bin/bun \
     && ln -s /opt/bun/bin/bunx /usr/local/bin/bunx
 
-# Layer 5: Claude Code CLI (install as root, copy to shared PATH)
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && cp -L /root/.local/bin/claude /usr/local/bin/claude \
-    && chmod 755 /usr/local/bin/claude
+# Layer 5: Claude Code CLI — no longer needed as a standalone install.
+# The claude-agent-sdk bundles its own CLI binary and uses it by default.
+# RUN curl -fsSL https://claude.ai/install.sh | bash \
+#     && cp -L /root/.local/bin/claude /usr/local/bin/claude \
+#     && chmod 755 /usr/local/bin/claude
 
 # Layer 5b: Chromium system dependencies for agent-browser/Playwright
 # Required for headless browser automation in Docker
