@@ -461,6 +461,21 @@ export interface ScanResultResponse {
   projects_removed: string[]
 }
 
+/** Request to clone a GitHub repository into a workspace */
+export interface CloneRepositoryRequest {
+  github_url: string
+}
+
+/** Response from clone operation */
+export interface CloneResultResponse {
+  workspace_id: string
+  repo_name: string
+  clone_path: string
+  project_registered: boolean
+  project_name: string | null
+  scan_result: ScanResultResponse
+}
+
 // ========== Usage Dashboard Types (Phase 8) ==========
 
 /** Usage summary for header display */

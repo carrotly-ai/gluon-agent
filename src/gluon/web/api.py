@@ -31,6 +31,8 @@ from gluon.web.models import (
     BranchOperationResponse,
     BranchResponse,
     ChangeBaseBranchRequest,
+    CloneRepositoryRequest,
+    CloneResultResponse,
     CommitDetailResponse,
     CommitResponse,
     ConflictDetectionResponse,
@@ -2001,6 +2003,129 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             projects_found=len(project_paths),
             projects_added=projects_added,
             projects_removed=projects_removed,
+        )
+
+    @app.post("/api/workspaces/{workspace_id}/clone", response_model=CloneResultResponse)
+    async def clone_repository(workspace_id: str, body: CloneRepositoryRequest) -> CloneResultResponse:
+        """Clone a GitHub repository into a workspace directory."""
+        import re
+        import shutil
+
+        # 1. Find workspace
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            workspace = store.get_workspace_by_name(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        # 2. Validate GitHub URL (strict regex, no command injection)
+        github_pattern = re.compile(r"^https://github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+(?:\.git)?$")
+        url = body.github_url.strip()
+        if not github_pattern.match(url):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid GitHub URL. Expected format: https://github.com/owner/repo",
+            )
+
+        # 3. Extract repo name
+        repo_name = url.rstrip("/").split("/")[-1]
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
+
+        # 4. Validate workspace path
+        workspace_path = workspace.expanded_path
+        if not workspace_path.exists() or not workspace_path.is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Workspace path does not exist: {workspace_path}",
+            )
+
+        # 5. Check target directory doesn't already exist
+        target_path = workspace_path / repo_name
+        if target_path.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Directory already exists: {repo_name}. Delete it first or choose a different workspace.",
+            )
+
+        # 6. Run git clone using asyncio.create_subprocess_exec (safe from injection)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "clone",
+                url,
+                str(target_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=300,  # 5 minute timeout
+            )
+        except TimeoutError:
+            # Attempt cleanup of partial clone
+            if target_path.exists():
+                shutil.rmtree(target_path, ignore_errors=True)
+            raise HTTPException(
+                status_code=504,
+                detail="Clone operation timed out after 5 minutes",
+            )
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=500,
+                detail="git command not found. Ensure git is installed.",
+            )
+
+        if proc.returncode != 0:
+            stderr_text = stderr.decode().strip() if stderr else "Unknown error"
+            # Cleanup partial clone
+            if target_path.exists():
+                shutil.rmtree(target_path, ignore_errors=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Clone failed: {stderr_text}",
+            )
+
+        # 7. Scan workspace to register the new project (reuse scan logic)
+        projects_added: list[str] = []
+        projects_removed: list[str] = []
+        project_paths = workspace.scan_for_projects()
+
+        existing_projects = store.list_projects_by_workspace(workspace.id)
+        for project in existing_projects:
+            project_path = project.expanded_path
+            if not project_path.exists():
+                store.delete_project(project.id)
+                projects_removed.append(project.name)
+
+        registered_name: str | None = None
+        for project_path in project_paths:
+            project_name = project_path.name
+            existing = store.get_project_by_name(project_name)
+            if not existing:
+                store.create_project(
+                    name=project_name,
+                    path=project_path,
+                    workspace_id=workspace.id,
+                )
+                projects_added.append(project_name)
+                if project_path.resolve() == target_path.resolve():
+                    registered_name = project_name
+
+        scan_result = ScanResultResponse(
+            workspace_id=workspace.id,
+            projects_found=len(project_paths),
+            projects_added=projects_added,
+            projects_removed=projects_removed,
+        )
+
+        return CloneResultResponse(
+            workspace_id=workspace.id,
+            repo_name=repo_name,
+            clone_path=str(target_path),
+            project_registered=registered_name is not None,
+            project_name=registered_name,
+            scan_result=scan_result,
         )
 
     # ========== Phase 8: Usage Dashboard ==========

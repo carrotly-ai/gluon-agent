@@ -1,6 +1,7 @@
 import type {
   BranchListResponse,
   BranchOperationResponse,
+  CloneResultResponse,
   CommitDetail,
   // Advanced Git Operations types
   ConflictDetectionResponse,
@@ -327,6 +328,17 @@ export async function deleteWorkspace(
 export async function scanWorkspace(workspaceId: string): Promise<ScanResultResponse> {
   return fetchJson<ScanResultResponse>(`/workspaces/${workspaceId}/scan`, {
     method: 'POST',
+  })
+}
+
+/** Clone a GitHub repository into a workspace */
+export async function cloneRepository(
+  workspaceId: string,
+  githubUrl: string
+): Promise<CloneResultResponse> {
+  return fetchJson<CloneResultResponse>(`/workspaces/${workspaceId}/clone`, {
+    method: 'POST',
+    body: JSON.stringify({ github_url: githubUrl }),
   })
 }
 
