@@ -309,6 +309,85 @@ def _make_screenshot_interceptor(collector: ScreenshotCollector):
 
 
 # ---------------------------------------------------------------------------
+# Todo tracking mirror hook
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TodoCollector:
+    """Mirrors TodoWrite tool calls to the Gluon store for dashboard visibility.
+
+    This is a read-only observer — it does not modify Claude's input or output.
+    Each TodoWrite call produces a TodoSnapshot persisted to the todo_snapshots table.
+    """
+
+    run_id: str
+    store: GluonStore
+    message_callback: Callable[[dict[str, Any]], None] | None = None
+
+
+def _make_todo_mirror_hook(collector: TodoCollector):
+    """Create a PostToolUse hook that mirrors TodoWrite state to the Gluon store."""
+
+    async def on_post_todo_write(
+        input_data: PostToolUseHookInput | HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
+        tool_name = input_data.get("tool_name", "")
+        if tool_name != "TodoWrite":
+            return {}
+
+        tool_input = input_data.get("tool_input", {})
+        if not isinstance(tool_input, dict):
+            return {}
+
+        todos = tool_input.get("todos", [])
+        if not isinstance(todos, list):
+            return {}
+
+        try:
+            from gluon.models import TodoSnapshot
+
+            snapshot = TodoSnapshot.from_tool_input(collector.run_id, todos)
+            collector.store.save_todo_snapshot(snapshot)
+
+            logger.info(
+                "sdk_todo_mirror",
+                extra={
+                    "run_id": collector.run_id,
+                    "todo_count": snapshot.todo_count,
+                    "completed": snapshot.completed_count,
+                    "in_progress": snapshot.in_progress_count,
+                    "pending": snapshot.pending_count,
+                },
+            )
+
+            # Write to messages.jsonl for WebSocket streaming
+            if collector.message_callback:
+                collector.message_callback(
+                    {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "type": "todos_updated",
+                        "content": f"{snapshot.completed_count}/{snapshot.todo_count} completed",
+                        "metadata": {
+                            "todos": todos,
+                            "todo_count": snapshot.todo_count,
+                            "completed_count": snapshot.completed_count,
+                            "in_progress_count": snapshot.in_progress_count,
+                            "pending_count": snapshot.pending_count,
+                        },
+                    }
+                )
+        except Exception:
+            logger.exception("Failed to mirror TodoWrite to store")
+
+        return {}
+
+    return on_post_todo_write
+
+
+# ---------------------------------------------------------------------------
 # Notification hook
 # ---------------------------------------------------------------------------
 
