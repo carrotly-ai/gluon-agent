@@ -1,4 +1,4 @@
-import { CheckCircle, Circle, Loader2, ListChecks } from 'lucide-react'
+import { CheckCircle, Circle, ListChecks, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { fetchRunTodos } from '@/lib/api'
 import type { RunDetail, RunTodosResponse, TodoItem } from '@/lib/types'

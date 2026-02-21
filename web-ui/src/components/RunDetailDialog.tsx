@@ -73,9 +73,9 @@ import { cn } from '@/lib/utils'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 import { LoopProgressTab } from './LoopProgressTab'
-import { TodoTab } from './TodoTab'
 import { QuestionModal } from './QuestionModal'
 import { StreamingLogViewer } from './StreamingLogViewer'
+import { TodoTab } from './TodoTab'
 
 type TabType =
   | 'output'
