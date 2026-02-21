@@ -605,7 +605,8 @@ class Orchestrator:
                 run.input_tokens = result.input_tokens
                 run.output_tokens = result.output_tokens
                 run.model_used = result.model_used
-                run.claude_session_id = result.claude_session_id
+                if result.claude_session_id:
+                    run.claude_session_id = result.claude_session_id
 
                 if result.success:
                     run.mark_review()  # All tasks go to REVIEW first

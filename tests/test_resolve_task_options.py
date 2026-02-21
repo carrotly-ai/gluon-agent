@@ -41,7 +41,7 @@ class TestProfileResolution:
     def test_quick_profile(self):
         result = resolve_task_options(profile=TaskProfile.QUICK)
         assert result["model"] == "haiku"
-        assert result["max_thinking_tokens"] == 0
+        assert result["max_thinking_tokens"] == -1
         assert result["effort"] == "low"
         assert result["force_planning"] is False
 

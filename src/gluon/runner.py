@@ -805,7 +805,9 @@ but explicit commits with good messages are preferred.
                             # AgentResult summary - update run record (don't write to messages.jsonl
                             # since AgentMessage type="result" already logged the completion)
                             # Update run with Claude session ID for future resume
-                            run.claude_session_id = item.claude_session_id
+                            # Don't overwrite a good session ID with None from a failed resume
+                            if item.claude_session_id:
+                                run.claude_session_id = item.claude_session_id
                             # Store cost tracking data (accumulate for resumed runs)
                             if is_resumed and run.cost_usd is not None:
                                 run.cost_usd = (run.cost_usd or 0) + (item.total_cost_usd or 0)
@@ -1849,7 +1851,9 @@ but explicit commits with good messages are preferred.
 
                 elif isinstance(item, AgentResult):
                     # Update run with new session ID from recovery
-                    run.claude_session_id = item.claude_session_id
+                    # Don't overwrite a good session ID with None from a failed attempt
+                    if item.claude_session_id:
+                        run.claude_session_id = item.claude_session_id
 
                     # Accumulate cost from recovery session
                     run.cost_usd = (run.cost_usd or 0) + (item.total_cost_usd or 0)

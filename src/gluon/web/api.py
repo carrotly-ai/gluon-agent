@@ -748,7 +748,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
                 # Update run with result
                 if result:
-                    target_run.claude_session_id = result.claude_session_id
+                    if result.claude_session_id:
+                        target_run.claude_session_id = result.claude_session_id
                     target_run.cost_usd = (target_run.cost_usd or 0) + (result.total_cost_usd or 0)
                     target_run.input_tokens = (target_run.input_tokens or 0) + (result.input_tokens or 0)
                     target_run.output_tokens = (target_run.output_tokens or 0) + (result.output_tokens or 0)
