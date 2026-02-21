@@ -277,6 +277,7 @@ export type WebSocketMessageType =
   | 'loop_progress'
   | 'pending_questions'
   | 'question_answered'
+  | 'todos_updated'
   | 'subscribed'
   | 'unsubscribed'
   | 'pong'
