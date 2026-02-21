@@ -29,6 +29,11 @@ from claude_agent_sdk import (
     ToolResultBlock,
     ToolUseBlock,
 )
+from claude_agent_sdk.types import (
+    ThinkingConfigAdaptive,
+    ThinkingConfigDisabled,
+    ThinkingConfigEnabled,
+)
 
 from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, build_hooks
 from gluon.models import (
@@ -461,9 +466,15 @@ class GluonAgent:
         # Without MCP, use the configured allowed_tools list
         effective_tools = None if mcp_config else self.allowed_tools
 
-        # Use configured thinking tokens, default to 10000 if not set
-        # -1 is the sentinel for "adaptive" — don't set max_thinking_tokens, let CLI decide
-        thinking_tokens = self.max_thinking_tokens if self.max_thinking_tokens is not None else 10000
+        # Build thinking config from max_thinking_tokens
+        # -1 = adaptive (let CLI decide), 0 = disabled, >0 = fixed budget
+        thinking_tokens = self.max_thinking_tokens
+        if thinking_tokens is None or thinking_tokens < 0:
+            thinking_config = ThinkingConfigAdaptive(type="adaptive")
+        elif thinking_tokens == 0:
+            thinking_config = ThinkingConfigDisabled(type="disabled")
+        else:
+            thinking_config = ThinkingConfigEnabled(type="enabled", budget_tokens=thinking_tokens)
 
         options = ClaudeAgentOptions(
             cwd=working_dir,
@@ -471,7 +482,7 @@ class GluonAgent:
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
-            max_thinking_tokens=thinking_tokens if thinking_tokens >= 0 else None,
+            thinking=thinking_config,
         )
 
         # Set reasoning effort level via native SDK field

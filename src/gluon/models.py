@@ -274,7 +274,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     },
     TaskProfile.STANDARD: {
         "model": "sonnet",
-        "max_thinking_tokens": 10000,
+        "max_thinking_tokens": -1,
         "max_turns": 30,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
@@ -283,7 +283,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     },
     TaskProfile.DEEP: {
         "model": "opus-4.6",
-        "max_thinking_tokens": 32000,
+        "max_thinking_tokens": -1,
         "max_turns": 50,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": False,
@@ -292,7 +292,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
     },
     TaskProfile.PLANNING: {
         "model": "opus-4.6",
-        "max_thinking_tokens": 16000,
+        "max_thinking_tokens": -1,
         "max_turns": 40,
         "max_budget_usd": DEFAULT_BUDGET_USD,
         "force_planning": True,

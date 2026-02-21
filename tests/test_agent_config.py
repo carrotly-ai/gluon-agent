@@ -134,26 +134,32 @@ class TestBuildOptionsThinking:
 
     @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))
     @patch("gluon.agent.find_mcp_config", return_value=None)
-    def test_adaptive_thinking_no_max_tokens(self, _mock_mcp, _mock_cli, tmp_path: Path):
-        """Adaptive thinking (-1 sentinel) should result in no max_thinking_tokens."""
+    def test_adaptive_thinking_uses_config(self, _mock_mcp, _mock_cli, tmp_path: Path):
+        """Adaptive thinking (-1 sentinel) should use ThinkingConfigAdaptive."""
         agent = GluonAgent(model="sonnet", max_thinking_tokens=-1)
         options = agent._build_options(tmp_path)
-        # -1 sentinel means "let CLI decide" - should NOT set max_thinking_tokens
-        assert options.max_thinking_tokens is None
+        assert options.thinking == {"type": "adaptive"}
 
     @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))
     @patch("gluon.agent.find_mcp_config", return_value=None)
-    def test_non_adaptive_thinking_sets_tokens(self, _mock_mcp, _mock_cli, tmp_path: Path):
+    def test_explicit_thinking_tokens_uses_enabled_config(self, _mock_mcp, _mock_cli, tmp_path: Path):
         agent = GluonAgent(model="sonnet", max_thinking_tokens=16000)
         options = agent._build_options(tmp_path)
-        assert options.max_thinking_tokens == 16000
+        assert options.thinking == {"type": "enabled", "budget_tokens": 16000}
 
     @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))
     @patch("gluon.agent.find_mcp_config", return_value=None)
-    def test_default_thinking_tokens_10000(self, _mock_mcp, _mock_cli, tmp_path: Path):
+    def test_default_thinking_is_adaptive(self, _mock_mcp, _mock_cli, tmp_path: Path):
         agent = GluonAgent(model="sonnet")
         options = agent._build_options(tmp_path)
-        assert options.max_thinking_tokens == 10000
+        assert options.thinking == {"type": "adaptive"}
+
+    @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))
+    @patch("gluon.agent.find_mcp_config", return_value=None)
+    def test_zero_thinking_tokens_uses_disabled_config(self, _mock_mcp, _mock_cli, tmp_path: Path):
+        agent = GluonAgent(model="sonnet", max_thinking_tokens=0)
+        options = agent._build_options(tmp_path)
+        assert options.thinking == {"type": "disabled"}
 
 
 class TestBuildOptionsFallbackModel:

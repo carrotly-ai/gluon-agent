@@ -48,13 +48,13 @@ class TestProfileResolution:
     def test_standard_profile(self):
         result = resolve_task_options(profile=TaskProfile.STANDARD)
         assert result["model"] == "sonnet"
-        assert result["max_thinking_tokens"] == 10000
+        assert result["max_thinking_tokens"] == -1  # adaptive
         assert result["effort"] == "medium"
 
     def test_deep_profile(self):
         result = resolve_task_options(profile=TaskProfile.DEEP)
         assert result["model"] == "opus-4.6"
-        assert result["max_thinking_tokens"] == 32000
+        assert result["max_thinking_tokens"] == -1  # adaptive
         assert result["effort"] == "high"
 
     def test_planning_profile(self):
