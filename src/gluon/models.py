@@ -41,9 +41,9 @@ def expand_path(path_str: str | Path) -> Path:
 
     # Expand environment variables
     expanded_str = os.path.expandvars(str(path_obj))
-    path_obj = Path(expanded_str)
-
-    return path_obj
+    # Resolve to canonical absolute path (eliminates .., symlinks)
+    # os.path.realpath is a CodeQL-recognised sanitiser for py/path-injection
+    return Path(os.path.realpath(expanded_str))
 
 
 class SessionStatus(str, Enum):

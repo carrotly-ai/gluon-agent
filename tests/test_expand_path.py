@@ -63,14 +63,15 @@ class TestAbsolutePaths:
 class TestRelativePaths:
     """Tests for relative path handling."""
 
-    def test_relative_path_unchanged(self):
+    def test_relative_path_resolved_to_absolute(self):
         result = expand_path("src/main.py")
-        assert result == Path("src/main.py")
-        assert not result.is_absolute()
+        assert result.is_absolute()
+        assert str(result).endswith("src/main.py")
 
-    def test_dot_relative_path(self):
+    def test_dot_relative_path_resolved(self):
         result = expand_path("./src")
-        assert result == Path("src")
+        assert result.is_absolute()
+        assert str(result).endswith("/src")
 
 
 class TestNoSpecialChars:
