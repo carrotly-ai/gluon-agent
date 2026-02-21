@@ -323,6 +323,37 @@ class WebSocketManager:
         await self.broadcast(message)
         await self._send_to_subscribers(run_id, message)
 
+    async def broadcast_todos_updated(
+        self,
+        run_id: str,
+        todos: list[dict[str, Any]],
+        todo_count: int,
+        completed_count: int,
+        in_progress_count: int,
+        pending_count: int,
+    ) -> None:
+        """Broadcast updated todo state to all clients and run subscribers.
+
+        Args:
+            run_id: The run ID the todos belong to
+            todos: Raw todo items from TodoWrite
+            todo_count: Total number of todos
+            completed_count: Number of completed todos
+            in_progress_count: Number of in-progress todos
+            pending_count: Number of pending todos
+        """
+        message = {
+            "type": "todos_updated",
+            "run_id": run_id,
+            "todos": todos,
+            "todo_count": todo_count,
+            "completed_count": completed_count,
+            "in_progress_count": in_progress_count,
+            "pending_count": pending_count,
+        }
+        await self.broadcast(message)
+        await self._send_to_subscribers(run_id, message)
+
     async def handle_client_message(self, websocket: WebSocket, data: str) -> None:
         """Handle incoming WebSocket message from client."""
         try:

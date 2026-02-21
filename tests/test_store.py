@@ -1,10 +1,11 @@
 """Tests for Gluon store."""
 
+import time
 from pathlib import Path
 
 import pytest
 
-from gluon.models import RunStatus, SessionStatus
+from gluon.models import RunStatus, SessionStatus, TodoSnapshot
 from gluon.store import GluonStore
 
 
@@ -353,3 +354,90 @@ class TestExecutionRunCRUD:
     def test_delete_run_nonexistent(self, store: GluonStore):
         result = store.delete_run("nonexistent")
         assert result is False
+
+
+class TestTodoSnapshotCRUD:
+    """Tests for todo snapshot CRUD operations."""
+
+    def test_save_and_get_latest_snapshot(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test task")
+
+        todos = [
+            {"content": "Fix bug", "status": "completed", "activeForm": "Fixing bug"},
+            {"content": "Add tests", "status": "in_progress", "activeForm": "Adding tests"},
+            {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"},
+        ]
+        snapshot1 = TodoSnapshot.from_tool_input(run.id, todos)
+        store.save_todo_snapshot(snapshot1)
+
+        # Save a second snapshot (all completed)
+        time.sleep(0.01)  # Ensure different timestamp
+        todos2 = [
+            {"content": "Fix bug", "status": "completed", "activeForm": "Fixing bug"},
+            {"content": "Add tests", "status": "completed", "activeForm": "Adding tests"},
+            {"content": "Update docs", "status": "completed", "activeForm": "Updating docs"},
+        ]
+        snapshot2 = TodoSnapshot.from_tool_input(run.id, todos2)
+        store.save_todo_snapshot(snapshot2)
+
+        # get_latest should return the second snapshot
+        latest = store.get_latest_todo_snapshot(run.id)
+        assert latest is not None
+        assert latest.id == snapshot2.id
+        assert latest.completed_count == 3
+        assert latest.todo_count == 3
+
+    def test_get_latest_snapshot_nonexistent_run(self, store: GluonStore):
+        result = store.get_latest_todo_snapshot("nonexistent-id")
+        assert result is None
+
+    def test_list_snapshots(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test task")
+
+        # Save 3 snapshots
+        for i in range(3):
+            time.sleep(0.01)
+            todos = [{"content": f"Task {i}", "status": "pending", "activeForm": f"Doing {i}"}]
+            snapshot = TodoSnapshot.from_tool_input(run.id, todos)
+            store.save_todo_snapshot(snapshot)
+
+        snapshots = store.list_todo_snapshots(run.id)
+        assert len(snapshots) == 3
+        # Should be newest-first
+        assert snapshots[0].todos[0]["content"] == "Task 2"
+        assert snapshots[2].todos[0]["content"] == "Task 0"
+
+    def test_snapshot_counts(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test task")
+
+        todos = [
+            {"content": "A", "status": "completed", "activeForm": "A"},
+            {"content": "B", "status": "completed", "activeForm": "B"},
+            {"content": "C", "status": "in_progress", "activeForm": "C"},
+            {"content": "D", "status": "pending", "activeForm": "D"},
+            {"content": "E", "status": "pending", "activeForm": "E"},
+        ]
+        snapshot = TodoSnapshot.from_tool_input(run.id, todos)
+        store.save_todo_snapshot(snapshot)
+
+        retrieved = store.get_latest_todo_snapshot(run.id)
+        assert retrieved is not None
+        assert retrieved.todo_count == 5
+        assert retrieved.completed_count == 2
+        assert retrieved.in_progress_count == 1
+        assert retrieved.pending_count == 2
+
+    def test_list_snapshots_respects_limit(self, store: GluonStore, project_path: Path):
+        project = store.create_project("test", project_path)
+        run = store.create_run(project.id, "test task")
+
+        for i in range(5):
+            time.sleep(0.01)
+            todos = [{"content": f"Task {i}", "status": "pending", "activeForm": f"Doing {i}"}]
+            store.save_todo_snapshot(TodoSnapshot.from_tool_input(run.id, todos))
+
+        snapshots = store.list_todo_snapshots(run.id, limit=2)
+        assert len(snapshots) == 2

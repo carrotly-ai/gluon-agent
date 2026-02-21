@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus
+from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, TodoSnapshot
 from gluon.store import GluonStore
 
 # ---------------------------------------------------------------------------
@@ -454,3 +454,61 @@ class TestResumeRun:
             json={"prompt": "go"},
         )
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Todo Tracking
+# ---------------------------------------------------------------------------
+
+
+class TestTodosEndpoint:
+    """Tests for GET /api/runs/{run_id}/todos."""
+
+    def test_get_todos_empty(self, temp_store, project_with_path, api_client):
+        """Should return empty response when no snapshots exist."""
+        project, _ = project_with_path
+        run = _seed_run(temp_store, project.id)
+        client, _ = api_client
+
+        resp = client.get(f"/api/runs/{run.id}/todos")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["run_id"] == run.id
+        assert data["todos"] == []
+        assert data["todo_count"] == 0
+        assert data["captured_at"] is None
+
+    def test_get_todos_with_data(self, temp_store, project_with_path, api_client):
+        """Should return latest snapshot data when snapshots exist."""
+        project, _ = project_with_path
+        run = _seed_run(temp_store, project.id)
+        client, _ = api_client
+
+        todos = [
+            {"content": "Fix bug", "status": "completed", "activeForm": "Fixing bug"},
+            {"content": "Add tests", "status": "in_progress", "activeForm": "Adding tests"},
+            {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"},
+        ]
+        snapshot = TodoSnapshot.from_tool_input(run.id, todos)
+        temp_store.save_todo_snapshot(snapshot)
+
+        resp = client.get(f"/api/runs/{run.id}/todos")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["run_id"] == run.id
+        assert len(data["todos"]) == 3
+        assert data["todo_count"] == 3
+        assert data["completed_count"] == 1
+        assert data["in_progress_count"] == 1
+        assert data["pending_count"] == 1
+        assert data["captured_at"] is not None
+        # Verify individual items
+        assert data["todos"][0]["content"] == "Fix bug"
+        assert data["todos"][0]["status"] == "completed"
+        assert data["todos"][0]["active_form"] == "Fixing bug"
+
+    def test_get_todos_nonexistent_run(self, temp_store, api_client):
+        """Should return 404 for nonexistent run."""
+        client, _ = api_client
+        resp = client.get("/api/runs/nonexistent-id/todos")
+        assert resp.status_code == 404

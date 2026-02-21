@@ -35,7 +35,7 @@ from claude_agent_sdk.types import (
     ThinkingConfigEnabled,
 )
 
-from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, build_hooks
+from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, TodoCollector, build_hooks
 from gluon.models import (
     AGENT_BROWSER_SYSTEM_PROMPT,
     GLUON_SYSTEM_PROMPT,
@@ -78,6 +78,12 @@ class AuthenticationError(Exception):
     pass
 
 
+class SessionExpiredError(Exception):
+    """Raised when a Claude session has expired, is not found, or cannot be forked."""
+
+    pass
+
+
 def _classify_api_error(error: Exception) -> Exception:
     """
     Classify API errors for appropriate handling.
@@ -116,6 +122,10 @@ def _classify_api_error(error: Exception) -> Exception:
         "no access" in error_str and "model" in error_str
     ):
         return ModelUnavailableError(str(error))
+
+    # Session expired/not found errors (resume/fork failures)
+    if "session" in error_str and ("not found" in error_str or "expired" in error_str or "invalid" in error_str):
+        return SessionExpiredError(str(error))
 
     # Authentication errors (401/403)
     if (
@@ -444,6 +454,7 @@ class GluonAgent:
         subagent_tracker: SubagentTracker | None = None,
         screenshot_collector: ScreenshotCollector | None = None,
         notification_callback: Callable[[dict[str, Any]], None] | None = None,
+        todo_collector: TodoCollector | None = None,
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions for a session.
 
@@ -523,6 +534,7 @@ class GluonAgent:
             tracker=subagent_tracker,
             screenshot_collector=screenshot_collector,
             notification_callback=notification_callback,
+            todo_collector=todo_collector,
         )
 
         # Add max_turns if configured
@@ -649,6 +661,7 @@ class GluonAgent:
         follow_up_queue: asyncio.Queue[str] | None = None,
         screenshot_collector: ScreenshotCollector | None = None,
         notification_callback: Callable[[dict[str, Any]], None] | None = None,
+        todo_collector: TodoCollector | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project directory.
@@ -673,6 +686,7 @@ class GluonAgent:
             follow_up_queue: Optional queue of follow-up prompts.  When provided
                             the session stays alive and consumes follow-ups
                             in-process instead of spawning new subprocesses.
+            todo_collector: Optional TodoCollector for mirroring TodoWrite calls.
 
         Yields:
             AgentMessage during execution
@@ -693,6 +707,7 @@ class GluonAgent:
             subagent_tracker=tracker,
             screenshot_collector=screenshot_collector,
             notification_callback=notification_callback,
+            todo_collector=todo_collector,
         )
 
         # Build multimodal prompt if images provided
@@ -709,6 +724,7 @@ class GluonAgent:
         total_turns: int = 0
         input_tokens: int | None = None
         output_tokens: int | None = None
+        model_used: str | None = None
         success = True
         error_msg: str | None = None
 
@@ -752,7 +768,6 @@ class GluonAgent:
 
                 # ---- Multi-turn loop ----
                 synthesis_rounds = 0
-                model_used: str | None = None
                 model_switched = False  # Track whether model transition has fired
                 while True:
                     # Process one turn (query already issued above or at bottom of loop)
@@ -955,6 +970,12 @@ class GluonAgent:
                     content=f"Model unavailable: {error_msg}",
                     metadata={"exception": "ModelUnavailableError", "recoverable": False},
                 )
+            elif isinstance(classified_error, SessionExpiredError):
+                yield AgentMessage(
+                    type="error",
+                    content=f"Session expired: {error_msg}",
+                    metadata={"exception": "SessionExpiredError", "recoverable": True},
+                )
             elif isinstance(classified_error, AuthenticationError):
                 yield AgentMessage(
                     type="error",
@@ -984,14 +1005,22 @@ class GluonAgent:
 
             # Classify non-SDK errors (e.g., wrapped API errors)
             classified_error = _classify_api_error(e)
-            recoverable_types = (ContextOverflowError, RateLimitError, ModelUnavailableError, AuthenticationError)
+            recoverable_types = (
+                ContextOverflowError,
+                RateLimitError,
+                ModelUnavailableError,
+                AuthenticationError,
+                SessionExpiredError,
+            )
             if isinstance(classified_error, recoverable_types):
                 yield AgentMessage(
                     type="error",
                     content=f"{type(classified_error).__name__}: {error_msg}",
                     metadata={
                         "exception": type(classified_error).__name__,
-                        "recoverable": isinstance(classified_error, (ContextOverflowError, RateLimitError)),
+                        "recoverable": isinstance(
+                            classified_error, (ContextOverflowError, RateLimitError, SessionExpiredError)
+                        ),
                         "session_id": claude_session_id,
                     },
                 )
@@ -1082,6 +1111,11 @@ class GluonAgent:
         if recovery_state.get("worktree_path"):
             branch_context += f"\n- Worktree: {recovery_state['worktree_path']}"
 
+        # Build failure context (if available)
+        failure_context = ""
+        if recovery_state.get("failure_reason"):
+            failure_context = f"\n**Previous session ended because:** {recovery_state['failure_reason']}\n"
+
         # Truncate long prompts
         original_prompt = recovery_state.get("original_prompt", "")
         if len(original_prompt) > 500:
@@ -1090,12 +1124,12 @@ class GluonAgent:
         # Build summary prompt
         summary_prompt = f"""## RECOVERY CONTEXT
 
-You are resuming work that was interrupted due to context overflow.
-The previous session ran out of context space and needs to continue in a fresh session.
+You are resuming work that was interrupted.
+The previous session could not continue and needs to start fresh.
 
 **Original Task:**
 {original_prompt}
-
+{failure_context}
 **Completed Work:**
 {completed_list}
 

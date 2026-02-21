@@ -47,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     openssh-client \
     bubblewrap \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Layer 2: GitHub CLI (rarely changes)
