@@ -156,6 +156,15 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 USER gluon
 RUN pip install --no-cache-dir -e '.[all]'
 
+# Layer 11b: Symlink bundled Claude CLI onto PATH
+# claude-agent-sdk bundles its own CLI binary but doesn't add it to PATH
+USER root
+RUN CLAUDE_BIN=$(find /home/gluon -path "*/claude_agent_sdk/_bundled/claude" -type f 2>/dev/null | head -1) && \
+    if [ -n "$CLAUDE_BIN" ]; then \
+        ln -sf "$CLAUDE_BIN" /usr/local/bin/claude && \
+        chmod 755 /usr/local/bin/claude; \
+    fi
+
 # Layer 12: Copy built web-ui LAST (changes most frequently with frontend work)
 # Using --link to avoid invalidating subsequent layers
 COPY --from=web-builder --chown=gluon:gluon /app/src/gluon/web/dist/ src/gluon/web/dist/
