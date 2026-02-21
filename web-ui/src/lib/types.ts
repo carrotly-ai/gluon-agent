@@ -277,6 +277,7 @@ export type WebSocketMessageType =
   | 'loop_progress'
   | 'pending_questions'
   | 'question_answered'
+  | 'todos_updated'
   | 'subscribed'
   | 'unsubscribed'
   | 'pong'
@@ -795,6 +796,37 @@ export interface QuestionAnsweredMessage extends WebSocketMessage {
   type: 'question_answered'
   run_id: string
   question_id: string
+}
+
+// ========== Todo Tracking Types ==========
+
+/** A single todo item from a TodoWrite snapshot */
+export interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  active_form: string
+}
+
+/** Response for todo tracking state of a run */
+export interface RunTodosResponse {
+  run_id: string
+  todos: TodoItem[]
+  todo_count: number
+  completed_count: number
+  in_progress_count: number
+  pending_count: number
+  captured_at: string | null
+}
+
+/** WebSocket message for todo updates */
+export interface TodosUpdatedMessage extends WebSocketMessage {
+  type: 'todos_updated'
+  run_id: string
+  todos: TodoItem[]
+  todo_count: number
+  completed_count: number
+  in_progress_count: number
+  pending_count: number
 }
 
 // ========== Slash Command Types ==========

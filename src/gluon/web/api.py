@@ -79,6 +79,7 @@ from gluon.web.models import (
     RunFilesResponse,
     RunImagesResponse,
     RunResponse,
+    RunTodosResponse,
     RunUsageItemResponse,
     ScanResultResponse,
     SessionHistoryResponse,
@@ -91,6 +92,7 @@ from gluon.web.models import (
     SupervisionDisableRequest,
     SupervisionEvaluateResponse,
     SupervisionStatusResponse,
+    TodoItemResponse,
     UpdateStatusRequest,
     UpdateStatusResponse,
     UsageSummaryResponse,
@@ -913,6 +915,40 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         await ws_manager.broadcast_question_answered(question.run_id, question_id)
 
         return _question_to_response(question)
+
+    # ========== Todo Tracking Endpoints ==========
+
+    @app.get("/api/runs/{run_id}/todos", response_model=RunTodosResponse)
+    async def get_run_todos(run_id: str) -> RunTodosResponse:
+        """
+        Get the latest todo tracking state for a run.
+
+        Returns the most recent TodoWrite snapshot captured by the PostToolUse mirror hook.
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        snapshot = store.get_latest_todo_snapshot(run.id)
+        if snapshot is None:
+            return RunTodosResponse(run_id=run.id)
+
+        return RunTodosResponse(
+            run_id=run.id,
+            todos=[
+                TodoItemResponse(
+                    content=t.get("content", ""),
+                    status=t.get("status", "pending"),
+                    active_form=t.get("activeForm", ""),
+                )
+                for t in snapshot.todos
+            ],
+            todo_count=snapshot.todo_count,
+            completed_count=snapshot.completed_count,
+            in_progress_count=snapshot.in_progress_count,
+            pending_count=snapshot.pending_count,
+            captured_at=snapshot.captured_at.isoformat(),
+        )
 
     # ========== Ralph Loop Endpoints ==========
 

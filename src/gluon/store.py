@@ -31,6 +31,7 @@ from gluon.models import (
     SupervisionConfig,
     SupervisionDecision,
     SupervisionPolicy,
+    TodoSnapshot,
     WebhookConfig,
     Worker,
     WorkerStatus,
@@ -419,6 +420,20 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_chat_history_expires ON chat_history(expires_at);",
     # Screenshot interception: add source column to run_images
     "ALTER TABLE run_images ADD COLUMN source TEXT DEFAULT 'user';",
+    # Todo tracking: mirror TodoWrite tool calls for dashboard visibility
+    """
+    CREATE TABLE IF NOT EXISTS todo_snapshots (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        todos TEXT NOT NULL,
+        todo_count INTEGER NOT NULL DEFAULT 0,
+        completed_count INTEGER NOT NULL DEFAULT 0,
+        in_progress_count INTEGER NOT NULL DEFAULT 0,
+        pending_count INTEGER NOT NULL DEFAULT 0,
+        captured_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_todo_snapshots_run ON todo_snapshots(run_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1920,6 +1935,64 @@ class GluonStore:
             expires_at=_parse_datetime(row["expires_at"]),
             selected_labels=json.loads(row["selected_labels"]) if row["selected_labels"] else [],
             answer_source=row["answer_source"],
+        )
+
+    # ========== Todo Snapshot CRUD ==========
+
+    def save_todo_snapshot(self, snapshot: TodoSnapshot) -> TodoSnapshot:
+        """Save a todo snapshot captured from a TodoWrite PostToolUse hook."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO todo_snapshots (
+                    id, run_id, todos, todo_count, completed_count,
+                    in_progress_count, pending_count, captured_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot.id,
+                    snapshot.run_id,
+                    json.dumps(snapshot.todos),
+                    snapshot.todo_count,
+                    snapshot.completed_count,
+                    snapshot.in_progress_count,
+                    snapshot.pending_count,
+                    snapshot.captured_at.isoformat(),
+                ),
+            )
+        return snapshot
+
+    def get_latest_todo_snapshot(self, run_id: str) -> TodoSnapshot | None:
+        """Get the most recent todo snapshot for a run."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM todo_snapshots WHERE run_id = ? ORDER BY captured_at DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_todo_snapshot(row)
+
+    def list_todo_snapshots(self, run_id: str, limit: int = 50) -> list[TodoSnapshot]:
+        """List todo snapshots for a run, newest first."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM todo_snapshots WHERE run_id = ? ORDER BY captured_at DESC LIMIT ?",
+                (run_id, limit),
+            ).fetchall()
+        return [self._row_to_todo_snapshot(row) for row in rows]
+
+    def _row_to_todo_snapshot(self, row: sqlite3.Row) -> TodoSnapshot:
+        """Convert database row to TodoSnapshot model."""
+        return TodoSnapshot(
+            id=row["id"],
+            run_id=row["run_id"],
+            todos=json.loads(row["todos"]),
+            todo_count=row["todo_count"],
+            completed_count=row["completed_count"],
+            in_progress_count=row["in_progress_count"],
+            pending_count=row["pending_count"],
+            captured_at=_parse_datetime(row["captured_at"]),  # type: ignore[arg-type]
         )
 
     # ========== Channel Mapping CRUD ==========

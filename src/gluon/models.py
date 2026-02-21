@@ -832,6 +832,38 @@ class PendingQuestion(BaseModel):
         self.answered_at = utc_now()
 
 
+class TodoSnapshot(BaseModel):
+    """A point-in-time snapshot of TodoWrite state captured by the PostToolUse mirror hook.
+
+    Each time Claude calls TodoWrite, the hook persists the full todo list here.
+    This is read-only observation — the hook does not modify Claude's input or output.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    todos: list[dict[str, Any]]  # Raw items: [{content, status, activeForm}, ...]
+    todo_count: int = 0
+    completed_count: int = 0
+    in_progress_count: int = 0
+    pending_count: int = 0
+    captured_at: datetime = Field(default_factory=utc_now)
+
+    @classmethod
+    def from_tool_input(cls, run_id: str, todos: list[dict[str, Any]]) -> "TodoSnapshot":
+        """Create a snapshot from TodoWrite tool input, computing counts automatically."""
+        completed = sum(1 for t in todos if t.get("status") == "completed")
+        in_progress = sum(1 for t in todos if t.get("status") == "in_progress")
+        pending = sum(1 for t in todos if t.get("status") == "pending")
+        return cls(
+            run_id=run_id,
+            todos=todos,
+            todo_count=len(todos),
+            completed_count=completed,
+            in_progress_count=in_progress,
+            pending_count=pending,
+        )
+
+
 class SupervisionDecision(BaseModel):
     """Audit trail for supervision decisions.
 
