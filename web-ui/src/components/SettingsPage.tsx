@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   createWorkspace,
   deleteProject,
@@ -37,6 +38,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPageProps) {
+  const navigate = useNavigate()
   // Use controlled tab if provided, otherwise manage internally
   const tab = controlledTab ?? 'workspaces'
   const setTab = onTabChange ?? (() => {})
@@ -539,7 +541,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                             key={project.id}
                             className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 text-caption px-2 py-1 -mx-2 rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors cursor-pointer"
                             onClick={() => {
-                              window.location.hash = `project:${project.name}`
+                              navigate(`/board?project=${encodeURIComponent(project.name)}`)
                             }}
                           >
                             <span className="text-[var(--color-stone)]/80 truncate pl-4">
@@ -676,7 +678,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                       key={project.id}
                       className="flex items-center gap-4 p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm hover:bg-[rgba(163,163,163,0.08)] transition-colors cursor-pointer"
                       onClick={() => {
-                        window.location.hash = `project:${project.name}`
+                        navigate(`/board?project=${encodeURIComponent(project.name)}`)
                       }}
                     >
                       <div className="flex-1 min-w-0">
