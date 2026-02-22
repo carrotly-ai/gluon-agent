@@ -2,6 +2,7 @@ import {
   AlertCircle,
   Bell,
   Check,
+  Download,
   FolderOpen,
   GitBranch,
   Loader2,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import {
+  cloneRepository,
   createWorkspace,
   deleteProject,
   deleteWorkspace,
@@ -55,6 +57,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   // Scanning state
   const [scanningId, setScanningId] = useState<string | null>(null)
   const [scanResult, setScanResult] = useState<ScanResultResponse | null>(null)
+
+  // Clone repository state
+  const [cloneDialogWorkspaceId, setCloneDialogWorkspaceId] = useState<string | null>(null)
+  const [cloneUrl, setCloneUrl] = useState('')
+  const [cloning, setCloning] = useState(false)
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -182,6 +189,28 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setError(err instanceof Error ? err.message : 'Failed to scan workspace')
     } finally {
       setScanningId(null)
+    }
+  }
+
+  const handleCloneRepository = async (workspaceId: string) => {
+    if (!cloneUrl.trim()) return
+
+    setCloning(true)
+    setError(null)
+    try {
+      const result = await cloneRepository(workspaceId, cloneUrl.trim())
+      setScanResult(result.scan_result)
+      setCloneDialogWorkspaceId(null)
+      setCloneUrl('')
+      // Refresh data to show new projects
+      loadData()
+      refreshAllGitStatuses().catch((err) => {
+        console.warn('Failed to refresh git statuses:', err)
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clone repository')
+    } finally {
+      setCloning(false)
     }
   }
 
@@ -518,6 +547,16 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           <RefreshCw
                             className={cn('w-3.5 h-3.5', scanningId === ws.id && 'animate-spin')}
                           />
+                        </button>
+                        <button
+                          className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
+                          onClick={() => {
+                            setCloneDialogWorkspaceId(ws.id)
+                            setCloneUrl('')
+                          }}
+                          title="Clone GitHub repository"
+                        >
+                          <Download className="w-3.5 h-3.5" />
                         </button>
                         <button
                           className="p-1.5 rounded-sm hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)] transition-colors"
@@ -1159,6 +1198,68 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                       agentTeamsEnabled && 'translate-x-5'
                     )}
                   />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Clone repository modal */}
+        {cloneDialogWorkspaceId && (
+          <div className="fixed inset-0 bg-[var(--color-void)]/80 flex items-center justify-center z-50">
+            <div className="bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm p-6 max-w-md w-full mx-4 space-y-4">
+              <h3 className="text-title font-medium text-[var(--color-paper)]">
+                Clone GitHub Repository
+              </h3>
+              <p className="text-body text-[var(--color-stone)]/70">
+                Clone a repository into workspace{' '}
+                <span className="text-[var(--color-paper)]">
+                  {workspaces.find((w) => w.id === cloneDialogWorkspaceId)?.name}
+                </span>
+              </p>
+              <div>
+                <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                  GitHub URL
+                </label>
+                <input
+                  type="url"
+                  value={cloneUrl}
+                  onChange={(e) => setCloneUrl(e.target.value)}
+                  placeholder="https://github.com/owner/repo"
+                  className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                  disabled={cloning}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && cloneUrl.trim() && !cloning) {
+                      e.preventDefault()
+                      handleCloneRepository(cloneDialogWorkspaceId)
+                    }
+                  }}
+                />
+              </div>
+              {cloning && (
+                <div className="flex items-center gap-2 text-body text-[var(--color-sky)]">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Cloning repository... This may take a moment.</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={() => handleCloneRepository(cloneDialogWorkspaceId)}
+                  disabled={cloning || !cloneUrl.trim()}
+                  className="px-3 py-1.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  {cloning && <Loader2 className="w-3 h-3 animate-spin" />}
+                  {cloning ? 'Cloning...' : 'Clone'}
+                </button>
+                <button
+                  onClick={() => {
+                    setCloneDialogWorkspaceId(null)
+                    setCloneUrl('')
+                  }}
+                  disabled={cloning}
+                  className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors disabled:opacity-50"
+                >
+                  Cancel
                 </button>
               </div>
             </div>

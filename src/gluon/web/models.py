@@ -352,6 +352,23 @@ class ScanResultResponse(BaseModel):
     )
 
 
+class CloneRepositoryRequest(BaseModel):
+    """Request model for cloning a GitHub repository into a workspace."""
+
+    github_url: str = Field(description="GitHub repository URL (https://github.com/owner/repo)")
+
+
+class CloneResultResponse(BaseModel):
+    """Response model for clone operation."""
+
+    workspace_id: str
+    repo_name: str = Field(description="Name of the cloned repository directory")
+    clone_path: str = Field(description="Absolute path where the repo was cloned")
+    project_registered: bool = Field(description="Whether the project was auto-registered")
+    project_name: str | None = Field(default=None, description="Registered project name (if auto-registered)")
+    scan_result: ScanResultResponse = Field(description="Result of the workspace scan after cloning")
+
+
 # Phase 8: Usage Dashboard Models
 
 
