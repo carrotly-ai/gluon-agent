@@ -46,6 +46,7 @@ import {
   fetchRunCommits,
   fetchRunFiles,
   fetchRunQuestions,
+  fetchRunTodos,
   fetchSessionHistory,
   getImageFileUrl,
   mergeRunBranch,
@@ -66,6 +67,7 @@ import type {
   RunDetail,
   RunFilesResponse,
   RunStatus,
+  RunTodosResponse,
   SlashCommand,
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
@@ -195,6 +197,7 @@ export function RunDetailDialog({
   const [loadingFileDiff, setLoadingFileDiff] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [loadingAttachments, setLoadingAttachments] = useState(false)
+  const [todosData, setTodosData] = useState<RunTodosResponse | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
@@ -262,6 +265,7 @@ export function RunDetailDialog({
       setExpandedFile(null)
       setFileDiffs({})
       setAttachments([])
+      setTodosData(null)
       setPendingQuestions([])
       return
     }
@@ -519,8 +523,82 @@ export function RunDetailDialog({
     }
   }
 
+  const getCopyContent = useCallback((): string | null => {
+    switch (activeTab) {
+      case 'output':
+        return logs.stdout || null
+      case 'errors':
+        return logs.stderr || null
+      case 'messages': {
+        const messages = parseMessages(logs.messages)
+        if (messages.length === 0) return null
+        return messages
+          .map((m) => {
+            const ts = m.timestamp ? `[${m.timestamp}] ` : ''
+            const prefix = m.type !== 'text' ? `[${m.type.toUpperCase()}] ` : ''
+            return `${ts}${prefix}${m.content}`
+          })
+          .join('\n')
+      }
+      case 'history': {
+        if (sessionHistory.length === 0) return null
+        return sessionHistory
+          .map((h) => {
+            const status = h.status.toUpperCase()
+            const duration = formatDuration(h.duration_seconds)
+            return `[${status}] ${h.prompt} (${duration})`
+          })
+          .join('\n')
+      }
+      case 'commits': {
+        if (!commitsData || commitsData.commits.length === 0) return null
+        return commitsData.commits
+          .slice()
+          .reverse()
+          .map((c) => `${c.sha.slice(0, 7)} ${c.message}`)
+          .join('\n')
+      }
+      case 'files': {
+        if (!filesData || filesData.files.length === 0) return null
+        return filesData.files
+          .map((f) => {
+            const type =
+              f.change_type === 'added'
+                ? 'A'
+                : f.change_type === 'modified'
+                  ? 'M'
+                  : f.change_type === 'deleted'
+                    ? 'D'
+                    : 'R'
+            return `${type} ${f.file_path} (+${f.additions} -${f.deletions})`
+          })
+          .join('\n')
+      }
+      case 'attachments': {
+        if (attachments.length === 0) return null
+        return attachments.map((a) => a.filename).join('\n')
+      }
+      case 'todos': {
+        if (!todosData || todosData.todos.length === 0) return null
+        return todosData.todos
+          .map((t) => {
+            const mark =
+              t.status === 'completed' ? '[x]' : t.status === 'in_progress' ? '[~]' : '[ ]'
+            return `${mark} ${t.content}`
+          })
+          .join('\n')
+      }
+      case 'loop': {
+        if (!detail) return null
+        return `Loop ${detail.loop_count || 0}/${detail.max_loops || 50}`
+      }
+      default:
+        return null
+    }
+  }, [activeTab, logs, sessionHistory, commitsData, filesData, attachments, todosData, detail])
+
   const handleCopyLogs = async () => {
-    const content = activeTab === 'output' ? logs.stdout : logs.stderr
+    const content = getCopyContent()
     if (!content) return
     await navigator.clipboard.writeText(content)
     setLogsCopied(true)
@@ -1042,6 +1120,26 @@ Focus on preserving functionality from both sides where possible.`
       setLoadingFiles(false)
     }
   }, [run, filesData, loadingFiles])
+
+  // Load todos count for tab badge (and auto-refresh while running)
+  const loadTodos = useCallback(async () => {
+    if (!run) return
+    try {
+      const data = await fetchRunTodos(run.id)
+      setTodosData(data)
+    } catch (err) {
+      console.error('Failed to load todos:', err)
+    }
+  }, [run])
+
+  useEffect(() => {
+    if (!open || !run) return
+    loadTodos()
+    if (run.status === 'running') {
+      const intervalId = setInterval(loadTodos, 5000)
+      return () => clearInterval(intervalId)
+    }
+  }, [open, run, loadTodos])
 
   // Lazy load attachments when switching to attachments tab
   const loadAttachments = useCallback(async () => {
@@ -1617,17 +1715,22 @@ Focus on preserving the functionality from both sides where possible.`
                   >
                     <ListChecks className="w-3 h-3" />
                     Todos
+                    {todosData && todosData.todo_count > 0 && (
+                      <span className="text-body text-[var(--color-stone)]/50">
+                        ({todosData.completed_count}/{todosData.todo_count})
+                      </span>
+                    )}
                   </button>
                 </div>
                 <button
                   className={cn(
                     'flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest transition-colors rounded-sm',
-                    (activeTab === 'output' ? logs.stdout : logs.stderr)
+                    getCopyContent()
                       ? 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]'
                       : 'text-[var(--color-stone)]/40 cursor-not-allowed'
                   )}
                   onClick={handleCopyLogs}
-                  disabled={!(activeTab === 'output' ? logs.stdout : logs.stderr)}
+                  disabled={!getCopyContent()}
                   title={`Copy ${activeTab}`}
                 >
                   {logsCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
