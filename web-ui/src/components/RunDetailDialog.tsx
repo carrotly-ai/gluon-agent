@@ -576,7 +576,7 @@ export function RunDetailDialog({
       }
       case 'attachments': {
         if (attachments.length === 0) return null
-        return attachments.map((a) => a.filename).join('\n')
+        return attachments.map((a) => a.original_name).join('\n')
       }
       case 'todos': {
         if (!todosData || todosData.todos.length === 0) return null
