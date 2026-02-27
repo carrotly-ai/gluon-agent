@@ -8,6 +8,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -813,6 +814,36 @@ class GluonAgent:
                                             "input": block.input,
                                         },
                                     )
+                                    # Mirror TodoWrite to store (inline fallback
+                                    # for when SDK PostToolUse hooks don't fire)
+                                    if block.name == "TodoWrite" and todo_collector is not None:
+                                        try:
+                                            from gluon.models import TodoSnapshot
+
+                                            inp = block.input
+                                            todos = inp.get("todos", []) if isinstance(inp, dict) else []
+                                            if isinstance(todos, list) and todos:
+                                                snap = TodoSnapshot.from_tool_input(todo_collector.run_id, todos)
+                                                todo_collector.store.save_todo_snapshot(snap)
+                                                if todo_collector.message_callback:
+                                                    done = snap.completed_count
+                                                    total = snap.todo_count
+                                                    todo_collector.message_callback(
+                                                        {
+                                                            "timestamp": datetime.now(UTC).isoformat(),
+                                                            "type": "todos_updated",
+                                                            "content": f"{done}/{total} completed",
+                                                            "metadata": {
+                                                                "todos": todos,
+                                                                "todo_count": total,
+                                                                "completed_count": done,
+                                                                "in_progress_count": snap.in_progress_count,
+                                                                "pending_count": snap.pending_count,
+                                                            },
+                                                        }
+                                                    )
+                                        except Exception:
+                                            logger.exception("Failed to mirror TodoWrite inline")
                                     # Detect planning completion for model transition
                                     if self.model_transition and not model_switched and block.name == "ExitPlanMode":
                                         transition_map = {
