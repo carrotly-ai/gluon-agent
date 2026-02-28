@@ -335,7 +335,7 @@ class RedisJobQueue:
         # Convert nested objects to JSON strings
         result: dict[str, str] = {}
         for k, v in data.items():
-            if isinstance(v, (dict, list)):
+            if isinstance(v, dict | list):
                 result[k] = json.dumps(v)
             elif v is not None:
                 result[k] = str(v)

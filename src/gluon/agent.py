@@ -1050,7 +1050,8 @@ class GluonAgent:
                     metadata={
                         "exception": type(classified_error).__name__,
                         "recoverable": isinstance(
-                            classified_error, (ContextOverflowError, RateLimitError, SessionExpiredError)
+                            classified_error,
+                            ContextOverflowError | RateLimitError | SessionExpiredError,
                         ),
                         "session_id": claude_session_id,
                     },
