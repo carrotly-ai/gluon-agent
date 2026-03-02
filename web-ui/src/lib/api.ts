@@ -1,4 +1,6 @@
 import type {
+  // Activity Log types
+  ActivityEvent,
   BranchListResponse,
   BranchOperationResponse,
   CloneResultResponse,
@@ -13,10 +15,14 @@ import type {
   FileDiff,
   ForcePushCheckResponse,
   ForcePushResponse,
+  // Formula types
+  FormulaTemplate,
   GitStatusInfo,
   GitSyncResponse,
   ImageAttachment,
   LogResponse,
+  // Merge Queue types
+  MergeQueueEntry,
   // AskUserQuestion types
   PendingQuestion,
   PendingQuestionsResponse,
@@ -50,6 +56,10 @@ import type {
   SystemStatus,
   UpdateStatusResponse,
   UsageSummary,
+  // Witness types
+  WitnessDecision,
+  // Work Queue types
+  WorkQueueItem,
   Workspace,
 } from './types'
 
@@ -756,4 +766,136 @@ export async function fetchProjectFiles(
     `/projects/${projectId}/files?${params.toString()}`
   )
   return { files: response.files, truncated: response.truncated }
+}
+
+// ========== Activity Log ==========
+
+/** Fetch activity events with optional filters */
+export async function fetchActivity(params?: {
+  actor?: string
+  action?: string
+  since?: string
+  limit?: number
+}): Promise<{ events: ActivityEvent[]; total: number }> {
+  const searchParams = new URLSearchParams()
+  if (params?.actor) searchParams.set('actor', params.actor)
+  if (params?.action) searchParams.set('action', params.action)
+  if (params?.since) searchParams.set('since', params.since)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  const query = searchParams.toString()
+  return fetchJson<{ events: ActivityEvent[]; total: number }>(
+    `/activity${query ? `?${query}` : ''}`
+  )
+}
+
+/** Cleanup old activity events */
+export async function cleanupActivity(days: number = 90): Promise<{ deleted: number }> {
+  return fetchJson<{ deleted: number }>(`/activity/cleanup?days=${days}`, { method: 'POST' })
+}
+
+// ========== Work Queue ==========
+
+/** Fetch work queue items with optional filters */
+export async function fetchWorkQueue(params?: {
+  project_id?: string
+  status?: string
+  limit?: number
+}): Promise<{ items: WorkQueueItem[]; total: number }> {
+  const searchParams = new URLSearchParams()
+  if (params?.project_id) searchParams.set('project_id', params.project_id)
+  if (params?.status) searchParams.set('status', params.status)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  const query = searchParams.toString()
+  return fetchJson<{ items: WorkQueueItem[]; total: number }>(`/queue${query ? `?${query}` : ''}`)
+}
+
+/** Add item to work queue */
+export async function addToQueue(req: {
+  project_id: string
+  prompt: string
+  profile?: string
+  priority?: number
+}): Promise<WorkQueueItem> {
+  return fetchJson<WorkQueueItem>('/queue', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+/** Cancel a work queue item */
+export async function cancelQueueItem(itemId: string): Promise<WorkQueueItem> {
+  return fetchJson<WorkQueueItem>(`/queue/${itemId}/cancel`, { method: 'POST' })
+}
+
+/** Release a claimed work queue item back to pending */
+export async function releaseQueueItem(itemId: string): Promise<WorkQueueItem> {
+  return fetchJson<WorkQueueItem>(`/queue/${itemId}/release`, { method: 'POST' })
+}
+
+// ========== Merge Queue ==========
+
+/** Fetch merge queue entries with optional filters */
+export async function fetchMergeQueue(params?: {
+  status?: string
+  limit?: number
+}): Promise<{ entries: MergeQueueEntry[]; total: number }> {
+  const searchParams = new URLSearchParams()
+  if (params?.status) searchParams.set('status', params.status)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  const query = searchParams.toString()
+  return fetchJson<{ entries: MergeQueueEntry[]; total: number }>(
+    `/merge-queue${query ? `?${query}` : ''}`
+  )
+}
+
+/** Retry a failed/conflicted merge */
+export async function retryMerge(entryId: string): Promise<MergeQueueEntry> {
+  return fetchJson<MergeQueueEntry>(`/merge-queue/${entryId}/retry`, { method: 'POST' })
+}
+
+/** Cancel a merge queue entry */
+export async function cancelMerge(entryId: string): Promise<MergeQueueEntry> {
+  return fetchJson<MergeQueueEntry>(`/merge-queue/${entryId}/cancel`, { method: 'POST' })
+}
+
+// ========== Witness ==========
+
+/** Fetch witness health decisions for a run */
+export async function fetchWitnessDecisions(
+  runId: string
+): Promise<{ run_id: string; decisions: WitnessDecision[] }> {
+  return fetchJson<{ run_id: string; decisions: WitnessDecision[] }>(`/runs/${runId}/witness`)
+}
+
+// ========== Formulas ==========
+
+/** Fetch all available formula templates */
+export async function fetchFormulas(): Promise<{ formulas: FormulaTemplate[] }> {
+  return fetchJson<{ formulas: FormulaTemplate[] }>('/formulas')
+}
+
+/** Fetch a specific formula template by name */
+export async function fetchFormula(name: string): Promise<FormulaTemplate> {
+  return fetchJson<FormulaTemplate>(`/formulas/${name}`)
+}
+
+/** Run a formula template for a project */
+export async function runFormula(
+  name: string,
+  req: { project_id: string; variables: Record<string, string> }
+): Promise<{ chain_id: string; step_count: number }> {
+  return fetchJson<{ chain_id: string; step_count: number }>(`/formulas/${name}/run`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+/** Validate a formula template definition */
+export async function validateFormula(
+  template: Record<string, unknown>
+): Promise<{ valid: boolean; errors: string[] }> {
+  return fetchJson<{ valid: boolean; errors: string[] }>('/formulas/validate', {
+    method: 'POST',
+    body: JSON.stringify(template),
+  })
 }

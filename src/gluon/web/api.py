@@ -25,6 +25,9 @@ from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
+    # Phase 2: Gastown feature models
+    ActivityEventResponse,
+    ActivityListResponse,
     AnswerQuestionRequest,
     AttachImageRequest,
     BranchListResponse,
@@ -48,12 +51,20 @@ from gluon.web.models import (
     ForcePushCheckResponse,
     ForcePushRequest,
     ForcePushResponse,
+    FormulaListResponse,
+    FormulaRunRequest,
+    FormulaRunResponse,
+    FormulaStepResponse,
+    FormulaTemplateResponse,
+    FormulaVariableResponse,
     GitRefreshAllResponse,
     GitStatusResponse,
     GitSyncRequest,
     GitSyncResponse,
     ImageResponse,
     LogResponse,
+    MergeQueueEntryResponse,
+    MergeQueueListResponse,
     PendingQuestionResponse,
     PendingQuestionsResponse,
     ProjectDetailResponse,
@@ -99,6 +110,11 @@ from gluon.web.models import (
     UpdateStatusResponse,
     UsageSummaryResponse,
     VersionResponse,
+    WitnessDecisionListResponse,
+    WitnessDecisionResponse,
+    WorkQueueAddRequest,
+    WorkQueueItemResponse,
+    WorkQueueListResponse,
     WorkspaceResponse,
 )
 from gluon.web.websocket import ws_manager
@@ -189,6 +205,16 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if run.ralph_enabled and run.loop_count > 0:
             cost = store.get_ralph_total_cost(run.id)
 
+        # Get latest witness health classification for running runs
+        health_classification = None
+        if run.status.value == "running":
+            try:
+                decision = store.get_latest_witness_decision(run.id)
+                if decision:
+                    health_classification = decision.classification
+            except Exception:
+                pass
+
         return RunResponse(
             id=run.id,
             project_id=run.project_id,
@@ -223,6 +249,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             completion_reason=run.completion_reason,
             calls_this_hour=run.calls_this_hour,
             max_calls_per_hour=run.max_calls_per_hour,
+            health_classification=health_classification,
         )
 
     # ========== REST API Routes ==========
@@ -3337,6 +3364,380 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             projects_refreshed=refreshed,
             errors=errors,
         )
+
+    # ========== Activity Log Endpoints ==========
+
+    @app.get("/api/activity", response_model=ActivityListResponse)
+    async def list_activity(
+        actor: str | None = None,
+        action: str | None = None,
+        since: str | None = None,
+        limit: int = Query(default=50, le=200),
+    ) -> ActivityListResponse:
+        """List activity events with optional filters."""
+        since_dt = None
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid 'since' datetime format")
+
+        events = store.list_activities(actor=actor, action=action, since=since_dt, limit=limit)
+        return ActivityListResponse(
+            events=[
+                ActivityEventResponse(
+                    id=e.id,
+                    timestamp=e.timestamp.isoformat(),
+                    actor=e.actor,
+                    action=e.action,
+                    result=e.result,
+                    message=e.message,
+                    metadata=e.metadata,
+                )
+                for e in events
+            ],
+            total=len(events),
+        )
+
+    @app.post("/api/activity/cleanup")
+    async def cleanup_activity(days: int = Query(default=90, ge=1)) -> dict:
+        """Delete activity events older than N days."""
+        deleted = store.cleanup_activities(days=days)
+        return {"deleted": deleted}
+
+    # ========== Work Queue Endpoints ==========
+
+    @app.get("/api/queue", response_model=WorkQueueListResponse)
+    async def list_queue(
+        project_id: str | None = None,
+        status: str | None = None,
+        limit: int = Query(default=20, le=100),
+    ) -> WorkQueueListResponse:
+        """List work queue items with optional filters."""
+        items = store.list_work_items(project_id=project_id, status=status, limit=limit)
+        return WorkQueueListResponse(
+            items=[
+                WorkQueueItemResponse(
+                    id=item.id,
+                    project_id=item.project_id,
+                    prompt=item.prompt,
+                    profile=item.profile,
+                    priority=item.priority,
+                    status=item.status.value,
+                    claimed_by=item.claimed_by,
+                    created_at=item.created_at.isoformat(),
+                    claimed_at=item.claimed_at.isoformat() if item.claimed_at else None,
+                    completed_at=item.completed_at.isoformat() if item.completed_at else None,
+                    error_message=item.error_message,
+                )
+                for item in items
+            ],
+            total=len(items),
+        )
+
+    @app.post("/api/queue", response_model=WorkQueueItemResponse)
+    async def add_to_queue(req: WorkQueueAddRequest) -> WorkQueueItemResponse:
+        """Add a new item to the work queue."""
+        item = store.enqueue_work(
+            project_id=req.project_id,
+            prompt=req.prompt,
+            profile=req.profile,
+            priority=req.priority,
+        )
+        return WorkQueueItemResponse(
+            id=item.id,
+            project_id=item.project_id,
+            prompt=item.prompt,
+            profile=item.profile,
+            priority=item.priority,
+            status=item.status.value,
+            claimed_by=item.claimed_by,
+            created_at=item.created_at.isoformat(),
+            claimed_at=None,
+            completed_at=None,
+            error_message=None,
+        )
+
+    @app.post("/api/queue/{item_id}/cancel", response_model=WorkQueueItemResponse)
+    async def cancel_queue_item(item_id: str) -> WorkQueueItemResponse:
+        """Cancel a work queue item."""
+        from gluon.models import WorkQueueStatus, utc_now
+
+        items = store.list_work_items()
+        item = next((i for i in items if i.id == item_id), None)
+        if not item:
+            raise HTTPException(status_code=404, detail="Work queue item not found")
+        if item.status not in (WorkQueueStatus.PENDING, WorkQueueStatus.CLAIMED):
+            raise HTTPException(status_code=400, detail=f"Cannot cancel item in {item.status.value} status")
+
+        item.status = WorkQueueStatus.CANCELLED
+        item.completed_at = utc_now()
+        store.update_work_item(item)
+
+        return WorkQueueItemResponse(
+            id=item.id,
+            project_id=item.project_id,
+            prompt=item.prompt,
+            profile=item.profile,
+            priority=item.priority,
+            status=item.status.value,
+            claimed_by=item.claimed_by,
+            created_at=item.created_at.isoformat(),
+            claimed_at=item.claimed_at.isoformat() if item.claimed_at else None,
+            completed_at=item.completed_at.isoformat() if item.completed_at else None,
+            error_message=item.error_message,
+        )
+
+    @app.post("/api/queue/{item_id}/release", response_model=WorkQueueItemResponse)
+    async def release_queue_item(item_id: str) -> WorkQueueItemResponse:
+        """Release a claimed work queue item back to pending."""
+        from gluon.models import WorkQueueStatus
+
+        items = store.list_work_items()
+        item = next((i for i in items if i.id == item_id), None)
+        if not item:
+            raise HTTPException(status_code=404, detail="Work queue item not found")
+        if item.status != WorkQueueStatus.CLAIMED:
+            raise HTTPException(status_code=400, detail="Can only release claimed items")
+
+        item.status = WorkQueueStatus.PENDING
+        item.claimed_by = None
+        item.claimed_at = None
+        store.update_work_item(item)
+
+        return WorkQueueItemResponse(
+            id=item.id,
+            project_id=item.project_id,
+            prompt=item.prompt,
+            profile=item.profile,
+            priority=item.priority,
+            status=item.status.value,
+            claimed_by=item.claimed_by,
+            created_at=item.created_at.isoformat(),
+            claimed_at=None,
+            completed_at=None,
+            error_message=item.error_message,
+        )
+
+    # ========== Merge Queue Endpoints ==========
+
+    @app.get("/api/merge-queue", response_model=MergeQueueListResponse)
+    async def list_merge_queue(
+        status: str | None = None,
+        limit: int = Query(default=20, le=100),
+    ) -> MergeQueueListResponse:
+        """List merge queue entries with optional filters."""
+        entries = store.list_merge_entries(status=status, limit=limit)
+        return MergeQueueListResponse(
+            entries=[
+                MergeQueueEntryResponse(
+                    id=e.id,
+                    run_id=e.run_id,
+                    project_id=e.project_id,
+                    branch_name=e.branch_name,
+                    pr_number=e.pr_number,
+                    pr_url=e.pr_url,
+                    status=e.status.value,
+                    priority=e.priority,
+                    conflict_count=e.conflict_count,
+                    max_retries=e.max_retries,
+                    last_error=e.last_error,
+                    created_at=e.created_at.isoformat(),
+                    completed_at=e.completed_at.isoformat() if e.completed_at else None,
+                )
+                for e in entries
+            ],
+            total=len(entries),
+        )
+
+    @app.post("/api/merge-queue/{entry_id}/retry", response_model=MergeQueueEntryResponse)
+    async def retry_merge(entry_id: str) -> MergeQueueEntryResponse:
+        """Retry a failed/conflicted merge queue entry."""
+        from gluon.models import MergeQueueStatus
+
+        entry = store.get_merge_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Merge queue entry not found")
+        if entry.status not in (MergeQueueStatus.CONFLICT, MergeQueueStatus.FAILED):
+            raise HTTPException(status_code=400, detail=f"Cannot retry entry in {entry.status.value} status")
+
+        entry.status = MergeQueueStatus.PENDING
+        entry.conflict_count = 0
+        entry.last_error = None
+        entry.completed_at = None
+        store.update_merge_entry(entry)
+
+        return MergeQueueEntryResponse(
+            id=entry.id,
+            run_id=entry.run_id,
+            project_id=entry.project_id,
+            branch_name=entry.branch_name,
+            pr_number=entry.pr_number,
+            pr_url=entry.pr_url,
+            status=entry.status.value,
+            priority=entry.priority,
+            conflict_count=entry.conflict_count,
+            max_retries=entry.max_retries,
+            last_error=entry.last_error,
+            created_at=entry.created_at.isoformat(),
+            completed_at=None,
+        )
+
+    @app.post("/api/merge-queue/{entry_id}/cancel", response_model=MergeQueueEntryResponse)
+    async def cancel_merge(entry_id: str) -> MergeQueueEntryResponse:
+        """Cancel a merge queue entry."""
+        from gluon.models import MergeQueueStatus, utc_now
+
+        entry = store.get_merge_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Merge queue entry not found")
+        if entry.status in (MergeQueueStatus.MERGED, MergeQueueStatus.CANCELLED):
+            raise HTTPException(status_code=400, detail=f"Cannot cancel entry in {entry.status.value} status")
+
+        entry.status = MergeQueueStatus.CANCELLED
+        entry.completed_at = utc_now()
+        store.update_merge_entry(entry)
+
+        return MergeQueueEntryResponse(
+            id=entry.id,
+            run_id=entry.run_id,
+            project_id=entry.project_id,
+            branch_name=entry.branch_name,
+            pr_number=entry.pr_number,
+            pr_url=entry.pr_url,
+            status=entry.status.value,
+            priority=entry.priority,
+            conflict_count=entry.conflict_count,
+            max_retries=entry.max_retries,
+            last_error=entry.last_error,
+            created_at=entry.created_at.isoformat(),
+            completed_at=entry.completed_at.isoformat() if entry.completed_at else None,
+        )
+
+    # ========== Witness Endpoints ==========
+
+    @app.get("/api/runs/{run_id}/witness", response_model=WitnessDecisionListResponse)
+    async def get_witness_decisions(run_id: str) -> WitnessDecisionListResponse:
+        """Get witness health decisions for a run."""
+        decisions = store.list_witness_decisions(run_id=run_id)
+        return WitnessDecisionListResponse(
+            run_id=run_id,
+            decisions=[
+                WitnessDecisionResponse(
+                    id=d.id,
+                    run_id=d.run_id,
+                    timestamp=d.timestamp.isoformat(),
+                    classification=d.classification.value,
+                    confidence=d.confidence,
+                    reasoning=d.reasoning,
+                    action=d.action.value,
+                    action_result=d.action_result,
+                )
+                for d in decisions
+            ],
+        )
+
+    # ========== Formula Endpoints ==========
+
+    @app.get("/api/formulas", response_model=FormulaListResponse)
+    async def list_formulas() -> FormulaListResponse:
+        """List all available formula templates."""
+        from gluon.formulas import FormulaLoader
+
+        templates = FormulaLoader.discover()
+        return FormulaListResponse(
+            formulas=[
+                FormulaTemplateResponse(
+                    name=t.name,
+                    description=t.description,
+                    variables=[
+                        FormulaVariableResponse(
+                            name=v.name, type=v.type, required=v.required, default=v.default, help=v.help
+                        )
+                        for v in t.variables
+                    ],
+                    steps=[
+                        FormulaStepResponse(
+                            id=s.id, name=s.name, prompt=s.prompt, depends_on=s.depends_on, profile=s.profile
+                        )
+                        for s in t.steps
+                    ],
+                    use_worktree=t.use_worktree,
+                )
+                for t in templates
+            ]
+        )
+
+    @app.get("/api/formulas/{name}", response_model=FormulaTemplateResponse)
+    async def get_formula(name: str) -> FormulaTemplateResponse:
+        """Get a specific formula template by name."""
+        from gluon.formulas import FormulaLoader
+
+        template = FormulaLoader.load(name)
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Formula '{name}' not found")
+
+        return FormulaTemplateResponse(
+            name=template.name,
+            description=template.description,
+            variables=[
+                FormulaVariableResponse(name=v.name, type=v.type, required=v.required, default=v.default, help=v.help)
+                for v in template.variables
+            ],
+            steps=[
+                FormulaStepResponse(id=s.id, name=s.name, prompt=s.prompt, depends_on=s.depends_on, profile=s.profile)
+                for s in template.steps
+            ],
+            use_worktree=template.use_worktree,
+        )
+
+    @app.post("/api/formulas/{name}/run", response_model=FormulaRunResponse)
+    async def run_formula(name: str, req: FormulaRunRequest) -> FormulaRunResponse:
+        """Execute a formula template for a project."""
+        from gluon.chain_executor import ChainExecutor
+        from gluon.formulas import FormulaLoader
+
+        template = FormulaLoader.load(name)
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Formula '{name}' not found")
+
+        chain_executor = ChainExecutor(store=store, runner=runner, notifier=notifier)
+        from gluon.formula_executor import FormulaExecutor
+
+        executor = FormulaExecutor(store=store, chain_executor=chain_executor)
+        try:
+            chain_id = await executor.execute(
+                template=template,
+                project_id=req.project_id,
+                variables=req.variables,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        return FormulaRunResponse(
+            chain_id=chain_id,
+            step_count=len(template.steps),
+        )
+
+    @app.post("/api/formulas/validate")
+    async def validate_formula_endpoint(template: dict) -> dict:
+        """Validate a formula template definition."""
+        from gluon.formulas import FormulaStepDef, FormulaTemplate, FormulaVariable, validate_formula
+
+        try:
+            variables = [FormulaVariable(**v) for v in template.get("variables", [])]
+            steps = [FormulaStepDef(**s) for s in template.get("steps", [])]
+            ft = FormulaTemplate(
+                name=template.get("name", "unnamed"),
+                description=template.get("description"),
+                variables=variables,
+                steps=steps,
+                use_worktree=template.get("use_worktree", True),
+            )
+            errors = validate_formula(ft)
+            return {"valid": len(errors) == 0, "errors": errors}
+        except Exception as e:
+            return {"valid": False, "errors": [str(e)]}
 
     # ========== WebSocket ==========
 

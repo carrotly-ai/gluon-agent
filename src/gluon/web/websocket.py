@@ -354,6 +354,78 @@ class WebSocketManager:
         await self.broadcast(message)
         await self._send_to_subscribers(run_id, message)
 
+    async def broadcast_activity_event(
+        self,
+        event_id: str,
+        actor: str,
+        action: str,
+        result: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        """Broadcast a new activity event to all clients."""
+        msg = {
+            "type": "activity_event",
+            "event": {
+                "id": event_id,
+                "actor": actor,
+                "action": action,
+                "result": result,
+                "message": message,
+            },
+        }
+        await self.broadcast(msg)
+
+    async def broadcast_queue_updated(
+        self,
+        item_id: str,
+        status: str,
+        project_id: str,
+    ) -> None:
+        """Broadcast a work queue item status change."""
+        msg = {
+            "type": "queue_updated",
+            "item": {
+                "id": item_id,
+                "status": status,
+                "project_id": project_id,
+            },
+        }
+        await self.broadcast(msg)
+
+    async def broadcast_merge_updated(
+        self,
+        entry_id: str,
+        status: str,
+        branch_name: str,
+    ) -> None:
+        """Broadcast a merge queue entry status change."""
+        msg = {
+            "type": "merge_updated",
+            "entry": {
+                "id": entry_id,
+                "status": status,
+                "branch_name": branch_name,
+            },
+        }
+        await self.broadcast(msg)
+
+    async def broadcast_witness_decision(
+        self,
+        run_id: str,
+        classification: str,
+        confidence: float,
+        action: str,
+    ) -> None:
+        """Broadcast a new witness health classification."""
+        msg = {
+            "type": "witness_decision",
+            "run_id": run_id,
+            "classification": classification,
+            "confidence": confidence,
+            "action": action,
+        }
+        await self.broadcast(msg)
+
     async def handle_client_message(self, websocket: WebSocket, data: str) -> None:
         """Handle incoming WebSocket message from client."""
         try:

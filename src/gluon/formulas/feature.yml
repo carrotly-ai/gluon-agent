@@ -1,0 +1,33 @@
+name: feature
+description: "Plan, implement, test, and review a new feature"
+use_worktree: true
+variables:
+  - name: description
+    required: true
+    help: "What feature to build"
+  - name: acceptance_criteria
+    required: false
+    help: "Acceptance criteria (optional)"
+steps:
+  - id: plan
+    name: Plan
+    prompt: |
+      Design the implementation for: {{description}}
+      {{acceptance_criteria}}
+      Provide a detailed plan with files to create/modify.
+    profile: planning
+  - id: implement
+    name: Implement
+    prompt: "Implement the feature following the plan from the previous step."
+    depends_on: [plan]
+    profile: standard
+  - id: test
+    name: Test
+    prompt: "Write comprehensive tests for the implementation."
+    depends_on: [implement]
+    profile: standard
+  - id: review
+    name: Review
+    prompt: "Review all changes for quality, security, and correctness."
+    depends_on: [implement, test]
+    profile: review

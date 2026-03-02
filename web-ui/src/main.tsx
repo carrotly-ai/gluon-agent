@@ -32,6 +32,15 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/runs/:runId" element={<RunDetailPage />} />
         <Route path="/runs/:runId/:tab" element={<RunDetailPage />} />
 
+        {/* Activity log */}
+        <Route path="/activity" element={<App />} />
+
+        {/* Work queue */}
+        <Route path="/queue" element={<App />} />
+
+        {/* Merge queue */}
+        <Route path="/merge" element={<App />} />
+
         {/* Cost dashboard */}
         <Route path="/cost" element={<App />} />
 

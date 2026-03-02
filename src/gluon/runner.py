@@ -16,6 +16,7 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,47 @@ from gluon.worktree import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ========== Run Health Assessment ==========
+
+
+class RunHealth(str, Enum):
+    """Health status for a running execution."""
+
+    HEALTHY = "healthy"  # Running + recent output (<5 min)
+    SLOW = "slow"  # Running + no output 5-15 min
+    STALLED = "stalled"  # Running + no output >15 min OR PID dead
+    UNKNOWN = "unknown"  # Not running
+
+
+def assess_run_health(run: ExecutionRun, log_path: Path) -> RunHealth:
+    """Assess the health of a running execution based on process and output liveness."""
+    if run.status != RunStatus.RUNNING:
+        return RunHealth.UNKNOWN
+
+    # Check PID liveness
+    if run.pid:
+        try:
+            os.kill(run.pid, 0)
+        except ProcessLookupError:
+            return RunHealth.STALLED
+        except PermissionError:
+            pass  # Process exists but we can't signal it
+
+    # Check output recency via messages.jsonl mtime
+    messages_file = log_path / run.id / "messages.jsonl"
+    if messages_file.exists():
+        mtime = datetime.fromtimestamp(messages_file.stat().st_mtime, tz=UTC)
+        age = (datetime.now(UTC) - mtime).total_seconds()
+        if age < 300:  # <5 min
+            return RunHealth.HEALTHY
+        elif age < 900:  # 5-15 min
+            return RunHealth.SLOW
+        else:
+            return RunHealth.STALLED
+
+    return RunHealth.HEALTHY  # No log yet = just started
 
 
 @dataclass
@@ -560,6 +602,19 @@ class TaskRunner:
             self.store.update_run(run)
             return
 
+        # Log task start activity event
+        try:
+            from gluon.activity_log import ActivityLogger
+
+            ActivityLogger(self.store).log(
+                actor=run.id,
+                action="task_started",
+                message=run.prompt[:200] if run.prompt else None,
+                metadata={"project_id": run.project_id, "model": run.model},
+            )
+        except Exception:
+            pass
+
         # Determine working directory (main project or worktree)
         working_dir = project.expanded_path
         worktree_manager: WorktreeManager | None = None
@@ -1003,6 +1058,60 @@ but explicit commits with good messages are preferred.
                     await self.notifier.notify(run, old_status, run.status)
                 except Exception:
                     logger.debug("Notification dispatch failed", exc_info=True)
+
+            # Reactive chain dispatch: trigger next steps when a chain step completes/fails
+            if run.chain_id and run.step_id:
+                try:
+                    from gluon.chain_executor import ChainExecutor
+
+                    chain_executor = ChainExecutor(self.store, self, self.notifier)
+                    if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW):
+                        await chain_executor.on_step_completed(run.chain_id, run.step_id)
+                    elif run.status == RunStatus.FAILED:
+                        await chain_executor.on_step_failed(
+                            run.chain_id,
+                            run.step_id,
+                            run.error_message or "Unknown error",
+                        )
+                except Exception:
+                    logger.debug("Chain reactive dispatch failed", exc_info=True)
+
+            # Log task completion/failure activity event
+            try:
+                from gluon.activity_log import ActivityLogger
+
+                action = "task_completed" if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) else "task_failed"
+                ActivityLogger(self.store).log(
+                    actor=run.id,
+                    action=action,
+                    result=run.status.value,
+                    message=run.error_message[:200] if run.error_message else None,
+                    metadata={"project_id": run.project_id, "cost_usd": run.cost_usd},
+                )
+            except Exception:
+                pass
+
+            # Self-propelling queue: dispatch next queued work item
+            if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:
+                try:
+                    from gluon.work_queue import WorkQueueManager
+
+                    wq = WorkQueueManager(self.store)
+                    item = wq.claim_next(run.project_id)
+                    if item:
+                        from gluon.models import resolve_task_options
+
+                        task_options = resolve_task_options(profile=item.profile)
+                        new_run = await self.submit(
+                            project_id=item.project_id,
+                            prompt=item.prompt,
+                            model=task_options["model"],
+                            profile=item.profile,
+                            initiator=f"queue:{item.id}",
+                        )
+                        wq.mark_running(item.id, new_run.id)
+                except Exception:
+                    logger.debug("Work queue dispatch failed", exc_info=True)
 
             # Clean up active task tracking
             if run.id in self._active_tasks:
@@ -1950,8 +2059,14 @@ def format_duration(seconds: float | None) -> str:
         return f"{hours}h {mins}m"
 
 
-def format_run_status(status: RunStatus) -> tuple[str, str]:
-    """Return (emoji, color) for run status."""
+def format_run_status(status: RunStatus, health: RunHealth | None = None) -> tuple[str, str]:
+    """Return (emoji, color) for run status. Accepts optional health for RUNNING runs."""
+    if status == RunStatus.RUNNING and health:
+        return {
+            RunHealth.HEALTHY: ("🟢", "green"),
+            RunHealth.SLOW: ("🟡", "yellow"),
+            RunHealth.STALLED: ("🔴", "red"),
+        }.get(health, ("🔄", "blue"))
     return {
         RunStatus.PENDING: ("⏳", "yellow"),
         RunStatus.RUNNING: ("🔄", "blue"),

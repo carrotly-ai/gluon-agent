@@ -12,6 +12,7 @@ import {
   GitCommit,
   GitMerge,
   GitPullRequest,
+  HeartPulse,
   Image as ImageIcon,
   ListChecks,
   Maximize2,
@@ -48,6 +49,7 @@ import {
   fetchRunQuestions,
   fetchRunTodos,
   fetchSessionHistory,
+  fetchWitnessDecisions,
   getImageFileUrl,
   mergeRunBranch,
   queueFollowup,
@@ -69,6 +71,7 @@ import type {
   RunStatus,
   RunTodosResponse,
   SlashCommand,
+  WitnessDecision,
 } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -89,6 +92,7 @@ type TabType =
   | 'attachments'
   | 'loop'
   | 'todos'
+  | 'health'
 
 interface RunDetailDialogProps {
   run: Run | null
@@ -198,6 +202,8 @@ export function RunDetailDialog({
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [loadingAttachments, setLoadingAttachments] = useState(false)
   const [todosData, setTodosData] = useState<RunTodosResponse | null>(null)
+  const [witnessDecisions, setWitnessDecisions] = useState<WitnessDecision[]>([])
+  const [loadingWitness, setLoadingWitness] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [logsCopied, setLogsCopied] = useState(false)
   const [resumePrompt, setResumePrompt] = useState('')
@@ -1167,6 +1173,12 @@ Focus on preserving functionality from both sides where possible.`
       loadFiles()
     } else if (activeTab === 'attachments' && attachments.length === 0 && !loadingAttachments) {
       loadAttachments()
+    } else if (activeTab === 'health' && witnessDecisions.length === 0 && !loadingWitness && run) {
+      setLoadingWitness(true)
+      fetchWitnessDecisions(run.id)
+        .then((data) => setWitnessDecisions(data.decisions))
+        .catch((err) => console.error('Failed to load witness decisions:', err))
+        .finally(() => setLoadingWitness(false))
     }
   }, [
     activeTab,
@@ -1183,8 +1195,11 @@ Focus on preserving functionality from both sides where possible.`
     loadingFiles,
     loadingStderr,
     loadingStdout,
+    loadingWitness,
     logs.stderr,
     logs.stdout,
+    run,
+    witnessDecisions.length,
   ])
 
   const isActive = run?.status === 'running' || run?.status === 'pending'
@@ -1718,6 +1733,23 @@ Focus on preserving the functionality from both sides where possible.`
                     {todosData && todosData.todo_count > 0 && (
                       <span className="text-body text-[var(--color-stone)]/50">
                         ({todosData.completed_count}/{todosData.todo_count})
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    className={cn(
+                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
+                      activeTab === 'health'
+                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                    )}
+                    onClick={() => setActiveTab('health')}
+                  >
+                    <HeartPulse className="w-3 h-3" />
+                    Health
+                    {witnessDecisions.length > 0 && (
+                      <span className="text-body text-[var(--color-stone)]/50">
+                        ({witnessDecisions.length})
                       </span>
                     )}
                   </button>
@@ -2272,6 +2304,117 @@ Focus on preserving the functionality from both sides where possible.`
                   />
                 )}
                 {activeTab === 'todos' && detail && <TodoTab run={detail} />}
+                {activeTab === 'health' && (
+                  <div className="flex-1 overflow-auto p-4">
+                    {loadingWitness ? (
+                      <div className="flex items-center justify-center h-32">
+                        <div className="mark mark-running w-2 h-2" />
+                      </div>
+                    ) : witnessDecisions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-32 text-[var(--color-stone)]/60">
+                        <HeartPulse className="w-6 h-6 mb-2 opacity-50" />
+                        <span className="text-body">No health decisions recorded</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Latest classification summary */}
+                        {(() => {
+                          const latest = witnessDecisions[0]
+                          const classColors: Record<string, string> = {
+                            healthy: 'text-[var(--color-jade)]',
+                            slow: 'text-[var(--color-harvest)]',
+                            looping: 'text-orange-400',
+                            stuck: 'text-[var(--color-vermillion)]',
+                            zombie: 'text-[var(--color-vermillion)]',
+                            needs_context_reset: 'text-[var(--color-vermillion)]',
+                          }
+                          const classBg: Record<string, string> = {
+                            healthy: 'bg-[var(--color-jade)]/15',
+                            slow: 'bg-[var(--color-harvest)]/15',
+                            looping: 'bg-orange-400/15',
+                            stuck: 'bg-[var(--color-vermillion)]/15',
+                            zombie: 'bg-[var(--color-vermillion)]/15',
+                            needs_context_reset: 'bg-[var(--color-vermillion)]/15',
+                          }
+                          return (
+                            <div className="p-3 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm">
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={cn(
+                                    'px-2 py-1 rounded-sm text-[11px] uppercase tracking-wider font-medium',
+                                    classBg[latest.classification] || 'bg-[var(--color-stone)]/10',
+                                    classColors[latest.classification] ||
+                                      'text-[var(--color-stone)]'
+                                  )}
+                                >
+                                  {latest.classification}
+                                </span>
+                                <span className="text-caption text-[var(--color-stone)]/60">
+                                  {Math.round(latest.confidence * 100)}% confidence
+                                </span>
+                                <span className="text-caption text-[var(--color-stone)]/40 ml-auto">
+                                  Action: {latest.action}
+                                </span>
+                              </div>
+                              {latest.reasoning && (
+                                <p className="text-caption text-[var(--color-stone)]/70 mt-2">
+                                  {latest.reasoning}
+                                </p>
+                              )}
+                            </div>
+                          )
+                        })()}
+
+                        {/* Decision history */}
+                        <div>
+                          <h4 className="text-body uppercase tracking-widest text-[var(--color-stone)]/60 mb-2">
+                            Decision History
+                          </h4>
+                          <div className="space-y-1">
+                            {witnessDecisions.map((d) => (
+                              <div
+                                key={d.id}
+                                className="flex items-center gap-3 px-2 py-1.5 text-caption hover:bg-[rgba(163,163,163,0.03)] rounded-sm"
+                              >
+                                <span className="text-[var(--color-stone)]/40 w-16 shrink-0">
+                                  {formatRelativeTime(d.timestamp)}
+                                </span>
+                                <span
+                                  className={cn(
+                                    'px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider w-28 text-center',
+                                    d.classification === 'healthy' &&
+                                      'bg-[var(--color-jade)]/15 text-[var(--color-jade)]',
+                                    d.classification === 'slow' &&
+                                      'bg-[var(--color-harvest)]/15 text-[var(--color-harvest)]',
+                                    d.classification === 'looping' &&
+                                      'bg-orange-400/15 text-orange-400',
+                                    (d.classification === 'stuck' ||
+                                      d.classification === 'zombie' ||
+                                      d.classification === 'needs_context_reset') &&
+                                      'bg-[var(--color-vermillion)]/15 text-[var(--color-vermillion)]'
+                                  )}
+                                >
+                                  {d.classification}
+                                </span>
+                                <span className="text-[var(--color-stone)]/50 w-12 text-center">
+                                  {Math.round(d.confidence * 100)}%
+                                </span>
+                                <span className="text-[var(--color-stone)]/40">
+                                  {d.action !== 'none' ? `→ ${d.action}` : '—'}
+                                </span>
+                                {d.action_result && (
+                                  <span className="text-[var(--color-stone)]/30 ml-auto truncate max-w-32">
+                                    {d.action_result}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

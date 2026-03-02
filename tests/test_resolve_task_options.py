@@ -223,3 +223,55 @@ class TestReturnShape:
         assert isinstance(result["model"], str)
         assert isinstance(result["max_thinking_tokens"], int)
         assert isinstance(result["force_planning"], bool)
+
+
+# ===================================================================
+# Role-based profiles (F3)
+# ===================================================================
+
+
+class TestRoleBasedProfiles:
+    """Tests for new role-based task profiles."""
+
+    def test_fix_profile(self):
+        result = resolve_task_options(profile=TaskProfile.FIX)
+        assert result["model"] == "sonnet"
+        assert result["max_thinking_tokens"] == THINKING_BUDGET_TOKENS[ThinkingBudget.MEDIUM]
+        assert result["effort"] == "medium"
+        assert result["force_planning"] is False
+
+    def test_review_profile(self):
+        result = resolve_task_options(profile=TaskProfile.REVIEW)
+        assert result["model"] == "haiku"
+        assert result["max_thinking_tokens"] == THINKING_BUDGET_TOKENS[ThinkingBudget.LOW]
+        assert result["effort"] == "low"
+
+    def test_refactor_profile(self):
+        result = resolve_task_options(profile=TaskProfile.REFACTOR)
+        assert result["model"] == "sonnet"
+        assert result["max_thinking_tokens"] == THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH]
+        assert result["effort"] == "high"
+
+    def test_research_profile(self):
+        result = resolve_task_options(profile=TaskProfile.RESEARCH)
+        assert result["model"] == "opus-4.6"
+        assert result["max_thinking_tokens"] == THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH]
+        assert result["effort"] == "high"
+
+    @pytest.mark.parametrize(
+        "name",
+        ["fix", "review", "refactor", "research"],
+    )
+    def test_role_profiles_from_string(self, name: str):
+        result = resolve_task_options(profile=name)
+        expected = TASK_PROFILES[TaskProfile(name)]
+        assert result["model"] == expected["model"]
+        assert result["effort"] == expected["effort"]
+
+    def test_role_profile_with_model_override(self):
+        result = resolve_task_options(profile=TaskProfile.REVIEW, model="opus-4.6")
+        assert result["model"] == "opus-4.6"
+
+    def test_all_profiles_have_configs(self):
+        for profile in TaskProfile:
+            assert profile in TASK_PROFILES, f"Missing config for {profile}"
