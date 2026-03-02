@@ -184,6 +184,7 @@ export function RunDetailDialog({
       setActiveTabInternal(initialTab)
     }
   }, [initialTab, activeTab])
+
   const [loading, setLoading] = useState(false) // For refresh button only
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [loadingStdout, setLoadingStdout] = useState(false)
@@ -1210,6 +1211,22 @@ Focus on preserving functionality from both sides where possible.`
     run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review'
   const hasHistory = sessionHistory.length > 0
 
+  // Reset to messages if current tab becomes hidden
+  useEffect(() => {
+    const hiddenTabs: Record<string, boolean> = {
+      errors: !hasErrors,
+      commits: !(
+        detail?.branch_name && (commitsData?.commit_count ?? detail?.commit_count ?? 0) > 0
+      ),
+      files: !(detail?.branch_name && (filesData?.file_count ?? detail?.file_count ?? 0) > 0),
+      attachments: attachments.length === 0,
+      todos: !(todosData && todosData.todo_count > 0),
+    }
+    if (hiddenTabs[activeTab]) {
+      setActiveTab('messages')
+    }
+  }, [activeTab, hasErrors, detail, commitsData, filesData, attachments, todosData, setActiveTab])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dialog-content sm:max-w-6xl w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
@@ -1606,20 +1623,20 @@ Focus on preserving the functionality from both sides where possible.`
                   >
                     Output
                   </button>
-                  <button
-                    className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
-                      activeTab === 'errors'
-                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                    )}
-                    onClick={() => setActiveTab('errors')}
-                  >
-                    Errors
-                    {hasErrors && (
+                  {hasErrors && (
+                    <button
+                      className={cn(
+                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
+                        activeTab === 'errors'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                      )}
+                      onClick={() => setActiveTab('errors')}
+                    >
+                      Errors
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-vermillion)]" />
-                    )}
-                  </button>
+                    </button>
+                  )}
                   {hasHistory && (
                     <button
                       className={cn(
@@ -1637,8 +1654,8 @@ Focus on preserving the functionality from both sides where possible.`
                       </span>
                     </button>
                   )}
-                  {detail?.branch_name && (
-                    <>
+                  {detail?.branch_name &&
+                    (commitsData?.commit_count ?? detail?.commit_count ?? 0) > 0 && (
                       <button
                         className={cn(
                           'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
@@ -1650,15 +1667,13 @@ Focus on preserving the functionality from both sides where possible.`
                       >
                         <GitCommit className="w-3 h-3" />
                         Commits
-                        {(() => {
-                          const count = commitsData?.commit_count ?? detail?.commit_count
-                          return count && count > 0 ? (
-                            <span className="text-body text-[var(--color-stone)]/50">
-                              ({count})
-                            </span>
-                          ) : null
-                        })()}
+                        <span className="text-body text-[var(--color-stone)]/50">
+                          ({commitsData?.commit_count ?? detail?.commit_count})
+                        </span>
                       </button>
+                    )}
+                  {detail?.branch_name &&
+                    (filesData?.file_count ?? detail?.file_count ?? 0) > 0 && (
                       <button
                         className={cn(
                           'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
@@ -1670,34 +1685,28 @@ Focus on preserving the functionality from both sides where possible.`
                       >
                         <FileCode className="w-3 h-3" />
                         Files
-                        {(() => {
-                          const count = filesData?.file_count ?? detail?.file_count
-                          return count && count > 0 ? (
-                            <span className="text-body text-[var(--color-stone)]/50">
-                              ({count})
-                            </span>
-                          ) : null
-                        })()}
+                        <span className="text-body text-[var(--color-stone)]/50">
+                          ({filesData?.file_count ?? detail?.file_count})
+                        </span>
                       </button>
-                    </>
-                  )}
-                  <button
-                    className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
-                      activeTab === 'attachments'
-                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
                     )}
-                    onClick={() => setActiveTab('attachments')}
-                  >
-                    <ImageIcon className="w-3 h-3" />
-                    Images
-                    {attachments.length > 0 && (
+                  {attachments.length > 0 && (
+                    <button
+                      className={cn(
+                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
+                        activeTab === 'attachments'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                      )}
+                      onClick={() => setActiveTab('attachments')}
+                    >
+                      <ImageIcon className="w-3 h-3" />
+                      Images
                       <span className="text-body text-[var(--color-stone)]/50">
                         ({attachments.length})
                       </span>
-                    )}
-                  </button>
+                    </button>
+                  )}
                   {detail?.ralph_enabled && (
                     <button
                       className={cn(
@@ -1719,23 +1728,23 @@ Focus on preserving the functionality from both sides where possible.`
                       )}
                     </button>
                   )}
-                  <button
-                    className={cn(
-                      'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
-                      activeTab === 'todos'
-                        ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                    )}
-                    onClick={() => setActiveTab('todos')}
-                  >
-                    <ListChecks className="w-3 h-3" />
-                    Todos
-                    {todosData && todosData.todo_count > 0 && (
+                  {todosData && todosData.todo_count > 0 && (
+                    <button
+                      className={cn(
+                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
+                        activeTab === 'todos'
+                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                      )}
+                      onClick={() => setActiveTab('todos')}
+                    >
+                      <ListChecks className="w-3 h-3" />
+                      Todos
                       <span className="text-body text-[var(--color-stone)]/50">
                         ({todosData.completed_count}/{todosData.todo_count})
                       </span>
-                    )}
-                  </button>
+                    </button>
+                  )}
                   <button
                     className={cn(
                       'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',

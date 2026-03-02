@@ -3701,7 +3701,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if not template:
             raise HTTPException(status_code=404, detail=f"Formula '{name}' not found")
 
-        chain_executor = ChainExecutor(store=store, runner=runner, notifier=notifier)
+        chain_executor = ChainExecutor(store=store, runner=runner, notifier=notifier, ws_manager=ws_manager)
         from gluon.formula_executor import FormulaExecutor
 
         executor = FormulaExecutor(store=store, chain_executor=chain_executor)
@@ -3765,6 +3765,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     _cleanup_task: asyncio.Task | None = None
     _log_polling_task: asyncio.Task | None = None
     _pr_polling_task: asyncio.Task | None = None
+    _health_monitor: object | None = None  # HealthMonitor, optional
 
     # Track file positions for incremental log reading
     _log_file_positions: dict[str, int] = {}  # run_id -> last byte position
@@ -4052,7 +4053,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.on_event("startup")
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
-        nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task
+        nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task, _health_monitor
         _polling_task = asyncio.create_task(_poll_run_status_changes())
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
         _log_polling_task = asyncio.create_task(_poll_log_updates())
@@ -4060,6 +4061,19 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Start supervisor for ralph mode auto-resume
         await runner.start_supervisor(poll_interval=30)
+
+        # Start witness health monitor if enabled
+        if os.environ.get("GLUON_WITNESS_ENABLED", "").lower() in ("1", "true", "yes"):
+            from gluon.health_monitor import HealthMonitor
+
+            _health_monitor = HealthMonitor(
+                store=store,
+                log_path=runner.config.log_path,
+                notifier=notifier,
+                ws_manager=ws_manager,
+            )
+            await _health_monitor.start()
+            logger.info("Witness health monitor enabled")
 
         logger.info(
             "Started background tasks: run status polling, log streaming, log cleanup, "
@@ -4069,6 +4083,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
         """Stop background tasks on app shutdown."""
+        # Stop health monitor
+        if _health_monitor and hasattr(_health_monitor, "stop"):
+            await _health_monitor.stop()
+
         # Stop supervisor first
         await runner.stop_supervisor()
 

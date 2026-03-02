@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from gluon.notifier import NotificationDispatcher
     from gluon.runner import TaskRunner
     from gluon.store import GluonStore
+    from gluon.web.websocket import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,12 @@ class ChainExecutor:
         store: "GluonStore",
         runner: "TaskRunner",
         notifier: "NotificationDispatcher | None" = None,
+        ws_manager: "WebSocketManager | None" = None,
     ):
         self.store = store
         self.runner = runner
         self.notifier = notifier
+        self.ws_manager = ws_manager
 
     def validate_chain(self, chain: TaskChain) -> list[str]:
         """Validate DAG: check for cycles, missing deps. Returns error list."""
@@ -258,6 +261,15 @@ class ChainExecutor:
                     step.name,
                     run.id[:8],
                 )
+
+                # Broadcast to WebSocket so Kanban updates in real-time
+                if self.ws_manager:
+                    try:
+                        project = self.store.get_project(chain.project_id)
+                        if project:
+                            await self.ws_manager.broadcast_run_created(run, project.name)
+                    except Exception:
+                        logger.debug("Failed to broadcast formula run creation", exc_info=True)
             except Exception as e:
                 step.status = StepStatus.FAILED
                 step.error_message = str(e)

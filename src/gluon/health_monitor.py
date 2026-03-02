@@ -15,6 +15,7 @@ from gluon.runner import RunHealth, assess_run_health
 if TYPE_CHECKING:
     from gluon.notifier import NotificationDispatcher
     from gluon.store import GluonStore
+    from gluon.web.websocket import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +31,17 @@ class HealthMonitor:
         store: "GluonStore",
         log_path: "os.PathLike[str]",
         notifier: "NotificationDispatcher | None" = None,
+        ws_manager: "WebSocketManager | None" = None,
     ):
         from pathlib import Path
+
+        from gluon.witness import WitnessClassifier
 
         self.store = store
         self.log_path = Path(log_path)
         self.notifier = notifier
+        self.ws_manager = ws_manager
+        self.witness = WitnessClassifier(store)
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -78,6 +84,19 @@ class HealthMonitor:
             health = assess_run_health(run, self.log_path)
             if health == RunHealth.STALLED:
                 await self._handle_stalled(run)
+
+            # Witness classification for all running runs
+            try:
+                decision = await self.witness.classify(run, self.log_path)
+                if self.ws_manager:
+                    await self.ws_manager.broadcast_witness_decision(
+                        run.id,
+                        decision.classification.value,
+                        decision.confidence,
+                        decision.action.value,
+                    )
+            except Exception:
+                logger.debug("Witness classification failed for %s", run.id[:8], exc_info=True)
 
     async def _handle_stalled(self, run: "object") -> None:
         """Handle a stalled run: check PID, mark failed if dead."""

@@ -188,6 +188,7 @@ export function CreateTaskDialog({
   const [selectedFormula, setSelectedFormula] = useState<string>('')
   const [formulaVariables, setFormulaVariables] = useState<Record<string, string>>({})
   const [loadingFormulas, setLoadingFormulas] = useState(false)
+  const [formulaDropdownOpen, setFormulaDropdownOpen] = useState(false)
 
   // Advanced options state
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -596,7 +597,7 @@ export function CreateTaskDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-hidden"
+        className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-visible"
         showCloseButton={false}
       >
         {/* Header */}
@@ -642,23 +643,62 @@ export function CreateTaskDialog({
 
         {mode === 'formula' ? (
           <form onSubmit={handleFormulaSubmit} className="p-4 sm:p-5 space-y-4">
-            {/* Project Select for Formula */}
+            {/* Project Select for Formula (same grouped picker as Manual) */}
             <div>
               <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
                 Project
               </label>
-              <select
-                value={selectedProject}
-                onChange={(e) => setSelectedProject(e.target.value)}
-                className="w-full px-3 py-2 text-title bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm text-[var(--color-paper)]"
-              >
-                <option value="">Select project...</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                  onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                >
+                  <span
+                    className={
+                      selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
+                    }
+                  >
+                    {selectedProject || 'Select a project...'}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                      projectDropdownOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+
+                {projectDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                    {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
+                      <div key={workspace}>
+                        <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
+                          {workspace}
+                        </div>
+                        {workspaceProjects.map((project: ProjectWithWorkspace) => (
+                          <button
+                            key={project.id}
+                            type="button"
+                            className={cn(
+                              'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                              selectedProject === project.name
+                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                : 'text-[var(--color-stone)]'
+                            )}
+                            onClick={() => {
+                              setSelectedProject(project.name)
+                              setProjectDropdownOpen(false)
+                            }}
+                          >
+                            {project.name}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Formula Select */}
@@ -672,30 +712,62 @@ export function CreateTaskDialog({
                   Loading formulas...
                 </div>
               ) : (
-                <select
-                  value={selectedFormula}
-                  onChange={(e) => {
-                    setSelectedFormula(e.target.value)
-                    // Reset variables and populate defaults
-                    const tmpl = formulaTemplates.find((f) => f.name === e.target.value)
-                    const defaults: Record<string, string> = {}
-                    if (tmpl) {
-                      for (const v of tmpl.variables) {
-                        defaults[v.name] = v.default || ''
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                    onClick={() => setFormulaDropdownOpen(!formulaDropdownOpen)}
+                  >
+                    <span
+                      className={
+                        selectedFormula
+                          ? 'text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60'
                       }
-                    }
-                    setFormulaVariables(defaults)
-                  }}
-                  className="w-full px-3 py-2 text-title bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm text-[var(--color-paper)]"
-                >
-                  <option value="">Select formula...</option>
-                  {formulaTemplates.map((f) => (
-                    <option key={f.name} value={f.name}>
-                      {f.name}
-                      {f.description ? ` — ${f.description}` : ''}
-                    </option>
-                  ))}
-                </select>
+                    >
+                      {selectedFormula || 'Select a formula...'}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                        formulaDropdownOpen && 'rotate-180'
+                      )}
+                    />
+                  </button>
+
+                  {formulaDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                      {formulaTemplates.map((f) => (
+                        <button
+                          key={f.name}
+                          type="button"
+                          className={cn(
+                            'w-full px-3 py-2 text-left hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                            selectedFormula === f.name
+                              ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                              : 'text-[var(--color-stone)]'
+                          )}
+                          onClick={() => {
+                            setSelectedFormula(f.name)
+                            setFormulaDropdownOpen(false)
+                            const defaults: Record<string, string> = {}
+                            for (const v of f.variables) {
+                              defaults[v.name] = v.default || ''
+                            }
+                            setFormulaVariables(defaults)
+                          }}
+                        >
+                          <span className="text-title">{f.name}</span>
+                          {f.description && (
+                            <span className="text-caption text-[var(--color-stone)]/50 ml-2">
+                              {f.description}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
