@@ -1169,6 +1169,18 @@ Run ID: `{run_id}`
             result["error"] = "Not a git repository"
             return result
 
+        # Pre-flight: detect and recover from broken merge state
+        # (unmerged paths left over from a previous failed merge)
+        rc, unmerged_out, _ = await self._run_git(project_path, "diff", "--name-only", "--diff-filter=U")
+        if rc == 0 and unmerged_out.strip():
+            logger.warning("Detected unmerged paths from a previous failed merge, resetting to clean state")
+            await self._run_git(project_path, "merge", "--abort")
+            # If merge --abort didn't clear it (no MERGE_HEAD), force-reset
+            _, still_unmerged, _ = await self._run_git(project_path, "diff", "--name-only", "--diff-filter=U")
+            if still_unmerged.strip():
+                await self._run_git(project_path, "reset", "HEAD")
+                await self._run_git(project_path, "checkout", "--", ".")
+
         # Check for uncommitted changes and stash if needed
         uncommitted = await self._get_uncommitted_count(project_path)
         stashed = False
@@ -1230,8 +1242,14 @@ Run ID: `{run_id}`
             else:
                 result["error"] = f"Merge failed: {stderr}"
 
-            # Abort the merge
+            # Abort the merge and verify cleanup
             await self._run_git(project_path, "merge", "--abort")
+            # Verify no unmerged paths remain (abort can sometimes leave debris)
+            rc_check, unmerged, _ = await self._run_git(project_path, "diff", "--name-only", "--diff-filter=U")
+            if rc_check == 0 and unmerged.strip():
+                logger.warning("Unmerged paths remain after merge --abort, resetting index")
+                await self._run_git(project_path, "reset", "HEAD")
+                await self._run_git(project_path, "checkout", "--", ".")
             # Restore stash if we created one
             if stashed:
                 await self._run_git(project_path, "stash", "pop")
