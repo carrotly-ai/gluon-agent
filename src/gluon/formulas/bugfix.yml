@@ -1,0 +1,32 @@
+name: bugfix
+description: "Diagnose, fix, and test a bug"
+use_worktree: true
+variables:
+  - name: description
+    required: true
+    help: "Description of the bug to fix"
+  - name: repro_steps
+    required: false
+    help: "Steps to reproduce (optional)"
+steps:
+  - id: diagnose
+    name: Diagnose
+    prompt: |
+      Investigate and diagnose the following bug: {{description}}
+      {{repro_steps}}
+      Identify the root cause and propose a fix.
+
+      IMPORTANT: Only investigate and diagnose. Do NOT apply any fixes yet.
+      Do NOT create, edit, or write to any files.
+      Your output should be a diagnosis with a proposed fix plan only.
+    profile: planning
+  - id: fix
+    name: Fix
+    prompt: "Apply the fix identified in the diagnosis step."
+    depends_on: [diagnose]
+    profile: standard
+  - id: test
+    name: Test
+    prompt: "Write tests that verify the fix and prevent regression."
+    depends_on: [fix]
+    profile: standard

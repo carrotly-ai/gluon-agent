@@ -17,9 +17,10 @@ export type RunDetailTab =
   | 'commits'
   | 'files'
   | 'attachments'
+  | 'health'
 
 // Valid tabs for SettingsPage
-export type SettingsTab = 'workspaces' | 'projects' | 'preferences'
+export type SettingsTab = 'workspaces' | 'projects' | 'preferences' | 'formulas'
 
 /**
  * Hook for syncing app state with URL routes
@@ -39,6 +40,9 @@ export function useRouteSync() {
   // Derive current view from pathname
   const viewMode = useMemo(() => {
     const path = location.pathname
+    if (path.startsWith('/activity')) return 'activity' as const
+    if (path.startsWith('/queue')) return 'queue' as const
+    if (path.startsWith('/merge')) return 'merge' as const
     if (path.startsWith('/cost')) return 'usage' as const
     if (path.startsWith('/settings')) return 'settings' as const
     return 'board' as const
@@ -66,15 +70,25 @@ export function useRouteSync() {
     const path = location.pathname
     if (path === '/settings/projects') return 'projects'
     if (path === '/settings/preferences') return 'preferences'
+    if (path === '/settings/formulas') return 'formulas'
     return 'workspaces'
   }, [viewMode, location.pathname])
 
   // Navigation functions
   const setViewMode = useCallback(
-    (view: 'board' | 'usage' | 'settings') => {
+    (view: 'board' | 'activity' | 'queue' | 'merge' | 'usage' | 'settings') => {
       switch (view) {
         case 'board':
           navigate(`/board${location.search}`)
+          break
+        case 'activity':
+          navigate('/activity')
+          break
+        case 'queue':
+          navigate('/queue')
+          break
+        case 'merge':
+          navigate('/merge')
           break
         case 'usage':
           navigate('/cost')

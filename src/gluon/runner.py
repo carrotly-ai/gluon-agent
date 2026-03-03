@@ -16,6 +16,7 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,47 @@ from gluon.worktree import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ========== Run Health Assessment ==========
+
+
+class RunHealth(str, Enum):
+    """Health status for a running execution."""
+
+    HEALTHY = "healthy"  # Running + recent output (<5 min)
+    SLOW = "slow"  # Running + no output 5-15 min
+    STALLED = "stalled"  # Running + no output >15 min OR PID dead
+    UNKNOWN = "unknown"  # Not running
+
+
+def assess_run_health(run: ExecutionRun, log_path: Path) -> RunHealth:
+    """Assess the health of a running execution based on process and output liveness."""
+    if run.status != RunStatus.RUNNING:
+        return RunHealth.UNKNOWN
+
+    # Check PID liveness
+    if run.pid:
+        try:
+            os.kill(run.pid, 0)
+        except ProcessLookupError:
+            return RunHealth.STALLED
+        except PermissionError:
+            pass  # Process exists but we can't signal it
+
+    # Check output recency via messages.jsonl mtime
+    messages_file = log_path / run.id / "messages.jsonl"
+    if messages_file.exists():
+        mtime = datetime.fromtimestamp(messages_file.stat().st_mtime, tz=UTC)
+        age = (datetime.now(UTC) - mtime).total_seconds()
+        if age < 300:  # <5 min
+            return RunHealth.HEALTHY
+        elif age < 900:  # 5-15 min
+            return RunHealth.SLOW
+        else:
+            return RunHealth.STALLED
+
+    return RunHealth.HEALTHY  # No log yet = just started
 
 
 @dataclass
@@ -257,6 +299,8 @@ class TaskRunner:
         agent_teams: bool | None = None,
         model_transition: str | None = None,
         effort: str | None = None,
+        enable_prehydration: bool = True,
+        blueprint_enabled: bool = True,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -331,6 +375,8 @@ class TaskRunner:
             run.metadata["agent_teams"] = agent_teams
         if model_transition:
             run.metadata["model_transition"] = model_transition
+        run.metadata["enable_prehydration"] = enable_prehydration
+        run.metadata["blueprint_enabled"] = blueprint_enabled
         self.store.update_run(run)
 
         if wait:
@@ -349,6 +395,7 @@ class TaskRunner:
         new_prompt: str,
         wait: bool = False,
         initiator: str | None = None,
+        fresh_session: bool = False,
     ) -> ExecutionRun:
         """
         Resume an existing run in-place (same run ID, same worktree).
@@ -364,6 +411,8 @@ class TaskRunner:
             new_prompt: New prompt to continue with
             wait: If True, wait for completion. If False, return immediately.
             initiator: Who started the resume (e.g., "web:resume")
+            fresh_session: If True, clear claude_session_id to start a new
+                Claude session (used for chain steps that need different context)
 
         Returns:
             The same ExecutionRun with updated status
@@ -375,7 +424,12 @@ class TaskRunner:
         if not run:
             raise ValueError(f"Run not found: {run_id}")
 
-        if not run.is_resumable:
+        # For fresh_session resumes (chain steps), we don't require an existing session
+        if fresh_session:
+            resumable_statuses = (RunStatus.REVIEW, RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
+            if run.status not in resumable_statuses:
+                raise ValueError(f"Run {run_id[:8]} cannot be resumed (status={run.status.value})")
+        elif not run.is_resumable:
             raise ValueError(
                 f"Run {run_id[:8]} cannot be resumed (status={run.status.value}, "
                 f"has_session={run.claude_session_id is not None})"
@@ -420,7 +474,7 @@ class TaskRunner:
                     )
 
         # Prepare run for resume (resets status, increments resume_count)
-        run.prepare_for_resume(new_prompt)
+        run.prepare_for_resume(new_prompt, fresh_session=fresh_session)
         if initiator:
             run.initiator = initiator
 
@@ -560,6 +614,19 @@ class TaskRunner:
             self.store.update_run(run)
             return
 
+        # Log task start activity event
+        try:
+            from gluon.activity_log import ActivityLogger
+
+            ActivityLogger(self.store).log(
+                actor=run.id,
+                action="task_started",
+                message=run.prompt[:200] if run.prompt else None,
+                metadata={"project_id": run.project_id, "model": run.model},
+            )
+        except Exception:
+            pass
+
         # Determine working directory (main project or worktree)
         working_dir = project.expanded_path
         worktree_manager: WorktreeManager | None = None
@@ -652,6 +719,23 @@ but explicit commits with good messages are preferred.
                     stdout_file.write(f"Working in worktree on branch: {run.branch_name}\n\n")
                     stdout_file.flush()
 
+                # Pre-hydration: gather project context if enabled
+                metadata = run.metadata or {}
+                enable_prehydration = metadata.get(
+                    "enable_prehydration",
+                    self.store.get_setting("prehydration_enabled", "true") == "true",
+                )
+                if enable_prehydration:
+                    from gluon.pre_hydration import format_context, hydrate
+
+                    hydration_ctx = await hydrate(
+                        working_dir,
+                        last_error=run.error_message if is_resumed else None,
+                    )
+                    effective_prompt = format_context(hydration_ctx) + "\n\n" + effective_prompt
+                    stdout_file.write("Pre-hydration: injected project context\n")
+                    stdout_file.flush()
+
                 # Create agent with the model specified for this run
                 # Wire up question handler with run_id bound
                 from functools import partial
@@ -659,7 +743,6 @@ but explicit commits with good messages are preferred.
                 question_handler = partial(self._question_handler, run.id)
 
                 # Get profile options from run metadata (set by submit())
-                metadata = run.metadata or {}
                 max_thinking_tokens = metadata.get("max_thinking_tokens")
                 max_turns = metadata.get("max_turns")
                 force_planning = metadata.get("force_planning", False)
@@ -930,13 +1013,179 @@ but explicit commits with good messages are preferred.
                                     stderr_file.flush()
 
                             if item.success:
-                                run.mark_review()  # All tasks go to REVIEW first
-                                # Disable supervision for completed tasks to prevent restart loop
-                                if run.supervision_config is None:
-                                    run.supervision_config = SupervisionConfig()
-                                run.supervision_config.enabled = False
-                                if not run.completion_reason:
-                                    run.completion_reason = "Task completed successfully"
+                                # Blueprint validation: tiered auto-fix → lint loop → test
+                                # Only run for standard profile (not planning/review)
+                                profile = metadata.get("profile", "standard")
+                                blueprint_enabled = (
+                                    metadata.get(
+                                        "blueprint_enabled",
+                                        self.store.get_setting("blueprint_enabled", "true") == "true",
+                                    )
+                                    and profile == "standard"
+                                )
+                                blueprint_passed = True
+
+                                if blueprint_enabled:
+                                    from dataclasses import asdict
+
+                                    from gluon.blueprint import (
+                                        build_feedback_prompt,
+                                        run_autofix,
+                                        run_lint,
+                                        run_test,
+                                    )
+                                    from gluon.project_detector import (
+                                        detect_project_type,
+                                        get_autofix_command,
+                                        get_tool_commands,
+                                    )
+
+                                    proj_type = detect_project_type(working_dir)
+                                    tool_cmds = get_tool_commands(
+                                        proj_type,
+                                        lint_override=metadata.get("lint_command"),
+                                        test_override=metadata.get("test_command"),
+                                    )
+                                    autofix_cmd = get_autofix_command(proj_type)
+
+                                    if run.metadata is None:
+                                        run.metadata = {}
+
+                                    # Helper: resume agent session with feedback prompt
+                                    async def _bp_resume(feedback_prompt: str) -> "AgentResult | None":
+                                        _result = None
+                                        async for ri in agent.execute(
+                                            working_dir=working_dir,
+                                            prompt=feedback_prompt,
+                                            resume_session_id=run.claude_session_id,
+                                            follow_up_queue=follow_up_queue,
+                                            screenshot_collector=screenshot_collector,
+                                            notification_callback=_screenshot_message_writer,
+                                            todo_collector=todo_collector,
+                                        ):
+                                            if isinstance(ri, AgentMessage):
+                                                msg_dict = {
+                                                    "timestamp": datetime.now(UTC).isoformat(),
+                                                    "type": ri.type,
+                                                    "content": ri.content,
+                                                    "metadata": ri.metadata,
+                                                }
+                                                messages_file.write(json.dumps(msg_dict) + "\n")
+                                                messages_file.flush()
+                                                if ri.type == "text":
+                                                    stdout_file.write(ri.content + "\n")
+                                                    stdout_file.flush()
+                                            elif isinstance(ri, AgentResult):
+                                                _result = ri
+                                                if ri.session_id:
+                                                    run.claude_session_id = ri.session_id
+                                        return _result
+
+                                    bp_results: list[dict] = []
+
+                                    # --- Phase 1: Auto-fix (deterministic, best-effort) ---
+                                    if autofix_cmd:
+                                        stdout_file.write("\n=== Blueprint: Auto-fix ===\n")
+                                        stdout_file.flush()
+                                        af = await run_autofix(working_dir, autofix_cmd)
+                                        label = "applied" if af.passed else "partial"
+                                        stdout_file.write(f"  autofix: {label} ({af.duration_secs}s)\n")
+                                        stdout_file.flush()
+
+                                    # --- Phase 2: Lint loop (max 3 iterations) ---
+                                    lint_passed = True
+                                    lint_iterations = 0
+                                    max_lint_iter = 3
+
+                                    if tool_cmds.lint:
+                                        for lint_i in range(max_lint_iter):
+                                            lint_iterations = lint_i + 1
+                                            stdout_file.write(
+                                                f"\n=== Blueprint: Lint ({lint_i + 1}/{max_lint_iter}) ===\n"
+                                            )
+                                            stdout_file.flush()
+                                            lr = await run_lint(working_dir, tool_cmds.lint)
+                                            s = "PASS" if lr.passed else "FAIL"
+                                            stdout_file.write(f"  lint: {s} ({lr.duration_secs}s)\n")
+                                            stdout_file.flush()
+
+                                            if lr.passed:
+                                                bp_results.append(asdict(lr))
+                                                break
+
+                                            if lint_i < max_lint_iter - 1:
+                                                # Ask agent to fix lint errors
+                                                fb = build_feedback_prompt([lr])
+                                                stdout_file.write(
+                                                    f"\n=== Blueprint: Agent Lint Fix ({lint_i + 1}) ===\n"
+                                                )
+                                                stdout_file.flush()
+                                                await _bp_resume(fb)
+                                                # Re-run auto-fix before re-checking lint
+                                                if autofix_cmd:
+                                                    await run_autofix(working_dir, autofix_cmd)
+                                            else:
+                                                # Max iterations exhausted
+                                                bp_results.append(asdict(lr))
+                                                lint_passed = False
+
+                                    # --- Phase 3: Test (max 1 retry) ---
+                                    test_passed = True
+                                    test_retried = False
+
+                                    if tool_cmds.test:
+                                        stdout_file.write("\n=== Blueprint: Test ===\n")
+                                        stdout_file.flush()
+                                        tr = await run_test(working_dir, tool_cmds.test)
+                                        s = "PASS" if tr.passed else "FAIL"
+                                        stdout_file.write(f"  test: {s} ({tr.duration_secs}s)\n")
+                                        stdout_file.flush()
+
+                                        if not tr.passed:
+                                            fb = build_feedback_prompt([tr])
+                                            stdout_file.write("\n=== Blueprint: Agent Test Fix ===\n")
+                                            stdout_file.flush()
+                                            rr = await _bp_resume(fb)
+
+                                            if rr and rr.success:
+                                                test_retried = True
+                                                stdout_file.write("\n=== Blueprint: Test (retry) ===\n")
+                                                stdout_file.flush()
+                                                tr = await run_test(working_dir, tool_cmds.test)
+                                                s = "PASS" if tr.passed else "FAIL"
+                                                stdout_file.write(f"  test: {s} ({tr.duration_secs}s)\n")
+                                                stdout_file.flush()
+                                                if not tr.passed:
+                                                    test_passed = False
+                                            else:
+                                                test_passed = False
+
+                                        bp_results.append(asdict(tr))
+
+                                    # --- Store results ---
+                                    run.metadata["blueprint_results"] = bp_results
+                                    run.metadata["blueprint_lint_iterations"] = lint_iterations
+                                    run.metadata["blueprint_test_retried"] = test_retried
+                                    blueprint_passed = lint_passed and test_passed
+
+                                    if blueprint_passed:
+                                        run.metadata["blueprint_status"] = "passed"
+                                    else:
+                                        run.metadata["blueprint_status"] = "failed_after_retry"
+                                        run.completion_reason = "Blueprint validation failed after retry"
+                                    self.store.update_run(run)
+
+                                if blueprint_passed:
+                                    run.mark_review()  # All tasks go to REVIEW first
+                                    # Disable supervision for completed tasks to prevent restart loop
+                                    if run.supervision_config is None:
+                                        run.supervision_config = SupervisionConfig()
+                                    run.supervision_config.enabled = False
+                                    if not run.completion_reason:
+                                        run.completion_reason = "Task completed successfully"
+                                else:
+                                    run.mark_review()
+                                    # Still goes to review but with failure notes
                             else:
                                 # If this was a resume attempt, try fresh-start recovery
                                 # before giving up. Recovery creates a new session in the
@@ -1003,6 +1252,60 @@ but explicit commits with good messages are preferred.
                     await self.notifier.notify(run, old_status, run.status)
                 except Exception:
                     logger.debug("Notification dispatch failed", exc_info=True)
+
+            # Reactive chain dispatch: trigger next steps when a chain step completes/fails
+            if run.chain_id and run.step_id:
+                try:
+                    from gluon.chain_executor import ChainExecutor
+
+                    chain_executor = ChainExecutor(self.store, self, self.notifier)
+                    if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW):
+                        await chain_executor.on_step_completed(run.chain_id, run.step_id)
+                    elif run.status == RunStatus.FAILED:
+                        await chain_executor.on_step_failed(
+                            run.chain_id,
+                            run.step_id,
+                            run.error_message or "Unknown error",
+                        )
+                except Exception:
+                    logger.debug("Chain reactive dispatch failed", exc_info=True)
+
+            # Log task completion/failure activity event
+            try:
+                from gluon.activity_log import ActivityLogger
+
+                action = "task_completed" if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) else "task_failed"
+                ActivityLogger(self.store).log(
+                    actor=run.id,
+                    action=action,
+                    result=run.status.value,
+                    message=run.error_message[:200] if run.error_message else None,
+                    metadata={"project_id": run.project_id, "cost_usd": run.cost_usd},
+                )
+            except Exception:
+                pass
+
+            # Self-propelling queue: dispatch next queued work item
+            if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:
+                try:
+                    from gluon.work_queue import WorkQueueManager
+
+                    wq = WorkQueueManager(self.store)
+                    item = wq.claim_next(run.project_id)
+                    if item:
+                        from gluon.models import resolve_task_options
+
+                        task_options = resolve_task_options(profile=item.profile)
+                        new_run = await self.submit(
+                            project_id=item.project_id,
+                            prompt=item.prompt,
+                            model=task_options["model"],
+                            profile=item.profile,
+                            initiator=f"queue:{item.id}",
+                        )
+                        wq.mark_running(item.id, new_run.id)
+                except Exception:
+                    logger.debug("Work queue dispatch failed", exc_info=True)
 
             # Clean up active task tracking
             if run.id in self._active_tasks:
@@ -1950,8 +2253,14 @@ def format_duration(seconds: float | None) -> str:
         return f"{hours}h {mins}m"
 
 
-def format_run_status(status: RunStatus) -> tuple[str, str]:
-    """Return (emoji, color) for run status."""
+def format_run_status(status: RunStatus, health: RunHealth | None = None) -> tuple[str, str]:
+    """Return (emoji, color) for run status. Accepts optional health for RUNNING runs."""
+    if status == RunStatus.RUNNING and health:
+        return {
+            RunHealth.HEALTHY: ("🟢", "green"),
+            RunHealth.SLOW: ("🟡", "yellow"),
+            RunHealth.STALLED: ("🔴", "red"),
+        }.get(health, ("🔄", "blue"))
     return {
         RunStatus.PENDING: ("⏳", "yellow"),
         RunStatus.RUNNING: ("🔄", "blue"),

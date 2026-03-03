@@ -93,6 +93,12 @@ class TaskProfile(str, Enum):
     DEEP = "deep"  # Maximum reasoning (Opus)
     PLANNING = "planning"  # Force plan-first workflow (Opus)
 
+    # Role-based profiles
+    FIX = "fix"  # Bug fixes (Sonnet, medium thinking)
+    REVIEW = "review"  # Code review, quick checks (Haiku, low effort)
+    REFACTOR = "refactor"  # Code restructuring (Sonnet, high thinking)
+    RESEARCH = "research"  # Deep analysis and research (Opus, high thinking)
+
 
 class ThinkingBudget(str, Enum):
     """Thinking budget presets for extended thinking."""
@@ -298,6 +304,42 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "force_planning": True,
         "effort": "high",
         "description": "Plan before executing",
+    },
+    TaskProfile.FIX: {
+        "model": "sonnet",
+        "max_thinking_tokens": THINKING_BUDGET_TOKENS[ThinkingBudget.MEDIUM],
+        "max_turns": 5000,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
+        "force_planning": False,
+        "effort": "medium",
+        "description": "Bug fixes with focused reasoning",
+    },
+    TaskProfile.REVIEW: {
+        "model": "haiku",
+        "max_thinking_tokens": THINKING_BUDGET_TOKENS[ThinkingBudget.LOW],
+        "max_turns": 5000,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
+        "force_planning": False,
+        "effort": "low",
+        "description": "Code review and quick checks",
+    },
+    TaskProfile.REFACTOR: {
+        "model": "sonnet",
+        "max_thinking_tokens": THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH],
+        "max_turns": 5000,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
+        "force_planning": False,
+        "effort": "high",
+        "description": "Code restructuring with deep reasoning",
+    },
+    TaskProfile.RESEARCH: {
+        "model": "opus-4.6",
+        "max_thinking_tokens": THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH],
+        "max_turns": 5000,
+        "max_budget_usd": DEFAULT_BUDGET_USD,
+        "force_planning": False,
+        "effort": "high",
+        "description": "Deep analysis and research",
     },
 }
 
@@ -657,6 +699,13 @@ class ExecutionRun(BaseModel):
     changes_snapshotted: bool = False  # Whether commits/files have been snapshotted
     snapshot_at: datetime | None = None  # When snapshot was captured
 
+    # Health monitoring
+    last_output_at: datetime | None = None  # Last time output was produced
+
+    # Task chain linking
+    chain_id: str | None = None  # FK to task_chains (if part of a chain)
+    step_id: str | None = None  # FK to task_steps (which step this run executes)
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
@@ -686,15 +735,20 @@ class ExecutionRun(BaseModel):
         """Mark run as in review (awaiting action/approval)."""
         self.status = RunStatus.REVIEW
 
-    def prepare_for_resume(self, new_prompt: str) -> None:
+    def prepare_for_resume(self, new_prompt: str, *, fresh_session: bool = False) -> None:
         """
         Prepare run for in-place resume.
 
         Resets status and timing fields while preserving:
-        - run ID, project_id, claude_session_id
+        - run ID, project_id, claude_session_id (unless fresh_session=True)
         - worktree info (branch_name, worktree_path, source_branch)
         - log_path (logs will be appended)
         - cost tracking (will accumulate)
+
+        Args:
+            new_prompt: The new prompt to continue with
+            fresh_session: If True, clear claude_session_id to start a new
+                Claude session (used for chain steps that need different context)
         """
         self.prompt = new_prompt
         self.status = RunStatus.RUNNING
@@ -704,6 +758,8 @@ class ExecutionRun(BaseModel):
         self.error_message = None
         self.resume_count += 1
         self.last_resumed_at = utc_now()
+        if fresh_session:
+            self.claude_session_id = None
         # Reset PID - will be set by mark_running or subprocess
 
     @property
@@ -1036,6 +1092,72 @@ class CommitFileSnapshot(BaseModel):
     deletions: int = 0
 
 
+# ========== Task Chain Models ==========
+
+
+class ChainStatus(str, Enum):
+    """Status of a task chain."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class StepStatus(str, Enum):
+    """Status of a task step within a chain."""
+
+    PENDING = "pending"  # Not yet evaluated
+    BLOCKED = "blocked"  # Has unresolved dependencies
+    READY = "ready"  # Dependencies met, awaiting dispatch
+    RUNNING = "running"  # Currently executing
+    COMPLETED = "completed"  # Finished successfully
+    FAILED = "failed"  # Error occurred
+    SKIPPED = "skipped"  # Intentionally skipped
+
+
+class TaskStep(BaseModel):
+    """A single step within a task chain."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    chain_id: str
+    name: str  # Step identifier (e.g., "plan", "implement", "test")
+    prompt: str  # What to execute
+    depends_on: list[str] = Field(default_factory=list)  # Step IDs that must complete first
+    profile: TaskProfile = TaskProfile.STANDARD
+    status: StepStatus = StepStatus.PENDING
+    run_id: str | None = None  # Linked ExecutionRun
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+
+    @property
+    def duration_seconds(self) -> float | None:
+        if not self.started_at:
+            return None
+        end = self.completed_at or utc_now()
+        return (end - self.started_at).total_seconds()
+
+
+class TaskChain(BaseModel):
+    """A multi-step task chain with DAG-based dependency resolution."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    project_id: str
+    name: str  # Chain name (e.g., "add-auth-feature")
+    description: str | None = None
+    status: ChainStatus = ChainStatus.PENDING
+    steps: list[TaskStep] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    run_id: str | None = None  # ExecutionRun shared across all steps
+    use_worktree: bool = False
+    initiator: str | None = None
+
+
 class ChannelMapping(BaseModel):
     """Maps a chat channel to a project for multi-transport support."""
 
@@ -1286,3 +1408,123 @@ class WebhookConfig(BaseModel):
         if not self.events:
             return True  # Empty = all events
         return event_type in self.events
+
+
+# ========== Activity Log Models (F11) ==========
+
+
+class ActivityEvent(BaseModel):
+    """Structured activity event for cross-agent queryable event stream."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    timestamp: datetime = Field(default_factory=utc_now)
+    actor: str  # run_id, "system", "user:<id>"
+    action: str  # "task_started", "chain_completed", etc.
+    result: str | None = None
+    message: str | None = None
+    metadata: dict[str, Any] | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+# ========== Work Queue Models (F12) ==========
+
+
+class WorkQueueStatus(str, Enum):
+    """Status of a work queue item."""
+
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class WorkQueueItem(BaseModel):
+    """An item in the shared work queue for autonomous agent claiming."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    project_id: str
+    prompt: str
+    profile: str = "standard"
+    priority: int = 10  # Lower = higher priority
+    status: WorkQueueStatus = WorkQueueStatus.PENDING
+    claimed_by: str | None = None  # run_id
+    created_at: datetime = Field(default_factory=utc_now)
+    claimed_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    error_message: str | None = None
+
+
+# ========== Merge Queue Models (F8) ==========
+
+
+class MergeQueueStatus(str, Enum):
+    """Status of a merge queue entry."""
+
+    PENDING = "pending"
+    TESTING = "testing"
+    MERGING = "merging"
+    MERGED = "merged"
+    CONFLICT = "conflict"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class MergeQueueEntry(BaseModel):
+    """An entry in the merge queue for sequential PR processing."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    run_id: str
+    project_id: str
+    branch_name: str
+    pr_number: int | None = None
+    pr_url: str | None = None
+    status: MergeQueueStatus = MergeQueueStatus.PENDING
+    priority: int = 10
+    conflict_count: int = 0
+    max_retries: int = 3
+    last_error: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    processing_started_at: datetime | None = None
+    completed_at: datetime | None = None
+    next_retry_at: datetime | None = None
+
+
+# ========== Witness Pattern Models (F9) ==========
+
+
+class HealthClassification(str, Enum):
+    """LLM-based health classification for a running agent."""
+
+    HEALTHY = "healthy"
+    SLOW = "slow"
+    STUCK = "stuck"
+    LOOPING = "looping"
+    NEEDS_CONTEXT_RESET = "needs_context_reset"
+    ZOMBIE = "zombie"
+
+
+class RecoveryAction(str, Enum):
+    """Recovery action to take based on witness classification."""
+
+    NONE = "none"
+    NUDGE = "nudge"
+    ESCALATE = "escalate"
+    RESTART = "restart"
+
+
+class WitnessDecision(BaseModel):
+    """Record of a witness classification and action for a run."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    run_id: str
+    timestamp: datetime = Field(default_factory=utc_now)
+    classification: HealthClassification
+    confidence: float
+    reasoning: str | None = None
+    action: RecoveryAction = RecoveryAction.NONE
+    action_result: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)

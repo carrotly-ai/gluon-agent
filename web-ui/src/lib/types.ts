@@ -51,6 +51,13 @@ export interface Run {
   max_calls_per_hour?: number
   // Queued follow-up messages (for message injection while task is running)
   queued_messages?: QueuedMessage[]
+  // Witness health classification (for running runs)
+  health_classification?: HealthClassification | null
+  // Chain/formula step progress
+  chain_id?: string | null
+  chain_step_name?: string | null
+  chain_step_index?: number | null
+  chain_total_steps?: number | null
 }
 
 /** Detailed run response (includes additional fields) */
@@ -116,6 +123,9 @@ export interface CreateRunRequest {
   // Per-task overrides
   agent_teams?: boolean
   model_transition?: string
+  // Blueprint orchestration (on by default)
+  enable_prehydration?: boolean
+  blueprint_enabled?: boolean
 }
 
 /** API response for log content */
@@ -266,6 +276,118 @@ export interface StopLoopResponse {
   final_loop_count: number
 }
 
+// ========== Activity Log Types ==========
+
+export interface ActivityEvent {
+  id: string
+  timestamp: string
+  actor: string
+  action: string
+  result: string | null
+  message: string | null
+  metadata: Record<string, unknown> | null
+}
+
+// ========== Work Queue Types ==========
+
+export type WorkQueueStatus =
+  | 'pending'
+  | 'claimed'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface WorkQueueItem {
+  id: string
+  project_id: string
+  prompt: string
+  profile: string
+  priority: number
+  status: WorkQueueStatus
+  claimed_by: string | null
+  created_at: string
+  claimed_at: string | null
+  completed_at: string | null
+  error_message: string | null
+}
+
+// ========== Merge Queue Types ==========
+
+export type MergeQueueStatus =
+  | 'pending'
+  | 'testing'
+  | 'merging'
+  | 'merged'
+  | 'conflict'
+  | 'failed'
+  | 'cancelled'
+
+export interface MergeQueueEntry {
+  id: string
+  run_id: string
+  project_id: string
+  branch_name: string
+  pr_number: number | null
+  pr_url: string | null
+  status: MergeQueueStatus
+  priority: number
+  conflict_count: number
+  max_retries: number
+  last_error: string | null
+  created_at: string
+  completed_at: string | null
+}
+
+// ========== Witness Types ==========
+
+export type HealthClassification =
+  | 'healthy'
+  | 'slow'
+  | 'stuck'
+  | 'looping'
+  | 'needs_context_reset'
+  | 'zombie'
+
+export type RecoveryAction = 'none' | 'nudge' | 'escalate' | 'restart'
+
+export interface WitnessDecision {
+  id: string
+  run_id: string
+  timestamp: string
+  classification: HealthClassification
+  confidence: number
+  reasoning: string | null
+  action: RecoveryAction
+  action_result: string | null
+}
+
+// ========== Formula Types ==========
+
+export interface FormulaVariable {
+  name: string
+  type: string
+  required: boolean
+  default: string | null
+  help: string | null
+}
+
+export interface FormulaStep {
+  id: string
+  name: string
+  prompt: string
+  depends_on: string[]
+  profile: string
+}
+
+export interface FormulaTemplate {
+  name: string
+  description: string | null
+  variables: FormulaVariable[]
+  steps: FormulaStep[]
+  use_worktree: boolean
+}
+
 /** WebSocket message types */
 export type WebSocketMessageType =
   | 'run_created'
@@ -275,9 +397,14 @@ export type WebSocketMessageType =
   | 'progress'
   | 'token_update'
   | 'loop_progress'
+  | 'step_progress'
   | 'pending_questions'
   | 'question_answered'
   | 'todos_updated'
+  | 'activity_event'
+  | 'queue_updated'
+  | 'merge_updated'
+  | 'witness_decision'
   | 'subscribed'
   | 'unsubscribed'
   | 'pong'

@@ -541,6 +541,14 @@ class Orchestrator:
                 effort=effort,
             )
 
+            # Pre-hydration: gather project context if enabled
+            enable_prehydration = self.store.get_setting("prehydration_enabled", "true") == "true"
+            if enable_prehydration:
+                from gluon.pre_hydration import format_context, hydrate
+
+                hydration = await hydrate(working_dir)
+                prompt = format_context(hydration) + "\n\n" + prompt
+
             # Get model ID from resolved options
             model_id = get_model_id(task_options["model"])
 

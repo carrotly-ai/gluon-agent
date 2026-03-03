@@ -113,6 +113,9 @@ class WebSocketManager:
                 "circuit_state": run.circuit_state,
                 "completion_confidence": run.completion_confidence,
                 "completion_reason": run.completion_reason,
+                # Chain/formula fields
+                "chain_id": run.chain_id,
+                "chain_step_name": run.metadata.get("step_name") if run.metadata else None,
             },
         }
         await self.broadcast(message)
@@ -151,7 +154,37 @@ class WebSocketManager:
                 "circuit_state": run.circuit_state or "CLOSED",
                 "completion_confidence": run.completion_confidence or 0,
                 "completion_reason": run.completion_reason,
+                # Chain/formula fields
+                "chain_id": run.chain_id,
+                "chain_step_name": run.metadata.get("step_name") if run.metadata else None,
             },
+        }
+        await self.broadcast(message)
+
+    async def broadcast_step_progress(
+        self,
+        run_id: str,
+        step_name: str,
+        step_index: int,
+        total_steps: int,
+        step_status: str,
+    ) -> None:
+        """Broadcast chain step progress to all clients.
+
+        Args:
+            run_id: The run ID
+            step_name: Current step name (e.g., "Plan", "Implement")
+            step_index: Current step index (0-based)
+            total_steps: Total steps in chain
+            step_status: Step status: "running", "completed", "failed"
+        """
+        message = {
+            "type": "step_progress",
+            "run_id": run_id,
+            "step_name": step_name,
+            "step_index": step_index,
+            "total_steps": total_steps,
+            "step_status": step_status,
         }
         await self.broadcast(message)
 
@@ -353,6 +386,78 @@ class WebSocketManager:
         }
         await self.broadcast(message)
         await self._send_to_subscribers(run_id, message)
+
+    async def broadcast_activity_event(
+        self,
+        event_id: str,
+        actor: str,
+        action: str,
+        result: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        """Broadcast a new activity event to all clients."""
+        msg = {
+            "type": "activity_event",
+            "event": {
+                "id": event_id,
+                "actor": actor,
+                "action": action,
+                "result": result,
+                "message": message,
+            },
+        }
+        await self.broadcast(msg)
+
+    async def broadcast_queue_updated(
+        self,
+        item_id: str,
+        status: str,
+        project_id: str,
+    ) -> None:
+        """Broadcast a work queue item status change."""
+        msg = {
+            "type": "queue_updated",
+            "item": {
+                "id": item_id,
+                "status": status,
+                "project_id": project_id,
+            },
+        }
+        await self.broadcast(msg)
+
+    async def broadcast_merge_updated(
+        self,
+        entry_id: str,
+        status: str,
+        branch_name: str,
+    ) -> None:
+        """Broadcast a merge queue entry status change."""
+        msg = {
+            "type": "merge_updated",
+            "entry": {
+                "id": entry_id,
+                "status": status,
+                "branch_name": branch_name,
+            },
+        }
+        await self.broadcast(msg)
+
+    async def broadcast_witness_decision(
+        self,
+        run_id: str,
+        classification: str,
+        confidence: float,
+        action: str,
+    ) -> None:
+        """Broadcast a new witness health classification."""
+        msg = {
+            "type": "witness_decision",
+            "run_id": run_id,
+            "classification": classification,
+            "confidence": confidence,
+            "action": action,
+        }
+        await self.broadcast(msg)
 
     async def handle_client_message(self, websocket: WebSocket, data: str) -> None:
         """Handle incoming WebSocket message from client."""

@@ -2,6 +2,8 @@ import {
   AlertCircle,
   Bell,
   Check,
+  ChevronDown,
+  ChevronRight,
   Download,
   FolderOpen,
   GitBranch,
@@ -19,6 +21,7 @@ import {
   createWorkspace,
   deleteProject,
   deleteWorkspace,
+  fetchFormulas,
   fetchProjects,
   fetchSandboxStatus,
   fetchSettings,
@@ -28,11 +31,11 @@ import {
   testVercelToken,
   updateSetting,
 } from '@/lib/api'
-import type { Project, ScanResultResponse, Workspace } from '@/lib/types'
+import type { FormulaTemplate, Project, ScanResultResponse, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { GitSyncButton } from './GitSyncButton'
 
-type Tab = 'workspaces' | 'projects' | 'preferences'
+type Tab = 'workspaces' | 'projects' | 'preferences' | 'formulas'
 
 interface SettingsPageProps {
   tab?: Tab
@@ -71,6 +74,11 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
     id: string
     name: string
   } | null>(null)
+
+  // Formula state
+  const [formulas, setFormulas] = useState<FormulaTemplate[]>([])
+  const [loadingFormulas, setLoadingFormulas] = useState(false)
+  const [expandedFormula, setExpandedFormula] = useState<string | null>(null)
 
   // Settings state
   const [autoCreatePr, setAutoCreatePr] = useState(true)
@@ -150,6 +158,17 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Load formulas when tab switches to formulas
+  useEffect(() => {
+    if (tab === 'formulas' && formulas.length === 0 && !loadingFormulas) {
+      setLoadingFormulas(true)
+      fetchFormulas()
+        .then((data) => setFormulas(data.formulas))
+        .catch((err) => console.error('Failed to load formulas:', err))
+        .finally(() => setLoadingFormulas(false))
+    }
+  }, [tab, formulas.length, loadingFormulas])
 
   const handleAddWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -454,6 +473,17 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
             >
               <Settings className="w-3 h-3" />
               Preferences
+            </button>
+            <button
+              className={cn(
+                'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                tab === 'formulas'
+                  ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                  : 'text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
+              )}
+              onClick={() => setTab('formulas')}
+            >
+              Formulas
             </button>
           </div>
         </div>
@@ -1203,6 +1233,130 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Formulas Tab */}
+        {tab === 'formulas' && (
+          <div className="space-y-4">
+            {loadingFormulas ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="mark mark-running w-2 h-2" />
+              </div>
+            ) : formulas.length === 0 ? (
+              <div className="text-center py-8 text-[var(--color-stone)]/80 text-body">
+                No formulas discovered. Add YAML formula files to your project&apos;s{' '}
+                <code className="text-[var(--color-sky)]">.gluon/formulas/</code> directory.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {formulas.map((formula) => (
+                  <div
+                    key={formula.name}
+                    className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm"
+                  >
+                    <div
+                      className="flex items-center justify-between cursor-pointer"
+                      onClick={() =>
+                        setExpandedFormula(expandedFormula === formula.name ? null : formula.name)
+                      }
+                    >
+                      <div>
+                        <h3 className="text-title text-[var(--color-paper)]">{formula.name}</h3>
+                        {formula.description && (
+                          <p className="text-caption text-[var(--color-stone)]/70 mt-0.5">
+                            {formula.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-caption text-[var(--color-stone)]/50">
+                          {formula.steps.length} step{formula.steps.length !== 1 ? 's' : ''}
+                        </span>
+                        {expandedFormula === formula.name ? (
+                          <ChevronDown className="w-4 h-4 text-[var(--color-stone)]/50" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-[var(--color-stone)]/50" />
+                        )}
+                      </div>
+                    </div>
+
+                    {expandedFormula === formula.name && (
+                      <div className="mt-3 space-y-3 border-t border-[rgba(163,163,163,0.08)] pt-3">
+                        {/* Variables */}
+                        {formula.variables.length > 0 && (
+                          <div>
+                            <h4 className="text-body uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                              Variables
+                            </h4>
+                            <div className="space-y-1">
+                              {formula.variables.map((v) => (
+                                <div key={v.name} className="flex items-center gap-2 text-caption">
+                                  <code className="text-[var(--color-sky)] font-mono">
+                                    {v.name}
+                                  </code>
+                                  <span className="text-[var(--color-stone)]/40">({v.type})</span>
+                                  {v.required && (
+                                    <span className="text-[var(--color-vermillion)] text-[10px] uppercase">
+                                      required
+                                    </span>
+                                  )}
+                                  {v.default && (
+                                    <span className="text-[var(--color-stone)]/40">
+                                      = {v.default}
+                                    </span>
+                                  )}
+                                  {v.help && (
+                                    <span className="text-[var(--color-stone)]/50 ml-auto">
+                                      {v.help}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Steps */}
+                        <div>
+                          <h4 className="text-body uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                            Steps
+                          </h4>
+                          <div className="space-y-1.5">
+                            {formula.steps.map((step, idx) => (
+                              <div key={step.id} className="flex items-start gap-2 text-caption">
+                                <span className="text-[var(--color-stone)]/30 font-mono w-4 text-right shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <span className="text-[var(--color-paper)]">{step.name}</span>
+                                  <span className="text-[var(--color-stone)]/40 ml-2">
+                                    [{step.profile}]
+                                  </span>
+                                  {step.depends_on.length > 0 && (
+                                    <span className="text-[var(--color-stone)]/30 ml-2">
+                                      depends: {step.depends_on.join(', ')}
+                                    </span>
+                                  )}
+                                  <p className="text-[var(--color-stone)]/60 mt-0.5 truncate">
+                                    {step.prompt}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Metadata */}
+                        <div className="flex items-center gap-4 text-caption text-[var(--color-stone)]/40 pt-1">
+                          {formula.use_worktree && <span>Uses worktree</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

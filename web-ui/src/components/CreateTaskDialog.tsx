@@ -17,12 +17,15 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
   createRun,
   fetchCommands,
+  fetchFormulas,
   fetchProjectFiles,
   fetchProjects,
+  runFormula,
   uploadAndAttachImage,
 } from '@/lib/api'
 import type {
   EffortLevel,
+  FormulaTemplate,
   Project,
   ProjectFile,
   ProjectWithWorkspace,
@@ -179,6 +182,14 @@ export function CreateTaskDialog({
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
 
+  // Formula mode state
+  const [mode, setMode] = useState<'manual' | 'formula'>('manual')
+  const [formulaTemplates, setFormulaTemplates] = useState<FormulaTemplate[]>([])
+  const [selectedFormula, setSelectedFormula] = useState<string>('')
+  const [formulaVariables, setFormulaVariables] = useState<Record<string, string>>({})
+  const [loadingFormulas, setLoadingFormulas] = useState(false)
+  const [formulaDropdownOpen, setFormulaDropdownOpen] = useState(false)
+
   // Advanced options state
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [modelOverride, setModelOverride] = useState('')
@@ -221,6 +232,17 @@ export function CreateTaskDialog({
     }
   }, [open, initialProject])
 
+  // Load formulas when switching to formula mode
+  useEffect(() => {
+    if (mode === 'formula' && formulaTemplates.length === 0 && !loadingFormulas) {
+      setLoadingFormulas(true)
+      fetchFormulas()
+        .then((data) => setFormulaTemplates(data.formulas))
+        .catch(console.error)
+        .finally(() => setLoadingFormulas(false))
+    }
+  }, [mode, formulaTemplates.length, loadingFormulas])
+
   // Load files and project-specific commands when project is selected
   useEffect(() => {
     if (!selectedProject || !open) {
@@ -256,6 +278,9 @@ export function CreateTaskDialog({
       // Revoke preview URLs to prevent memory leaks
       pendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
       setPendingImages([])
+      setMode('manual')
+      setSelectedFormula('')
+      setFormulaVariables({})
     }
   }, [
     open,
@@ -481,6 +506,30 @@ export function CreateTaskDialog({
     textareaRef.current?.focus()
   }, [])
 
+  const handleFormulaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedProject || !selectedFormula) return
+
+    const project = projects.find((p) => p.name === selectedProject)
+    if (!project) return
+
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      await runFormula(selectedFormula, {
+        project_id: project.id,
+        variables: formulaVariables,
+      })
+      onTaskCreated()
+      onOpenChange(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run formula')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedProject || !prompt.trim()) return
@@ -548,7 +597,7 @@ export function CreateTaskDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-hidden"
+        className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-visible"
         showCloseButton={false}
       >
         {/* Header */}
@@ -562,305 +611,527 @@ export function CreateTaskDialog({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
-          {/* Project Select */}
-          <div>
-            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-              Project
-            </label>
-            <div className="relative">
-              <button
-                type="button"
-                className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-              >
-                <span
-                  className={
-                    selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
-                  }
-                >
-                  {selectedProject || 'Select a project...'}
-                </span>
-                <ChevronDown
-                  className={cn(
-                    'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                    projectDropdownOpen && 'rotate-180'
-                  )}
-                />
-              </button>
+        {/* Mode Toggle */}
+        <div className="px-4 sm:px-5 pt-3 flex items-center gap-0.5 bg-[rgba(163,163,163,0.03)]">
+          <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+            <button
+              type="button"
+              className={cn(
+                'px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                mode === 'manual'
+                  ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                  : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+              )}
+              onClick={() => setMode('manual')}
+            >
+              Manual
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                mode === 'formula'
+                  ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                  : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+              )}
+              onClick={() => setMode('formula')}
+            >
+              Formula
+            </button>
+          </div>
+        </div>
 
-              {projectDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                  {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
-                    <div key={workspace}>
-                      <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
-                        {workspace}
+        {mode === 'formula' ? (
+          <form onSubmit={handleFormulaSubmit} className="p-4 sm:p-5 space-y-4">
+            {/* Project Select for Formula (same grouped picker as Manual) */}
+            <div>
+              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                Project
+              </label>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                  onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                >
+                  <span
+                    className={
+                      selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
+                    }
+                  >
+                    {selectedProject || 'Select a project...'}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                      projectDropdownOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+
+                {projectDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                    {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
+                      <div key={workspace}>
+                        <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
+                          {workspace}
+                        </div>
+                        {workspaceProjects.map((project: ProjectWithWorkspace) => (
+                          <button
+                            key={project.id}
+                            type="button"
+                            className={cn(
+                              'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                              selectedProject === project.name
+                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                : 'text-[var(--color-stone)]'
+                            )}
+                            onClick={() => {
+                              setSelectedProject(project.name)
+                              setProjectDropdownOpen(false)
+                            }}
+                          >
+                            {project.name}
+                          </button>
+                        ))}
                       </div>
-                      {workspaceProjects.map((project: ProjectWithWorkspace) => (
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Formula Select */}
+            <div>
+              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                Formula
+              </label>
+              {loadingFormulas ? (
+                <div className="flex items-center gap-2 text-caption text-[var(--color-stone)]/60">
+                  <div className="mark mark-running w-2 h-2" />
+                  Loading formulas...
+                </div>
+              ) : (
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                    onClick={() => setFormulaDropdownOpen(!formulaDropdownOpen)}
+                  >
+                    <span
+                      className={
+                        selectedFormula
+                          ? 'text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60'
+                      }
+                    >
+                      {selectedFormula || 'Select a formula...'}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                        formulaDropdownOpen && 'rotate-180'
+                      )}
+                    />
+                  </button>
+
+                  {formulaDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                      {formulaTemplates.map((f) => (
                         <button
-                          key={project.id}
+                          key={f.name}
                           type="button"
                           className={cn(
-                            'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                            selectedProject === project.name
+                            'w-full px-3 py-2 text-left hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                            selectedFormula === f.name
                               ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                               : 'text-[var(--color-stone)]'
                           )}
                           onClick={() => {
-                            setSelectedProject(project.name)
-                            setProjectDropdownOpen(false)
+                            setSelectedFormula(f.name)
+                            setFormulaDropdownOpen(false)
+                            const defaults: Record<string, string> = {}
+                            for (const v of f.variables) {
+                              defaults[v.name] = v.default || ''
+                            }
+                            setFormulaVariables(defaults)
                           }}
                         >
-                          {project.name}
+                          <span className="text-title">{f.name}</span>
+                          {f.description && (
+                            <span className="text-caption text-[var(--color-stone)]/50 ml-2">
+                              {f.description}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Prompt */}
-          <div className="relative">
-            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-              Prompt
-            </label>
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={handlePromptChange}
-              onKeyDown={(e) => {
-                // Let autocomplete handle navigation keys when visible
-                if (
-                  (showAutocomplete || showFileAutocomplete) &&
-                  ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)
-                ) {
-                  return
-                }
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                  e.preventDefault()
-                  if (selectedProject && prompt.trim() && !submitting) {
-                    handleSubmit(e as unknown as React.FormEvent)
-                  }
-                }
-              }}
-              onPaste={handlePaste}
-              placeholder="Type / for commands, @ for files. Paste images with ⌘V"
-              className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
-              autoFocus
-            />
-            {/* Slash command autocomplete - rendered via portal */}
-            <CommandAutocomplete
-              commands={commands}
-              filter={autocompleteFilter}
-              visible={showAutocomplete}
-              onSelect={handleCommandSelect}
-              onClose={handleAutocompleteClose}
-              anchorRef={textareaRef}
-            />
-            {/* File autocomplete (@mentions) - rendered via portal */}
-            <FileAutocomplete
-              files={projectFiles}
-              filter={fileAutocompleteFilter}
-              visible={showFileAutocomplete}
-              onSelect={handleFileMentionSelect}
-              onClose={handleFileAutocompleteClose}
-              anchorRef={textareaRef}
-              loading={filesLoading}
-              truncated={filesTruncated}
-            />
-          </div>
-
-          {/* Image Attachments - Compact */}
-          <div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => handleFileSelect(e.target.files)}
-            />
-            {pendingImages.length === 0 ? (
-              <button
-                type="button"
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-2 rounded-sm transition-colors',
-                  isDragging
-                    ? 'bg-[rgba(163,163,163,0.1)] border border-dashed border-[var(--color-paper)]'
-                    : 'hover:bg-[rgba(163,163,163,0.05)]'
-                )}
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
-                <span className="text-body text-[var(--color-stone)]/50">Attach images</span>
-                <span className="text-caption text-[var(--color-stone)]/30 ml-auto">
-                  drag, paste, or click
-                </span>
-              </button>
-            ) : (
-              <div
-                className={cn(
-                  'border border-dashed rounded-sm p-2 transition-colors',
-                  isDragging
-                    ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
-                    : 'border-[rgba(163,163,163,0.15)]'
-                )}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <div className="grid grid-cols-5 gap-1.5">
-                  {pendingImages.map((img, index) => (
-                    <div key={img.preview} className="relative group">
-                      <img
-                        src={img.preview}
-                        alt={img.file.name}
-                        className="w-full h-12 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
-                      />
-                      <button
-                        type="button"
-                        className="absolute top-0.5 right-0.5 p-0.5 bg-[var(--color-void)]/80 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => removeImage(index)}
-                      >
-                        <Trash2 className="w-2.5 h-2.5 text-[var(--color-vermillion)]" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="h-12 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <ImageIcon className="w-3 h-3 text-[var(--color-stone)]/40" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Profile Select */}
-          <div>
-            <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-              Profile
-            </label>
-            <div className="relative">
-              <button
-                type="button"
-                className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-              >
-                <span className="text-[var(--color-paper)]">
-                  {selectedProfileOption?.label}
-                  <span className="ml-2 text-[var(--color-stone)]/60">
-                    {selectedProfileOption?.description}
-                  </span>
-                </span>
-                <ChevronDown
-                  className={cn(
-                    'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                    profileDropdownOpen && 'rotate-180'
                   )}
-                />
-              </button>
-
-              {profileDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                  {PROFILE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={cn(
-                        'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                        profile === option.value
-                          ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                          : 'text-[var(--color-stone)]'
-                      )}
-                      onClick={() => {
-                        setProfile(option.value)
-                        setProfileDropdownOpen(false)
-                        // Clear model transition when switching away from Planning
-                        if (option.value !== 'planning') {
-                          setModelTransition('')
-                        }
-                      }}
-                    >
-                      {option.label}
-                      <span className="ml-2 text-[var(--color-stone)]/60">
-                        {option.description}
-                      </span>
-                    </button>
-                  ))}
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Advanced Options */}
-          <div>
-            <button
-              type="button"
-              className="flex items-center gap-2 text-body text-[var(--color-stone)]/70 hover:text-[var(--color-paper)] transition-colors"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-            >
-              <ChevronRight
-                className={cn('w-4 h-4 transition-transform', showAdvanced && 'rotate-90')}
-              />
-              <Settings className="w-4 h-4" />
-              <span>Advanced Options</span>
-            </button>
+            {/* Dynamic Variable Inputs */}
+            {selectedFormula &&
+              (() => {
+                const tmpl = formulaTemplates.find((f) => f.name === selectedFormula)
+                if (!tmpl || tmpl.variables.length === 0) return null
+                return (
+                  <div className="space-y-3">
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70">
+                      Variables
+                    </label>
+                    {tmpl.variables.map((v) => (
+                      <div key={v.name}>
+                        <label className="block text-caption text-[var(--color-stone)]/60 mb-1">
+                          {v.name}
+                          {v.required && (
+                            <span className="text-[var(--color-vermillion)] ml-1">*</span>
+                          )}
+                          {v.help && (
+                            <span className="text-[var(--color-stone)]/40 ml-2 font-normal">
+                              {v.help}
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          type="text"
+                          value={formulaVariables[v.name] || ''}
+                          onChange={(e) =>
+                            setFormulaVariables((prev) => ({
+                              ...prev,
+                              [v.name]: e.target.value,
+                            }))
+                          }
+                          placeholder={v.default || `Enter ${v.name}...`}
+                          className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/40 focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
 
-            {showAdvanced && (
-              <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
-                {/* Worktree Toggle */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
-                    <div>
-                      <span className="text-body text-[var(--color-paper)]">Use Git Worktree</span>
-                      <p className="text-caption text-[var(--color-stone)]/60">
-                        Run in isolated branch
-                      </p>
+            {/* Step Preview */}
+            {selectedFormula &&
+              (() => {
+                const tmpl = formulaTemplates.find((f) => f.name === selectedFormula)
+                if (!tmpl) return null
+                return (
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                      Steps ({tmpl.steps.length})
+                    </label>
+                    <div className="space-y-1 text-caption">
+                      {tmpl.steps.map((step, idx) => (
+                        <div
+                          key={step.id}
+                          className="flex items-center gap-2 text-[var(--color-stone)]/60"
+                        >
+                          <span className="text-[var(--color-stone)]/30 font-mono w-4 text-right">
+                            {idx + 1}
+                          </span>
+                          <span className="text-[var(--color-paper)]">{step.name}</span>
+                          <span className="text-[var(--color-stone)]/30">[{step.profile}]</span>
+                          {step.depends_on.length > 0 && (
+                            <span className="text-[var(--color-stone)]/20">
+                              after: {step.depends_on.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className={cn(
-                      'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                      useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
-                    )}
-                    onClick={() => setUseWorktree(!useWorktree)}
-                  >
-                    <span
-                      className={cn(
-                        'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                        useWorktree ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
-                      )}
-                      style={{ left: useWorktree ? '22px' : '2px' }}
-                    />
-                  </button>
-                </div>
+                )
+              })()}
 
-                {/* Ralph Loop Toggle */}
-                <div className="space-y-3">
+            {/* Error */}
+            {error && <p className="text-caption text-[var(--color-vermillion)]">{error}</p>}
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={submitting || !selectedProject || !selectedFormula}
+              className="w-full py-2.5 text-body uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <Play className="w-3 h-3 animate-pulse" />
+                  Running Formula...
+                </>
+              ) : (
+                <>
+                  <Play className="w-3 h-3" />
+                  Run Formula
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
+            {/* Project Select */}
+            <div>
+              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                Project
+              </label>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                  onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                >
+                  <span
+                    className={
+                      selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
+                    }
+                  >
+                    {selectedProject || 'Select a project...'}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                      projectDropdownOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+
+                {projectDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                    {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
+                      <div key={workspace}>
+                        <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
+                          {workspace}
+                        </div>
+                        {workspaceProjects.map((project: ProjectWithWorkspace) => (
+                          <button
+                            key={project.id}
+                            type="button"
+                            className={cn(
+                              'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                              selectedProject === project.name
+                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                : 'text-[var(--color-stone)]'
+                            )}
+                            onClick={() => {
+                              setSelectedProject(project.name)
+                              setProjectDropdownOpen(false)
+                            }}
+                          >
+                            {project.name}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Prompt */}
+            <div className="relative">
+              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                Prompt
+              </label>
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={handlePromptChange}
+                onKeyDown={(e) => {
+                  // Let autocomplete handle navigation keys when visible
+                  if (
+                    (showAutocomplete || showFileAutocomplete) &&
+                    ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)
+                  ) {
+                    return
+                  }
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault()
+                    if (selectedProject && prompt.trim() && !submitting) {
+                      handleSubmit(e as unknown as React.FormEvent)
+                    }
+                  }
+                }}
+                onPaste={handlePaste}
+                placeholder="Type / for commands, @ for files. Paste images with ⌘V"
+                className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
+                autoFocus
+              />
+              {/* Slash command autocomplete - rendered via portal */}
+              <CommandAutocomplete
+                commands={commands}
+                filter={autocompleteFilter}
+                visible={showAutocomplete}
+                onSelect={handleCommandSelect}
+                onClose={handleAutocompleteClose}
+                anchorRef={textareaRef}
+              />
+              {/* File autocomplete (@mentions) - rendered via portal */}
+              <FileAutocomplete
+                files={projectFiles}
+                filter={fileAutocompleteFilter}
+                visible={showFileAutocomplete}
+                onSelect={handleFileMentionSelect}
+                onClose={handleFileAutocompleteClose}
+                anchorRef={textareaRef}
+                loading={filesLoading}
+                truncated={filesTruncated}
+              />
+            </div>
+
+            {/* Image Attachments - Compact */}
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => handleFileSelect(e.target.files)}
+              />
+              {pendingImages.length === 0 ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-2 rounded-sm transition-colors',
+                    isDragging
+                      ? 'bg-[rgba(163,163,163,0.1)] border border-dashed border-[var(--color-paper)]'
+                      : 'hover:bg-[rgba(163,163,163,0.05)]'
+                  )}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
+                  <span className="text-body text-[var(--color-stone)]/50">Attach images</span>
+                  <span className="text-caption text-[var(--color-stone)]/30 ml-auto">
+                    drag, paste, or click
+                  </span>
+                </button>
+              ) : (
+                <div
+                  className={cn(
+                    'border border-dashed rounded-sm p-2 transition-colors',
+                    isDragging
+                      ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
+                      : 'border-[rgba(163,163,163,0.15)]'
+                  )}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {pendingImages.map((img, index) => (
+                      <div key={img.preview} className="relative group">
+                        <img
+                          src={img.preview}
+                          alt={img.file.name}
+                          className="w-full h-12 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
+                        />
+                        <button
+                          type="button"
+                          className="absolute top-0.5 right-0.5 p-0.5 bg-[var(--color-void)]/80 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => removeImage(index)}
+                        >
+                          <Trash2 className="w-2.5 h-2.5 text-[var(--color-vermillion)]" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="h-12 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <ImageIcon className="w-3 h-3 text-[var(--color-stone)]/40" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Profile Select */}
+            <div>
+              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                Profile
+              </label>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                  onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                >
+                  <span className="text-[var(--color-paper)]">
+                    {selectedProfileOption?.label}
+                    <span className="ml-2 text-[var(--color-stone)]/60">
+                      {selectedProfileOption?.description}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                      profileDropdownOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+
+                {profileDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                    {PROFILE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={cn(
+                          'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                          profile === option.value
+                            ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                            : 'text-[var(--color-stone)]'
+                        )}
+                        onClick={() => {
+                          setProfile(option.value)
+                          setProfileDropdownOpen(false)
+                          // Clear model transition when switching away from Planning
+                          if (option.value !== 'planning') {
+                            setModelTransition('')
+                          }
+                        }}
+                      >
+                        {option.label}
+                        <span className="ml-2 text-[var(--color-stone)]/60">
+                          {option.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Advanced Options */}
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-2 text-body text-[var(--color-stone)]/70 hover:text-[var(--color-paper)] transition-colors"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <ChevronRight
+                  className={cn('w-4 h-4 transition-transform', showAdvanced && 'rotate-90')}
+                />
+                <Settings className="w-4 h-4" />
+                <span>Advanced Options</span>
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
+                  {/* Worktree Toggle */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <RefreshCw
-                        className={cn(
-                          'w-4 h-4 transition-colors',
-                          ralphEnabled ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                        )}
-                      />
+                      <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
                       <div>
                         <span className="text-body text-[var(--color-paper)]">
-                          Enable Ralph Loop
+                          Use Git Worktree
                         </span>
                         <p className="text-caption text-[var(--color-stone)]/60">
-                          Autonomous execution until complete
+                          Run in isolated branch
                         </p>
                       </div>
                     </div>
@@ -868,373 +1139,199 @@ export function CreateTaskDialog({
                       type="button"
                       className={cn(
                         'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                        ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                        useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
                       )}
-                      onClick={() => setRalphEnabled(!ralphEnabled)}
+                      onClick={() => setUseWorktree(!useWorktree)}
                     >
                       <span
                         className={cn(
                           'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                          ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                          useWorktree ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
                         )}
-                        style={{ left: ralphEnabled ? '22px' : '2px' }}
+                        style={{ left: useWorktree ? '22px' : '2px' }}
                       />
                     </button>
                   </div>
 
-                  {/* Ralph Options (shown when enabled) */}
-                  {ralphEnabled && (
-                    <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
-                      <div className="flex items-center justify-between">
-                        <label className="text-body text-[var(--color-stone)]">
-                          Max Iterations
-                        </label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={1000}
-                          value={maxLoops}
-                          onChange={(e) =>
-                            setMaxLoops(
-                              Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1))
-                            )
-                          }
-                          className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
+                  {/* Ralph Loop Toggle */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <RefreshCw
+                          className={cn(
+                            'w-4 h-4 transition-colors',
+                            ralphEnabled
+                              ? 'text-[var(--color-sky)]'
+                              : 'text-[var(--color-stone)]/60'
+                          )}
                         />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-body text-[var(--color-stone)]">
-                          Cost Limit (USD)
-                        </label>
-                        <div className="flex items-center gap-1">
-                          <span className="text-body text-[var(--color-stone)]/60">$</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            placeholder="optional"
-                            value={maxCostUsd}
-                            onChange={(e) => {
-                              const value = e.target.value
-                              if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                                setMaxCostUsd(value)
-                              }
-                            }}
-                            className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
-                          />
+                        <div>
+                          <span className="text-body text-[var(--color-paper)]">
+                            Enable Ralph Loop
+                          </span>
+                          <p className="text-caption text-[var(--color-stone)]/60">
+                            Autonomous execution until complete
+                          </p>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        className={cn(
+                          'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                          ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                        )}
+                        onClick={() => setRalphEnabled(!ralphEnabled)}
+                      >
+                        <span
+                          className={cn(
+                            'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                            ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                          )}
+                          style={{ left: ralphEnabled ? '22px' : '2px' }}
+                        />
+                      </button>
                     </div>
-                  )}
-                </div>
 
-                {/* Agent Teams Toggle */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Users
-                      className={cn(
-                        'w-4 h-4 transition-colors',
-                        agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                      )}
-                    />
-                    <div>
-                      <span className="text-body text-[var(--color-paper)]">
-                        Enable Agent Teams
-                      </span>
-                      <p className="text-caption text-[var(--color-stone)]/60">
-                        Coordinated multi-agent collaboration
-                      </p>
+                    {/* Ralph Options (shown when enabled) */}
+                    {ralphEnabled && (
+                      <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
+                        <div className="flex items-center justify-between">
+                          <label className="text-body text-[var(--color-stone)]">
+                            Max Iterations
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={maxLoops}
+                            onChange={(e) =>
+                              setMaxLoops(
+                                Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1))
+                              )
+                            }
+                            className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-body text-[var(--color-stone)]">
+                            Cost Limit (USD)
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <span className="text-body text-[var(--color-stone)]/60">$</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="optional"
+                              value={maxCostUsd}
+                              onChange={(e) => {
+                                const value = e.target.value
+                                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                  setMaxCostUsd(value)
+                                }
+                              }}
+                              className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Agent Teams Toggle */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users
+                        className={cn(
+                          'w-4 h-4 transition-colors',
+                          agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
+                        )}
+                      />
+                      <div>
+                        <span className="text-body text-[var(--color-paper)]">
+                          Enable Agent Teams
+                        </span>
+                        <p className="text-caption text-[var(--color-stone)]/60">
+                          Coordinated multi-agent collaboration
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={cn(
-                      'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                      agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
-                    )}
-                    onClick={() => {
-                      const enabling = !agentTeams
-                      setAgentTeams(enabling)
-                      if (enabling && !prompt.trim()) {
-                        setPrompt(AGENT_TEAMS_TEMPLATE)
-                        setTimeout(() => {
-                          textareaRef.current?.focus()
-                          textareaRef.current?.setSelectionRange(0, 0)
-                          textareaRef.current?.scrollTo(0, 0)
-                        }, 0)
-                      }
-                    }}
-                  >
-                    <span
+                    <button
+                      type="button"
                       className={cn(
-                        'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                        agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                        'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                        agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
                       )}
-                      style={{ left: agentTeams ? '22px' : '2px' }}
-                    />
-                  </button>
-                </div>
-
-                {/* Model Override */}
-                <div>
-                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                    Model Override
-                  </label>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                      onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
-                    >
-                      <span
-                        className={
-                          modelOverride
-                            ? 'text-[var(--color-paper)]'
-                            : 'text-[var(--color-stone)]/60'
-                        }
-                      >
-                        {selectedAdvancedModelOption?.label || 'Use profile default'}
-                        {selectedAdvancedModelOption?.description && (
-                          <span className="ml-2 text-[var(--color-stone)]/60">
-                            {selectedAdvancedModelOption.description}
-                          </span>
-                        )}
-                      </span>
-                      <ChevronDown
-                        className={cn(
-                          'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                          advancedModelDropdownOpen && 'rotate-180'
-                        )}
-                      />
-                    </button>
-
-                    {advancedModelDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                        {MODEL_OPTIONS.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            className={cn(
-                              'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                              modelOverride === option.value
-                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                : 'text-[var(--color-stone)]'
-                            )}
-                            onClick={() => {
-                              setModelOverride(option.value)
-                              setAdvancedModelDropdownOpen(false)
-                            }}
-                          >
-                            {option.label}
-                            {option.description && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {option.description}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Thinking Budget Override */}
-                <div>
-                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                    Thinking Budget
-                  </label>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                      onClick={() => setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)}
-                    >
-                      <span
-                        className={
-                          thinkingOverride
-                            ? 'text-[var(--color-paper)]'
-                            : 'text-[var(--color-stone)]/60'
-                        }
-                      >
-                        {selectedAdvancedThinkingOption?.label || 'Use profile default'}
-                        {selectedAdvancedThinkingOption?.description && (
-                          <span className="ml-2 text-[var(--color-stone)]/60">
-                            {selectedAdvancedThinkingOption.description}
-                          </span>
-                        )}
-                      </span>
-                      <ChevronDown
-                        className={cn(
-                          'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                          advancedThinkingDropdownOpen && 'rotate-180'
-                        )}
-                      />
-                    </button>
-
-                    {advancedThinkingDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                        {THINKING_OPTIONS.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            className={cn(
-                              'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                              thinkingOverride === option.value
-                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                : 'text-[var(--color-stone)]'
-                            )}
-                            onClick={() => {
-                              setThinkingOverride(option.value)
-                              setAdvancedThinkingDropdownOpen(false)
-                            }}
-                          >
-                            {option.label}
-                            {option.description && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {option.description}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Effort Override */}
-                <div>
-                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                    Effort Level
-                  </label>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                      onClick={() => setAdvancedEffortDropdownOpen(!advancedEffortDropdownOpen)}
-                    >
-                      <span
-                        className={
-                          effortOverride
-                            ? 'text-[var(--color-paper)]'
-                            : 'text-[var(--color-stone)]/60'
-                        }
-                      >
-                        {selectedAdvancedEffortOption?.label || 'Use profile default'}
-                        {selectedAdvancedEffortOption?.description && (
-                          <span className="ml-2 text-[var(--color-stone)]/60">
-                            {selectedAdvancedEffortOption.description}
-                          </span>
-                        )}
-                      </span>
-                      <ChevronDown
-                        className={cn(
-                          'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                          advancedEffortDropdownOpen && 'rotate-180'
-                        )}
-                      />
-                    </button>
-
-                    {advancedEffortDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                        {EFFORT_OPTIONS.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            className={cn(
-                              'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                              effortOverride === option.value
-                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                : 'text-[var(--color-stone)]'
-                            )}
-                            onClick={() => {
-                              setEffortOverride(option.value)
-                              setAdvancedEffortDropdownOpen(false)
-                            }}
-                          >
-                            {option.label}
-                            {option.description && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {option.description}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Max Budget Override */}
-                <div>
-                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                    Max Budget (USD)
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <span className="text-body text-[var(--color-stone)]/60">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="Use profile default"
-                      value={maxBudgetOverride}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                          setMaxBudgetOverride(value)
+                      onClick={() => {
+                        const enabling = !agentTeams
+                        setAgentTeams(enabling)
+                        if (enabling && !prompt.trim()) {
+                          setPrompt(AGENT_TEAMS_TEMPLATE)
+                          setTimeout(() => {
+                            textareaRef.current?.focus()
+                            textareaRef.current?.setSelectionRange(0, 0)
+                            textareaRef.current?.scrollTo(0, 0)
+                          }, 0)
                         }
                       }}
-                      className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
-                    />
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                          agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                        )}
+                        style={{ left: agentTeams ? '22px' : '2px' }}
+                      />
+                    </button>
                   </div>
-                </div>
 
-                {/* Model Transition (only shown for Planning profile) */}
-                {profile === 'planning' && (
+                  {/* Model Override */}
                   <div>
                     <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                      Model Transition
+                      Model Override
                     </label>
                     <div className="relative">
                       <button
                         type="button"
                         className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                        onClick={() => setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)}
+                        onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
                       >
                         <span
                           className={
-                            modelTransition
+                            modelOverride
                               ? 'text-[var(--color-paper)]'
                               : 'text-[var(--color-stone)]/60'
                           }
                         >
-                          {selectedModelTransitionOption?.label || 'None (single model)'}
-                          {selectedModelTransitionOption?.description && modelTransition && (
+                          {selectedAdvancedModelOption?.label || 'Use profile default'}
+                          {selectedAdvancedModelOption?.description && (
                             <span className="ml-2 text-[var(--color-stone)]/60">
-                              {selectedModelTransitionOption.description}
+                              {selectedAdvancedModelOption.description}
                             </span>
                           )}
                         </span>
                         <ChevronDown
                           className={cn(
                             'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                            modelTransitionDropdownOpen && 'rotate-180'
+                            advancedModelDropdownOpen && 'rotate-180'
                           )}
                         />
                       </button>
 
-                      {modelTransitionDropdownOpen && (
+                      {advancedModelDropdownOpen && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                          {MODEL_TRANSITION_OPTIONS.map((option) => (
+                          {MODEL_OPTIONS.map((option) => (
                             <button
                               key={option.value}
                               type="button"
                               className={cn(
                                 'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                modelTransition === option.value
+                                modelOverride === option.value
                                   ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                                   : 'text-[var(--color-stone)]'
                               )}
                               onClick={() => {
-                                setModelTransition(option.value)
-                                setModelTransitionDropdownOpen(false)
+                                setModelOverride(option.value)
+                                setAdvancedModelDropdownOpen(false)
                               }}
                             >
                               {option.label}
@@ -1249,39 +1346,257 @@ export function CreateTaskDialog({
                       )}
                     </div>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
 
-          {/* Error */}
-          {error && <p className="text-body text-[var(--color-vermillion)]">{error}</p>}
+                  {/* Thinking Budget Override */}
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                      Thinking Budget
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                        onClick={() =>
+                          setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)
+                        }
+                      >
+                        <span
+                          className={
+                            thinkingOverride
+                              ? 'text-[var(--color-paper)]'
+                              : 'text-[var(--color-stone)]/60'
+                          }
+                        >
+                          {selectedAdvancedThinkingOption?.label || 'Use profile default'}
+                          {selectedAdvancedThinkingOption?.description && (
+                            <span className="ml-2 text-[var(--color-stone)]/60">
+                              {selectedAdvancedThinkingOption.description}
+                            </span>
+                          )}
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                            advancedThinkingDropdownOpen && 'rotate-180'
+                          )}
+                        />
+                      </button>
 
-          {/* Actions */}
-          <div className="flex items-center justify-end gap-3 pt-2">
-            <button
-              type="button"
-              className="px-4 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!selectedProject || !prompt.trim() || submitting}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 text-caption uppercase tracking-widest rounded-sm transition-colors',
-                selectedProject && prompt.trim() && !submitting
-                  ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                  : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
+                      {advancedThinkingDropdownOpen && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                          {THINKING_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={cn(
+                                'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                thinkingOverride === option.value
+                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                  : 'text-[var(--color-stone)]'
+                              )}
+                              onClick={() => {
+                                setThinkingOverride(option.value)
+                                setAdvancedThinkingDropdownOpen(false)
+                              }}
+                            >
+                              {option.label}
+                              {option.description && (
+                                <span className="ml-2 text-[var(--color-stone)]/60">
+                                  {option.description}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Effort Override */}
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                      Effort Level
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                        onClick={() => setAdvancedEffortDropdownOpen(!advancedEffortDropdownOpen)}
+                      >
+                        <span
+                          className={
+                            effortOverride
+                              ? 'text-[var(--color-paper)]'
+                              : 'text-[var(--color-stone)]/60'
+                          }
+                        >
+                          {selectedAdvancedEffortOption?.label || 'Use profile default'}
+                          {selectedAdvancedEffortOption?.description && (
+                            <span className="ml-2 text-[var(--color-stone)]/60">
+                              {selectedAdvancedEffortOption.description}
+                            </span>
+                          )}
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                            advancedEffortDropdownOpen && 'rotate-180'
+                          )}
+                        />
+                      </button>
+
+                      {advancedEffortDropdownOpen && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                          {EFFORT_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={cn(
+                                'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                effortOverride === option.value
+                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                  : 'text-[var(--color-stone)]'
+                              )}
+                              onClick={() => {
+                                setEffortOverride(option.value)
+                                setAdvancedEffortDropdownOpen(false)
+                              }}
+                            >
+                              {option.label}
+                              {option.description && (
+                                <span className="ml-2 text-[var(--color-stone)]/60">
+                                  {option.description}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Max Budget Override */}
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                      Max Budget (USD)
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-body text-[var(--color-stone)]/60">$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Use profile default"
+                        value={maxBudgetOverride}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                            setMaxBudgetOverride(value)
+                          }
+                        }}
+                        className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Model Transition (only shown for Planning profile) */}
+                  {profile === 'planning' && (
+                    <div>
+                      <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                        Model Transition
+                      </label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                          onClick={() =>
+                            setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)
+                          }
+                        >
+                          <span
+                            className={
+                              modelTransition
+                                ? 'text-[var(--color-paper)]'
+                                : 'text-[var(--color-stone)]/60'
+                            }
+                          >
+                            {selectedModelTransitionOption?.label || 'None (single model)'}
+                            {selectedModelTransitionOption?.description && modelTransition && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {selectedModelTransitionOption.description}
+                              </span>
+                            )}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                              modelTransitionDropdownOpen && 'rotate-180'
+                            )}
+                          />
+                        </button>
+
+                        {modelTransitionDropdownOpen && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                            {MODEL_TRANSITION_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={cn(
+                                  'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                  modelTransition === option.value
+                                    ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                    : 'text-[var(--color-stone)]'
+                                )}
+                                onClick={() => {
+                                  setModelTransition(option.value)
+                                  setModelTransitionDropdownOpen(false)
+                                }}
+                              >
+                                {option.label}
+                                {option.description && (
+                                  <span className="ml-2 text-[var(--color-stone)]/60">
+                                    {option.description}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
-              title="⌘+Enter to submit"
-            >
-              <Play className="w-3 h-3" />
-              {submitting ? 'Starting...' : 'Start'}
-            </button>
-          </div>
-        </form>
+            </div>
+
+            {/* Error */}
+            {error && <p className="text-body text-[var(--color-vermillion)]">{error}</p>}
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!selectedProject || !prompt.trim() || submitting}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                  selectedProject && prompt.trim() && !submitting
+                    ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                    : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
+                )}
+                title="⌘+Enter to submit"
+              >
+                <Play className="w-3 h-3" />
+                {submitting ? 'Starting...' : 'Start'}
+              </button>
+            </div>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   )

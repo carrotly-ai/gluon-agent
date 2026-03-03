@@ -223,3 +223,165 @@ class TestNotify:
 
         await dispatcher.notify(run, RunStatus.RUNNING, RunStatus.FAILED)
         transport.send.assert_awaited_once()
+
+
+# ===================================================================
+# Enhanced notification formatting (F7)
+# ===================================================================
+
+
+class TestFormatEnhancements:
+    def test_duration_included(self):
+        from datetime import timedelta
+
+        from gluon.models import utc_now
+
+        run = _make_run()
+        run.started_at = utc_now() - timedelta(minutes=2, seconds=3)
+        run.completed_at = utc_now()
+        dispatcher = NotificationDispatcher(store=MagicMock())
+        result = dispatcher._format(run, "proj", RunStatus.COMPLETED)
+        assert "2m" in result
+
+    def test_model_used_included(self):
+        # The format logic does: model_used.split(".")[-1][:20]
+        # For "sonnet", split(".")[-1] → "sonnet"
+        run = ExecutionRun(
+            project_id="proj-1",
+            prompt="Fix the login bug",
+            status=RunStatus.COMPLETED,
+            cost_usd=1.50,
+            model_used="sonnet",
+        )
+        dispatcher = NotificationDispatcher(store=MagicMock())
+        result = dispatcher._format(run, "proj", RunStatus.COMPLETED)
+        assert "sonnet" in result
+
+    def test_chain_context_included(self):
+        run = ExecutionRun(
+            project_id="proj-1",
+            prompt="Fix the login bug",
+            status=RunStatus.COMPLETED,
+            metadata={"chain_id": "abc123", "step_name": "implement"},
+        )
+        dispatcher = NotificationDispatcher(store=MagicMock())
+        result = dispatcher._format(run, "proj", RunStatus.COMPLETED)
+        assert "Chain step: implement" in result
+
+    def test_no_chain_context_when_missing(self):
+        run = _make_run()
+        dispatcher = NotificationDispatcher(store=MagicMock())
+        result = dispatcher._format(run, "proj", RunStatus.COMPLETED)
+        assert "Chain step" not in result
+
+
+class TestFormatDuration:
+    def test_seconds(self):
+        assert NotificationDispatcher._format_duration(45) == "45s"
+
+    def test_minutes(self):
+        assert NotificationDispatcher._format_duration(125) == "2m 5s"
+
+    def test_hours(self):
+        assert NotificationDispatcher._format_duration(3661) == "1h 1m"
+
+
+class TestNotifyChainCompleted:
+    @pytest.mark.asyncio
+    async def test_sends_chain_notification(self):
+        mapping = _make_mapping("telegram", "chat-1")
+        store = _make_mock_store(mappings=[mapping])
+        transport = AsyncMock()
+        dispatcher = NotificationDispatcher(store=store, transports={"telegram": transport})
+
+        await dispatcher.notify_chain_completed(
+            chain_id="chain-1",
+            chain_name="build-feature",
+            project_id="proj-1",
+            total_steps=3,
+            completed_steps=3,
+        )
+        transport.send.assert_awaited_once()
+        call_args = transport.send.call_args
+        text = call_args[0][1].text
+        assert "build-feature" in text
+        assert "3/3" in text
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_transports(self):
+        store = _make_mock_store()
+        dispatcher = NotificationDispatcher(store=store, transports={})
+        await dispatcher.notify_chain_completed(
+            chain_id="c1",
+            chain_name="test",
+            project_id="p1",
+            total_steps=1,
+            completed_steps=1,
+        )
+        store.list_channel_mappings_for_project.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_mappings(self):
+        store = _make_mock_store(mappings=[])
+        transport = AsyncMock()
+        dispatcher = NotificationDispatcher(store=store, transports={"telegram": transport})
+        await dispatcher.notify_chain_completed(
+            chain_id="c1",
+            chain_name="test",
+            project_id="p1",
+            total_steps=1,
+            completed_steps=1,
+        )
+        transport.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_transport_failure_doesnt_raise(self):
+        mapping = _make_mapping("telegram", "chat-1")
+        store = _make_mock_store(mappings=[mapping])
+        transport = AsyncMock()
+        transport.send = AsyncMock(side_effect=Exception("Network error"))
+        dispatcher = NotificationDispatcher(store=store, transports={"telegram": transport})
+
+        # Should not raise
+        await dispatcher.notify_chain_completed(
+            chain_id="c1",
+            chain_name="test",
+            project_id="p1",
+            total_steps=2,
+            completed_steps=2,
+        )
+
+
+# ===================================================================
+# Additional format edge cases
+# ===================================================================
+
+
+class TestFormatEdgeCases:
+    def test_chain_id_without_step_name(self):
+        run = ExecutionRun(
+            project_id="proj-1",
+            prompt="Fix the bug",
+            status=RunStatus.COMPLETED,
+            metadata={"chain_id": "abc123"},  # No step_name key
+        )
+        dispatcher = NotificationDispatcher(store=MagicMock())
+        result = dispatcher._format(run, "proj", RunStatus.COMPLETED)
+        assert "Chain step" not in result
+
+    def test_chain_id_with_empty_step_name(self):
+        run = ExecutionRun(
+            project_id="proj-1",
+            prompt="Fix the bug",
+            status=RunStatus.COMPLETED,
+            metadata={"chain_id": "abc123", "step_name": ""},
+        )
+        dispatcher = NotificationDispatcher(store=MagicMock())
+        result = dispatcher._format(run, "proj", RunStatus.COMPLETED)
+        assert "Chain step" not in result
+
+    def test_format_duration_zero(self):
+        assert NotificationDispatcher._format_duration(0) == "0s"
+
+    def test_format_duration_sub_second(self):
+        assert NotificationDispatcher._format_duration(0.7) == "1s"

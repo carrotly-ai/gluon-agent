@@ -60,6 +60,34 @@ class TestFormatRunStatus:
     def test_review_falls_to_default(self):
         assert format_run_status(RunStatus.REVIEW) == ("❓", "white")
 
+    def test_running_with_healthy(self):
+        from gluon.runner import RunHealth
+
+        emoji, color = format_run_status(RunStatus.RUNNING, RunHealth.HEALTHY)
+        assert emoji == "🟢"
+        assert color == "green"
+
+    def test_running_with_slow(self):
+        from gluon.runner import RunHealth
+
+        emoji, color = format_run_status(RunStatus.RUNNING, RunHealth.SLOW)
+        assert emoji == "🟡"
+        assert color == "yellow"
+
+    def test_running_with_stalled(self):
+        from gluon.runner import RunHealth
+
+        emoji, color = format_run_status(RunStatus.RUNNING, RunHealth.STALLED)
+        assert emoji == "🔴"
+        assert color == "red"
+
+    def test_non_running_ignores_health(self):
+        from gluon.runner import RunHealth
+
+        emoji, color = format_run_status(RunStatus.COMPLETED, RunHealth.STALLED)
+        assert emoji == "✅"
+        assert color == "green"
+
 
 # ---------------------------------------------------------------------------
 # _parse_completed_tasks

@@ -8,6 +8,8 @@ from pathlib import Path
 from gluon.models import (
     CHAT_HISTORY_TTL_HOURS,
     MESSAGE_RUN_MAP_TTL_DAYS,
+    ActivityEvent,
+    ChainStatus,
     ChannelMapping,
     ChatHistoryEntry,
     CircuitState,
@@ -16,26 +18,37 @@ from gluon.models import (
     ExecutionRun,
     FileChangeSnapshot,
     GitStatus,
+    HealthClassification,
     ImageAttachment,
     Job,
     JobStatus,
+    MergeQueueEntry,
+    MergeQueueStatus,
     MessageRunMapping,
     PendingQuestion,
     Project,
     QuestionStatus,
     QueuedMessage,
     RalphLoopIteration,
+    RecoveryAction,
     RunStatus,
     Session,
     SessionStatus,
+    StepStatus,
     SupervisionConfig,
     SupervisionDecision,
     SupervisionPolicy,
+    TaskChain,
+    TaskProfile,
+    TaskStep,
     TodoSnapshot,
     WebhookConfig,
+    WitnessDecision,
     Worker,
     WorkerStatus,
     WorkerType,
+    WorkQueueItem,
+    WorkQueueStatus,
     Workspace,
     utc_now,
 )
@@ -434,6 +447,121 @@ MIGRATIONS = [
     );
     """,
     "CREATE INDEX IF NOT EXISTS idx_todo_snapshots_run ON todo_snapshots(run_id);",
+    # Health monitoring: track last output time for stuck detection
+    "ALTER TABLE execution_runs ADD COLUMN last_output_at TEXT;",
+    # Task chains: multi-step DAG-based task execution
+    """
+    CREATE TABLE IF NOT EXISTS task_chains (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        use_worktree INTEGER NOT NULL DEFAULT 0,
+        initiator TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_task_chains_project ON task_chains(project_id);",
+    "CREATE INDEX IF NOT EXISTS idx_task_chains_status ON task_chains(status);",
+    """
+    CREATE TABLE IF NOT EXISTS task_steps (
+        id TEXT PRIMARY KEY,
+        chain_id TEXT NOT NULL REFERENCES task_chains(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        depends_on TEXT NOT NULL DEFAULT '[]',
+        profile TEXT NOT NULL DEFAULT 'standard',
+        status TEXT NOT NULL DEFAULT 'pending',
+        run_id TEXT REFERENCES execution_runs(id),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        error_message TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_task_steps_chain ON task_steps(chain_id);",
+    "CREATE INDEX IF NOT EXISTS idx_task_steps_status ON task_steps(status);",
+    # Link runs back to chains
+    "ALTER TABLE execution_runs ADD COLUMN chain_id TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN step_id TEXT;",
+    # Activity Log (F11): cross-agent queryable event stream
+    """
+    CREATE TABLE IF NOT EXISTS activity_events (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        result TEXT,
+        message TEXT,
+        metadata TEXT,
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_events(timestamp DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity_events(actor);",
+    "CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_events(action);",
+    # Work Queue (F12): shared work queue for autonomous agent claiming
+    """
+    CREATE TABLE IF NOT EXISTS work_queue (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        profile TEXT DEFAULT 'standard',
+        priority INTEGER DEFAULT 10,
+        status TEXT NOT NULL DEFAULT 'pending',
+        claimed_by TEXT,
+        created_at TEXT NOT NULL,
+        claimed_at TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        last_heartbeat_at TEXT,
+        error_message TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_work_queue_status ON work_queue(status);",
+    "CREATE INDEX IF NOT EXISTS idx_work_queue_priority ON work_queue(priority, created_at);",
+    # Merge Queue (F8): sequential merge processing for PRs
+    """
+    CREATE TABLE IF NOT EXISTS merge_queue (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        branch_name TEXT NOT NULL,
+        pr_number INTEGER,
+        pr_url TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        priority INTEGER DEFAULT 10,
+        conflict_count INTEGER DEFAULT 0,
+        max_retries INTEGER DEFAULT 3,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        processing_started_at TEXT,
+        completed_at TEXT,
+        next_retry_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_merge_queue_status ON merge_queue(status);",
+    "CREATE INDEX IF NOT EXISTS idx_merge_queue_priority ON merge_queue(priority, created_at);",
+    # Witness Pattern (F9): LLM-based health classification
+    """
+    CREATE TABLE IF NOT EXISTS witness_decisions (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        classification TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        reasoning TEXT,
+        action TEXT NOT NULL DEFAULT 'none',
+        action_result TEXT,
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_witness_run ON witness_decisions(run_id);",
+    # Track shared run_id on task chains (unified formula execution)
+    "ALTER TABLE task_chains ADD COLUMN run_id TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1159,7 +1287,7 @@ class GluonStore:
                     supervision_auto_resume_count = ?, last_supervision_check_at = ?,
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?,
                     queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?,
-                    metadata = ?
+                    metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?
                 WHERE id = ?
                 """,
                 (
@@ -1230,6 +1358,10 @@ class GluonStore:
                     run.snapshot_at.isoformat() if run.snapshot_at else None,
                     # Task profile metadata
                     json.dumps(run.metadata) if run.metadata else None,
+                    # Health monitoring + chain linking
+                    run.last_output_at.isoformat() if run.last_output_at else None,
+                    run.chain_id,
+                    run.step_id,
                     run.id,
                 ),
             )
@@ -1417,6 +1549,11 @@ class GluonStore:
             snapshot_at=_parse_datetime(row["snapshot_at"]) if "snapshot_at" in keys else None,
             # Task profile metadata
             metadata=json.loads(row["metadata"]) if "metadata" in keys and row["metadata"] else None,
+            # Health monitoring
+            last_output_at=_parse_datetime(row["last_output_at"]) if "last_output_at" in keys else None,
+            # Task chain linking
+            chain_id=row["chain_id"] if "chain_id" in keys else None,
+            step_id=row["step_id"] if "step_id" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
@@ -3061,4 +3198,596 @@ class GluonStore:
             text=row["text"],
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             expires_at=_parse_datetime(row["expires_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Task Chain CRUD ==========
+
+    def create_chain(self, chain: TaskChain) -> TaskChain:
+        """Create a new task chain."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO task_chains (id, project_id, name, description, status,
+                    created_at, started_at, completed_at, use_worktree, initiator)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chain.id,
+                    chain.project_id,
+                    chain.name,
+                    chain.description,
+                    chain.status.value,
+                    chain.created_at.isoformat(),
+                    chain.started_at.isoformat() if chain.started_at else None,
+                    chain.completed_at.isoformat() if chain.completed_at else None,
+                    1 if chain.use_worktree else 0,
+                    chain.initiator,
+                ),
+            )
+        return chain
+
+    def get_chain(self, chain_id: str) -> TaskChain | None:
+        """Get a task chain by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM task_chains WHERE id = ?", (chain_id,)).fetchone()
+            if row:
+                chain = self._row_to_chain(row)
+                chain.steps = self.list_steps(chain_id)
+                return chain
+        return None
+
+    def list_chains(
+        self,
+        project_id: str | None = None,
+        status: ChainStatus | None = None,
+    ) -> list[TaskChain]:
+        """List task chains with optional filters."""
+        with self._get_conn() as conn:
+            query = "SELECT * FROM task_chains WHERE 1=1"
+            params: list[str] = []
+            if project_id:
+                query += " AND project_id = ?"
+                params.append(project_id)
+            if status:
+                query += " AND status = ?"
+                params.append(status.value)
+            query += " ORDER BY created_at DESC"
+            rows = conn.execute(query, params).fetchall()
+            chains = [self._row_to_chain(row) for row in rows]
+            for chain in chains:
+                chain.steps = self.list_steps(chain.id)
+            return chains
+
+    def update_chain(self, chain: TaskChain) -> None:
+        """Update a task chain."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE task_chains
+                SET status = ?, started_at = ?, completed_at = ?, run_id = ?
+                WHERE id = ?
+                """,
+                (
+                    chain.status.value,
+                    chain.started_at.isoformat() if chain.started_at else None,
+                    chain.completed_at.isoformat() if chain.completed_at else None,
+                    chain.run_id,
+                    chain.id,
+                ),
+            )
+
+    def _row_to_chain(self, row: sqlite3.Row) -> TaskChain:
+        """Convert database row to TaskChain model."""
+        # run_id column may not exist in older databases
+        run_id = None
+        try:
+            run_id = row["run_id"]
+        except (IndexError, KeyError):
+            pass
+        return TaskChain(
+            id=row["id"],
+            project_id=row["project_id"],
+            name=row["name"],
+            description=row["description"],
+            status=ChainStatus(row["status"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            started_at=_parse_datetime(row["started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
+            use_worktree=bool(row["use_worktree"]),
+            initiator=row["initiator"],
+            run_id=run_id,
+        )
+
+    # ========== Task Step CRUD ==========
+
+    def create_step(self, step: TaskStep) -> TaskStep:
+        """Create a new task step."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO task_steps (id, chain_id, name, prompt, depends_on, profile,
+                    status, run_id, created_at, started_at, completed_at, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    step.id,
+                    step.chain_id,
+                    step.name,
+                    step.prompt,
+                    json.dumps(step.depends_on),
+                    step.profile.value,
+                    step.status.value,
+                    step.run_id,
+                    step.created_at.isoformat(),
+                    step.started_at.isoformat() if step.started_at else None,
+                    step.completed_at.isoformat() if step.completed_at else None,
+                    step.error_message,
+                ),
+            )
+        return step
+
+    def get_step(self, step_id: str) -> TaskStep | None:
+        """Get a task step by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM task_steps WHERE id = ?", (step_id,)).fetchone()
+            if row:
+                return self._row_to_step(row)
+        return None
+
+    def list_steps(self, chain_id: str) -> list[TaskStep]:
+        """List all steps in a chain."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM task_steps WHERE chain_id = ? ORDER BY created_at ASC",
+                (chain_id,),
+            ).fetchall()
+            return [self._row_to_step(row) for row in rows]
+
+    def update_step(self, step: TaskStep) -> None:
+        """Update a task step."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE task_steps
+                SET status = ?, run_id = ?, started_at = ?, completed_at = ?, error_message = ?
+                WHERE id = ?
+                """,
+                (
+                    step.status.value,
+                    step.run_id,
+                    step.started_at.isoformat() if step.started_at else None,
+                    step.completed_at.isoformat() if step.completed_at else None,
+                    step.error_message,
+                    step.id,
+                ),
+            )
+
+    def get_ready_steps(self, chain_id: str) -> list[TaskStep]:
+        """Get steps whose dependencies are all completed and are pending/ready."""
+        all_steps = self.list_steps(chain_id)
+        completed_ids = {s.id for s in all_steps if s.status == StepStatus.COMPLETED}
+
+        ready = []
+        for step in all_steps:
+            if step.status not in (StepStatus.PENDING, StepStatus.READY):
+                continue
+            if all(dep_id in completed_ids for dep_id in step.depends_on):
+                ready.append(step)
+        return ready
+
+    def _row_to_step(self, row: sqlite3.Row) -> TaskStep:
+        """Convert database row to TaskStep model."""
+        return TaskStep(
+            id=row["id"],
+            chain_id=row["chain_id"],
+            name=row["name"],
+            prompt=row["prompt"],
+            depends_on=json.loads(row["depends_on"]) if row["depends_on"] else [],
+            profile=TaskProfile(row["profile"]) if row["profile"] else TaskProfile.STANDARD,
+            status=StepStatus(row["status"]),
+            run_id=row["run_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            started_at=_parse_datetime(row["started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
+            error_message=row["error_message"],
+        )
+
+    # ========== Activity Log CRUD (F11) ==========
+
+    def log_activity(
+        self,
+        actor: str,
+        action: str,
+        result: str | None = None,
+        message: str | None = None,
+        metadata: dict | None = None,
+    ) -> ActivityEvent:
+        """Log an activity event."""
+        event = ActivityEvent(
+            actor=actor,
+            action=action,
+            result=result,
+            message=message,
+            metadata=metadata,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO activity_events (id, timestamp, actor, action, result, message, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.id,
+                    event.timestamp.isoformat(),
+                    event.actor,
+                    event.action,
+                    event.result,
+                    event.message,
+                    json.dumps(event.metadata) if event.metadata else None,
+                    event.created_at.isoformat(),
+                ),
+            )
+        return event
+
+    def list_activities(
+        self,
+        actor: str | None = None,
+        action: str | None = None,
+        since: datetime | None = None,
+        limit: int = 50,
+    ) -> list[ActivityEvent]:
+        """Query activity events with optional filters."""
+        conditions: list[str] = []
+        params: list[str | int] = []
+        if actor:
+            conditions.append("actor = ?")
+            params.append(actor)
+        if action:
+            conditions.append("action = ?")
+            params.append(action)
+        if since:
+            conditions.append("timestamp >= ?")
+            params.append(since.isoformat())
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM activity_events{where} ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_activity_event(row) for row in rows]
+
+    def cleanup_activities(self, days: int = 90) -> int:
+        """Delete events older than N days. Returns count deleted."""
+        from datetime import timedelta
+
+        cutoff = (utc_now() - timedelta(days=days)).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM activity_events WHERE timestamp < ?", (cutoff,))
+            return cursor.rowcount
+
+    def _row_to_activity_event(self, row: sqlite3.Row) -> ActivityEvent:
+        """Convert database row to ActivityEvent model."""
+        return ActivityEvent(
+            id=row["id"],
+            timestamp=_parse_datetime(row["timestamp"]),  # type: ignore[arg-type]
+            actor=row["actor"],
+            action=row["action"],
+            result=row["result"],
+            message=row["message"],
+            metadata=json.loads(row["metadata"]) if row["metadata"] else None,
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Work Queue CRUD (F12) ==========
+
+    def enqueue_work(
+        self,
+        project_id: str,
+        prompt: str,
+        profile: str = "standard",
+        priority: int = 10,
+    ) -> WorkQueueItem:
+        """Add an item to the work queue."""
+        item = WorkQueueItem(
+            project_id=project_id,
+            prompt=prompt,
+            profile=profile,
+            priority=priority,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO work_queue (id, project_id, prompt, profile, priority, status,
+                    claimed_by, created_at, claimed_at, started_at, completed_at,
+                    last_heartbeat_at, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.id,
+                    item.project_id,
+                    item.prompt,
+                    item.profile,
+                    item.priority,
+                    item.status.value,
+                    item.claimed_by,
+                    item.created_at.isoformat(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+            )
+        return item
+
+    def claim_work(self, project_id: str) -> WorkQueueItem | None:
+        """Atomically claim highest-priority unclaimed item. Returns None if empty."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM work_queue
+                WHERE project_id = ? AND status = ?
+                ORDER BY priority ASC, created_at ASC
+                LIMIT 1
+                """,
+                (project_id, WorkQueueStatus.PENDING.value),
+            ).fetchone()
+            if not row:
+                return None
+
+            now = utc_now().isoformat()
+            conn.execute(
+                "UPDATE work_queue SET status = ?, claimed_at = ? WHERE id = ?",
+                (WorkQueueStatus.CLAIMED.value, now, row["id"]),
+            )
+            item = self._row_to_work_queue_item(row)
+            item.status = WorkQueueStatus.CLAIMED
+            item.claimed_at = _parse_datetime(now)
+            return item
+
+    def update_work_item(self, item: WorkQueueItem) -> None:
+        """Update a work queue item."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE work_queue
+                SET status = ?, claimed_by = ?, started_at = ?, completed_at = ?,
+                    last_heartbeat_at = ?, error_message = ?
+                WHERE id = ?
+                """,
+                (
+                    item.status.value,
+                    item.claimed_by,
+                    item.started_at.isoformat() if item.started_at else None,
+                    item.completed_at.isoformat() if item.completed_at else None,
+                    item.last_heartbeat_at.isoformat() if item.last_heartbeat_at else None,
+                    item.error_message,
+                    item.id,
+                ),
+            )
+
+    def list_work_items(
+        self,
+        project_id: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[WorkQueueItem]:
+        """List work queue items with optional filters."""
+        conditions: list[str] = []
+        params: list[str | int] = []
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM work_queue{where} ORDER BY priority ASC, created_at ASC LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_work_queue_item(row) for row in rows]
+
+    def release_stale_work_claims(self, threshold_secs: int = 1800) -> int:
+        """Release items claimed >threshold ago with no heartbeat. Returns count."""
+        from datetime import timedelta
+
+        cutoff = (utc_now() - timedelta(seconds=threshold_secs)).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE work_queue SET status = ?, claimed_by = NULL, claimed_at = NULL
+                WHERE status = ? AND claimed_at < ?
+                AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?)
+                """,
+                (
+                    WorkQueueStatus.PENDING.value,
+                    WorkQueueStatus.CLAIMED.value,
+                    cutoff,
+                    cutoff,
+                ),
+            )
+            return cursor.rowcount
+
+    def _row_to_work_queue_item(self, row: sqlite3.Row) -> WorkQueueItem:
+        """Convert database row to WorkQueueItem model."""
+        return WorkQueueItem(
+            id=row["id"],
+            project_id=row["project_id"],
+            prompt=row["prompt"],
+            profile=row["profile"] or "standard",
+            priority=row["priority"] or 10,
+            status=WorkQueueStatus(row["status"]),
+            claimed_by=row["claimed_by"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            claimed_at=_parse_datetime(row["claimed_at"]),
+            started_at=_parse_datetime(row["started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
+            last_heartbeat_at=_parse_datetime(row["last_heartbeat_at"]),
+            error_message=row["error_message"],
+        )
+
+    # ========== Merge Queue CRUD (F8) ==========
+
+    def enqueue_merge(self, entry: MergeQueueEntry) -> MergeQueueEntry:
+        """Add an entry to the merge queue."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO merge_queue (id, run_id, project_id, branch_name, pr_number,
+                    pr_url, status, priority, conflict_count, max_retries, last_error,
+                    created_at, processing_started_at, completed_at, next_retry_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry.id,
+                    entry.run_id,
+                    entry.project_id,
+                    entry.branch_name,
+                    entry.pr_number,
+                    entry.pr_url,
+                    entry.status.value,
+                    entry.priority,
+                    entry.conflict_count,
+                    entry.max_retries,
+                    entry.last_error,
+                    entry.created_at.isoformat(),
+                    None,
+                    None,
+                    None,
+                ),
+            )
+        return entry
+
+    def get_merge_entry(self, entry_id: str) -> MergeQueueEntry | None:
+        """Get a merge queue entry by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM merge_queue WHERE id = ?", (entry_id,)).fetchone()
+            if row:
+                return self._row_to_merge_entry(row)
+        return None
+
+    def update_merge_entry(self, entry: MergeQueueEntry) -> None:
+        """Update a merge queue entry."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE merge_queue
+                SET status = ?, priority = ?, conflict_count = ?, last_error = ?,
+                    processing_started_at = ?, completed_at = ?, next_retry_at = ?
+                WHERE id = ?
+                """,
+                (
+                    entry.status.value,
+                    entry.priority,
+                    entry.conflict_count,
+                    entry.last_error,
+                    entry.processing_started_at.isoformat() if entry.processing_started_at else None,
+                    entry.completed_at.isoformat() if entry.completed_at else None,
+                    entry.next_retry_at.isoformat() if entry.next_retry_at else None,
+                    entry.id,
+                ),
+            )
+
+    def list_merge_entries(
+        self,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[MergeQueueEntry]:
+        """List merge queue entries with optional status filter."""
+        if status:
+            query = "SELECT * FROM merge_queue WHERE status = ? ORDER BY priority ASC, created_at ASC LIMIT ?"
+            params: tuple = (status, limit)
+        else:
+            query = "SELECT * FROM merge_queue ORDER BY priority ASC, created_at ASC LIMIT ?"
+            params = (limit,)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_merge_entry(row) for row in rows]
+
+    def _row_to_merge_entry(self, row: sqlite3.Row) -> MergeQueueEntry:
+        """Convert database row to MergeQueueEntry model."""
+        return MergeQueueEntry(
+            id=row["id"],
+            run_id=row["run_id"],
+            project_id=row["project_id"],
+            branch_name=row["branch_name"],
+            pr_number=row["pr_number"],
+            pr_url=row["pr_url"],
+            status=MergeQueueStatus(row["status"]),
+            priority=row["priority"] or 10,
+            conflict_count=row["conflict_count"] or 0,
+            max_retries=row["max_retries"] or 3,
+            last_error=row["last_error"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            processing_started_at=_parse_datetime(row["processing_started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
+            next_retry_at=_parse_datetime(row["next_retry_at"]),
+        )
+
+    # ========== Witness Decision CRUD (F9) ==========
+
+    def record_witness_decision(self, decision: WitnessDecision) -> WitnessDecision:
+        """Record a witness classification decision."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO witness_decisions (id, run_id, timestamp, classification,
+                    confidence, reasoning, action, action_result, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    decision.id,
+                    decision.run_id,
+                    decision.timestamp.isoformat(),
+                    decision.classification.value,
+                    decision.confidence,
+                    decision.reasoning,
+                    decision.action.value,
+                    decision.action_result,
+                    decision.created_at.isoformat(),
+                ),
+            )
+        return decision
+
+    def list_witness_decisions(
+        self,
+        run_id: str,
+        limit: int = 20,
+    ) -> list[WitnessDecision]:
+        """List witness decisions for a run."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM witness_decisions WHERE run_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (run_id, limit),
+            ).fetchall()
+            return [self._row_to_witness_decision(row) for row in rows]
+
+    def get_latest_witness_decision(self, run_id: str) -> WitnessDecision | None:
+        """Get the most recent witness decision for a run."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM witness_decisions WHERE run_id = ? ORDER BY timestamp DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            if row:
+                return self._row_to_witness_decision(row)
+        return None
+
+    def _row_to_witness_decision(self, row: sqlite3.Row) -> WitnessDecision:
+        """Convert database row to WitnessDecision model."""
+        return WitnessDecision(
+            id=row["id"],
+            run_id=row["run_id"],
+            timestamp=_parse_datetime(row["timestamp"]),  # type: ignore[arg-type]
+            classification=HealthClassification(row["classification"]),
+            confidence=row["confidence"],
+            reasoning=row["reasoning"],
+            action=RecoveryAction(row["action"]),
+            action_result=row["action_result"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
         )

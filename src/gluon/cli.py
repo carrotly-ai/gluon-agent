@@ -24,7 +24,7 @@ from gluon.core import (
 from gluon.git_manager import GitManager
 from gluon.models import CircuitState, RunStatus
 from gluon.models_config import MODEL_ALIASES, ModelTier, describe_models
-from gluon.runner import TaskRunner, format_duration, format_run_status
+from gluon.runner import RunHealth, TaskRunner, assess_run_health, format_duration, format_run_status
 from gluon.store import GluonStore
 
 # Load environment variables from .env files (in order of precedence)
@@ -59,6 +59,12 @@ app.add_typer(ralph_app, name="ralph")
 
 supervision_app = typer.Typer(help="Supervision and auto-resume commands")
 app.add_typer(supervision_app, name="supervision")
+
+doctor_app = typer.Typer(help="System health diagnostics")
+app.add_typer(doctor_app, name="doctor")
+
+chain_app = typer.Typer(help="Task chain management")
+app.add_typer(chain_app, name="chain")
 
 supervisor_app = typer.Typer(help="Supervisor daemon management")
 app.add_typer(supervisor_app, name="supervisor")
@@ -842,6 +848,10 @@ def run(
         typer.Option("--effort", help="Reasoning effort: low/medium/high/max"),
     ] = None,
     planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,
+    no_hydrate: Annotated[bool, typer.Option("--no-hydrate", help="Disable pre-hydration of project context")] = False,
+    no_validate: Annotated[
+        bool, typer.Option("--no-validate", help="Disable lint+test validation after completion")
+    ] = False,
 ):
     """Execute a task on a project.
 
@@ -895,6 +905,8 @@ def run(
                 thinking_budget=thinking,
                 force_planning=planning if planning else None,
                 effort=effort,
+                enable_prehydration=not no_hydrate,
+                blueprint_enabled=not no_validate,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
@@ -905,6 +917,10 @@ def run(
                 console.print(f"  [blue]Ralph mode:[/blue] max {max_loops} loops, {max_calls} calls/hr")
                 if max_cost:
                     console.print(f"  Cost cap: ${max_cost:.2f}")
+            if no_hydrate:
+                console.print("  [blue]Pre-hydration:[/blue] disabled")
+            if no_validate:
+                console.print("  [blue]Blueprint validation:[/blue] disabled")
             console.print()
             console.print("[dim]Use 'gluon runs' to check status[/dim]")
             console.print(f"[dim]Use 'gluon logs {run_obj.id[:8]}' to view logs[/dim]")
@@ -1609,19 +1625,32 @@ def runs(
     table = Table(title="Execution Runs")
     table.add_column("ID", style="cyan")
     table.add_column("Status")
+    table.add_column("Health")
     table.add_column("Project")
     table.add_column("Prompt")
     table.add_column("Duration")
     table.add_column("Created", style="dim")
 
+    log_path = runner.config.log_path
     for run in runs_list:
-        emoji, color = format_run_status(run.status)
+        # Assess health for running tasks
+        health: RunHealth | None = None
+        if run.status == RunStatus.RUNNING:
+            health = assess_run_health(run, log_path)
+
+        emoji, color = format_run_status(run.status, health)
         duration = format_duration(run.duration_seconds)
         proj_name = project_lookup.get(run.project_id, run.project_id[:8])
+
+        health_str = ""
+        if health and health != RunHealth.UNKNOWN:
+            health_color = {"healthy": "green", "slow": "yellow", "stalled": "red"}.get(health.value, "dim")
+            health_str = f"[{health_color}]{health.value}[/{health_color}]"
 
         table.add_row(
             run.id[:8],
             f"[{color}]{emoji} {run.status.value}[/{color}]",
+            health_str,
             proj_name,
             (run.prompt[:30] + "...") if len(run.prompt) > 30 else run.prompt,
             duration,
@@ -2453,6 +2482,737 @@ def _print_result(result: AgentResult) -> None:
 
     if result.claude_session_id:
         console.print(f"[dim]Session: {result.claude_session_id[:8]}...[/dim]")
+
+
+# ========== Chain Commands ==========
+
+
+@chain_app.command("create")
+def chain_create(
+    project: Annotated[str, typer.Argument(help="Project name")],
+    name: Annotated[str, typer.Argument(help="Chain name")],
+    steps_file: Annotated[Path, typer.Argument(help="YAML/JSON file with step definitions")],
+    worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Execute in worktree")] = False,
+):
+    """Create a task chain from a step definition file."""
+    import yaml
+
+    from gluon.chain_executor import ChainExecutor
+    from gluon.models import TaskChain, TaskProfile, TaskStep
+
+    store = GluonStore()
+    orchestrator = get_orchestrator()
+
+    try:
+        proj = orchestrator.get_project(project)
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    if not steps_file.exists():
+        console.print(f"[red]Error:[/red] File not found: {steps_file}")
+        raise typer.Exit(1)
+
+    # Parse step definitions
+    with open(steps_file) as f:
+        if steps_file.suffix in (".yaml", ".yml"):
+            data = yaml.safe_load(f)
+        else:
+            import json as json_mod
+
+            data = json_mod.load(f)
+
+    chain = TaskChain(
+        project_id=proj.id,
+        name=data.get("name", name),
+        description=data.get("description"),
+        use_worktree=data.get("use_worktree", worktree),
+        initiator="cli",
+    )
+
+    # Create steps with name-based ID mapping
+    step_name_to_id: dict[str, str] = {}
+    steps_data = data.get("steps", [])
+
+    # First pass: create steps and map names to IDs
+    for step_data in steps_data:
+        step = TaskStep(
+            chain_id=chain.id,
+            name=step_data["name"],
+            prompt=step_data["prompt"],
+            profile=TaskProfile(step_data.get("profile", "standard")),
+        )
+        step_name_to_id[step.name] = step.id
+        chain.steps.append(step)
+
+    # Second pass: resolve depends_on names to IDs
+    for i, step_data in enumerate(steps_data):
+        dep_names = step_data.get("depends_on", [])
+        dep_ids = []
+        for dep_name in dep_names:
+            dep_id = step_name_to_id.get(dep_name)
+            if not dep_id:
+                console.print(f"[red]Error:[/red] Step '{chain.steps[i].name}' depends on unknown step '{dep_name}'")
+                raise typer.Exit(1)
+            dep_ids.append(dep_id)
+        chain.steps[i].depends_on = dep_ids
+
+    # Validate
+    runner = TaskRunner(store=store)
+    executor = ChainExecutor(store, runner)
+    errors = executor.validate_chain(chain)
+    if errors:
+        for err in errors:
+            console.print(f"[red]Error:[/red] {err}")
+        raise typer.Exit(1)
+
+    # Persist
+    store.create_chain(chain)
+    for step in chain.steps:
+        store.create_step(step)
+
+    console.print(f"[green]Created chain[/green] {chain.id} ({chain.name})")
+    console.print(f"  {len(chain.steps)} steps defined")
+
+    # Show step graph
+    for step in chain.steps:
+        deps = [s.name for s in chain.steps if s.id in step.depends_on]
+        dep_str = f" (after: {', '.join(deps)})" if deps else ""
+        console.print(f"  - {step.name} [{step.profile.value}]{dep_str}")
+
+    console.print(f"\nStart with: [bold]gluon chain start {chain.id}[/bold]")
+
+
+@chain_app.command("start")
+def chain_start(
+    chain_id: Annotated[str, typer.Argument(help="Chain ID to start")],
+):
+    """Start executing a task chain."""
+    from gluon.chain_executor import ChainExecutor
+
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+    executor = ChainExecutor(store, runner)
+
+    chain = store.get_chain(chain_id)
+    if not chain:
+        console.print(f"[red]Error:[/red] Chain not found: {chain_id}")
+        raise typer.Exit(1)
+
+    async def _start():
+        await executor.start_chain(chain_id)
+
+    anyio.run(_start)
+    console.print(f"[green]Started chain[/green] {chain_id}")
+    console.print(f"Use [bold]gluon chain show {chain_id}[/bold] to track progress.")
+
+
+@chain_app.command("list")
+def chain_list(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Filter by project")] = None,
+):
+    """List task chains."""
+    from gluon.models import ChainStatus
+
+    store = GluonStore()
+    project_id = None
+    if project:
+        orchestrator = get_orchestrator()
+        try:
+            proj = orchestrator.get_project(project)
+            project_id = proj.id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+    chains = store.list_chains(project_id=project_id)
+    if not chains:
+        console.print("[dim]No chains found.[/dim]")
+        return
+
+    # Project lookup
+    projects = store.list_projects()
+    project_lookup = {p.id: p.name for p in projects}
+
+    table = Table(title="Task Chains")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name")
+    table.add_column("Status")
+    table.add_column("Project")
+    table.add_column("Steps")
+    table.add_column("Created", style="dim")
+
+    status_styles = {
+        ChainStatus.PENDING: ("⏳", "yellow"),
+        ChainStatus.RUNNING: ("🔄", "blue"),
+        ChainStatus.COMPLETED: ("✅", "green"),
+        ChainStatus.FAILED: ("❌", "red"),
+        ChainStatus.CANCELLED: ("🚫", "dim"),
+    }
+
+    for chain in chains:
+        emoji, color = status_styles.get(chain.status, ("❓", "white"))
+        proj_name = project_lookup.get(chain.project_id, chain.project_id[:8])
+        completed = sum(1 for s in chain.steps if s.status.value == "completed")
+        step_str = f"{completed}/{len(chain.steps)}"
+
+        table.add_row(
+            chain.id,
+            chain.name,
+            f"[{color}]{emoji} {chain.status.value}[/{color}]",
+            proj_name,
+            step_str,
+            chain.created_at.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    console.print(table)
+
+
+@chain_app.command("show")
+def chain_show(
+    chain_id: Annotated[str, typer.Argument(help="Chain ID")],
+):
+    """Show chain details with step status."""
+    from gluon.models import StepStatus
+
+    store = GluonStore()
+    chain = store.get_chain(chain_id)
+    if not chain:
+        console.print(f"[red]Error:[/red] Chain not found: {chain_id}")
+        raise typer.Exit(1)
+
+    projects = store.list_projects()
+    project_lookup = {p.id: p.name for p in projects}
+    proj_name = project_lookup.get(chain.project_id, chain.project_id[:8])
+
+    console.print(
+        Panel(
+            f"[bold]{chain.name}[/bold]\n"
+            f"Project: {proj_name}\n"
+            f"Status: {chain.status.value}\n"
+            f"Created: {chain.created_at.strftime('%Y-%m-%d %H:%M')}"
+            + (f"\nDescription: {chain.description}" if chain.description else ""),
+            title=f"Chain {chain.id}",
+        )
+    )
+
+    step_styles = {
+        StepStatus.PENDING: ("⏳", "yellow"),
+        StepStatus.BLOCKED: ("🔒", "dim"),
+        StepStatus.READY: ("🟢", "green"),
+        StepStatus.RUNNING: ("🔄", "blue"),
+        StepStatus.COMPLETED: ("✅", "green"),
+        StepStatus.FAILED: ("❌", "red"),
+        StepStatus.SKIPPED: ("⏭️", "dim"),
+    }
+
+    table = Table(title="Steps")
+    table.add_column("Name", style="bold")
+    table.add_column("Status")
+    table.add_column("Profile")
+    table.add_column("Run ID")
+    table.add_column("Duration")
+
+    step_name_lookup = {s.id: s.name for s in chain.steps}
+    for step in chain.steps:
+        emoji, color = step_styles.get(step.status, ("❓", "white"))
+        deps = [step_name_lookup.get(d, d[:8]) for d in step.depends_on]
+        name = step.name
+        if deps:
+            name += f" (after: {', '.join(deps)})"
+
+        duration = "-"
+        if step.duration_seconds:
+            from gluon.runner import format_duration
+
+            duration = format_duration(step.duration_seconds)
+
+        table.add_row(
+            name,
+            f"[{color}]{emoji} {step.status.value}[/{color}]",
+            step.profile.value,
+            step.run_id[:8] if step.run_id else "-",
+            duration,
+        )
+
+    console.print(table)
+
+
+@chain_app.command("cancel")
+def chain_cancel(
+    chain_id: Annotated[str, typer.Argument(help="Chain ID to cancel")],
+):
+    """Cancel a running chain and all its steps."""
+    from gluon.chain_executor import ChainExecutor
+
+    store = GluonStore()
+    runner = TaskRunner(store=store)
+    executor = ChainExecutor(store, runner)
+
+    chain = store.get_chain(chain_id)
+    if not chain:
+        console.print(f"[red]Error:[/red] Chain not found: {chain_id}")
+        raise typer.Exit(1)
+
+    async def _cancel():
+        await executor.cancel_chain(chain_id)
+
+    anyio.run(_cancel)
+    console.print(f"[green]Cancelled chain[/green] {chain_id}")
+
+
+# ========== Doctor Commands ==========
+
+
+@doctor_app.callback(invoke_without_command=True)
+def doctor_check(
+    ctx: typer.Context,
+    fix: Annotated[bool, typer.Option("--fix", help="Auto-fix fixable issues")] = False,
+):
+    """Run system health diagnostics."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from gluon.doctor import run_all_fixes, run_diagnostics
+    from gluon.store import DEFAULT_LOG_PATH
+
+    store = GluonStore()
+    results = run_diagnostics(store, DEFAULT_LOG_PATH)
+
+    table = Table(title="Gluon Health Check")
+    table.add_column("Check", style="bold")
+    table.add_column("Status")
+    table.add_column("Message")
+    table.add_column("Fixable")
+
+    status_styles = {"ok": "green", "warn": "yellow", "error": "red"}
+
+    for r in results:
+        style = status_styles.get(r.status, "white")
+        table.add_row(
+            r.name,
+            f"[{style}]{r.status.upper()}[/{style}]",
+            r.message,
+            "yes" if r.fixable else "",
+        )
+        for detail in r.details:
+            table.add_row("", "", f"  {detail}", "")
+
+    console.print(table)
+
+    # Summary
+    errors = sum(1 for r in results if r.status == "error")
+    warns = sum(1 for r in results if r.status == "warn")
+    if errors == 0 and warns == 0:
+        console.print("\n[green]All checks passed.[/green]")
+    else:
+        if errors:
+            console.print(f"\n[red]{errors} error(s)[/red]", end="")
+        if warns:
+            console.print(f"  [yellow]{warns} warning(s)[/yellow]", end="")
+        console.print()
+
+    # Auto-fix if requested
+    if fix:
+        fixable = [r for r in results if r.fixable and r.status in ("warn", "error")]
+        if not fixable:
+            console.print("[dim]Nothing to fix.[/dim]")
+            return
+
+        console.print("\n[bold]Running fixes...[/bold]")
+        fix_results = run_all_fixes(store)
+        total_fixed = sum(fix_results.values())
+        for name, count in fix_results.items():
+            if count > 0:
+                console.print(f"  [green]Fixed {count}[/green] {name.replace('_', ' ')}")
+        if total_fixed == 0:
+            console.print("  [dim]No issues needed fixing.[/dim]")
+        else:
+            console.print(f"\n[green]Fixed {total_fixed} issue(s).[/green]")
+
+
+@doctor_app.command("fix")
+def doctor_fix():
+    """Auto-fix all fixable issues."""
+    from gluon.doctor import run_all_fixes
+
+    store = GluonStore()
+    console.print("[bold]Running all fixes...[/bold]")
+    fix_results = run_all_fixes(store)
+    total_fixed = sum(fix_results.values())
+    for name, count in fix_results.items():
+        if count > 0:
+            console.print(f"  [green]Fixed {count}[/green] {name.replace('_', ' ')}")
+    if total_fixed == 0:
+        console.print("[dim]No issues found.[/dim]")
+    else:
+        console.print(f"\n[green]Fixed {total_fixed} issue(s).[/green]")
+
+
+# ========== Activity Log Commands (F11) ==========
+
+
+@app.command("activity")
+def activity_list(
+    limit: Annotated[int, typer.Option(help="Max events to show")] = 50,
+    actor: Annotated[str | None, typer.Option(help="Filter by actor")] = None,
+    action: Annotated[str | None, typer.Option(help="Filter by action")] = None,
+) -> None:
+    """Show recent activity events."""
+    from gluon.activity_log import ActivityLogger
+
+    store = GluonStore()
+    logger = ActivityLogger(store)
+    events = logger.query(actor=actor, action=action, limit=limit)
+
+    if not events:
+        console.print("[dim]No activity events found.[/dim]")
+        return
+
+    table = Table(title="Activity Log")
+    table.add_column("Timestamp", style="dim", width=20)
+    table.add_column("Actor", width=12)
+    table.add_column("Action", style="cyan", width=20)
+    table.add_column("Result", width=10)
+    table.add_column("Message", max_width=50)
+
+    for event in events:
+        table.add_row(
+            event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            event.actor[:12],
+            event.action,
+            event.result or "",
+            event.message or "",
+        )
+
+    console.print(table)
+
+
+# ========== Formula Commands (F10) ==========
+
+formula_app = typer.Typer(help="Workflow formula templates")
+app.add_typer(formula_app, name="formula")
+
+
+@formula_app.command("list")
+def formula_list_cmd() -> None:
+    """List available workflow formulas."""
+    from gluon.formulas import FormulaLoader
+
+    templates = FormulaLoader.discover()
+
+    if not templates:
+        console.print("[dim]No formulas found.[/dim]")
+        return
+
+    table = Table(title="Available Formulas")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Steps", justify="right")
+    table.add_column("Variables", justify="right")
+    table.add_column("Source", style="dim")
+
+    for t in templates:
+        source = str(t.source_path) if t.source_path else "builtin"
+        table.add_row(
+            t.name,
+            t.description or "",
+            str(len(t.steps)),
+            str(len(t.variables)),
+            source,
+        )
+
+    console.print(table)
+
+
+@formula_app.command("show")
+def formula_show(name: Annotated[str, typer.Argument(help="Formula name")]) -> None:
+    """Show details of a workflow formula."""
+    from gluon.formulas import FormulaLoader
+
+    template = FormulaLoader.load(name)
+    if not template:
+        console.print(f"[red]Formula not found: {name}[/red]")
+        raise typer.Exit(1)
+
+    console.print(Panel(f"[bold]{template.name}[/bold]\n{template.description or ''}", title="Formula"))
+
+    if template.variables:
+        var_table = Table(title="Variables")
+        var_table.add_column("Name", style="cyan")
+        var_table.add_column("Type")
+        var_table.add_column("Required")
+        var_table.add_column("Default")
+        var_table.add_column("Help")
+
+        for v in template.variables:
+            var_table.add_row(
+                v.name,
+                v.type,
+                "yes" if v.required else "no",
+                v.default or "",
+                v.help or "",
+            )
+        console.print(var_table)
+
+    step_table = Table(title="Steps")
+    step_table.add_column("ID", style="cyan")
+    step_table.add_column("Name")
+    step_table.add_column("Profile")
+    step_table.add_column("Depends On")
+
+    for s in template.steps:
+        step_table.add_row(
+            s.id,
+            s.name,
+            s.profile,
+            ", ".join(s.depends_on) if s.depends_on else "-",
+        )
+    console.print(step_table)
+
+
+@formula_app.command("run")
+def formula_run(
+    name: Annotated[str, typer.Argument(help="Formula name")],
+    project: Annotated[str, typer.Argument(help="Project name")],
+    var: Annotated[list[str] | None, typer.Option("--var", help="Variable as key=value")] = None,
+) -> None:
+    """Execute a workflow formula on a project."""
+    from gluon.chain_executor import ChainExecutor
+    from gluon.formula_executor import FormulaExecutor
+    from gluon.formulas import FormulaLoader
+    from gluon.runner import TaskRunner
+
+    template = FormulaLoader.load(name)
+    if not template:
+        console.print(f"[red]Formula not found: {name}[/red]")
+        raise typer.Exit(1)
+
+    # Parse variables from --var key=value
+    variables: dict[str, str] = {}
+    for v in var or []:
+        if "=" not in v:
+            console.print(f"[red]Invalid variable format: {v} (expected key=value)[/red]")
+            raise typer.Exit(1)
+        k, val = v.split("=", 1)
+        variables[k] = val
+
+    orchestrator = get_orchestrator()
+    proj = orchestrator.get_project(project)
+    store = GluonStore()
+    runner = TaskRunner(store)
+    chain_executor = ChainExecutor(store, runner)
+    formula_executor = FormulaExecutor(store, chain_executor)
+
+    async def _run() -> str:
+        return await formula_executor.execute(
+            template=template,
+            project_id=proj.id,
+            variables=variables,
+            initiator="cli",
+        )
+
+    chain_id = anyio.from_thread.run(_run)
+    console.print(f"[green]Formula '{name}' started as chain {chain_id}[/green]")
+
+
+@formula_app.command("validate")
+def formula_validate(path: Annotated[Path, typer.Argument(help="Path to YAML formula file")]) -> None:
+    """Validate a formula template file."""
+    from gluon.formulas import FormulaLoader, validate_formula
+
+    template = FormulaLoader.load_from_file(path)
+    errors = validate_formula(template)
+
+    if errors:
+        for err in errors:
+            console.print(f"[red]  {err}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Formula '{template.name}' is valid ({len(template.steps)} steps).[/green]")
+
+
+# ========== Work Queue Commands (F12) ==========
+
+queue_app = typer.Typer(help="Work queue management")
+app.add_typer(queue_app, name="queue")
+
+
+@queue_app.command("add")
+def queue_add(
+    project: Annotated[str, typer.Argument(help="Project name")],
+    prompt: Annotated[str, typer.Argument(help="Task prompt")],
+    profile: Annotated[str, typer.Option(help="Task profile")] = "standard",
+    priority: Annotated[int, typer.Option(help="Priority (lower=higher)")] = 10,
+) -> None:
+    """Add a task to the work queue."""
+    from gluon.work_queue import WorkQueueManager
+
+    orchestrator = get_orchestrator()
+    proj = orchestrator.get_project(project)
+    store = GluonStore()
+    wq = WorkQueueManager(store)
+    item = wq.enqueue(proj.id, prompt, profile=profile, priority=priority)
+    console.print(f"[green]Queued: {item.id} (priority={priority})[/green]")
+
+
+@queue_app.command("list")
+def queue_list_cmd(
+    project: Annotated[str | None, typer.Option(help="Filter by project name")] = None,
+    status: Annotated[str | None, typer.Option(help="Filter by status")] = None,
+) -> None:
+    """List work queue items."""
+    from gluon.work_queue import WorkQueueManager
+
+    store = GluonStore()
+    wq = WorkQueueManager(store)
+
+    project_id = None
+    if project:
+        orchestrator = get_orchestrator()
+        proj = orchestrator.get_project(project)
+        project_id = proj.id
+
+    items = wq.list_items(project_id=project_id, status=status)
+
+    if not items:
+        console.print("[dim]No work queue items found.[/dim]")
+        return
+
+    table = Table(title="Work Queue")
+    table.add_column("ID", style="cyan", width=12)
+    table.add_column("Project", width=12)
+    table.add_column("Status", width=10)
+    table.add_column("Priority", justify="right", width=8)
+    table.add_column("Prompt", max_width=40)
+    table.add_column("Created", style="dim", width=16)
+
+    for item in items:
+        table.add_row(
+            item.id,
+            item.project_id[:12],
+            item.status.value,
+            str(item.priority),
+            item.prompt[:40],
+            item.created_at.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    console.print(table)
+
+
+@queue_app.command("cancel")
+def queue_cancel(item_id: Annotated[str, typer.Argument(help="Work queue item ID")]) -> None:
+    """Cancel a queued work item."""
+    from gluon.work_queue import WorkQueueManager
+
+    store = GluonStore()
+    wq = WorkQueueManager(store)
+    wq.cancel(item_id)
+    console.print(f"[green]Cancelled: {item_id}[/green]")
+
+
+# ========== Merge Queue Commands (F8) ==========
+
+merge_app = typer.Typer(help="Merge queue management")
+app.add_typer(merge_app, name="merge")
+
+
+@merge_app.command("list")
+def merge_list_cmd(
+    status: Annotated[str | None, typer.Option(help="Filter by status")] = None,
+) -> None:
+    """List merge queue entries."""
+    store = GluonStore()
+    entries = store.list_merge_entries(status=status)
+
+    if not entries:
+        console.print("[dim]No merge queue entries found.[/dim]")
+        return
+
+    table = Table(title="Merge Queue")
+    table.add_column("ID", style="cyan", width=12)
+    table.add_column("Branch", width=25)
+    table.add_column("PR", width=8)
+    table.add_column("Status", width=10)
+    table.add_column("Conflicts", justify="right", width=10)
+    table.add_column("Created", style="dim", width=16)
+
+    for entry in entries:
+        table.add_row(
+            entry.id,
+            entry.branch_name,
+            str(entry.pr_number or "-"),
+            entry.status.value,
+            str(entry.conflict_count),
+            entry.created_at.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    console.print(table)
+
+
+@merge_app.command("retry")
+def merge_retry(entry_id: Annotated[str, typer.Argument(help="Merge queue entry ID")]) -> None:
+    """Retry a failed/conflicted merge entry."""
+    from gluon.models import MergeQueueStatus
+
+    store = GluonStore()
+    entry = store.get_merge_entry(entry_id)
+    if not entry:
+        console.print(f"[red]Entry not found: {entry_id}[/red]")
+        raise typer.Exit(1)
+
+    entry.status = MergeQueueStatus.PENDING
+    entry.next_retry_at = None
+    store.update_merge_entry(entry)
+    console.print(f"[green]Reset entry {entry_id} to PENDING for retry.[/green]")
+
+
+@merge_app.command("cancel")
+def merge_cancel(entry_id: Annotated[str, typer.Argument(help="Merge queue entry ID")]) -> None:
+    """Cancel a merge queue entry."""
+    from gluon.models import MergeQueueStatus, utc_now
+
+    store = GluonStore()
+    entry = store.get_merge_entry(entry_id)
+    if not entry:
+        console.print(f"[red]Entry not found: {entry_id}[/red]")
+        raise typer.Exit(1)
+
+    entry.status = MergeQueueStatus.CANCELLED
+    entry.completed_at = utc_now()
+    store.update_merge_entry(entry)
+    console.print(f"[green]Cancelled: {entry_id}[/green]")
+
+
+# ========== Witness Commands (F9) ==========
+
+
+@app.command("witness")
+def witness_show(run_id: Annotated[str, typer.Argument(help="Run ID")]) -> None:
+    """Show witness decision history for a run."""
+    store = GluonStore()
+    decisions = store.list_witness_decisions(run_id)
+
+    if not decisions:
+        console.print("[dim]No witness decisions found for this run.[/dim]")
+        return
+
+    table = Table(title=f"Witness Decisions for {run_id[:12]}")
+    table.add_column("Timestamp", style="dim", width=20)
+    table.add_column("Classification", style="cyan", width=20)
+    table.add_column("Confidence", justify="right", width=10)
+    table.add_column("Action", width=12)
+    table.add_column("Reasoning", max_width=40)
+
+    for d in decisions:
+        table.add_row(
+            d.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            d.classification.value,
+            f"{d.confidence:.2f}",
+            d.action.value,
+            d.reasoning[:40] if d.reasoning else "",
+        )
+
+    console.print(table)
 
 
 if __name__ == "__main__":

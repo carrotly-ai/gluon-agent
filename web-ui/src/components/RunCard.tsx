@@ -1,6 +1,6 @@
 import { Archive, ExternalLink, GitBranch, RefreshCw, Square, X, Zap } from 'lucide-react'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
-import type { CircuitState, Run } from '@/lib/types'
+import type { CircuitState, HealthClassification, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 // Circuit state color mapping
@@ -27,6 +27,24 @@ function getCircuitStateBg(state: CircuitState): string {
       return 'bg-red-400/15'
     default:
       return 'bg-[var(--color-stone)]/15'
+  }
+}
+
+function getHealthDotColor(classification: HealthClassification): string {
+  switch (classification) {
+    case 'healthy':
+      return 'bg-[var(--color-jade)]'
+    case 'slow':
+      return 'bg-[var(--color-harvest)]'
+    case 'looping':
+      return 'bg-orange-400'
+    case 'stuck':
+    case 'zombie':
+      return 'bg-[var(--color-vermillion)]'
+    case 'needs_context_reset':
+      return 'bg-[var(--color-vermillion)]'
+    default:
+      return 'bg-[var(--color-stone)]/40'
   }
 }
 
@@ -145,6 +163,15 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
           <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
             {run.project_name}
           </span>
+          {run.health_classification && run.status === 'running' && (
+            <span
+              className={cn(
+                'w-2 h-2 rounded-full shrink-0',
+                getHealthDotColor(run.health_classification)
+              )}
+              title={`Health: ${run.health_classification}`}
+            />
+          )}
           {run.use_worktree && (
             <span
               className="flex items-center gap-1 text-purple-400"
@@ -272,6 +299,37 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Chain Step Progress - show only while actively running */}
+      {run.chain_id && isActive && (
+        <div className="mt-2 sm:mt-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-caption text-[var(--color-stone)]/60">
+              Step {(run.chain_step_index ?? 0) + 1}/{run.chain_total_steps ?? 0}
+            </span>
+            <div className="flex-1 h-1.5 bg-[rgba(163,163,163,0.15)] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[var(--color-violet)] rounded-full transition-all duration-300"
+                style={{
+                  width: `${(((run.chain_step_index ?? 0) + 1) / (run.chain_total_steps || 1)) * 100}%`,
+                }}
+              />
+            </div>
+            <span className="text-caption text-[var(--color-stone)]/80 font-medium">
+              {run.chain_step_name}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Completed formula summary - show when not actively running */}
+      {run.chain_id && !isActive && (
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="text-caption text-[var(--color-stone)]/50">
+            Formula: {run.chain_total_steps} steps
+          </span>
         </div>
       )}
 

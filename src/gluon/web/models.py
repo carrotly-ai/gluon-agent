@@ -52,6 +52,13 @@ class RunResponse(BaseModel):
     completion_reason: str | None = Field(default=None, description="Reason for loop completion/exit")
     calls_this_hour: int = Field(default=0, description="API calls made in current hour window")
     max_calls_per_hour: int = Field(default=100, description="Maximum API calls per hour")
+    # Witness health (latest classification for running runs)
+    health_classification: str | None = Field(default=None, description="Latest witness health classification")
+    # Chain/formula step progress
+    chain_id: str | None = Field(default=None, description="Chain ID if part of a formula")
+    chain_step_name: str | None = Field(default=None, description="Current/last step name")
+    chain_step_index: int | None = Field(default=None, description="Current step index (0-based)")
+    chain_total_steps: int | None = Field(default=None, description="Total steps in chain")
 
     class Config:
         from_attributes = True
@@ -133,6 +140,9 @@ class CreateRunRequest(BaseModel):
         default=None,
         description="Model transition strategy: opus-to-sonnet, opus-to-haiku",
     )
+    # Blueprint orchestration options (on by default)
+    enable_prehydration: bool = Field(default=True, description="Pre-hydrate project context into prompt")
+    blueprint_enabled: bool = Field(default=True, description="Run lint+test validation after completion")
 
 
 class LogResponse(BaseModel):
@@ -894,3 +904,164 @@ class ProjectFilesResponse(BaseModel):
     project_id: str = Field(description="Project ID")
     files: list[ProjectFileResponse] = Field(description="List of files and directories")
     truncated: bool = Field(default=False, description="Whether results were truncated")
+
+
+# ========== Activity Log API Models ==========
+
+
+class ActivityEventResponse(BaseModel):
+    """Response model for a single activity event."""
+
+    id: str
+    timestamp: str
+    actor: str
+    action: str
+    result: str | None = None
+    message: str | None = None
+    metadata: dict | None = None
+
+
+class ActivityListResponse(BaseModel):
+    """Response model for activity event list."""
+
+    events: list[ActivityEventResponse]
+    total: int
+
+
+# ========== Work Queue API Models ==========
+
+
+class WorkQueueItemResponse(BaseModel):
+    """Response model for a work queue item."""
+
+    id: str
+    project_id: str
+    prompt: str
+    profile: str
+    priority: int
+    status: str
+    claimed_by: str | None = None
+    created_at: str
+    claimed_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
+
+
+class WorkQueueListResponse(BaseModel):
+    """Response model for work queue item list."""
+
+    items: list[WorkQueueItemResponse]
+    total: int
+
+
+class WorkQueueAddRequest(BaseModel):
+    """Request model for adding a work queue item."""
+
+    project_id: str = Field(description="Project ID to queue work for")
+    prompt: str = Field(description="Task prompt")
+    profile: str = Field(default="standard", description="Task profile")
+    priority: int = Field(default=10, description="Priority (lower = higher)")
+
+
+# ========== Merge Queue API Models ==========
+
+
+class MergeQueueEntryResponse(BaseModel):
+    """Response model for a merge queue entry."""
+
+    id: str
+    run_id: str
+    project_id: str
+    branch_name: str
+    pr_number: int | None = None
+    pr_url: str | None = None
+    status: str
+    priority: int
+    conflict_count: int
+    max_retries: int
+    last_error: str | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+class MergeQueueListResponse(BaseModel):
+    """Response model for merge queue entry list."""
+
+    entries: list[MergeQueueEntryResponse]
+    total: int
+
+
+# ========== Witness API Models ==========
+
+
+class WitnessDecisionResponse(BaseModel):
+    """Response model for a witness decision."""
+
+    id: str
+    run_id: str
+    timestamp: str
+    classification: str
+    confidence: float
+    reasoning: str | None = None
+    action: str
+    action_result: str | None = None
+
+
+class WitnessDecisionListResponse(BaseModel):
+    """Response model for witness decision list."""
+
+    run_id: str
+    decisions: list[WitnessDecisionResponse]
+
+
+# ========== Formula API Models ==========
+
+
+class FormulaStepResponse(BaseModel):
+    """Response model for a formula step."""
+
+    id: str
+    name: str
+    prompt: str
+    depends_on: list[str] = Field(default_factory=list)
+    profile: str = "standard"
+
+
+class FormulaVariableResponse(BaseModel):
+    """Response model for a formula variable."""
+
+    name: str
+    type: str = "string"
+    required: bool = False
+    default: str | None = None
+    help: str | None = None
+
+
+class FormulaTemplateResponse(BaseModel):
+    """Response model for a formula template."""
+
+    name: str
+    description: str | None = None
+    variables: list[FormulaVariableResponse]
+    steps: list[FormulaStepResponse]
+    use_worktree: bool = True
+
+
+class FormulaListResponse(BaseModel):
+    """Response model for formula template list."""
+
+    formulas: list[FormulaTemplateResponse]
+
+
+class FormulaRunRequest(BaseModel):
+    """Request model for running a formula."""
+
+    project_id: str = Field(description="Project ID to run formula on")
+    variables: dict[str, str] = Field(default_factory=dict, description="Variable values")
+
+
+class FormulaRunResponse(BaseModel):
+    """Response model for formula execution."""
+
+    chain_id: str
+    step_count: int

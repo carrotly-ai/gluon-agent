@@ -1,13 +1,27 @@
-import { BarChart3, LayoutGrid, Moon, Plus, Settings, Sun, WifiOff } from 'lucide-react'
+import {
+  Activity,
+  BarChart3,
+  GitMerge,
+  LayoutGrid,
+  ListTodo,
+  Moon,
+  Plus,
+  Settings,
+  Sun,
+  WifiOff,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ActivityPage } from './components/ActivityPage'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
+import { MergeQueuePage } from './components/MergeQueuePage'
 import { OfflineOverlay } from './components/OfflineOverlay'
 import { ProjectFilter } from './components/ProjectFilter'
 import { RunDetailDialog } from './components/RunDetailDialog'
 import { SettingsPage } from './components/SettingsPage'
 import { UpdateBanner } from './components/UpdateBanner'
 import { UsagePage } from './components/UsagePage'
+import { WorkQueuePage } from './components/WorkQueuePage'
 import { useConnectivity } from './hooks/useConnectivity'
 import { useOnline } from './hooks/useOnline'
 import { type RunDetailTab, useRouteSync } from './hooks/useRouteSync'
@@ -272,6 +286,42 @@ function App() {
               <button
                 className={cn(
                   'p-1.5 rounded-sm transition-colors',
+                  viewMode === 'activity'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('activity')}
+                title="Activity log"
+              >
+                <Activity className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-sm transition-colors',
+                  viewMode === 'queue'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('queue')}
+                title="Work queue"
+              >
+                <ListTodo className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-sm transition-colors',
+                  viewMode === 'merge'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('merge')}
+                title="Merge queue"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-sm transition-colors',
                   viewMode === 'usage'
                     ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
                     : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -336,6 +386,12 @@ function App() {
           <SettingsPage tab={settingsTab} onTabChange={setSettingsTab} />
         ) : viewMode === 'usage' ? (
           <UsagePage />
+        ) : viewMode === 'activity' ? (
+          <ActivityPage />
+        ) : viewMode === 'queue' ? (
+          <WorkQueuePage projects={projects} />
+        ) : viewMode === 'merge' ? (
+          <MergeQueuePage />
         ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
           <div className="flex items-center justify-center h-full">
             <div className="mark mark-running w-2 h-2" />
