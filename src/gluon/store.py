@@ -560,6 +560,8 @@ MIGRATIONS = [
     );
     """,
     "CREATE INDEX IF NOT EXISTS idx_witness_run ON witness_decisions(run_id);",
+    # Track shared run_id on task chains (unified formula execution)
+    "ALTER TABLE task_chains ADD COLUMN run_id TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -3262,19 +3264,26 @@ class GluonStore:
             conn.execute(
                 """
                 UPDATE task_chains
-                SET status = ?, started_at = ?, completed_at = ?
+                SET status = ?, started_at = ?, completed_at = ?, run_id = ?
                 WHERE id = ?
                 """,
                 (
                     chain.status.value,
                     chain.started_at.isoformat() if chain.started_at else None,
                     chain.completed_at.isoformat() if chain.completed_at else None,
+                    chain.run_id,
                     chain.id,
                 ),
             )
 
     def _row_to_chain(self, row: sqlite3.Row) -> TaskChain:
         """Convert database row to TaskChain model."""
+        # run_id column may not exist in older databases
+        run_id = None
+        try:
+            run_id = row["run_id"]
+        except (IndexError, KeyError):
+            pass
         return TaskChain(
             id=row["id"],
             project_id=row["project_id"],
@@ -3286,6 +3295,7 @@ class GluonStore:
             completed_at=_parse_datetime(row["completed_at"]),
             use_worktree=bool(row["use_worktree"]),
             initiator=row["initiator"],
+            run_id=run_id,
         )
 
     # ========== Task Step CRUD ==========

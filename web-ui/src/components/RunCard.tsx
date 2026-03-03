@@ -302,6 +302,37 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         </div>
       )}
 
+      {/* Chain Step Progress - show for formula runs */}
+      {run.chain_id && !isDone && (
+        <div className="mt-2 sm:mt-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-caption text-[var(--color-stone)]/60">
+              Step {(run.chain_step_index ?? 0) + 1}/{run.chain_total_steps ?? 0}
+            </span>
+            <div className="flex-1 h-1.5 bg-[rgba(163,163,163,0.15)] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[var(--color-violet)] rounded-full transition-all duration-300"
+                style={{
+                  width: `${(((run.chain_step_index ?? 0) + 1) / (run.chain_total_steps || 1)) * 100}%`,
+                }}
+              />
+            </div>
+            <span className="text-caption text-[var(--color-stone)]/80 font-medium">
+              {run.chain_step_name}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Completed formula summary */}
+      {run.chain_id && isDone && (
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="text-caption text-[var(--color-stone)]/50">
+            Formula: {run.chain_total_steps} steps
+          </span>
+        </div>
+      )}
+
       {/* Recovery progress OR Error message */}
       {isRecovering ? (
         <p className="text-caption text-amber-400/80 mt-2 sm:mt-3 pl-4 sm:pl-[18px]">

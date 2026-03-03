@@ -15,6 +15,10 @@ steps:
       Design the implementation for: {{description}}
       {{acceptance_criteria}}
       Provide a detailed plan with files to create/modify.
+
+      IMPORTANT: Only produce a plan. Do NOT implement any code changes.
+      Do NOT create, edit, or write to any files.
+      Your output should be a detailed text plan only.
     profile: planning
   - id: implement
     name: Implement

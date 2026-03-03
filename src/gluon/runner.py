@@ -395,6 +395,7 @@ class TaskRunner:
         new_prompt: str,
         wait: bool = False,
         initiator: str | None = None,
+        fresh_session: bool = False,
     ) -> ExecutionRun:
         """
         Resume an existing run in-place (same run ID, same worktree).
@@ -410,6 +411,8 @@ class TaskRunner:
             new_prompt: New prompt to continue with
             wait: If True, wait for completion. If False, return immediately.
             initiator: Who started the resume (e.g., "web:resume")
+            fresh_session: If True, clear claude_session_id to start a new
+                Claude session (used for chain steps that need different context)
 
         Returns:
             The same ExecutionRun with updated status
@@ -421,7 +424,12 @@ class TaskRunner:
         if not run:
             raise ValueError(f"Run not found: {run_id}")
 
-        if not run.is_resumable:
+        # For fresh_session resumes (chain steps), we don't require an existing session
+        if fresh_session:
+            resumable_statuses = (RunStatus.REVIEW, RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
+            if run.status not in resumable_statuses:
+                raise ValueError(f"Run {run_id[:8]} cannot be resumed (status={run.status.value})")
+        elif not run.is_resumable:
             raise ValueError(
                 f"Run {run_id[:8]} cannot be resumed (status={run.status.value}, "
                 f"has_session={run.claude_session_id is not None})"
@@ -466,7 +474,7 @@ class TaskRunner:
                     )
 
         # Prepare run for resume (resets status, increments resume_count)
-        run.prepare_for_resume(new_prompt)
+        run.prepare_for_resume(new_prompt, fresh_session=fresh_session)
         if initiator:
             run.initiator = initiator
 
@@ -1006,9 +1014,14 @@ but explicit commits with good messages are preferred.
 
                             if item.success:
                                 # Blueprint validation: tiered auto-fix → lint loop → test
-                                blueprint_enabled = metadata.get(
-                                    "blueprint_enabled",
-                                    self.store.get_setting("blueprint_enabled", "true") == "true",
+                                # Only run for standard profile (not planning/review)
+                                profile = metadata.get("profile", "standard")
+                                blueprint_enabled = (
+                                    metadata.get(
+                                        "blueprint_enabled",
+                                        self.store.get_setting("blueprint_enabled", "true") == "true",
+                                    )
+                                    and profile == "standard"
                                 )
                                 blueprint_passed = True
 

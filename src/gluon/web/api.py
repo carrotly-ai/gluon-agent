@@ -215,6 +215,25 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             except Exception:
                 pass
 
+        # Look up chain/step info for formula runs
+        chain_id_val = run.chain_id
+        chain_step_name = None
+        chain_step_index = None
+        chain_total_steps = None
+        if chain_id_val:
+            try:
+                chain = store.get_chain(chain_id_val)
+                if chain:
+                    chain_total_steps = len(chain.steps)
+                    for i, s in enumerate(chain.steps):
+                        if s.run_id == run.id or s.status.value == "running":
+                            chain_step_name = s.name
+                            chain_step_index = i
+                    if chain_step_name is None and run.metadata:
+                        chain_step_name = run.metadata.get("step_name")
+            except Exception:
+                pass
+
         return RunResponse(
             id=run.id,
             project_id=run.project_id,
@@ -250,6 +269,11 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             calls_this_hour=run.calls_this_hour,
             max_calls_per_hour=run.max_calls_per_hour,
             health_classification=health_classification,
+            # Chain/formula step progress
+            chain_id=chain_id_val,
+            chain_step_name=chain_step_name,
+            chain_step_index=chain_step_index,
+            chain_total_steps=chain_total_steps,
         )
 
     # ========== REST API Routes ==========

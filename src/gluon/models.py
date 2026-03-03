@@ -735,15 +735,20 @@ class ExecutionRun(BaseModel):
         """Mark run as in review (awaiting action/approval)."""
         self.status = RunStatus.REVIEW
 
-    def prepare_for_resume(self, new_prompt: str) -> None:
+    def prepare_for_resume(self, new_prompt: str, *, fresh_session: bool = False) -> None:
         """
         Prepare run for in-place resume.
 
         Resets status and timing fields while preserving:
-        - run ID, project_id, claude_session_id
+        - run ID, project_id, claude_session_id (unless fresh_session=True)
         - worktree info (branch_name, worktree_path, source_branch)
         - log_path (logs will be appended)
         - cost tracking (will accumulate)
+
+        Args:
+            new_prompt: The new prompt to continue with
+            fresh_session: If True, clear claude_session_id to start a new
+                Claude session (used for chain steps that need different context)
         """
         self.prompt = new_prompt
         self.status = RunStatus.RUNNING
@@ -753,6 +758,8 @@ class ExecutionRun(BaseModel):
         self.error_message = None
         self.resume_count += 1
         self.last_resumed_at = utc_now()
+        if fresh_session:
+            self.claude_session_id = None
         # Reset PID - will be set by mark_running or subprocess
 
     @property
@@ -1146,6 +1153,7 @@ class TaskChain(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    run_id: str | None = None  # ExecutionRun shared across all steps
     use_worktree: bool = False
     initiator: str | None = None
 

@@ -54,6 +54,11 @@ class RunResponse(BaseModel):
     max_calls_per_hour: int = Field(default=100, description="Maximum API calls per hour")
     # Witness health (latest classification for running runs)
     health_classification: str | None = Field(default=None, description="Latest witness health classification")
+    # Chain/formula step progress
+    chain_id: str | None = Field(default=None, description="Chain ID if part of a formula")
+    chain_step_name: str | None = Field(default=None, description="Current/last step name")
+    chain_step_index: int | None = Field(default=None, description="Current step index (0-based)")
+    chain_total_steps: int | None = Field(default=None, description="Total steps in chain")
 
     class Config:
         from_attributes = True

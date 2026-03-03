@@ -53,6 +53,11 @@ export interface Run {
   queued_messages?: QueuedMessage[]
   // Witness health classification (for running runs)
   health_classification?: HealthClassification | null
+  // Chain/formula step progress
+  chain_id?: string | null
+  chain_step_name?: string | null
+  chain_step_index?: number | null
+  chain_total_steps?: number | null
 }
 
 /** Detailed run response (includes additional fields) */
@@ -392,6 +397,7 @@ export type WebSocketMessageType =
   | 'progress'
   | 'token_update'
   | 'loop_progress'
+  | 'step_progress'
   | 'pending_questions'
   | 'question_answered'
   | 'todos_updated'

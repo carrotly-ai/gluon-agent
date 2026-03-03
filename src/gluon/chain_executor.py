@@ -117,6 +117,23 @@ class ChainExecutor:
         self.store.update_step(step)
         logger.info("Step %s (%s) completed in chain %s", step.id, step.name, chain_id)
 
+        # Broadcast step completion progress
+        if self.ws_manager:
+            try:
+                chain = self.store.get_chain(chain_id)
+                if chain and chain.run_id:
+                    all_steps = self.store.list_steps(chain_id)
+                    step_index = next((i for i, s in enumerate(all_steps) if s.id == step.id), 0)
+                    await self.ws_manager.broadcast_step_progress(
+                        run_id=chain.run_id,
+                        step_name=step.name,
+                        step_index=step_index,
+                        total_steps=len(all_steps),
+                        step_status="completed",
+                    )
+            except Exception:
+                logger.debug("Failed to broadcast step completion", exc_info=True)
+
         try:
             from gluon.activity_log import ActivityLogger
 
@@ -215,7 +232,12 @@ class ChainExecutor:
         logger.info("Cancelled chain %s (%s)", chain.id, chain.name)
 
     async def _dispatch_ready_steps(self, chain_id: str) -> None:
-        """Find and dispatch all steps whose dependencies are met."""
+        """Find and dispatch all steps whose dependencies are met.
+
+        Uses a unified run model: the first step creates a new ExecutionRun,
+        and subsequent steps resume the same run via resume_in_place(). This
+        produces a single Kanban card for the entire formula.
+        """
         ready = self.store.get_ready_steps(chain_id)
         if not ready:
             return
@@ -230,20 +252,36 @@ class ChainExecutor:
             self.store.update_step(step)
 
             prompt = self._build_step_prompt(chain, step)
+            had_run_id = chain.run_id is not None
             try:
-                from gluon.models import resolve_task_options
+                if chain.run_id:
+                    # Subsequent step: resume the existing run with the new prompt
+                    run = await self.runner.resume_in_place(
+                        run_id=chain.run_id,
+                        new_prompt=prompt,
+                        wait=True,
+                        initiator=f"chain:{chain.id}:step:{step.name}",
+                        fresh_session=True,
+                    )
+                else:
+                    # First step: create a new run
+                    from gluon.models import resolve_task_options
 
-                task_options = resolve_task_options(profile=step.profile.value)
-                model = task_options["model"]
+                    task_options = resolve_task_options(profile=step.profile.value)
+                    model = task_options["model"]
 
-                run = await self.runner.submit(
-                    project_id=chain.project_id,
-                    prompt=prompt,
-                    model=model,
-                    use_worktree=chain.use_worktree,
-                    initiator=chain.initiator or f"chain:{chain.id}",
-                    profile=step.profile.value,
-                )
+                    run = await self.runner.submit(
+                        project_id=chain.project_id,
+                        prompt=prompt,
+                        model=model,
+                        use_worktree=chain.use_worktree,
+                        initiator=chain.initiator or f"chain:{chain.id}",
+                        profile=step.profile.value,
+                    )
+                    # Track run_id on chain for subsequent steps
+                    chain.run_id = run.id
+                    self.store.update_chain(chain)
+
                 # Link run to chain/step
                 run.chain_id = chain.id
                 run.step_id = step.id
@@ -251,15 +289,17 @@ class ChainExecutor:
                     run.metadata = {}
                 run.metadata["chain_id"] = chain.id
                 run.metadata["step_name"] = step.name
+                run.metadata["profile"] = step.profile.value
                 self.store.update_run(run)
 
                 step.run_id = run.id
                 self.store.update_step(step)
                 logger.info(
-                    "Dispatched step %s (%s) as run %s",
+                    "Dispatched step %s (%s) as run %s (resume=%s)",
                     step.id,
                     step.name,
                     run.id[:8],
+                    had_run_id,
                 )
 
                 # Broadcast to WebSocket so Kanban updates in real-time
@@ -267,9 +307,22 @@ class ChainExecutor:
                     try:
                         project = self.store.get_project(chain.project_id)
                         if project:
-                            await self.ws_manager.broadcast_run_created(run, project.name)
+                            if not had_run_id:
+                                await self.ws_manager.broadcast_run_created(run, project.name)
+                            else:
+                                await self.ws_manager.broadcast_run_update(run, project.name)
+                            # Broadcast step progress
+                            all_steps = self.store.list_steps(chain_id)
+                            step_index = next((i for i, s in enumerate(all_steps) if s.id == step.id), 0)
+                            await self.ws_manager.broadcast_step_progress(
+                                run_id=run.id,
+                                step_name=step.name,
+                                step_index=step_index,
+                                total_steps=len(all_steps),
+                                step_status="running",
+                            )
                     except Exception:
-                        logger.debug("Failed to broadcast formula run creation", exc_info=True)
+                        logger.debug("Failed to broadcast formula step", exc_info=True)
             except Exception as e:
                 step.status = StepStatus.FAILED
                 step.error_message = str(e)

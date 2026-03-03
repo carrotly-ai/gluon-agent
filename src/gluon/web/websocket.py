@@ -113,6 +113,9 @@ class WebSocketManager:
                 "circuit_state": run.circuit_state,
                 "completion_confidence": run.completion_confidence,
                 "completion_reason": run.completion_reason,
+                # Chain/formula fields
+                "chain_id": run.chain_id,
+                "chain_step_name": run.metadata.get("step_name") if run.metadata else None,
             },
         }
         await self.broadcast(message)
@@ -151,7 +154,37 @@ class WebSocketManager:
                 "circuit_state": run.circuit_state or "CLOSED",
                 "completion_confidence": run.completion_confidence or 0,
                 "completion_reason": run.completion_reason,
+                # Chain/formula fields
+                "chain_id": run.chain_id,
+                "chain_step_name": run.metadata.get("step_name") if run.metadata else None,
             },
+        }
+        await self.broadcast(message)
+
+    async def broadcast_step_progress(
+        self,
+        run_id: str,
+        step_name: str,
+        step_index: int,
+        total_steps: int,
+        step_status: str,
+    ) -> None:
+        """Broadcast chain step progress to all clients.
+
+        Args:
+            run_id: The run ID
+            step_name: Current step name (e.g., "Plan", "Implement")
+            step_index: Current step index (0-based)
+            total_steps: Total steps in chain
+            step_status: Step status: "running", "completed", "failed"
+        """
+        message = {
+            "type": "step_progress",
+            "run_id": run_id,
+            "step_name": step_name,
+            "step_index": step_index,
+            "total_steps": total_steps,
+            "step_status": step_status,
         }
         await self.broadcast(message)
 

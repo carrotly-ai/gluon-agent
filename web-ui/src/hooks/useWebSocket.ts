@@ -144,6 +144,28 @@ export function useRunsWithWebSocket() {
             : r
         )
       )
+    } else if (message.type === 'step_progress') {
+      // Handle chain step progress updates - update the run's chain-related fields
+      const stepMessage = message as {
+        type: 'step_progress'
+        run_id: string
+        step_name: string
+        step_index: number
+        total_steps: number
+        step_status: string
+      }
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.id === stepMessage.run_id
+            ? {
+                ...r,
+                chain_step_name: stepMessage.step_name,
+                chain_step_index: stepMessage.step_index,
+                chain_total_steps: stepMessage.total_steps,
+              }
+            : r
+        )
+      )
     }
   }, [])
 
