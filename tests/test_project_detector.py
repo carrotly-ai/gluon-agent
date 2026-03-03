@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from gluon.project_detector import ProjectType, ToolCommands, detect_project_type, get_tool_commands
+from gluon.project_detector import (
+    ProjectType,
+    ToolCommands,
+    detect_project_type,
+    get_autofix_command,
+    get_tool_commands,
+)
 
 
 class TestDetectProjectType:
@@ -62,3 +68,22 @@ class TestGetToolCommands:
         cmds = ToolCommands(lint="x", test="y")
         with pytest.raises(AttributeError):
             cmds.lint = "z"  # type: ignore[misc]
+
+
+class TestGetAutofixCommand:
+    def test_python_autofix(self):
+        cmd = get_autofix_command(ProjectType.PYTHON)
+        assert cmd is not None
+        assert "ruff format" in cmd
+        assert "ruff check" in cmd
+        assert "--fix" in cmd
+
+    def test_node_autofix(self):
+        cmd = get_autofix_command(ProjectType.NODE)
+        assert cmd is not None
+        assert "biome" in cmd
+        assert "--write" in cmd
+
+    def test_unknown_no_autofix(self):
+        cmd = get_autofix_command(ProjectType.UNKNOWN)
+        assert cmd is None

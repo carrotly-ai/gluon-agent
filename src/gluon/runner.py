@@ -1005,7 +1005,7 @@ but explicit commits with good messages are preferred.
                                     stderr_file.flush()
 
                             if item.success:
-                                # Blueprint validation: run lint + test if enabled
+                                # Blueprint validation: tiered auto-fix → lint loop → test
                                 blueprint_enabled = metadata.get(
                                     "blueprint_enabled",
                                     self.store.get_setting("blueprint_enabled", "true") == "true",
@@ -1015,8 +1015,17 @@ but explicit commits with good messages are preferred.
                                 if blueprint_enabled:
                                     from dataclasses import asdict
 
-                                    from gluon.blueprint import build_feedback_prompt, run_validation
-                                    from gluon.project_detector import detect_project_type, get_tool_commands
+                                    from gluon.blueprint import (
+                                        build_feedback_prompt,
+                                        run_autofix,
+                                        run_lint,
+                                        run_test,
+                                    )
+                                    from gluon.project_detector import (
+                                        detect_project_type,
+                                        get_autofix_command,
+                                        get_tool_commands,
+                                    )
 
                                     proj_type = detect_project_type(working_dir)
                                     tool_cmds = get_tool_commands(
@@ -1024,94 +1033,134 @@ but explicit commits with good messages are preferred.
                                         lint_override=metadata.get("lint_command"),
                                         test_override=metadata.get("test_command"),
                                     )
+                                    autofix_cmd = get_autofix_command(proj_type)
 
-                                    if tool_cmds.lint or tool_cmds.test:
-                                        stdout_file.write("\n=== Blueprint Validation ===\n")
-                                        stdout_file.flush()
+                                    if run.metadata is None:
+                                        run.metadata = {}
 
-                                        bp_results = await run_validation(working_dir, tool_cmds.lint, tool_cmds.test)
-                                        all_passed = all(r.passed for r in bp_results)
-
-                                        if run.metadata is None:
-                                            run.metadata = {}
-                                        run.metadata["blueprint_results"] = [asdict(r) for r in bp_results]
-
-                                        for r in bp_results:
-                                            status_str = "PASS" if r.passed else "FAIL"
-                                            stdout_file.write(f"  {r.name}: {status_str} ({r.duration_secs}s)\n")
-                                        stdout_file.flush()
-
-                                        if all_passed:
-                                            run.metadata["blueprint_status"] = "passed"
-                                        else:
-                                            run.metadata["blueprint_status"] = "failed"
-                                            blueprint_passed = False
-
-                                            # Bounded feedback: retry once via new agent execution
-                                            retry_count = run.metadata.get("blueprint_retry_count", 0)
-                                            if retry_count < 1:
-                                                run.metadata["blueprint_retry_count"] = retry_count + 1
-                                                self.store.update_run(run)
-
-                                                feedback = build_feedback_prompt(bp_results)
-                                                stdout_file.write("\n=== Blueprint Retry (lint/test failures) ===\n")
-                                                stdout_file.flush()
-
-                                                # Resume the session with feedback prompt
-                                                retry_result = None
-                                                async for retry_item in agent.execute(
-                                                    working_dir=working_dir,
-                                                    prompt=feedback,
-                                                    resume_session_id=run.claude_session_id,
-                                                    follow_up_queue=follow_up_queue,
-                                                    screenshot_collector=screenshot_collector,
-                                                    notification_callback=_screenshot_message_writer,
-                                                    todo_collector=todo_collector,
-                                                ):
-                                                    if isinstance(retry_item, AgentMessage):
-                                                        msg_dict = {
-                                                            "timestamp": datetime.now(UTC).isoformat(),
-                                                            "type": retry_item.type,
-                                                            "content": retry_item.content,
-                                                            "metadata": retry_item.metadata,
-                                                        }
-                                                        messages_file.write(json.dumps(msg_dict) + "\n")
-                                                        messages_file.flush()
-                                                        if retry_item.type == "text":
-                                                            stdout_file.write(retry_item.content + "\n")
-                                                            stdout_file.flush()
-                                                    elif isinstance(retry_item, AgentResult):
-                                                        retry_result = retry_item
-                                                        if retry_item.session_id:
-                                                            run.claude_session_id = retry_item.session_id
-
-                                                # Re-validate after retry
-                                                if retry_result and retry_result.success:
-                                                    bp_results2 = await run_validation(
-                                                        working_dir, tool_cmds.lint, tool_cmds.test
-                                                    )
-                                                    run.metadata["blueprint_results"] = [asdict(r) for r in bp_results2]
-                                                    for r in bp_results2:
-                                                        status_str = "PASS" if r.passed else "FAIL"
-                                                        stdout_file.write(
-                                                            f"  {r.name}: {status_str} ({r.duration_secs}s)\n"
-                                                        )
+                                    # Helper: resume agent session with feedback prompt
+                                    async def _bp_resume(feedback_prompt: str) -> "AgentResult | None":
+                                        _result = None
+                                        async for ri in agent.execute(
+                                            working_dir=working_dir,
+                                            prompt=feedback_prompt,
+                                            resume_session_id=run.claude_session_id,
+                                            follow_up_queue=follow_up_queue,
+                                            screenshot_collector=screenshot_collector,
+                                            notification_callback=_screenshot_message_writer,
+                                            todo_collector=todo_collector,
+                                        ):
+                                            if isinstance(ri, AgentMessage):
+                                                msg_dict = {
+                                                    "timestamp": datetime.now(UTC).isoformat(),
+                                                    "type": ri.type,
+                                                    "content": ri.content,
+                                                    "metadata": ri.metadata,
+                                                }
+                                                messages_file.write(json.dumps(msg_dict) + "\n")
+                                                messages_file.flush()
+                                                if ri.type == "text":
+                                                    stdout_file.write(ri.content + "\n")
                                                     stdout_file.flush()
+                                            elif isinstance(ri, AgentResult):
+                                                _result = ri
+                                                if ri.session_id:
+                                                    run.claude_session_id = ri.session_id
+                                        return _result
 
-                                                    if all(r.passed for r in bp_results2):
-                                                        run.metadata["blueprint_status"] = "passed"
-                                                        blueprint_passed = True
-                                                    else:
-                                                        run.metadata["blueprint_status"] = "failed_after_retry"
-                                                        run.completion_reason = (
-                                                            "Blueprint validation failed after retry"
-                                                        )
-                                                else:
-                                                    run.metadata["blueprint_status"] = "failed_after_retry"
-                                                    run.completion_reason = "Blueprint retry execution failed"
+                                    bp_results: list[dict] = []
+
+                                    # --- Phase 1: Auto-fix (deterministic, best-effort) ---
+                                    if autofix_cmd:
+                                        stdout_file.write("\n=== Blueprint: Auto-fix ===\n")
+                                        stdout_file.flush()
+                                        af = await run_autofix(working_dir, autofix_cmd)
+                                        label = "applied" if af.passed else "partial"
+                                        stdout_file.write(f"  autofix: {label} ({af.duration_secs}s)\n")
+                                        stdout_file.flush()
+
+                                    # --- Phase 2: Lint loop (max 3 iterations) ---
+                                    lint_passed = True
+                                    lint_iterations = 0
+                                    max_lint_iter = 3
+
+                                    if tool_cmds.lint:
+                                        for lint_i in range(max_lint_iter):
+                                            lint_iterations = lint_i + 1
+                                            stdout_file.write(
+                                                f"\n=== Blueprint: Lint ({lint_i + 1}/{max_lint_iter}) ===\n"
+                                            )
+                                            stdout_file.flush()
+                                            lr = await run_lint(working_dir, tool_cmds.lint)
+                                            s = "PASS" if lr.passed else "FAIL"
+                                            stdout_file.write(f"  lint: {s} ({lr.duration_secs}s)\n")
+                                            stdout_file.flush()
+
+                                            if lr.passed:
+                                                bp_results.append(asdict(lr))
+                                                break
+
+                                            if lint_i < max_lint_iter - 1:
+                                                # Ask agent to fix lint errors
+                                                fb = build_feedback_prompt([lr])
+                                                stdout_file.write(
+                                                    f"\n=== Blueprint: Agent Lint Fix ({lint_i + 1}) ===\n"
+                                                )
+                                                stdout_file.flush()
+                                                await _bp_resume(fb)
+                                                # Re-run auto-fix before re-checking lint
+                                                if autofix_cmd:
+                                                    await run_autofix(working_dir, autofix_cmd)
                                             else:
-                                                run.metadata["blueprint_status"] = "failed_after_retry"
-                                                run.completion_reason = "Blueprint validation failed after retry"
+                                                # Max iterations exhausted
+                                                bp_results.append(asdict(lr))
+                                                lint_passed = False
+
+                                    # --- Phase 3: Test (max 1 retry) ---
+                                    test_passed = True
+                                    test_retried = False
+
+                                    if tool_cmds.test:
+                                        stdout_file.write("\n=== Blueprint: Test ===\n")
+                                        stdout_file.flush()
+                                        tr = await run_test(working_dir, tool_cmds.test)
+                                        s = "PASS" if tr.passed else "FAIL"
+                                        stdout_file.write(f"  test: {s} ({tr.duration_secs}s)\n")
+                                        stdout_file.flush()
+
+                                        if not tr.passed:
+                                            fb = build_feedback_prompt([tr])
+                                            stdout_file.write("\n=== Blueprint: Agent Test Fix ===\n")
+                                            stdout_file.flush()
+                                            rr = await _bp_resume(fb)
+
+                                            if rr and rr.success:
+                                                test_retried = True
+                                                stdout_file.write("\n=== Blueprint: Test (retry) ===\n")
+                                                stdout_file.flush()
+                                                tr = await run_test(working_dir, tool_cmds.test)
+                                                s = "PASS" if tr.passed else "FAIL"
+                                                stdout_file.write(f"  test: {s} ({tr.duration_secs}s)\n")
+                                                stdout_file.flush()
+                                                if not tr.passed:
+                                                    test_passed = False
+                                            else:
+                                                test_passed = False
+
+                                        bp_results.append(asdict(tr))
+
+                                    # --- Store results ---
+                                    run.metadata["blueprint_results"] = bp_results
+                                    run.metadata["blueprint_lint_iterations"] = lint_iterations
+                                    run.metadata["blueprint_test_retried"] = test_retried
+                                    blueprint_passed = lint_passed and test_passed
+
+                                    if blueprint_passed:
+                                        run.metadata["blueprint_status"] = "passed"
+                                    else:
+                                        run.metadata["blueprint_status"] = "failed_after_retry"
+                                        run.completion_reason = "Blueprint validation failed after retry"
+                                    self.store.update_run(run)
 
                                 if blueprint_passed:
                                     run.mark_review()  # All tasks go to REVIEW first

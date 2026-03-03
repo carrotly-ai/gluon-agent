@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from gluon.blueprint import StepResult, build_feedback_prompt, run_validation, should_retry
+from gluon.blueprint import (
+    StepResult,
+    build_feedback_prompt,
+    run_autofix,
+    run_lint,
+    run_test,
+    run_validation,
+    should_retry,
+)
 
 
 class TestStepResult:
@@ -142,3 +150,77 @@ class TestShouldRetry:
     def test_no_retry_when_missing_count(self):
         meta = {"blueprint_status": "failed"}
         assert should_retry(meta) is True  # default count is 0
+
+
+@pytest.mark.asyncio
+class TestRunAutofix:
+    async def test_successful_autofix(self, tmp_path: Path):
+        result = await run_autofix(tmp_path, "true")
+        assert result.name == "autofix"
+        assert result.passed
+        assert result.exit_code == 0
+
+    async def test_partial_autofix(self, tmp_path: Path):
+        # Auto-fix tools may exit non-zero when some issues can't be fixed
+        result = await run_autofix(tmp_path, "echo 'fixed some' && exit 1")
+        assert result.name == "autofix"
+        assert not result.passed
+        assert "fixed some" in result.output
+
+    async def test_autofix_timeout(self, tmp_path: Path):
+        result = await run_autofix(tmp_path, "sleep 10", timeout_secs=1)
+        assert not result.passed
+        assert "Timed out" in result.output
+
+
+@pytest.mark.asyncio
+class TestRunLint:
+    async def test_lint_pass(self, tmp_path: Path):
+        result = await run_lint(tmp_path, "true")
+        assert result.name == "lint"
+        assert result.passed
+
+    async def test_lint_fail(self, tmp_path: Path):
+        result = await run_lint(tmp_path, "echo 'E001: bad indent' && exit 1")
+        assert result.name == "lint"
+        assert not result.passed
+        assert "E001" in result.output
+
+    async def test_lint_captures_output(self, tmp_path: Path):
+        result = await run_lint(tmp_path, "echo 'all clean'")
+        assert "all clean" in result.output
+
+
+@pytest.mark.asyncio
+class TestRunTest:
+    async def test_test_pass(self, tmp_path: Path):
+        result = await run_test(tmp_path, "true")
+        assert result.name == "test"
+        assert result.passed
+
+    async def test_test_fail(self, tmp_path: Path):
+        result = await run_test(tmp_path, "echo 'FAILED test_foo' && exit 1")
+        assert result.name == "test"
+        assert not result.passed
+
+    async def test_no_tests_found_treated_as_pass(self, tmp_path: Path):
+        result = await run_test(tmp_path, "echo 'No tests found' && exit 1")
+        assert result.passed
+        assert "No tests found" in result.output
+
+    async def test_no_tests_found_case_insensitive(self, tmp_path: Path):
+        result = await run_test(tmp_path, "echo 'NO TESTS FOUND' && exit 1")
+        assert result.passed
+
+    async def test_collected_0_items(self, tmp_path: Path):
+        result = await run_test(tmp_path, "echo 'collected 0 items' && exit 1")
+        assert result.passed
+
+    async def test_real_failure_not_treated_as_no_tests(self, tmp_path: Path):
+        result = await run_test(tmp_path, "echo 'FAILED test_bar' && exit 1")
+        assert not result.passed
+
+    async def test_timeout(self, tmp_path: Path):
+        result = await run_test(tmp_path, "sleep 10", timeout_secs=1)
+        assert not result.passed
+        assert "Timed out" in result.output

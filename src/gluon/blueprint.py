@@ -79,6 +79,60 @@ async def _run_step(name: str, cmd: str, cwd: Path, timeout_secs: int) -> StepRe
         )
 
 
+async def run_autofix(
+    working_dir: Path,
+    autofix_cmd: str,
+    timeout_secs: int = 60,
+) -> StepResult:
+    """Run auto-fix tools deterministically (formatters, fixable lints).
+
+    Best-effort: a non-zero exit is logged but not treated as a validation failure.
+    """
+    result = await _run_step("autofix", autofix_cmd, working_dir, timeout_secs)
+    logger.info(
+        "Blueprint autofix: %s (exit=%s, %.1fs)",
+        "OK" if result.passed else "partial",
+        result.exit_code,
+        result.duration_secs,
+    )
+    return result
+
+
+async def run_lint(
+    working_dir: Path,
+    lint_cmd: str,
+    timeout_secs: int = 120,
+) -> StepResult:
+    """Run lint check only. Returns pass/fail."""
+    result = await _run_step("lint", lint_cmd, working_dir, timeout_secs)
+    status = "PASS" if result.passed else "FAIL"
+    logger.info("Blueprint lint: %s (exit=%s, %.1fs)", status, result.exit_code, result.duration_secs)
+    return result
+
+
+async def run_test(
+    working_dir: Path,
+    test_cmd: str,
+    timeout_secs: int = 300,
+) -> StepResult:
+    """Run test command with no-tests-found detection."""
+    result = await _run_step("test", test_cmd, working_dir, timeout_secs)
+    if not result.passed:
+        output_lower = result.output.lower()
+        if any(p in output_lower for p in _NO_TESTS_PATTERNS):
+            logger.info("Blueprint test: SKIP (no tests found, treating as pass)")
+            result = StepResult(
+                name="test",
+                passed=True,
+                exit_code=result.exit_code,
+                output="No tests found — skipped validation",
+                duration_secs=result.duration_secs,
+            )
+    status = "PASS" if result.passed else "FAIL"
+    logger.info("Blueprint test: %s (exit=%s, %.1fs)", status, result.exit_code, result.duration_secs)
+    return result
+
+
 async def run_validation(
     working_dir: Path,
     lint_cmd: str | None,

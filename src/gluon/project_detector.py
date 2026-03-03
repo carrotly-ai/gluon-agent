@@ -24,6 +24,13 @@ class ToolCommands:
     format: str | None = None
 
 
+@dataclass(frozen=True)
+class AutofixCommands:
+    """Commands that auto-fix trivially fixable issues (formatting, import order, etc.)."""
+
+    fix: str | None = None  # e.g., "ruff format . && ruff check . --fix"
+
+
 _COMMANDS: dict[ProjectType, ToolCommands] = {
     ProjectType.PYTHON: ToolCommands(
         lint="ruff check .",
@@ -36,6 +43,12 @@ _COMMANDS: dict[ProjectType, ToolCommands] = {
         format=None,
     ),
     ProjectType.UNKNOWN: ToolCommands(),
+}
+
+_AUTOFIX: dict[ProjectType, AutofixCommands] = {
+    ProjectType.PYTHON: AutofixCommands(fix="ruff format . && ruff check . --fix"),
+    ProjectType.NODE: AutofixCommands(fix="npx biome check . --write"),
+    ProjectType.UNKNOWN: AutofixCommands(),
 }
 
 
@@ -67,3 +80,8 @@ def get_tool_commands(
         test=test_override or defaults.test,
         format=defaults.format,
     )
+
+
+def get_autofix_command(project_type: ProjectType) -> str | None:
+    """Return the auto-fix command for a project type, or None if not available."""
+    return _AUTOFIX.get(project_type, AutofixCommands()).fix
