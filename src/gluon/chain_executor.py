@@ -255,7 +255,19 @@ class ChainExecutor:
             had_run_id = chain.run_id is not None
             try:
                 if chain.run_id:
-                    # Subsequent step: resume the existing run with the new prompt
+                    # Subsequent step: resume the existing run with the new prompt.
+                    # Pre-set step_id and metadata on the stored run BEFORE resuming,
+                    # so the reactive dispatch inside _run_task() uses the correct step.
+                    existing_run = self.store.get_run(chain.run_id)
+                    if existing_run:
+                        existing_run.step_id = step.id
+                        if existing_run.metadata is None:
+                            existing_run.metadata = {}
+                        existing_run.metadata["chain_id"] = chain.id
+                        existing_run.metadata["step_name"] = step.name
+                        existing_run.metadata["profile"] = step.profile.value
+                        self.store.update_run(existing_run)
+
                     run = await self.runner.resume_in_place(
                         run_id=chain.run_id,
                         new_prompt=prompt,
@@ -263,6 +275,10 @@ class ChainExecutor:
                         initiator=f"chain:{chain.id}:step:{step.name}",
                         fresh_session=True,
                     )
+                    # Don't update run.step_id after resume — the recursive
+                    # reactive dispatch chain has already advanced it.
+                    step.run_id = run.id
+                    self.store.update_step(step)
                 else:
                     # First step: create a new run
                     from gluon.models import resolve_task_options
@@ -282,18 +298,18 @@ class ChainExecutor:
                     chain.run_id = run.id
                     self.store.update_chain(chain)
 
-                # Link run to chain/step
-                run.chain_id = chain.id
-                run.step_id = step.id
-                if run.metadata is None:
-                    run.metadata = {}
-                run.metadata["chain_id"] = chain.id
-                run.metadata["step_name"] = step.name
-                run.metadata["profile"] = step.profile.value
-                self.store.update_run(run)
+                    # Link run to chain/step
+                    run.chain_id = chain.id
+                    run.step_id = step.id
+                    if run.metadata is None:
+                        run.metadata = {}
+                    run.metadata["chain_id"] = chain.id
+                    run.metadata["step_name"] = step.name
+                    run.metadata["profile"] = step.profile.value
+                    self.store.update_run(run)
 
-                step.run_id = run.id
-                self.store.update_step(step)
+                    step.run_id = run.id
+                    self.store.update_step(step)
                 logger.info(
                     "Dispatched step %s (%s) as run %s (resume=%s)",
                     step.id,

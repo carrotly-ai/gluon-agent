@@ -302,8 +302,8 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         </div>
       )}
 
-      {/* Chain Step Progress - show for formula runs */}
-      {run.chain_id && !isDone && (
+      {/* Chain Step Progress - show only while actively running */}
+      {run.chain_id && isActive && (
         <div className="mt-2 sm:mt-3 space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-caption text-[var(--color-stone)]/60">
@@ -324,8 +324,8 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         </div>
       )}
 
-      {/* Completed formula summary */}
-      {run.chain_id && isDone && (
+      {/* Completed formula summary - show when not actively running */}
+      {run.chain_id && !isActive && (
         <div className="mt-1 flex items-center gap-1.5">
           <span className="text-caption text-[var(--color-stone)]/50">
             Formula: {run.chain_total_steps} steps
