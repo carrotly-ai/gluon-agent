@@ -35,6 +35,11 @@ So, like its namesake, Gluon binds together your scattered projects and tasks, o
 - **Session Resume** - Continue Claude sessions with follow-up prompts, keeping full context
 - **Unified Task Tracking** - All tasks visible across all interfaces (CLI, Web, Telegram, Discord)
 - **Model Selection** - Choose between Haiku (fast), Sonnet (balanced), or Opus (complex tasks)
+- **Formula Workflows** - YAML-defined multi-step pipelines (Plan → Implement → Test → Review) that execute as a single unified run
+- **Blueprint Validation** - Automatic lint auto-fix, lint loop, and test gates after agent completion
+- **Work Queue** - Shared task queue for batching and scheduling work items across projects
+- **Merge Queue** - Sequential PR merge processing with conflict detection and retry
+- **System Diagnostics** - Built-in `doctor` command for health checks and auto-fix
 
 ### Security & Isolation ([Docker](docs/DOCKER.md))
 - **OS-Level Sandboxing** - Each agent runs inside a [bubblewrap](https://github.com/containers/bubblewrap) sandbox (Linux) or `sandbox-exec` (macOS), restricting filesystem access to the git worktree
@@ -53,6 +58,11 @@ So, like its namesake, Gluon binds together your scattered projects and tasks, o
 - **Message Filtering** - Filter by tools, text, or errors with counts
 - **Toast Notifications** - Instant feedback for merge and PR actions
 - **Recovery UI** - Visual indicator when recovering interrupted runs with progress tracking
+- **Activity Feed** - Cross-agent event stream showing run completions, PR actions, and system events
+- **Work Queue Panel** - Queue and schedule tasks across projects from the dashboard
+- **Merge Queue Panel** - Monitor and manage sequential PR merges with conflict status
+- **Formula Step Progress** - Violet progress bar on run cards showing current step in multi-step workflows
+- **Witness Health Indicators** - Real-time health classification dots on running tasks (healthy, slow, looping, stuck)
 
 ### Progressive Web App (PWA)
 - **Installable App** - Install on mobile/desktop for native-like experience
@@ -94,6 +104,110 @@ gluon ralph status <run_id>
 # Start supervisor daemon for auto-resume
 gluon supervisor start
 ```
+
+### Formula Workflows
+
+YAML-defined multi-step pipelines that execute as a single unified run. Each step gets its own Claude session but shares the same git worktree, run ID, and cost tracking.
+
+**Built-in formulas:**
+
+| Formula | Steps | Description |
+|---------|-------|-------------|
+| `feature` | Plan → Implement → Test → Review | Full feature development lifecycle |
+| `bugfix` | Diagnose → Fix → Test | Bug diagnosis and resolution |
+
+```bash
+# List available formulas
+gluon formula list
+
+# Run a feature formula
+gluon formula run feature myapp --var description="Add user authentication"
+
+# Run a bugfix formula
+gluon formula run bugfix myapp --var description="Login fails on expired tokens"
+
+# Validate a custom formula template
+gluon formula validate my-formula.yml
+```
+
+**How it works:**
+1. The first step creates an `ExecutionRun` in a git worktree
+2. Subsequent steps resume the same run with `fresh_session=True` — new Claude session, same worktree
+3. The Kanban board shows a single card with a step progress bar (e.g., "Step 2/4 Implement")
+4. Cost accumulates across all steps on the single run
+
+**Custom formulas:** Place `.yml` files in `src/gluon/formulas/` or a project-level `formulas/` directory.
+
+### Blueprint Validation
+
+Automatic code quality gates that run after each agent completion (for `standard` profile steps):
+
+1. **Auto-fix** — Runs the project's linter with auto-fix (e.g., `ruff check --fix && ruff format .`)
+2. **Lint loop** — If lint errors remain, the agent is resumed to fix them (up to 3 attempts)
+3. **Test gate** — Runs the project's test suite; failures trigger an agent resume to fix
+
+Blueprint validation is enabled by default and can be toggled in the web dashboard Settings. It only runs for `standard` profile steps — `planning` and `review` profiles skip validation.
+
+### Work Queue & Merge Queue
+
+**Work Queue** — Batch and schedule tasks across projects:
+
+```bash
+gluon queue add myapp "Implement feature X"
+gluon queue list
+gluon queue cancel <item-id>
+```
+
+**Merge Queue** — Sequential PR merge processing with conflict detection:
+
+```bash
+gluon merge list
+gluon merge retry <entry-id>
+gluon merge cancel <entry-id>
+```
+
+Both queues are accessible from the web dashboard with real-time WebSocket updates.
+
+### Witness Health Monitor
+
+Background health classification for running agents. The witness periodically evaluates agent behavior and classifies runs as:
+
+| Classification | Meaning |
+|---------------|---------|
+| `healthy` | Normal progress |
+| `slow` | Below expected throughput |
+| `looping` | Repeating similar actions |
+| `stuck` | No meaningful progress |
+| `zombie` | Process alive but unresponsive |
+
+```bash
+gluon witness <run-id>
+```
+
+Health status appears as colored dots on running task cards in the web dashboard.
+
+### System Diagnostics
+
+```bash
+# Check system health
+gluon doctor
+
+# Auto-fix fixable issues
+gluon doctor --fix
+gluon doctor fix
+```
+
+Checks Claude CLI availability, AWS credentials, database integrity, disk space, and more.
+
+### Activity Log
+
+Cross-agent event stream showing run completions, PR actions, merge queue events, and system events:
+
+```bash
+gluon activity
+```
+
+Also available as a dedicated panel in the web dashboard.
 
 ### Agent Teams (Experimental)
 
@@ -149,6 +263,9 @@ Tips:
 - **CI/CD Workflows** - GitHub Actions for CI and Docker image publishing
 - **Log Persistence** - Stdout, stderr, and structured message logs for every run
 - **Mobile Optimized** - iOS Safari zoom prevention, touch-friendly interactions
+- **Context Overflow Recovery** - Automatic recovery when agent exceeds context window (`gluon recover`)
+- **Log Cleanup** - Retention-based cleanup of old log files (`gluon cleanup`)
+- **Disk Stats** - Monitor `~/.gluon` disk usage (`gluon stats`)
 
 ## Requirements
 
@@ -197,14 +314,24 @@ gluon run myapp 'Implement user registration' --background
 gluon run myapp 'Add dark mode support' --background --worktree
 ```
 
-### 3. Resume with Follow-up
+### 3. Run a Formula (Multi-Step Workflow)
+
+```bash
+# Full feature lifecycle: Plan → Implement → Test → Review
+gluon formula run feature myapp --var description="Add dark mode support"
+
+# Bug diagnosis and fix: Diagnose → Fix → Test
+gluon formula run bugfix myapp --var description="Login fails on expired tokens"
+```
+
+### 4. Resume with Follow-up
 
 ```bash
 # Continue the conversation
 gluon resume myapp 'Also add unit tests for the new code'
 ```
 
-### 4. Monitor Progress
+### 5. Monitor Progress
 
 ```bash
 # Check all runs
@@ -224,19 +351,22 @@ gluon web
 
 The dashboard provides:
 
-| Column | Description |
-|--------|-------------|
-| **Queue** | Pending tasks waiting to start |
-| **Running** | Active AI agents with live progress |
-| **Review** | Completed runs awaiting human review (can resume, cancel, or follow logs) |
-| **Done** | Merged, archived, or manually completed tasks |
+| View | Description |
+|------|-------------|
+| **Kanban Board** | Queue → Running → Review → Done columns with drag-and-drop |
+| **Activity Feed** | Cross-agent event stream (run completions, PRs, merges) |
+| **Work Queue** | Batch and schedule tasks across projects |
+| **Merge Queue** | Sequential PR merge processing with conflict status |
+| **Settings** | Configure models, blueprints, agent teams, and more |
 
 **Run Details** include:
 - Live message stream with tool call visualization
 - Git commits and file diffs
-- Image attachments
-- Cost and token usage
+- Image attachments and browser screenshots
+- Cost and token usage tracking
+- Formula step progress (for multi-step workflows)
 - One-click PR creation and merge
+- Witness health classification
 
 ## Chat Bots ([Telegram](docs/TELEGRAM-BOT.md) · [Discord](docs/DISCORD-BOT.md))
 
