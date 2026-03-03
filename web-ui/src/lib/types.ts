@@ -118,6 +118,9 @@ export interface CreateRunRequest {
   // Per-task overrides
   agent_teams?: boolean
   model_transition?: string
+  // Blueprint orchestration (on by default)
+  enable_prehydration?: boolean
+  blueprint_enabled?: boolean
 }
 
 /** API response for log content */

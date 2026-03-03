@@ -299,6 +299,8 @@ class TaskRunner:
         agent_teams: bool | None = None,
         model_transition: str | None = None,
         effort: str | None = None,
+        enable_prehydration: bool = True,
+        blueprint_enabled: bool = True,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -373,6 +375,8 @@ class TaskRunner:
             run.metadata["agent_teams"] = agent_teams
         if model_transition:
             run.metadata["model_transition"] = model_transition
+        run.metadata["enable_prehydration"] = enable_prehydration
+        run.metadata["blueprint_enabled"] = blueprint_enabled
         self.store.update_run(run)
 
         if wait:
@@ -707,6 +711,23 @@ but explicit commits with good messages are preferred.
                     stdout_file.write(f"Working in worktree on branch: {run.branch_name}\n\n")
                     stdout_file.flush()
 
+                # Pre-hydration: gather project context if enabled
+                metadata = run.metadata or {}
+                enable_prehydration = metadata.get(
+                    "enable_prehydration",
+                    self.store.get_setting("prehydration_enabled", "true") == "true",
+                )
+                if enable_prehydration:
+                    from gluon.pre_hydration import format_context, hydrate
+
+                    hydration_ctx = await hydrate(
+                        working_dir,
+                        last_error=run.error_message if is_resumed else None,
+                    )
+                    effective_prompt = format_context(hydration_ctx) + "\n\n" + effective_prompt
+                    stdout_file.write("Pre-hydration: injected project context\n")
+                    stdout_file.flush()
+
                 # Create agent with the model specified for this run
                 # Wire up question handler with run_id bound
                 from functools import partial
@@ -714,7 +735,6 @@ but explicit commits with good messages are preferred.
                 question_handler = partial(self._question_handler, run.id)
 
                 # Get profile options from run metadata (set by submit())
-                metadata = run.metadata or {}
                 max_thinking_tokens = metadata.get("max_thinking_tokens")
                 max_turns = metadata.get("max_turns")
                 force_planning = metadata.get("force_planning", False)
@@ -985,13 +1005,125 @@ but explicit commits with good messages are preferred.
                                     stderr_file.flush()
 
                             if item.success:
-                                run.mark_review()  # All tasks go to REVIEW first
-                                # Disable supervision for completed tasks to prevent restart loop
-                                if run.supervision_config is None:
-                                    run.supervision_config = SupervisionConfig()
-                                run.supervision_config.enabled = False
-                                if not run.completion_reason:
-                                    run.completion_reason = "Task completed successfully"
+                                # Blueprint validation: run lint + test if enabled
+                                blueprint_enabled = metadata.get(
+                                    "blueprint_enabled",
+                                    self.store.get_setting("blueprint_enabled", "true") == "true",
+                                )
+                                blueprint_passed = True
+
+                                if blueprint_enabled:
+                                    from dataclasses import asdict
+
+                                    from gluon.blueprint import build_feedback_prompt, run_validation
+                                    from gluon.project_detector import detect_project_type, get_tool_commands
+
+                                    proj_type = detect_project_type(working_dir)
+                                    tool_cmds = get_tool_commands(
+                                        proj_type,
+                                        lint_override=metadata.get("lint_command"),
+                                        test_override=metadata.get("test_command"),
+                                    )
+
+                                    if tool_cmds.lint or tool_cmds.test:
+                                        stdout_file.write("\n=== Blueprint Validation ===\n")
+                                        stdout_file.flush()
+
+                                        bp_results = await run_validation(working_dir, tool_cmds.lint, tool_cmds.test)
+                                        all_passed = all(r.passed for r in bp_results)
+
+                                        if run.metadata is None:
+                                            run.metadata = {}
+                                        run.metadata["blueprint_results"] = [asdict(r) for r in bp_results]
+
+                                        for r in bp_results:
+                                            status_str = "PASS" if r.passed else "FAIL"
+                                            stdout_file.write(f"  {r.name}: {status_str} ({r.duration_secs}s)\n")
+                                        stdout_file.flush()
+
+                                        if all_passed:
+                                            run.metadata["blueprint_status"] = "passed"
+                                        else:
+                                            run.metadata["blueprint_status"] = "failed"
+                                            blueprint_passed = False
+
+                                            # Bounded feedback: retry once via new agent execution
+                                            retry_count = run.metadata.get("blueprint_retry_count", 0)
+                                            if retry_count < 1:
+                                                run.metadata["blueprint_retry_count"] = retry_count + 1
+                                                self.store.update_run(run)
+
+                                                feedback = build_feedback_prompt(bp_results)
+                                                stdout_file.write("\n=== Blueprint Retry (lint/test failures) ===\n")
+                                                stdout_file.flush()
+
+                                                # Resume the session with feedback prompt
+                                                retry_result = None
+                                                async for retry_item in agent.execute(
+                                                    working_dir=working_dir,
+                                                    prompt=feedback,
+                                                    resume_session_id=run.claude_session_id,
+                                                    follow_up_queue=follow_up_queue,
+                                                    screenshot_collector=screenshot_collector,
+                                                    notification_callback=_screenshot_message_writer,
+                                                    todo_collector=todo_collector,
+                                                ):
+                                                    if isinstance(retry_item, AgentMessage):
+                                                        msg_dict = {
+                                                            "timestamp": datetime.now(UTC).isoformat(),
+                                                            "type": retry_item.type,
+                                                            "content": retry_item.content,
+                                                            "metadata": retry_item.metadata,
+                                                        }
+                                                        messages_file.write(json.dumps(msg_dict) + "\n")
+                                                        messages_file.flush()
+                                                        if retry_item.type == "text":
+                                                            stdout_file.write(retry_item.content + "\n")
+                                                            stdout_file.flush()
+                                                    elif isinstance(retry_item, AgentResult):
+                                                        retry_result = retry_item
+                                                        if retry_item.session_id:
+                                                            run.claude_session_id = retry_item.session_id
+
+                                                # Re-validate after retry
+                                                if retry_result and retry_result.success:
+                                                    bp_results2 = await run_validation(
+                                                        working_dir, tool_cmds.lint, tool_cmds.test
+                                                    )
+                                                    run.metadata["blueprint_results"] = [asdict(r) for r in bp_results2]
+                                                    for r in bp_results2:
+                                                        status_str = "PASS" if r.passed else "FAIL"
+                                                        stdout_file.write(
+                                                            f"  {r.name}: {status_str} ({r.duration_secs}s)\n"
+                                                        )
+                                                    stdout_file.flush()
+
+                                                    if all(r.passed for r in bp_results2):
+                                                        run.metadata["blueprint_status"] = "passed"
+                                                        blueprint_passed = True
+                                                    else:
+                                                        run.metadata["blueprint_status"] = "failed_after_retry"
+                                                        run.completion_reason = (
+                                                            "Blueprint validation failed after retry"
+                                                        )
+                                                else:
+                                                    run.metadata["blueprint_status"] = "failed_after_retry"
+                                                    run.completion_reason = "Blueprint retry execution failed"
+                                            else:
+                                                run.metadata["blueprint_status"] = "failed_after_retry"
+                                                run.completion_reason = "Blueprint validation failed after retry"
+
+                                if blueprint_passed:
+                                    run.mark_review()  # All tasks go to REVIEW first
+                                    # Disable supervision for completed tasks to prevent restart loop
+                                    if run.supervision_config is None:
+                                        run.supervision_config = SupervisionConfig()
+                                    run.supervision_config.enabled = False
+                                    if not run.completion_reason:
+                                        run.completion_reason = "Task completed successfully"
+                                else:
+                                    run.mark_review()
+                                    # Still goes to review but with failure notes
                             else:
                                 # If this was a resume attempt, try fresh-start recovery
                                 # before giving up. Recovery creates a new session in the

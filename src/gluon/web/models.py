@@ -135,6 +135,9 @@ class CreateRunRequest(BaseModel):
         default=None,
         description="Model transition strategy: opus-to-sonnet, opus-to-haiku",
     )
+    # Blueprint orchestration options (on by default)
+    enable_prehydration: bool = Field(default=True, description="Pre-hydrate project context into prompt")
+    blueprint_enabled: bool = Field(default=True, description="Run lint+test validation after completion")
 
 
 class LogResponse(BaseModel):

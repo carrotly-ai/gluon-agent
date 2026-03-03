@@ -6,9 +6,11 @@ import {
   Play,
   RefreshCw,
   Settings,
+  ShieldCheck,
   Trash2,
   Users,
   X,
+  Zap,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
@@ -175,6 +177,8 @@ export function CreateTaskDialog({
   const [useWorktree, setUseWorktree] = useState(getLastWorktreeSetting)
   const [ralphEnabled, setRalphEnabled] = useState(getLastRalphEnabledSetting)
   const [agentTeams, setAgentTeams] = useState(false)
+  const [prehydration, setPrehydration] = useState(true)
+  const [blueprintValidation, setBlueprintValidation] = useState(true)
   const [maxLoops, setMaxLoops] = useState(getLastRalphMaxLoops)
   const [maxCostUsd, setMaxCostUsd] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
@@ -563,6 +567,8 @@ export function CreateTaskDialog({
         max_cost_usd: ralphEnabled && costValue && costValue > 0 ? costValue : undefined,
         agent_teams: agentTeams || undefined,
         model_transition: modelTransition || undefined,
+        enable_prehydration: prehydration,
+        blueprint_enabled: blueprintValidation,
       })
 
       // Upload and attach images
@@ -1122,6 +1128,78 @@ export function CreateTaskDialog({
 
               {showAdvanced && (
                 <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
+                  {/* Pre-Hydration Toggle */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap
+                        className={cn(
+                          'w-4 h-4 transition-colors',
+                          prehydration ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
+                        )}
+                      />
+                      <div>
+                        <span className="text-body text-[var(--color-paper)]">Pre-Hydration</span>
+                        <p className="text-caption text-[var(--color-stone)]/60">
+                          Inject git &amp; project context into prompt
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={cn(
+                        'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                        prehydration ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                      )}
+                      onClick={() => setPrehydration(!prehydration)}
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                          prehydration ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                        )}
+                        style={{ left: prehydration ? '22px' : '2px' }}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Blueprint Validation Toggle */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck
+                        className={cn(
+                          'w-4 h-4 transition-colors',
+                          blueprintValidation
+                            ? 'text-[var(--color-sky)]'
+                            : 'text-[var(--color-stone)]/60'
+                        )}
+                      />
+                      <div>
+                        <span className="text-body text-[var(--color-paper)]">
+                          Blueprint Validation
+                        </span>
+                        <p className="text-caption text-[var(--color-stone)]/60">
+                          Run lint + tests after completion (auto-retry once)
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={cn(
+                        'relative w-10 h-5 rounded-full transition-colors shrink-0',
+                        blueprintValidation ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                      )}
+                      onClick={() => setBlueprintValidation(!blueprintValidation)}
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                          blueprintValidation ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                        )}
+                        style={{ left: blueprintValidation ? '22px' : '2px' }}
+                      />
+                    </button>
+                  </div>
+
                   {/* Worktree Toggle */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">

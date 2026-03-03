@@ -848,6 +848,10 @@ def run(
         typer.Option("--effort", help="Reasoning effort: low/medium/high/max"),
     ] = None,
     planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,
+    no_hydrate: Annotated[bool, typer.Option("--no-hydrate", help="Disable pre-hydration of project context")] = False,
+    no_validate: Annotated[
+        bool, typer.Option("--no-validate", help="Disable lint+test validation after completion")
+    ] = False,
 ):
     """Execute a task on a project.
 
@@ -901,6 +905,8 @@ def run(
                 thinking_budget=thinking,
                 force_planning=planning if planning else None,
                 effort=effort,
+                enable_prehydration=not no_hydrate,
+                blueprint_enabled=not no_validate,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
@@ -911,6 +917,10 @@ def run(
                 console.print(f"  [blue]Ralph mode:[/blue] max {max_loops} loops, {max_calls} calls/hr")
                 if max_cost:
                     console.print(f"  Cost cap: ${max_cost:.2f}")
+            if no_hydrate:
+                console.print("  [blue]Pre-hydration:[/blue] disabled")
+            if no_validate:
+                console.print("  [blue]Blueprint validation:[/blue] disabled")
             console.print()
             console.print("[dim]Use 'gluon runs' to check status[/dim]")
             console.print(f"[dim]Use 'gluon logs {run_obj.id[:8]}' to view logs[/dim]")

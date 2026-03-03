@@ -447,6 +447,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             # Per-task overrides
             agent_teams=body.agent_teams,
             model_transition=body.model_transition,
+            enable_prehydration=body.enable_prehydration,
+            blueprint_enabled=body.blueprint_enabled,
         )
 
         # Store dev_port in metadata if provided
