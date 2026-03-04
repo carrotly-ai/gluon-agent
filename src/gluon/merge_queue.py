@@ -152,4 +152,4 @@ class MergeQueueService:
 
     def calculate_backoff(self, conflict_count: int) -> int:
         """Exponential backoff: 60 * 2^count seconds."""
-        return 60 * (2**conflict_count)
+        return int(60 * (2**conflict_count))
