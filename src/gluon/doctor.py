@@ -98,7 +98,7 @@ def check_stale_runs(store: GluonStore) -> DiagnosticResult:
         status="warn",
         message=f"{len(stale)} run(s) running for >4 hours",
         fixable=True,
-        details=[f"Run {r.id[:8]} started {r.started_at.strftime('%Y-%m-%d %H:%M')}" for r in stale],
+        details=[f"Run {r.id[:8]} started {r.started_at.strftime('%Y-%m-%d %H:%M')}" for r in stale if r.started_at],
     )
 
 

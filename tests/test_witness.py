@@ -142,11 +142,11 @@ async def test_execute_action_restart(tmp_path):
     run = _make_run()
 
     runner = MagicMock()
-    runner.cancel_run = MagicMock()
+    runner.cancel = AsyncMock()
     runner.submit = AsyncMock(return_value=_make_run())
 
     await witness.execute_action(run, RecoveryAction.RESTART, runner, None)
-    runner.cancel_run.assert_called_once_with(run.id)
+    runner.cancel.assert_called_once_with(run.id)
     runner.submit.assert_called_once()
 
 

@@ -7,7 +7,7 @@ processes and suggest recovery actions.
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from gluon.models import (
     ExecutionRun,
@@ -135,7 +135,8 @@ class WitnessClassifier:
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text  # type: ignore[union-attr]
-            return json.loads(text)
+            result: dict[str, Any] = json.loads(text)
+            return result
         except ImportError:
             raise RuntimeError("anthropic package not installed")
 
@@ -177,7 +178,7 @@ class WitnessClassifier:
         elif action == RecoveryAction.RESTART:
             try:
                 # Cancel the stuck run
-                runner.cancel_run(run.id)
+                await runner.cancel(run.id)
                 # Resubmit with same parameters
                 await runner.submit(
                     project_id=run.project_id,
