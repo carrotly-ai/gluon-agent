@@ -347,6 +347,16 @@ class GitManager:
 
             # Fast-forward
             rc, _, stderr = await self._run_git(path, "pull", "--ff-only")
+            if rc != 0 and "untracked working tree files would be overwritten" in stderr:
+                # Untracked files conflict with incoming changes — stash and retry
+                logger.info("Stashing untracked files that conflict with pull")
+                src, _, _ = await self._run_git(
+                    path, "stash", "push", "--include-untracked", "-m", "gluon-pull-conflict"
+                )
+                if src == 0:
+                    rc, _, stderr = await self._run_git(path, "pull", "--ff-only")
+                    # Restore stash (untracked files may have been superseded by pull)
+                    await self._run_git(path, "stash", "pop")
             if rc != 0:
                 return GitSyncResult.fail(f"Failed to fast-forward: {stderr}")
 
@@ -1182,11 +1192,14 @@ Run ID: `{run_id}`
                 await self._run_git(project_path, "checkout", "--", ".")
 
         # Check for uncommitted changes and stash if needed
+        # Use --include-untracked so untracked files don't block pull/merge
         uncommitted = await self._get_uncommitted_count(project_path)
         stashed = False
         if uncommitted > 0:
             logger.info(f"Stashing {uncommitted} uncommitted changes before merge")
-            rc, _, stderr = await self._run_git(project_path, "stash", "push", "-m", f"gluon-merge-{branch_name}")
+            rc, _, stderr = await self._run_git(
+                project_path, "stash", "push", "--include-untracked", "-m", f"gluon-merge-{branch_name}"
+            )
             if rc != 0:
                 result["error"] = f"Failed to stash uncommitted changes: {stderr}"
                 return result

@@ -884,6 +884,13 @@ but explicit commits with good messages are preferred.
                                         self.store.update_run(run)
                                         return  # Exit without marking as failed
 
+                            # Eagerly persist session ID so cancelled runs remain resumable
+                            if item.type == "system" and item.metadata:
+                                new_sid = item.metadata.get("session_id")
+                                if new_sid and new_sid != run.claude_session_id:
+                                    run.claude_session_id = new_sid
+                                    self.store.update_run(run)
+
                             # Update progress.json for WebSocket streaming
                             progress_data = {
                                 "turns": turn_count,
