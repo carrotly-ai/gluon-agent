@@ -19,10 +19,13 @@ import type {
   FormulaTemplate,
   GitStatusInfo,
   GitSyncResponse,
+  // Notification types
+  GluonNotification,
   ImageAttachment,
   LogResponse,
   // Merge Queue types
   MergeQueueEntry,
+  NotificationsListResponse,
   // AskUserQuestion types
   PendingQuestion,
   PendingQuestionsResponse,
@@ -898,4 +901,33 @@ export async function validateFormula(
     method: 'POST',
     body: JSON.stringify(template),
   })
+}
+
+// ========== Notifications ==========
+
+/** Fetch notifications with optional filters */
+export async function fetchNotifications(params?: {
+  workspace_id?: string
+  unread_only?: boolean
+  limit?: number
+}): Promise<NotificationsListResponse> {
+  const searchParams = new URLSearchParams()
+  if (params?.workspace_id) searchParams.set('workspace_id', params.workspace_id)
+  if (params?.unread_only) searchParams.set('unread_only', 'true')
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  const query = searchParams.toString()
+  return fetchJson<NotificationsListResponse>(`/notifications${query ? `?${query}` : ''}`)
+}
+
+/** Mark a single notification as read */
+export async function markNotificationRead(id: string): Promise<GluonNotification> {
+  return fetchJson<GluonNotification>(`/notifications/${id}/read`, { method: 'POST' })
+}
+
+/** Mark all notifications as read */
+export async function markAllNotificationsRead(
+  workspaceId?: string
+): Promise<{ marked_read: number }> {
+  const params = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return fetchJson<{ marked_read: number }>(`/notifications/read-all${params}`, { method: 'POST' })
 }

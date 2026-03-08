@@ -888,6 +888,46 @@ class PendingQuestion(BaseModel):
         self.answered_at = utc_now()
 
 
+class NotificationType(str, Enum):
+    """Type of persistent notification."""
+
+    QUESTION = "question"
+    COMPLETION = "completion"
+    FAILURE = "failure"
+    REVIEW = "review"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class NotificationSeverity(str, Enum):
+    """Severity level for persistent notifications."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    SUCCESS = "success"
+
+
+class Notification(BaseModel):
+    """Persistent notification stored in DB with read/unread tracking."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    workspace_id: str | None = None
+    project_id: str | None = None
+    run_id: str | None = None
+    session_id: str | None = None
+
+    type: NotificationType
+    severity: NotificationSeverity = NotificationSeverity.INFO
+    title: str
+    message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    read: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+    read_at: datetime | None = None
+
+
 class TodoSnapshot(BaseModel):
     """A point-in-time snapshot of TodoWrite state captured by the PostToolUse mirror hook.
 

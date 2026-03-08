@@ -66,6 +66,9 @@ services:
       # Gluon configuration (loaded from env_file, only override if needed)
       - GLUON_GIT_ENABLED=true
 
+      # Redis (embedded in container for cross-process event bus)
+      - GLUON_REDIS_URL=redis://localhost:6379/0
+
       # Browser automation (agent-browser)
       - AGENT_BROWSER_STREAM_PORT=9223
 

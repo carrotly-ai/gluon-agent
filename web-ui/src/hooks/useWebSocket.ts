@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CircuitState, Run, WSMessage } from '@/lib/types'
+import type {
+  CircuitState,
+  NotificationCreatedMessage,
+  PendingQuestionsMessage,
+  QuestionAnsweredMessage,
+  QuestionsExpiredMessage,
+  Run,
+  WSMessage,
+} from '@/lib/types'
 
 interface WebSocketState {
   connected: boolean
@@ -98,29 +106,48 @@ export function useWebSocket(onMessage: MessageHandler) {
   }
 }
 
+/** Callbacks for notification center integration */
+export interface NotificationHandlers {
+  onNotificationCreated?: (msg: NotificationCreatedMessage) => void
+  onPendingQuestions?: (msg: PendingQuestionsMessage) => void
+  onQuestionAnswered?: (msg: QuestionAnsweredMessage) => void
+  onQuestionsExpired?: (msg: QuestionsExpiredMessage) => void
+  onBrowserNotification?: (title: string, body?: string) => void
+}
+
 /** Hook for managing runs state with WebSocket updates */
-export function useRunsWithWebSocket() {
+export function useRunsWithWebSocket(handlers?: NotificationHandlers) {
   const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const handlersRef = useRef(handlers)
+  handlersRef.current = handlers
 
   const handleMessage = useCallback((message: WSMessage) => {
     if (message.type === 'run_created') {
       const runMessage = message as { type: 'run_created'; run: Run }
-      // Don't add archived runs
       if (!runMessage.run.archived) {
         setRuns((prev) => [runMessage.run, ...prev])
       }
     } else if (message.type === 'run_updated') {
       const runMessage = message as { type: 'run_updated'; run: Run }
-      // If run is archived, remove it from the list; otherwise update it
       if (runMessage.run.archived) {
         setRuns((prev) => prev.filter((r) => r.id !== runMessage.run.id))
       } else {
         setRuns((prev) => prev.map((r) => (r.id === runMessage.run.id ? runMessage.run : r)))
       }
+      // Browser notification for terminal states when tab not focused
+      if (
+        ['completed', 'failed', 'cancelled'].includes(runMessage.run.status) &&
+        typeof document !== 'undefined' &&
+        document.hidden
+      ) {
+        handlersRef.current?.onBrowserNotification?.(
+          `Run ${runMessage.run.status}`,
+          runMessage.run.prompt?.substring(0, 60)
+        )
+      }
     } else if (message.type === 'loop_progress') {
-      // Handle ralph loop progress updates - update the run's loop-related fields
       const loopMessage = message as {
         type: 'loop_progress'
         run_id: string
@@ -145,7 +172,6 @@ export function useRunsWithWebSocket() {
         )
       )
     } else if (message.type === 'step_progress') {
-      // Handle chain step progress updates - update the run's chain-related fields
       const stepMessage = message as {
         type: 'step_progress'
         run_id: string
@@ -165,6 +191,22 @@ export function useRunsWithWebSocket() {
               }
             : r
         )
+      )
+    } else if (message.type === 'notification_created') {
+      handlersRef.current?.onNotificationCreated?.(message as NotificationCreatedMessage)
+    } else if (message.type === 'pending_questions') {
+      const qMsg = message as PendingQuestionsMessage
+      handlersRef.current?.onPendingQuestions?.(qMsg)
+      // Always fire browser notification for questions — they need attention
+      handlersRef.current?.onBrowserNotification?.('Input required', qMsg.questions[0]?.header)
+    } else if (message.type === 'question_answered') {
+      handlersRef.current?.onQuestionAnswered?.(message as QuestionAnsweredMessage)
+    } else if (message.type === 'questions_expired') {
+      const expMsg = message as QuestionsExpiredMessage
+      handlersRef.current?.onQuestionsExpired?.(expMsg)
+      handlersRef.current?.onBrowserNotification?.(
+        'Run paused',
+        'Questions timed out — run has been paused'
       )
     }
   }, [])

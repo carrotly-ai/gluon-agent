@@ -388,6 +388,32 @@ export interface FormulaTemplate {
   use_worktree: boolean
 }
 
+// ========== Notification Types ==========
+
+export type NotificationType = 'question' | 'completion' | 'failure' | 'review' | 'warning' | 'info'
+export type NotificationSeverity = 'info' | 'warning' | 'error' | 'success'
+
+export interface GluonNotification {
+  id: string
+  workspace_id: string | null
+  project_id: string | null
+  run_id: string | null
+  session_id: string | null
+  type: NotificationType
+  severity: NotificationSeverity
+  title: string
+  message: string | null
+  metadata: Record<string, unknown> | null
+  read: boolean
+  created_at: string
+  read_at: string | null
+}
+
+export interface NotificationsListResponse {
+  notifications: GluonNotification[]
+  unread_count: number
+}
+
 /** WebSocket message types */
 export type WebSocketMessageType =
   | 'run_created'
@@ -400,11 +426,13 @@ export type WebSocketMessageType =
   | 'step_progress'
   | 'pending_questions'
   | 'question_answered'
+  | 'questions_expired'
   | 'todos_updated'
   | 'activity_event'
   | 'queue_updated'
   | 'merge_updated'
   | 'witness_decision'
+  | 'notification_created'
   | 'subscribed'
   | 'unsubscribed'
   | 'pong'
@@ -491,6 +519,21 @@ export interface SubscribedMessage extends WebSocketMessage {
   run_id: string
 }
 
+/** WebSocket message for a new notification */
+export interface NotificationCreatedMessage extends WebSocketMessage {
+  type: 'notification_created'
+  notification: {
+    id: string
+    type: NotificationType
+    severity: NotificationSeverity
+    title: string
+    message: string | null
+    run_id: string | null
+    created_at: string
+    read: boolean
+  }
+}
+
 export type WSMessage =
   | RunCreatedMessage
   | RunUpdatedMessage
@@ -501,6 +544,7 @@ export type WSMessage =
   | LoopProgressMessage
   | PendingQuestionsMessage
   | QuestionAnsweredMessage
+  | NotificationCreatedMessage
   | SubscribedMessage
   | WebSocketMessage
 
@@ -938,6 +982,14 @@ export interface QuestionAnsweredMessage extends WebSocketMessage {
   type: 'question_answered'
   run_id: string
   question_id: string
+}
+
+/** WebSocket message for questions expired (timeout) */
+export interface QuestionsExpiredMessage extends WebSocketMessage {
+  type: 'questions_expired'
+  run_id: string
+  question_ids: string[]
+  reason: string
 }
 
 // ========== Todo Tracking Types ==========

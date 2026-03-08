@@ -126,6 +126,20 @@ print("MCP registration complete")
 EOF
 }
 
+# Start embedded Redis for cross-process event bus
+# In-memory only, no persistence — used for pub/sub between web server and runner subprocesses
+start_redis() {
+    if command -v redis-server &> /dev/null; then
+        redis-server --daemonize yes --save "" --appendonly no --loglevel warning \
+            --bind 127.0.0.1 --port 6379 --maxmemory 64mb --maxmemory-policy allkeys-lru
+        echo "Redis started (in-memory, event bus only)"
+    else
+        echo "WARNING: redis-server not found — cross-process events disabled"
+    fi
+}
+
+start_redis
+
 # Configure git authentication
 configure_git_auth
 

@@ -166,8 +166,8 @@ class TaskRunner:
 
         This handler:
         1. Stores each question in the database as PendingQuestion
-        2. Broadcasts to WebSocket subscribers so UI can show the modal
-        3. Waits for user answer (polling with timeout)
+        2. Publishes event via Redis so the web server can broadcast to WebSocket clients
+        3. Waits for user answer (polling DB with timeout)
         4. Returns answers dict mapping question header -> selected answer
 
         Args:
@@ -177,8 +177,6 @@ class TaskRunner:
         Returns:
             Dict mapping question header to selected answer string
         """
-        from gluon.web.websocket import ws_manager
-
         answers: dict[str, str] = {}
         question_ids: list[str] = []
 
@@ -194,19 +192,34 @@ class TaskRunner:
                     for opt in q.get("options", [])
                 ],
                 multi_select=q.get("multiSelect", False),
-                expires_at=utc_now() + timedelta(seconds=300),  # 5 min timeout
+                expires_at=utc_now() + timedelta(seconds=int(os.environ.get("GLUON_QUESTION_TIMEOUT", "300"))),
             )
             self.store.create_pending_question(pending)
             question_ids.append(pending.id)
             logger.info(f"Created pending question {pending.id[:8]} for run {run_id[:8]}: {pending.header}")
 
-        # Broadcast to WebSocket so UI can show modal
-        await ws_manager.broadcast_pending_questions(run_id, questions, question_ids)
+        # Publish event via Redis (crosses process boundary to web server)
+        try:
+            from gluon.events.redis_transport import publish_event_via_redis
+            from gluon.events.types import EventCategory, GluonEvent
 
-        # Wait for answers (polling with timeout)
-        timeout = 300  # 5 minutes
+            event = GluonEvent(
+                type="question.created",
+                category=EventCategory.INTERACTION,
+                run_id=run_id,
+                data={"questions": questions, "question_ids": question_ids},
+            )
+            await publish_event_via_redis(event.model_dump_json(), event.type)
+            logger.info(f"Published question.created event via Redis for run {run_id[:8]}")
+        except Exception as e:
+            logger.warning(f"Failed to publish question event via Redis: {e}")
+
+        # Wait for answers with escalating notifications
+        timeout = int(os.environ.get("GLUON_QUESTION_TIMEOUT", "300"))  # 5 minutes total
+        escalate_at = int(os.environ.get("GLUON_QUESTION_ESCALATE_AT", "180"))  # 3 minutes
         poll_interval = 0.5
         elapsed = 0.0
+        escalated = False
 
         while elapsed < timeout:
             all_answered = True
@@ -226,23 +239,59 @@ class TaskRunner:
                 logger.info(f"All questions answered for run {run_id[:8]}")
                 return answers
 
+            # Escalate to Telegram/Discord at 3 minutes
+            if not escalated and elapsed >= escalate_at:
+                escalated = True
+                await self._escalate_question(run_id, questions)
+
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-        # Timeout: auto-answer remaining questions with first/recommended option
-        logger.warning(f"Question timeout for run {run_id[:8]}, auto-answering remaining")
+        # Timeout: expire questions and raise TimeoutError to pause the agent
+        logger.warning(f"Question timeout for run {run_id[:8]}, pausing for user input")
         for qid in question_ids:
             q = self.store.get_pending_question(qid)
-            if not q:
-                continue
-
-            if q.status == QuestionStatus.PENDING:
-                q.auto_answer(source="timeout_auto")
+            if q and q.status == QuestionStatus.PENDING:
+                q.status = QuestionStatus.EXPIRED
                 self.store.update_pending_question(q)
-                answers[q.header] = q.selected_labels[0] if q.selected_labels else ""
-                logger.info(f"Auto-answered question {qid[:8]}: {q.header} = {answers[q.header]}")
 
-        return answers
+        # Publish timeout event via Redis
+        try:
+            from gluon.events.redis_transport import publish_event_via_redis
+            from gluon.events.types import EventCategory, GluonEvent
+
+            event = GluonEvent(
+                type="question.expired",
+                category=EventCategory.INTERACTION,
+                run_id=run_id,
+                data={"question_ids": question_ids, "reason": "timeout"},
+            )
+            await publish_event_via_redis(event.model_dump_json(), event.type)
+        except Exception as e:
+            logger.warning(f"Failed to publish question.expired event: {e}")
+
+        raise TimeoutError(f"Questions timed out after {timeout}s waiting for user input")
+
+    async def _escalate_question(self, run_id: str, questions: list[dict]) -> None:
+        """Escalate unanswered questions to Telegram/Discord after 3 minutes.
+
+        Publishes a question.escalated event via Redis so the web server process
+        (which has transport instances) can dispatch to Telegram/Discord.
+        """
+        try:
+            from gluon.events.redis_transport import publish_event_via_redis
+            from gluon.events.types import EventCategory, GluonEvent
+
+            event = GluonEvent(
+                type="question.escalated",
+                category=EventCategory.INTERACTION,
+                run_id=run_id,
+                data={"questions": questions},
+            )
+            await publish_event_via_redis(event.model_dump_json(), event.type)
+            logger.info(f"Published question.escalated event for run {run_id[:8]}")
+        except Exception:
+            logger.debug("Question escalation failed", exc_info=True)
 
     async def _auto_answer_handler(self, run_id: str, questions: list[dict]) -> dict[str, str]:
         """Auto-answer handler for Ralph loops - immediately selects recommended option.

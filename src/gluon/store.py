@@ -25,6 +25,9 @@ from gluon.models import (
     MergeQueueEntry,
     MergeQueueStatus,
     MessageRunMapping,
+    Notification,
+    NotificationSeverity,
+    NotificationType,
     PendingQuestion,
     Project,
     QuestionStatus,
@@ -562,6 +565,27 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_witness_run ON witness_decisions(run_id);",
     # Track shared run_id on task chains (unified formula execution)
     "ALTER TABLE task_chains ADD COLUMN run_id TEXT;",
+    # Persistent notifications table
+    """
+    CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT,
+        project_id TEXT,
+        run_id TEXT,
+        session_id TEXT,
+        type TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'info',
+        title TEXT NOT NULL,
+        message TEXT,
+        metadata TEXT,
+        read INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        read_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, created_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_notifications_run ON notifications(run_id);",
+    "CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -3790,4 +3814,127 @@ class GluonStore:
             action=RecoveryAction(row["action"]),
             action_result=row["action_result"],
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Notification CRUD ==========
+
+    def create_notification(self, notification: Notification) -> Notification:
+        """Create a new persistent notification."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO notifications (
+                    id, workspace_id, project_id, run_id, session_id,
+                    type, severity, title, message, metadata,
+                    read, created_at, read_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notification.id,
+                    notification.workspace_id,
+                    notification.project_id,
+                    notification.run_id,
+                    notification.session_id,
+                    notification.type.value,
+                    notification.severity.value,
+                    notification.title,
+                    notification.message,
+                    json.dumps(notification.metadata),
+                    1 if notification.read else 0,
+                    notification.created_at.isoformat(),
+                    notification.read_at.isoformat() if notification.read_at else None,
+                ),
+            )
+        return notification
+
+    def list_notifications(
+        self,
+        workspace_id: str | None = None,
+        unread_only: bool = False,
+        limit: int = 50,
+    ) -> list[Notification]:
+        """List notifications, optionally filtered by workspace and read status."""
+        conditions: list[str] = []
+        params: list[str | int] = []
+        if workspace_id:
+            conditions.append("workspace_id = ?")
+            params.append(workspace_id)
+        if unread_only:
+            conditions.append("read = 0")
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM notifications {where} ORDER BY created_at DESC LIMIT ?",
+                (*params, limit),
+            ).fetchall()
+        return [self._row_to_notification(row) for row in rows]
+
+    def get_unread_count(self, workspace_id: str | None = None) -> int:
+        """Get count of unread notifications."""
+        if workspace_id:
+            query = "SELECT COUNT(*) FROM notifications WHERE read = 0 AND workspace_id = ?"
+            params: tuple[str, ...] = (workspace_id,)
+        else:
+            query = "SELECT COUNT(*) FROM notifications WHERE read = 0"
+            params = ()
+        with self._get_conn() as conn:
+            row = conn.execute(query, params).fetchone()
+        return row[0] if row else 0
+
+    def mark_notification_read(self, notification_id: str) -> Notification | None:
+        """Mark a single notification as read."""
+        now = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE notifications SET read = 1, read_at = ? WHERE id = ?",
+                (now.isoformat(), notification_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM notifications WHERE id = ?",
+                (notification_id,),
+            ).fetchone()
+        return self._row_to_notification(row) if row else None
+
+    def mark_all_notifications_read(self, workspace_id: str | None = None) -> int:
+        """Mark all notifications as read. Returns count updated."""
+        now = utc_now()
+        if workspace_id:
+            query = "UPDATE notifications SET read = 1, read_at = ? WHERE read = 0 AND workspace_id = ?"
+            params: tuple[str, ...] = (now.isoformat(), workspace_id)
+        else:
+            query = "UPDATE notifications SET read = 1, read_at = ? WHERE read = 0"
+            params = (now.isoformat(),)
+        with self._get_conn() as conn:
+            cursor = conn.execute(query, params)
+        return cursor.rowcount
+
+    def delete_old_notifications(self, days: int = 30) -> int:
+        """Delete notifications older than N days. Returns count deleted."""
+        from datetime import timedelta
+
+        cutoff = (utc_now() - timedelta(days=days)).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM notifications WHERE created_at < ?",
+                (cutoff,),
+            )
+        return cursor.rowcount
+
+    def _row_to_notification(self, row: sqlite3.Row) -> Notification:
+        """Convert database row to Notification model."""
+        return Notification(
+            id=row["id"],
+            workspace_id=row["workspace_id"],
+            project_id=row["project_id"],
+            run_id=row["run_id"],
+            session_id=row["session_id"],
+            type=NotificationType(row["type"]),
+            severity=NotificationSeverity(row["severity"]),
+            title=row["title"],
+            message=row["message"],
+            metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+            read=bool(row["read"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            read_at=_parse_datetime(row["read_at"]),
         )

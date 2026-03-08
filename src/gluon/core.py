@@ -36,22 +36,50 @@ logger = logging.getLogger(__name__)
 
 
 async def _broadcast_run_event(event_type: str, run: ExecutionRun, project_name: str) -> None:
-    """Broadcast run event to WebSocket clients (if web module available).
+    """Broadcast run event via the event bus (falls back to direct ws_manager).
 
     Uses lazy import to avoid circular dependencies and gracefully handles
     cases where web module is not installed or no clients are connected.
     """
     try:
-        from gluon.web.websocket import ws_manager
+        from gluon.events import event_bus
+        from gluon.events.types import EventCategory, GluonEvent
 
+        # Map event_type to event bus type
         if event_type == "created":
-            await ws_manager.broadcast_run_created(run, project_name)
+            etype = "run.created"
+        elif run.status:
+            etype = f"run.{run.status.value}"
         else:
-            await ws_manager.broadcast_run_update(run, project_name)
+            etype = "run.updated"
+
+        await event_bus.emit(
+            GluonEvent(
+                type=etype,
+                category=EventCategory.LIFECYCLE,
+                project_id=run.project_id,
+                run_id=run.id,
+                data={
+                    "run": run,
+                    "project_name": project_name,
+                    "prompt": run.prompt,
+                    "error_message": run.error_message,
+                },
+            )
+        )
     except ImportError:
-        pass  # Web module not installed
+        # Event bus not available, fall back to direct ws_manager
+        try:
+            from gluon.web.websocket import ws_manager
+
+            if event_type == "created":
+                await ws_manager.broadcast_run_created(run, project_name)
+            else:
+                await ws_manager.broadcast_run_update(run, project_name)
+        except ImportError:
+            pass
     except Exception as e:
-        logger.debug(f"WebSocket broadcast failed (non-critical): {e}")
+        logger.debug(f"Event broadcast failed (non-critical): {e}")
 
 
 class ProjectNotFoundError(Exception):
