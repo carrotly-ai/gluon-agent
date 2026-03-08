@@ -1,4 +1,14 @@
-import { Archive, ExternalLink, GitBranch, RefreshCw, Square, X, Zap } from 'lucide-react'
+import {
+  Archive,
+  ExternalLink,
+  GitBranch,
+  MessageCircleQuestion,
+  RefreshCw,
+  Square,
+  X,
+  Zap,
+} from 'lucide-react'
+import { useNotificationCenter } from '@/hooks/useNotificationCenter'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { CircuitState, HealthClassification, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -80,6 +90,8 @@ function getStatusBorderColor(status: string, isRecovering?: boolean): string {
 }
 
 export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCardProps) {
+  const { pendingQuestions } = useNotificationCenter()
+  const hasPendingQuestions = pendingQuestions.some((q) => q.run_id === run.id)
   const isActive = run.status === 'running' || run.status === 'pending'
   const isRecovering = run.is_recovering
 
@@ -158,6 +170,16 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
               <RefreshCw className="w-2.5 h-2.5 animate-spin" />
               Recovering
+            </span>
+          )}
+          {/* Needs input badge */}
+          {hasPendingQuestions && (
+            <span
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)] animate-pulse"
+              title="Waiting for input"
+            >
+              <MessageCircleQuestion className="w-2.5 h-2.5" />
+              Input
             </span>
           )}
           <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">

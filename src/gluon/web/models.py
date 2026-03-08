@@ -1065,3 +1065,31 @@ class FormulaRunResponse(BaseModel):
 
     chain_id: str
     step_count: int
+
+
+# ========== Notification Models ==========
+
+
+class NotificationResponse(BaseModel):
+    """Response model for a persistent notification."""
+
+    id: str
+    workspace_id: str | None = None
+    project_id: str | None = None
+    run_id: str | None = None
+    session_id: str | None = None
+    type: str
+    severity: str
+    title: str
+    message: str | None = None
+    metadata: dict | None = None
+    read: bool = False
+    created_at: str
+    read_at: str | None = None
+
+
+class NotificationsListResponse(BaseModel):
+    """Response model for notification list."""
+
+    notifications: list[NotificationResponse]
+    unread_count: int

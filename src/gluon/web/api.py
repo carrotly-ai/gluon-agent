@@ -20,7 +20,7 @@ from gluon.cleanup import LogCleanupService
 from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.files import get_project_files
-from gluon.models import RunStatus, expand_path
+from gluon.models import Notification, RunStatus, expand_path
 from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
@@ -65,6 +65,8 @@ from gluon.web.models import (
     LogResponse,
     MergeQueueEntryResponse,
     MergeQueueListResponse,
+    NotificationResponse,
+    NotificationsListResponse,
     PendingQuestionResponse,
     PendingQuestionsResponse,
     ProjectDetailResponse,
@@ -966,8 +968,21 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         question.answered_at = utc_now()
         store.update_pending_question(question)
 
-        # Broadcast that question was answered
-        await ws_manager.broadcast_question_answered(question.run_id, question_id)
+        # Emit question.answered event (subscribers handle WebSocket broadcast)
+        try:
+            from gluon.events import event_bus
+            from gluon.events.types import EventCategory, GluonEvent
+
+            await event_bus.emit(
+                GluonEvent(
+                    type="question.answered",
+                    category=EventCategory.INTERACTION,
+                    run_id=question.run_id,
+                    data={"question_id": question_id, "selected_labels": body.selected_labels},
+                )
+            )
+        except ImportError:
+            await ws_manager.broadcast_question_answered(question.run_id, question_id)
 
         return _question_to_response(question)
 
@@ -3391,6 +3406,59 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             errors=errors,
         )
 
+    # ========== Notification Endpoints ==========
+
+    def _notification_to_response(n: Notification) -> NotificationResponse:
+        return NotificationResponse(
+            id=n.id,
+            workspace_id=n.workspace_id,
+            project_id=n.project_id,
+            run_id=n.run_id,
+            session_id=n.session_id,
+            type=n.type.value,
+            severity=n.severity.value,
+            title=n.title,
+            message=n.message,
+            metadata=n.metadata,
+            read=n.read,
+            created_at=n.created_at.isoformat(),
+            read_at=n.read_at.isoformat() if n.read_at else None,
+        )
+
+    @app.get("/api/notifications", response_model=NotificationsListResponse)
+    async def list_notifications(
+        workspace_id: str | None = None,
+        unread_only: bool = False,
+        limit: int = Query(default=50, le=200),
+    ) -> NotificationsListResponse:
+        """List notifications with optional filters."""
+        notifications = store.list_notifications(
+            workspace_id=workspace_id,
+            unread_only=unread_only,
+            limit=limit,
+        )
+        unread_count = store.get_unread_count(workspace_id=workspace_id)
+        return NotificationsListResponse(
+            notifications=[_notification_to_response(n) for n in notifications],
+            unread_count=unread_count,
+        )
+
+    @app.post("/api/notifications/{notification_id}/read", response_model=NotificationResponse)
+    async def mark_notification_read(notification_id: str) -> NotificationResponse:
+        """Mark a single notification as read."""
+        notification = store.mark_notification_read(notification_id)
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        return _notification_to_response(notification)
+
+    @app.post("/api/notifications/read-all")
+    async def mark_all_notifications_read(
+        workspace_id: str | None = None,
+    ) -> dict:
+        """Mark all notifications as read."""
+        count = store.mark_all_notifications_read(workspace_id=workspace_id)
+        return {"marked_read": count}
+
     # ========== Activity Log Endpoints ==========
 
     @app.get("/api/activity", response_model=ActivityListResponse)
@@ -4080,6 +4148,24 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
         nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task, _health_monitor
+
+        # Start event bus
+        from gluon.events import event_bus
+        from gluon.events.subscribers import register_subscribers
+
+        await event_bus.start()
+        register_subscribers(event_bus, store)
+
+        # Start Redis event transport subscriber — receives events from runner subprocesses
+        from gluon.events.redis_transport import RedisEventTransport
+
+        redis_transport = RedisEventTransport()
+        try:
+            await redis_transport.start_subscriber(event_bus)
+            app.state.redis_transport = redis_transport
+        except Exception as e:
+            logger.warning(f"Redis event transport unavailable (events from subprocesses won't reach UI): {e}")
+
         _polling_task = asyncio.create_task(_poll_run_status_changes())
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
         _log_polling_task = asyncio.create_task(_poll_log_updates())
@@ -4109,6 +4195,16 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.on_event("shutdown")
     async def stop_background_tasks() -> None:
         """Stop background tasks on app shutdown."""
+        # Stop Redis event transport
+        redis_transport = getattr(app.state, "redis_transport", None)
+        if redis_transport:
+            await redis_transport.stop()
+
+        # Stop event bus
+        from gluon.events import event_bus
+
+        await event_bus.stop()
+
         # Stop health monitor
         if _health_monitor and hasattr(_health_monitor, "stop"):
             await _health_monitor.stop()

@@ -424,10 +424,10 @@ class GluonAgent:
         if tool_name == "AskUserQuestion" and self.question_handler and self.run_id:
             questions = input_data.get("questions", [])
             if questions:
-                logger.info(f"AskUserQuestion intercepted with {len(questions)} question(s)")
                 try:
                     # Call the question handler to get answers
-                    answers = await self.question_handler(self.run_id, questions)
+                    # Note: handler is already bound with run_id via functools.partial
+                    answers = await self.question_handler(questions)
 
                     # Return with answers injected into the input
                     return PermissionResultAllow(
@@ -438,7 +438,10 @@ class GluonAgent:
                         },
                     )
                 except TimeoutError:
-                    logger.warning("Question handler timed out, allowing with empty answers")
+                    logger.warning("Question timed out waiting for user input — denying tool use")
+                    return PermissionResultDeny(
+                        message="Question timed out after 5 minutes waiting for user input. The run will be paused.",
+                    )
                 except Exception as e:
                     logger.error(f"Question handler failed: {e}")
 

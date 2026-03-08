@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     bubblewrap \
     sqlite3 \
+    redis-server \
     && rm -rf /var/lib/apt/lists/*
 
 # Layer 2: GitHub CLI (rarely changes)

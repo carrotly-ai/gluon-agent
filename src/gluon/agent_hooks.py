@@ -117,6 +117,8 @@ async def log_pre_tool_use(
             "tool": tool_name,
             "tool_use_id": tool_use_id or input_data.get("tool_use_id"),
             "input_keys": input_keys,
+            "agent_id": input_data.get("agent_id"),
+            "agent_type": input_data.get("agent_type"),
         },
     )
     return {}
@@ -135,6 +137,8 @@ async def log_post_tool_use(
         extra={
             "tool": tool_name,
             "tool_use_id": tool_use_id or input_data.get("tool_use_id"),
+            "agent_id": input_data.get("agent_id"),
+            "agent_type": input_data.get("agent_type"),
         },
     )
     return {}
