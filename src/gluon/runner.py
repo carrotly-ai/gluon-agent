@@ -16,7 +16,7 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ========== Run Health Assessment ==========
 
 
-class RunHealth(str, Enum):
+class RunHealth(StrEnum):
     """Health status for a running execution."""
 
     HEALTHY = "healthy"  # Running + recent output (<5 min)

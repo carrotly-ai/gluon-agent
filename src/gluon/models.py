@@ -2,7 +2,7 @@
 
 import os
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -46,7 +46,7 @@ def expand_path(path_str: str | Path) -> Path:
     return Path(os.path.realpath(expanded_str))
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     """Status of a Claude Code session."""
 
     ACTIVE = "active"  # Currently running
@@ -55,7 +55,7 @@ class SessionStatus(str, Enum):
     FAILED = "failed"  # Error occurred
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     """Status of an execution run."""
 
     PENDING = "pending"  # Queued but not started
@@ -66,7 +66,7 @@ class RunStatus(str, Enum):
     CANCELLED = "cancelled"  # Manually cancelled
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     """Circuit breaker state for ralph loops."""
 
     CLOSED = "CLOSED"  # Normal operation, execution allowed
@@ -74,7 +74,7 @@ class CircuitState(str, Enum):
     OPEN = "OPEN"  # Execution halted, requires intervention
 
 
-class SupervisionPolicy(str, Enum):
+class SupervisionPolicy(StrEnum):
     """Supervision policy for auto-resume decisions."""
 
     AGGRESSIVE = "aggressive"  # Resume if any chance of success
@@ -85,7 +85,7 @@ class SupervisionPolicy(str, Enum):
 # ========== Task Profile Models ==========
 
 
-class TaskProfile(str, Enum):
+class TaskProfile(StrEnum):
     """Pre-defined task profiles for common use cases."""
 
     QUICK = "quick"  # Fast, cheap, simple tasks (Haiku)
@@ -100,7 +100,7 @@ class TaskProfile(str, Enum):
     RESEARCH = "research"  # Deep analysis and research (Opus, high thinking)
 
 
-class ThinkingBudget(str, Enum):
+class ThinkingBudget(StrEnum):
     """Thinking budget presets for extended thinking."""
 
     NONE = "none"  # 0 tokens - no thinking
@@ -819,7 +819,7 @@ class RalphLoopIteration(BaseModel):
         return (self.ended_at - self.started_at).total_seconds()
 
 
-class QuestionStatus(str, Enum):
+class QuestionStatus(StrEnum):
     """Status of a pending question."""
 
     PENDING = "pending"  # Waiting for user response
@@ -888,7 +888,7 @@ class PendingQuestion(BaseModel):
         self.answered_at = utc_now()
 
 
-class NotificationType(str, Enum):
+class NotificationType(StrEnum):
     """Type of persistent notification."""
 
     QUESTION = "question"
@@ -899,7 +899,7 @@ class NotificationType(str, Enum):
     INFO = "info"
 
 
-class NotificationSeverity(str, Enum):
+class NotificationSeverity(StrEnum):
     """Severity level for persistent notifications."""
 
     INFO = "info"
@@ -1135,7 +1135,7 @@ class CommitFileSnapshot(BaseModel):
 # ========== Task Chain Models ==========
 
 
-class ChainStatus(str, Enum):
+class ChainStatus(StrEnum):
     """Status of a task chain."""
 
     PENDING = "pending"
@@ -1145,7 +1145,7 @@ class ChainStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class StepStatus(str, Enum):
+class StepStatus(StrEnum):
     """Status of a task step within a chain."""
 
     PENDING = "pending"  # Not yet evaluated
@@ -1279,7 +1279,7 @@ class ImageAttachment(BaseModel):
 # ========== Distributed Worker Models ==========
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Status of a job in the queue."""
 
     QUEUED = "queued"  # Waiting in queue
@@ -1289,14 +1289,14 @@ class JobStatus(str, Enum):
     FAILED = "failed"  # Error occurred
 
 
-class WorkerType(str, Enum):
+class WorkerType(StrEnum):
     """Type of worker for task execution."""
 
     LOCAL = "local"  # Local subprocess execution
     REMOTE = "remote"  # Remote worker via HTTP API
 
 
-class WorkerStatus(str, Enum):
+class WorkerStatus(StrEnum):
     """Health status of a worker."""
 
     HEALTHY = "healthy"  # Worker responding normally
@@ -1469,7 +1469,7 @@ class ActivityEvent(BaseModel):
 # ========== Work Queue Models (F12) ==========
 
 
-class WorkQueueStatus(str, Enum):
+class WorkQueueStatus(StrEnum):
     """Status of a work queue item."""
 
     PENDING = "pending"
@@ -1501,7 +1501,7 @@ class WorkQueueItem(BaseModel):
 # ========== Merge Queue Models (F8) ==========
 
 
-class MergeQueueStatus(str, Enum):
+class MergeQueueStatus(StrEnum):
     """Status of a merge queue entry."""
 
     PENDING = "pending"
@@ -1536,7 +1536,7 @@ class MergeQueueEntry(BaseModel):
 # ========== Witness Pattern Models (F9) ==========
 
 
-class HealthClassification(str, Enum):
+class HealthClassification(StrEnum):
     """LLM-based health classification for a running agent."""
 
     HEALTHY = "healthy"
@@ -1547,7 +1547,7 @@ class HealthClassification(str, Enum):
     ZOMBIE = "zombie"
 
 
-class RecoveryAction(str, Enum):
+class RecoveryAction(StrEnum):
     """Recovery action to take based on witness classification."""
 
     NONE = "none"

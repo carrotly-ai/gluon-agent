@@ -7,11 +7,11 @@ lint/test/format commands. No LLM calls — purely deterministic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 
-class ProjectType(str, Enum):
+class ProjectType(StrEnum):
     PYTHON = "python"
     NODE = "node"
     UNKNOWN = "unknown"

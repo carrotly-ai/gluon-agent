@@ -31,6 +31,7 @@ export function ActivityPage() {
   const [actorFilter, setActorFilter] = useState<string>('')
   const [timeRange, setTimeRange] = useState(24) // hours, 0 = all
   const [cleaning, setCleaning] = useState(false)
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -63,11 +64,16 @@ export function ActivityPage() {
 
   const handleCleanup = async () => {
     setCleaning(true)
+    setCleanupMessage(null)
     try {
       const result = await cleanupActivity(90)
       if (result.deleted > 0) {
+        setCleanupMessage(`Deleted ${result.deleted} old events`)
         load()
+      } else {
+        setCleanupMessage('No events older than 90 days')
       }
+      setTimeout(() => setCleanupMessage(null), 3000)
     } catch (err) {
       console.error('Failed to cleanup activity:', err)
     } finally {
@@ -144,6 +150,9 @@ export function ActivityPage() {
             <Trash2 className="w-3 h-3" />
             <span className="hidden sm:inline">Cleanup</span>
           </button>
+          {cleanupMessage && (
+            <span className="text-caption text-[var(--color-stone)]/50">{cleanupMessage}</span>
+          )}
         </div>
       </div>
 

@@ -1,9 +1,9 @@
 """Model configuration for Gluon Agent."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ModelTier(str, Enum):
+class ModelTier(StrEnum):
     """Model tiers for different task complexities."""
 
     OPUS_46 = "opus-4.6"

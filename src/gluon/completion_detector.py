@@ -13,10 +13,10 @@ Exit signals:
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class RalphStatus(str, Enum):
+class RalphStatus(StrEnum):
     """Status values for RALPH_STATUS block."""
 
     IN_PROGRESS = "IN_PROGRESS"
@@ -24,7 +24,7 @@ class RalphStatus(str, Enum):
     BLOCKED = "BLOCKED"
 
 
-class TestsStatus(str, Enum):
+class TestsStatus(StrEnum):
     """Test status values for RALPH_STATUS block."""
 
     PASSING = "PASSING"
@@ -32,7 +32,7 @@ class TestsStatus(str, Enum):
     NOT_RUN = "NOT_RUN"
 
 
-class WorkType(str, Enum):
+class WorkType(StrEnum):
     """Work type values for RALPH_STATUS block."""
 
     IMPLEMENTATION = "IMPLEMENTATION"

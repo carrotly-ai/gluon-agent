@@ -54,15 +54,19 @@ So, like its namesake, Gluon binds together your scattered projects and tasks, o
 - **Kanban Board** - Drag-and-drop task management with Queue, Running, Review, and Done columns
 - **Real-Time Log Streaming** - WebSocket-powered live log output with collapsible tool call visualization
 - **Run Details Modal** - View messages, tool calls, commits, file diffs, and attachments
+- **Notification Center** - Bell icon with unread count, persistent notification history, mark read/unread
+- **Global Question Modal** - AskUserQuestion prompts appear as modal overlays from any page with run context (project, branch, task prompt), countdown timer, and multi-select/single-select support
 - **Full-Screen Mode** - Expanded view for detailed run analysis
 - **Message Filtering** - Filter by tools, text, or errors with counts
 - **Toast Notifications** - Instant feedback for merge and PR actions
+- **Browser Notifications** - Desktop push notifications for completed/failed runs and pending questions when tab is unfocused
 - **Recovery UI** - Visual indicator when recovering interrupted runs with progress tracking
 - **Activity Feed** - Cross-agent event stream showing run completions, PR actions, and system events
 - **Work Queue Panel** - Queue and schedule tasks across projects from the dashboard
 - **Merge Queue Panel** - Monitor and manage sequential PR merges with conflict status
 - **Formula Step Progress** - Violet progress bar on run cards showing current step in multi-step workflows
 - **Witness Health Indicators** - Real-time health classification dots on running tasks (healthy, slow, looping, stuck)
+- **Input Required Badges** - Visual indicators on run cards when agents are waiting for user input
 
 ### Progressive Web App (PWA)
 - **Installable App** - Install on mobile/desktop for native-like experience
@@ -447,6 +451,8 @@ graph TB
     subgraph Services
         STORE[(SQLite)]
         GIT[Git Manager Agent]
+        EBUS[Event Bus]
+        REDIS[Redis Pub/Sub]
     end
 
     CLI --> ORCH
@@ -461,6 +467,9 @@ graph TB
     RUNNER --> GIT
     RUNNER --> AGENT1
     RUNNER -.-> AGENTN
+    RUNNER --> EBUS
+    EBUS --> REDIS
+    REDIS --> WEB
 
     AGENT1 --> SDK1
     SDK1 --> CLAUDE1
