@@ -51,7 +51,7 @@ class RedisEventTransport:
         """Connect the publish client. Used by runner subprocesses."""
         if self._pub_client is None:
             self._pub_client = aioredis.from_url(self.redis_url, encoding="utf-8", decode_responses=True)
-            await self._pub_client.ping()
+            await self._pub_client.ping()  # type: ignore[misc]
             logger.info("Redis event transport: publisher connected")
 
     async def publish(self, event_json: str, event_type: str) -> None:
@@ -84,7 +84,7 @@ class RedisEventTransport:
             return
 
         self._sub_client = aioredis.from_url(self.redis_url, encoding="utf-8", decode_responses=True)
-        await self._sub_client.ping()
+        await self._sub_client.ping()  # type: ignore[misc]
 
         self._pubsub = self._sub_client.pubsub()
         # Subscribe to all gluon event channels via pattern

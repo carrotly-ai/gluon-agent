@@ -200,7 +200,7 @@ def _make_transport_dispatcher(store: GluonStore):
                 return
 
             notifier = NotificationDispatcher(store=store)
-            await notifier.notify(run, old_status, run.status)
+            await notifier.notify(run, old_status, run.status)  # type: ignore[arg-type]
         except Exception:
             logger.debug("Transport dispatch failed", exc_info=True)
 
