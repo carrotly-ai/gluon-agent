@@ -3909,6 +3909,12 @@ class GluonStore:
             cursor = conn.execute(query, params)
         return cursor.rowcount
 
+    def delete_all_notifications(self) -> int:
+        """Delete all notifications. Returns count deleted."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM notifications")
+        return cursor.rowcount
+
     def delete_old_notifications(self, days: int = 30) -> int:
         """Delete notifications older than N days. Returns count deleted."""
         from datetime import timedelta

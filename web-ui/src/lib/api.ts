@@ -931,3 +931,7 @@ export async function markAllNotificationsRead(
   const params = workspaceId ? `?workspace_id=${workspaceId}` : ''
   return fetchJson<{ marked_read: number }>(`/notifications/read-all${params}`, { method: 'POST' })
 }
+
+export async function deleteAllNotifications(): Promise<{ deleted: number }> {
+  return fetchJson<{ deleted: number }>('/notifications', { method: 'DELETE' })
+}

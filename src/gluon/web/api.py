@@ -3459,6 +3459,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         count = store.mark_all_notifications_read(workspace_id=workspace_id)
         return {"marked_read": count}
 
+    @app.delete("/api/notifications")
+    async def delete_all_notifications() -> dict:
+        """Delete all notifications."""
+        count = store.delete_all_notifications()
+        return {"deleted": count}
+
     # ========== Activity Log Endpoints ==========
 
     @app.get("/api/activity", response_model=ActivityListResponse)

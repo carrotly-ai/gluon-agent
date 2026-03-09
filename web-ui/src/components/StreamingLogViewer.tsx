@@ -1046,6 +1046,8 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       ),
     ]
     return combined.filter((msg) => {
+      // Filter out SDK heartbeat messages (no user value)
+      if (msg.type === 'system' && msg.content === 'task_progress') return false
       // Create unique key from timestamp + type + content preview
       // This handles the race condition between HTTP fetch and WebSocket streaming
       const contentPreview = msg.content?.slice(0, 100) || ''

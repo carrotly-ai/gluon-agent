@@ -1,4 +1,4 @@
-import { Bell, CheckCheck, X } from 'lucide-react'
+import { Bell, CheckCheck, Trash2, X } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useNotificationCenter } from '@/hooks/useNotificationCenter'
 import type { GluonNotification } from '@/lib/types'
@@ -73,7 +73,7 @@ export function NotificationBell({
 }: {
   onNavigateToRun: (runId: string) => void
 }) {
-  const { notifications, unreadCount, markRead, markAllRead } = useNotificationCenter()
+  const { notifications, unreadCount, markRead, markAllRead, clearAll } = useNotificationCenter()
   const [open, setOpen] = useState(false)
 
   const handleToggle = useCallback(() => {
@@ -120,6 +120,16 @@ export function NotificationBell({
                     title="Mark all read"
                   >
                     <CheckCheck className="w-3.5 h-3.5 text-[var(--color-stone)]/60" />
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    type="button"
+                    className="p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+                    onClick={() => clearAll()}
+                    title="Clear all notifications"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-[var(--color-stone)]/60" />
                   </button>
                 )}
                 <button

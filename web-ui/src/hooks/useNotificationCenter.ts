@@ -1,5 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from '@/lib/api'
+import {
+  deleteAllNotifications,
+  fetchNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from '@/lib/api'
 import type {
   GluonNotification,
   NotificationCreatedMessage,
@@ -17,6 +22,7 @@ interface NotificationCenterState {
   fetchNotifications(): Promise<void>
   markRead(id: string): Promise<void>
   markAllRead(): Promise<void>
+  clearAll(): Promise<void>
 
   handleNotificationEvent(msg: NotificationCreatedMessage): void
   handleQuestionEvent(msg: PendingQuestionsMessage): void
@@ -31,6 +37,7 @@ const defaultState: NotificationCenterState = {
   fetchNotifications: async () => {},
   markRead: async () => {},
   markAllRead: async () => {},
+  clearAll: async () => {},
   handleNotificationEvent: () => {},
   handleQuestionEvent: () => {},
   handleQuestionAnswered: () => {},
@@ -83,6 +90,16 @@ export function useNotificationCenterProvider() {
     try {
       await markAllNotificationsRead()
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+      setUnreadCount(0)
+    } catch {
+      // Ignore
+    }
+  }, [])
+
+  const clearAll = useCallback(async () => {
+    try {
+      await deleteAllNotifications()
+      setNotifications([])
       setUnreadCount(0)
     } catch {
       // Ignore
@@ -145,6 +162,7 @@ export function useNotificationCenterProvider() {
     fetchNotifications: doFetch,
     markRead,
     markAllRead,
+    clearAll,
     handleNotificationEvent,
     handleQuestionEvent,
     handleQuestionAnswered,
