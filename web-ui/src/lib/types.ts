@@ -414,6 +414,15 @@ export interface NotificationsListResponse {
   unread_count: number
 }
 
+// ========== Workspace Settings Types ==========
+
+export interface WorkspaceSettingsData {
+  workspace_id: string
+  settings: Record<string, string>
+  env_var_keys: string[]
+  global_defaults: Record<string, string>
+}
+
 /** WebSocket message types */
 export type WebSocketMessageType =
   | 'run_created'

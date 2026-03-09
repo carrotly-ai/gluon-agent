@@ -350,6 +350,15 @@ class WorkspaceResponse(BaseModel):
         from_attributes = True
 
 
+class WorkspaceSettingsResponse(BaseModel):
+    """Response model for workspace settings."""
+
+    workspace_id: str
+    settings: dict[str, str] = Field(description="Current workspace setting overrides")
+    env_var_keys: list[str] = Field(description="Environment variable keys (values masked)")
+    global_defaults: dict[str, str] = Field(description="Current global settings for comparison")
+
+
 class ScanResultResponse(BaseModel):
     """Response model for workspace scan operation."""
 

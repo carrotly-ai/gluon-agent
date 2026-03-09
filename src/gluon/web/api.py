@@ -118,6 +118,7 @@ from gluon.web.models import (
     WorkQueueItemResponse,
     WorkQueueListResponse,
     WorkspaceResponse,
+    WorkspaceSettingsResponse,
 )
 from gluon.web.websocket import ws_manager
 
@@ -2028,6 +2029,74 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail="Failed to delete workspace")
 
         return {"deleted": True, "workspace_id": workspace.id}
+
+    # ========== Workspace Settings Endpoints ==========
+
+    @app.get("/api/workspaces/{workspace_id}/settings", response_model=WorkspaceSettingsResponse)
+    async def get_workspace_settings(workspace_id: str) -> WorkspaceSettingsResponse:
+        """Get workspace settings with global defaults for comparison."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        all_ws_settings = store.get_workspace_settings(workspace.id)
+        # Separate env vars from regular settings
+        settings = {k: v for k, v in all_ws_settings.items() if not k.startswith("env.")}
+        env_var_keys = [k[4:] for k in all_ws_settings if k.startswith("env.")]
+        global_defaults = store.get_all_settings()
+
+        return WorkspaceSettingsResponse(
+            workspace_id=workspace.id,
+            settings=settings,
+            env_var_keys=env_var_keys,
+            global_defaults=global_defaults,
+        )
+
+    @app.put("/api/workspaces/{workspace_id}/settings")
+    async def update_workspace_settings(workspace_id: str, body: dict[str, str]) -> dict:
+        """Set one or more workspace setting overrides."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        for key, value in body.items():
+            if key.startswith("env."):
+                raise HTTPException(status_code=400, detail="Use /env-vars endpoint for environment variables")
+            store.set_workspace_setting(workspace.id, key, value)
+
+        return {"updated": len(body), "workspace_id": workspace.id}
+
+    @app.delete("/api/workspaces/{workspace_id}/settings/{key}")
+    async def delete_workspace_setting(workspace_id: str, key: str) -> dict:
+        """Remove a single setting override (reverts to global)."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        deleted = store.delete_workspace_setting(workspace.id, key)
+        return {"deleted": deleted, "key": key, "workspace_id": workspace.id}
+
+    @app.put("/api/workspaces/{workspace_id}/env-vars")
+    async def update_workspace_env_vars(workspace_id: str, body: dict[str, str]) -> dict:
+        """Set workspace environment variables (auto-prefixed with env.)."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        for key, value in body.items():
+            store.set_workspace_setting(workspace.id, f"env.{key}", value)
+
+        return {"updated": len(body), "workspace_id": workspace.id}
+
+    @app.delete("/api/workspaces/{workspace_id}/env-vars/{key}")
+    async def delete_workspace_env_var(workspace_id: str, key: str) -> dict:
+        """Remove a workspace environment variable."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        deleted = store.delete_workspace_setting(workspace.id, f"env.{key}")
+        return {"deleted": deleted, "key": key, "workspace_id": workspace.id}
 
     @app.post("/api/workspaces/{workspace_id}/scan", response_model=ScanResultResponse)
     async def scan_workspace(workspace_id: str) -> ScanResultResponse:

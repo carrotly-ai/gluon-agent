@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Settings2,
   Trash2,
   X,
 } from 'lucide-react'
@@ -34,6 +35,7 @@ import {
 import type { FormulaTemplate, Project, ScanResultResponse, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { GitSyncButton } from './GitSyncButton'
+import { WorkspaceSettingsDialog } from './WorkspaceSettingsDialog'
 
 type Tab = 'workspaces' | 'projects' | 'preferences' | 'formulas'
 
@@ -71,6 +73,12 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
     type: 'workspace' | 'project'
+    id: string
+    name: string
+  } | null>(null)
+
+  // Workspace settings dialog
+  const [settingsWorkspace, setSettingsWorkspace] = useState<{
     id: string
     name: string
   } | null>(null)
@@ -579,6 +587,13 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           <RefreshCw
                             className={cn('w-3.5 h-3.5', scanningId === ws.id && 'animate-spin')}
                           />
+                        </button>
+                        <button
+                          className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
+                          onClick={() => setSettingsWorkspace({ id: ws.id, name: ws.name })}
+                          title="Workspace settings"
+                        >
+                          <Settings2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
@@ -1361,6 +1376,18 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
         )}
 
         {/* Clone repository modal */}
+        {/* Workspace Settings Dialog */}
+        {settingsWorkspace && (
+          <WorkspaceSettingsDialog
+            workspaceId={settingsWorkspace.id}
+            workspaceName={settingsWorkspace.name}
+            open={!!settingsWorkspace}
+            onOpenChange={(open) => {
+              if (!open) setSettingsWorkspace(null)
+            }}
+          />
+        )}
+
         {cloneDialogWorkspaceId && (
           <div className="fixed inset-0 bg-[var(--color-void)]/80 flex items-center justify-center z-50">
             <div className="bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm p-6 max-w-md w-full mx-4 space-y-4">

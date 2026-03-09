@@ -64,6 +64,7 @@ import type {
   // Work Queue types
   WorkQueueItem,
   Workspace,
+  WorkspaceSettingsData,
 } from './types'
 
 const API_BASE = '/api'
@@ -934,4 +935,47 @@ export async function markAllNotificationsRead(
 
 export async function deleteAllNotifications(): Promise<{ deleted: number }> {
   return fetchJson<{ deleted: number }>('/notifications', { method: 'DELETE' })
+}
+
+// ========== Workspace Settings ==========
+
+/** Fetch workspace settings with global defaults for comparison */
+export async function fetchWorkspaceSettings(workspaceId: string): Promise<WorkspaceSettingsData> {
+  return fetchJson<WorkspaceSettingsData>(`/workspaces/${workspaceId}/settings`)
+}
+
+/** Update one or more workspace setting overrides */
+export async function updateWorkspaceSettings(
+  workspaceId: string,
+  settings: Record<string, string>
+): Promise<void> {
+  await fetchJson(`/workspaces/${workspaceId}/settings`, {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+}
+
+/** Remove a single workspace setting override (reverts to global) */
+export async function deleteWorkspaceSetting(workspaceId: string, key: string): Promise<void> {
+  await fetchJson(`/workspaces/${workspaceId}/settings/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+}
+
+/** Set workspace environment variables */
+export async function updateWorkspaceEnvVars(
+  workspaceId: string,
+  vars: Record<string, string>
+): Promise<void> {
+  await fetchJson(`/workspaces/${workspaceId}/env-vars`, {
+    method: 'PUT',
+    body: JSON.stringify(vars),
+  })
+}
+
+/** Remove a workspace environment variable */
+export async function deleteWorkspaceEnvVar(workspaceId: string, key: string): Promise<void> {
+  await fetchJson(`/workspaces/${workspaceId}/env-vars/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
 }

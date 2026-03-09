@@ -586,6 +586,16 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, created_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_notifications_run ON notifications(run_id);",
     "CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id);",
+    # Workspace-specific settings and environment variables
+    """
+    CREATE TABLE IF NOT EXISTS workspace_settings (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, key)
+    );
+    """,
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1116,6 +1126,8 @@ class GluonStore:
     def delete_workspace(self, workspace_id: str) -> bool:
         """Delete a workspace (projects are kept but unlinked)."""
         with self._get_conn() as conn:
+            # Clean up workspace settings before deleting
+            conn.execute("DELETE FROM workspace_settings WHERE workspace_id = ?", (workspace_id,))
             cursor = conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
             return cursor.rowcount > 0
 
@@ -2468,6 +2480,68 @@ class GluonStore:
         with self._get_conn() as conn:
             rows = conn.execute("SELECT key, value FROM settings").fetchall()
             return {row["key"]: row["value"] for row in rows}
+
+    # ========== Workspace Settings CRUD ==========
+
+    def get_workspace_settings(self, workspace_id: str) -> dict[str, str]:
+        """Get all settings for a workspace (both overrides and env vars)."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM workspace_settings WHERE workspace_id = ?",
+                (workspace_id,),
+            ).fetchall()
+            return {row["key"]: row["value"] for row in rows}
+
+    def get_workspace_setting(self, workspace_id: str, key: str, default: str | None = None) -> str | None:
+        """Get a single workspace setting."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM workspace_settings WHERE workspace_id = ? AND key = ?",
+                (workspace_id, key),
+            ).fetchone()
+            return row["value"] if row else default
+
+    def set_workspace_setting(self, workspace_id: str, key: str, value: str) -> None:
+        """Set/update a workspace setting using UPSERT."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO workspace_settings (workspace_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (workspace_id, key, value, utc_now().isoformat()),
+            )
+
+    def delete_workspace_setting(self, workspace_id: str, key: str) -> bool:
+        """Remove a workspace setting override (reverts to global)."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM workspace_settings WHERE workspace_id = ? AND key = ?",
+                (workspace_id, key),
+            )
+            return cursor.rowcount > 0
+
+    def delete_all_workspace_settings(self, workspace_id: str) -> int:
+        """Remove all settings for a workspace."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM workspace_settings WHERE workspace_id = ?",
+                (workspace_id,),
+            )
+            return cursor.rowcount
+
+    def resolve_setting(self, key: str, default: str | None = None, workspace_id: str | None = None) -> str | None:
+        """Resolve a setting: workspace override > global default > hardcoded default."""
+        if workspace_id:
+            ws_value = self.get_workspace_setting(workspace_id, key)
+            if ws_value is not None:
+                return ws_value
+        return self.get_setting(key, default)
+
+    def get_workspace_env_vars(self, workspace_id: str) -> dict[str, str]:
+        """Get env vars for a workspace (keys starting with 'env.')."""
+        all_settings = self.get_workspace_settings(workspace_id)
+        return {k[4:]: v for k, v in all_settings.items() if k.startswith("env.")}
 
     # ========== Image Attachment CRUD (Phase 10.1) ==========
 

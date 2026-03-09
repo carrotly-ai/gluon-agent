@@ -138,7 +138,7 @@ class TaskRunner:
         log_dir = self.config.log_path / run_id
         return log_dir if log_dir.exists() else None
 
-    def _set_git_identity_env_vars(self) -> None:
+    def _set_git_identity_env_vars(self, workspace_id: str | None = None) -> None:
         """Set git identity environment variables from settings.
 
         Git environment variables override ALL git config (system, global, local .git/config).
@@ -151,8 +151,8 @@ class TaskRunner:
         4. ~/.gitconfig (global)
         5. /etc/gitconfig (system)
         """
-        git_author_name = self.store.get_setting("git_user_name", "")
-        git_author_email = self.store.get_setting("git_user_email", "")
+        git_author_name = self.store.resolve_setting("git_user_name", "", workspace_id)
+        git_author_email = self.store.resolve_setting("git_user_email", "", workspace_id)
 
         if git_author_name:
             os.environ["GIT_AUTHOR_NAME"] = git_author_name
@@ -604,17 +604,24 @@ class TaskRunner:
             run.id,
         ]
 
-        # Build environment with git identity settings
+        # Build environment with git identity settings (workspace-aware)
         # This ensures subprocess inherits configured git author identity
         env = os.environ.copy()
-        git_author_name = self.store.get_setting("git_user_name", "")
-        git_author_email = self.store.get_setting("git_user_email", "")
+        project = self.store.get_project(run.project_id)
+        workspace_id = project.workspace_id if project else None
+        git_author_name = self.store.resolve_setting("git_user_name", "", workspace_id)
+        git_author_email = self.store.resolve_setting("git_user_email", "", workspace_id)
         if git_author_name:
             env["GIT_AUTHOR_NAME"] = git_author_name
             env["GIT_COMMITTER_NAME"] = git_author_name
         if git_author_email:
             env["GIT_AUTHOR_EMAIL"] = git_author_email
             env["GIT_COMMITTER_EMAIL"] = git_author_email
+
+        # Inject workspace-specific environment variables (e.g., GH_TOKEN per org)
+        if workspace_id:
+            ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
+            env.update(ws_env_vars)
 
         # Browser session isolation per run
         env["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
@@ -649,19 +656,27 @@ class TaskRunner:
         """Execute the actual task."""
         old_status = run.status
 
-        # Set git identity environment variables from settings
-        # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
-        self._set_git_identity_env_vars()
-
-        # Browser session isolation per run
-        os.environ["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
-
-        # Get project
+        # Get project and resolve workspace for settings
         project = self.store.get_project(run.project_id)
         if not project:
             run.mark_failed(f"Project not found: {run.project_id}")
             self.store.update_run(run)
             return
+        workspace_id = project.workspace_id
+
+        # Set git identity environment variables from settings (workspace-aware)
+        # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
+        self._set_git_identity_env_vars(workspace_id)
+
+        # Inject workspace-specific environment variables (e.g., GH_TOKEN per org)
+        _saved_env: dict[str, str | None] = {}
+        if workspace_id:
+            ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
+            _saved_env = {k: os.environ.get(k) for k in ws_env_vars}
+            os.environ.update(ws_env_vars)
+
+        # Browser session isolation per run
+        os.environ["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
 
         # Log task start activity event
         try:
@@ -772,7 +787,7 @@ but explicit commits with good messages are preferred.
                 metadata = run.metadata or {}
                 enable_prehydration = metadata.get(
                     "enable_prehydration",
-                    self.store.get_setting("prehydration_enabled", "true") == "true",
+                    self.store.resolve_setting("prehydration_enabled", "true", workspace_id) == "true",
                 )
                 if enable_prehydration:
                     from gluon.pre_hydration import format_context, hydrate
@@ -797,19 +812,20 @@ but explicit commits with good messages are preferred.
                 force_planning = metadata.get("force_planning", False)
 
                 # Read sandbox setting (default enabled for security)
-                sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
+                sandbox_enabled = self.store.resolve_setting("sandbox_enabled", "true", workspace_id) == "true"
                 # Per-task override from metadata, fall back to global setting
                 agent_teams_override = metadata.get("agent_teams")
                 agent_teams_enabled = (
                     agent_teams_override
                     if agent_teams_override is not None
-                    else self.store.get_setting("agent_teams_enabled", "false") == "true"
+                    else self.store.resolve_setting("agent_teams_enabled", "false", workspace_id) == "true"
                 )
 
                 # SDK 0.1.35 feature settings
-                extended_context = self.store.get_setting("extended_context_enabled", "false") == "true"
-                file_checkpointing = self.store.get_setting("file_checkpointing_enabled", "false") == "true"
-                disallowed_tools_json = self.store.get_setting("disallowed_tools", "[]")
+                _resolve = self.store.resolve_setting
+                extended_context = _resolve("extended_context_enabled", "false", workspace_id) == "true"
+                file_checkpointing = _resolve("file_checkpointing_enabled", "false", workspace_id) == "true"
+                disallowed_tools_json = _resolve("disallowed_tools", "[]", workspace_id)
                 try:
                     disallowed_tools = json.loads(disallowed_tools_json)
                 except (json.JSONDecodeError, TypeError):
@@ -818,8 +834,8 @@ but explicit commits with good messages are preferred.
                 effort = metadata.get("effort")
 
                 # Vercel CLI integration (optional)
-                vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
-                vercel_token = self.store.get_setting("vercel_token", "") or os.environ.get("VERCEL_TOKEN") or None
+                vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
+                vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
 
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
@@ -1003,7 +1019,8 @@ but explicit commits with good messages are preferred.
                                 stderr_file.write(f"Warning: Failed to capture git info: {git_err}\n")
 
                             # For worktree runs: auto-commit uncommitted changes, push and create PR
-                            auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
+                            _r = self.store.resolve_setting
+                            auto_create_pr = _r("auto_create_pr", "true", workspace_id) == "true"
                             if run.use_worktree and run.branch_name and item.success:
                                 # Safety net: auto-commit any uncommitted changes
                                 try:
@@ -1079,7 +1096,7 @@ but explicit commits with good messages are preferred.
                                 blueprint_enabled = (
                                     metadata.get(
                                         "blueprint_enabled",
-                                        self.store.get_setting("blueprint_enabled", "true") == "true",
+                                        self.store.resolve_setting("blueprint_enabled", "true", workspace_id) == "true",
                                     )
                                     and profile == "standard"
                                 )
@@ -1698,10 +1715,12 @@ but explicit commits with good messages are preferred.
                 f"SALVAGE: {prompt_preview}...\n\nAuto-salvaged after unexpected process termination\nRun ID: {run.id}"
             )
 
-            # Build commit command with author flag if configured
+            # Build commit command with author flag if configured (workspace-aware)
             commit_cmd = ["git", "commit", "-m", commit_msg]
-            git_author_name = self.store.get_setting("git_user_name", "")
-            git_author_email = self.store.get_setting("git_user_email", "")
+            project = self.store.get_project(run.project_id)
+            ws_id = project.workspace_id if project else None
+            git_author_name = self.store.resolve_setting("git_user_name", "", ws_id)
+            git_author_email = self.store.resolve_setting("git_user_email", "", ws_id)
             if git_author_name and git_author_email:
                 commit_cmd.extend(["--author", f"{git_author_name} <{git_author_email}>"])
 
@@ -1950,9 +1969,18 @@ but explicit commits with good messages are preferred.
 
         old_status = run.status
 
-        # Set git identity environment variables from settings
+        # Resolve workspace for settings
+        project = self.store.get_project(run.project_id)
+        workspace_id = project.workspace_id if project else None
+
+        # Set git identity environment variables from settings (workspace-aware)
         # This ensures ALL git commits (by Gluon OR Claude SDK) use configured identity
-        self._set_git_identity_env_vars()
+        self._set_git_identity_env_vars(workspace_id)
+
+        # Inject workspace-specific environment variables
+        if workspace_id:
+            ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
+            os.environ.update(ws_env_vars)
 
         logger.info(f"Starting ralph loop for run {run.id[:8]}")
 
@@ -1976,17 +2004,18 @@ but explicit commits with good messages are preferred.
             from functools import partial
 
             auto_handler = partial(self._auto_answer_handler, run.id)
-            sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
+            _resolve = self.store.resolve_setting
+            sandbox_enabled = _resolve("sandbox_enabled", "true", workspace_id) == "true"
             ralph_metadata = run.metadata or {}
             agent_teams_override = ralph_metadata.get("agent_teams")
             agent_teams_enabled = (
                 agent_teams_override
                 if agent_teams_override is not None
-                else self.store.get_setting("agent_teams_enabled", "false") == "true"
+                else _resolve("agent_teams_enabled", "false", workspace_id) == "true"
             )
             # Vercel CLI integration (optional)
-            vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
-            vercel_token = self.store.get_setting("vercel_token", "") or os.environ.get("VERCEL_TOKEN") or None
+            vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
+            vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
 
             agent = GluonAgent(
                 model=run.model or self.agent.model,
@@ -2036,7 +2065,7 @@ but explicit commits with good messages are preferred.
                         f.write(f"Warning: Failed to capture git info: {git_err}\n")
 
                 # Auto-commit and create PR for worktree runs
-                auto_create_pr = self.store.get_setting("auto_create_pr", "true") == "true"
+                auto_create_pr = self.store.resolve_setting("auto_create_pr", "true", workspace_id) == "true"
                 if updated_run.use_worktree and updated_run.branch_name:
                     # Auto-commit uncommitted changes
                     try:
@@ -2186,17 +2215,20 @@ but explicit commits with good messages are preferred.
             stdout_file.flush()
 
             # Create agent for recovery (use same model as original run)
-            sandbox_enabled = self.store.get_setting("sandbox_enabled", "true") == "true"
+            project = self.store.get_project(run.project_id)
+            ws_id = project.workspace_id if project else None
+            _resolve = self.store.resolve_setting
+            sandbox_enabled = _resolve("sandbox_enabled", "true", ws_id) == "true"
             recovery_metadata = run.metadata or {}
             agent_teams_override = recovery_metadata.get("agent_teams")
             agent_teams_enabled = (
                 agent_teams_override
                 if agent_teams_override is not None
-                else self.store.get_setting("agent_teams_enabled", "false") == "true"
+                else _resolve("agent_teams_enabled", "false", ws_id) == "true"
             )
             # Vercel CLI integration (optional)
-            vercel_cli_enabled = self.store.get_setting("vercel_cli_enabled", "false") == "true"
-            vercel_token = self.store.get_setting("vercel_token", "") or os.environ.get("VERCEL_TOKEN") or None
+            vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", ws_id) == "true"
+            vercel_token = _resolve("vercel_token", "", ws_id) or os.environ.get("VERCEL_TOKEN") or None
 
             recovery_agent = (
                 GluonAgent(
