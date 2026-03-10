@@ -30,8 +30,9 @@ GIT_COMMIT_PREFIX = os.getenv("GLUON_GIT_COMMIT_PREFIX", "gluon:")
 class GitManager:
     """Manages git synchronization for all projects."""
 
-    def __init__(self, store: GluonStore):
+    def __init__(self, store: GluonStore, workspace_id: str | None = None):
         self.store = store
+        self.workspace_id = workspace_id
         self._sync_task: asyncio.Task | None = None
         self._sync_interval = GIT_SYNC_INTERVAL
         self._stop_event = asyncio.Event()
@@ -67,15 +68,16 @@ class GitManager:
         Get git author config flags for commit commands.
 
         Resolution order:
-        1. Settings DB (git_user_name, git_user_email)
-        2. Environment variables (GIT_USER_NAME, GIT_USER_EMAIL)
-        3. Empty list (use system git config)
+        1. Workspace setting override (if workspace_id set)
+        2. Global settings DB (git_user_name, git_user_email)
+        3. Environment variables (GIT_USER_NAME, GIT_USER_EMAIL)
+        4. Empty list (use system git config)
         """
         config_args: list[str] = []
 
-        # Try settings DB first
-        name = self.store.get_setting("git_user_name", "")
-        email = self.store.get_setting("git_user_email", "")
+        # Use resolve_setting for workspace > global resolution
+        name = self.store.resolve_setting("git_user_name", "", self.workspace_id)
+        email = self.store.resolve_setting("git_user_email", "", self.workspace_id)
 
         # Fall back to environment variables
         if not name:

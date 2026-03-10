@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import subprocess
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -159,6 +160,28 @@ def _get_git_ahead_behind(project_path: str | Path) -> tuple[int | None, int | N
     except Exception:
         pass
     return None, None
+
+
+@contextmanager
+def _workspace_env(store: GluonStore, workspace_id: str | None):
+    """Temporarily inject workspace env vars into os.environ for git operations."""
+    if not workspace_id:
+        yield
+        return
+    ws_env = store.get_workspace_env_vars(workspace_id)
+    if not ws_env:
+        yield
+        return
+    saved = {k: os.environ.get(k) for k in ws_env}
+    os.environ.update(ws_env)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def create_app(store: GluonStore | None = None) -> FastAPI:
@@ -2608,7 +2631,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         # Use git manager to push branch and create PR
         from gluon.git_manager import GitManager
 
-        git_manager = GitManager(store)
+        git_manager = GitManager(store, workspace_id=project.workspace_id)
 
         # Determine working path (worktree if still exists, else project root)
         working_path = (
@@ -2616,12 +2639,13 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         )
 
         try:
-            pr_result = await git_manager.push_branch_and_create_pr(
-                project_path=working_path,
-                branch_name=run.branch_name,
-                prompt=run.prompt,
-                run_id=run.id,
-            )
+            with _workspace_env(store, project.workspace_id):
+                pr_result = await git_manager.push_branch_and_create_pr(
+                    project_path=working_path,
+                    branch_name=run.branch_name,
+                    prompt=run.prompt,
+                    run_id=run.id,
+                )
 
             if pr_result.get("pr_url"):
                 run.pr_number = pr_result.get("pr_number")
@@ -2676,7 +2700,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         # Use git manager to merge branch locally and push
         from gluon.git_manager import GitManager
 
-        git_manager = GitManager(store)
+        git_manager = GitManager(store, workspace_id=project.workspace_id)
 
         # Use main project path (not worktree) for merging
         # Must use expanded_path to resolve ${HOME} and other variables
@@ -2686,12 +2710,13 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         base_branch = run.source_branch or "main"
 
         try:
-            merge_result = await git_manager.merge_branch_locally(
-                project_path=project_path,
-                branch_name=run.branch_name,
-                base_branch=base_branch,
-                push_after_merge=True,  # Will only push if remote exists
-            )
+            with _workspace_env(store, project.workspace_id):
+                merge_result = await git_manager.merge_branch_locally(
+                    project_path=project_path,
+                    branch_name=run.branch_name,
+                    base_branch=base_branch,
+                    push_after_merge=True,  # Will only push if remote exists
+                )
 
             if merge_result.get("success"):
                 # Mark run as merged and completed (works for both PRs and local-only merges)
@@ -3057,11 +3082,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.force_push(
-            project.expanded_path,
-            branch=body.branch,
-            force_with_lease=body.force_with_lease,
-        )
+        with _workspace_env(store, project.workspace_id):
+            result = await git_manager.force_push(
+                project.expanded_path,
+                branch=body.branch,
+                force_with_lease=body.force_with_lease,
+            )
 
         return ForcePushResponse(
             success=result["success"],
@@ -3146,7 +3172,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        result = await git_manager.delete_branch(project.expanded_path, branch_name, force=force, remote=remote)
+        with _workspace_env(store, project.workspace_id):
+            result = await git_manager.delete_branch(project.expanded_path, branch_name, force=force, remote=remote)
 
         return BranchOperationResponse(
             success=result["success"],
@@ -3213,7 +3240,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Refresh status (performs git fetch)
         try:
-            status = await git_manager.refresh_status(project)
+            with _workspace_env(store, project.workspace_id):
+                status = await git_manager.refresh_status(project)
         except Exception as e:
             logger.error(f"Failed to refresh git status for {project.name}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to refresh git status: {e}")
@@ -3309,113 +3337,114 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Execute the action
         try:
-            if action == "pull":
-                # Cannot pull with uncommitted changes
-                if status.has_uncommitted:
+            with _workspace_env(store, project.workspace_id):
+                if action == "pull":
+                    # Cannot pull with uncommitted changes
+                    if status.has_uncommitted:
+                        return GitSyncResponse(
+                            success=False,
+                            action="none",
+                            message=f"Cannot pull: {status.uncommitted_count} uncommitted changes",
+                            error="Commit or stash your changes first",
+                        )
+
+                    result = await git_manager.pre_task_sync(project)
+
+                    if not result.success:
+                        return GitSyncResponse(
+                            success=False,
+                            action="pull",
+                            message=result.message,
+                            error=result.message,
+                        )
+
+                    # Refresh status after pull
+                    new_status = await git_manager.refresh_status(project)
+                    updated_status = await _build_git_status_response(new_status)
+
+                    pull_message = (
+                        f"Pulled {result.commits_pulled} commits" if result.commits_pulled else "Already up to date"
+                    )
+                    return GitSyncResponse(
+                        success=True,
+                        action="pull",
+                        message=pull_message,
+                        commits_pulled=result.commits_pulled or 0,
+                        updated_status=updated_status,
+                    )
+
+                elif action == "push":
+                    # Push current commits
+                    rc, stdout, stderr = await git_manager._run_git(path, "push")
+
+                    if rc != 0:
+                        return GitSyncResponse(
+                            success=False,
+                            action="push",
+                            message="Push failed",
+                            error=stderr or "Unknown error",
+                        )
+
+                    # Refresh status after push
+                    new_status = await git_manager.refresh_status(project)
+                    updated_status = await _build_git_status_response(new_status)
+                    commits_pushed = status.commits_ahead
+
+                    return GitSyncResponse(
+                        success=True,
+                        action="push",
+                        message=f"Pushed {commits_pushed} commits",
+                        commits_pushed=commits_pushed,
+                        updated_status=updated_status,
+                    )
+
+                elif action == "commit+push":
+                    # Stage, commit, and push
+                    result = await git_manager.post_task_sync(
+                        project,
+                        commit_message="Manual sync from web UI",
+                    )
+
+                    if not result.success:
+                        return GitSyncResponse(
+                            success=False,
+                            action="commit+push",
+                            message=result.message,
+                            error=result.message,
+                        )
+
+                    # Refresh status after commit+push
+                    new_status = await git_manager.refresh_status(project)
+                    updated_status = await _build_git_status_response(new_status)
+
+                    return GitSyncResponse(
+                        success=True,
+                        action="commit+push",
+                        message=f"Committed {result.files_committed} files and pushed",
+                        files_committed=result.files_committed or 0,
+                        commits_pushed=1,
+                        updated_status=updated_status,
+                    )
+
+                elif action == "fetch":
+                    # Just refresh status (which does a fetch)
+                    new_status = await git_manager.refresh_status(project)
+                    updated_status = await _build_git_status_response(new_status)
+
+                    return GitSyncResponse(
+                        success=True,
+                        action="fetch",
+                        message="Status refreshed",
+                        updated_status=updated_status,
+                    )
+
+                else:
                     return GitSyncResponse(
                         success=False,
                         action="none",
-                        message=f"Cannot pull: {status.uncommitted_count} uncommitted changes",
-                        error="Commit or stash your changes first",
+                        message=f"Unknown action: {action}",
+                        error=f"Unknown action: {action}",
                     )
-
-                result = await git_manager.pre_task_sync(project)
-
-                if not result.success:
-                    return GitSyncResponse(
-                        success=False,
-                        action="pull",
-                        message=result.message,
-                        error=result.message,
-                    )
-
-                # Refresh status after pull
-                new_status = await git_manager.refresh_status(project)
-                updated_status = await _build_git_status_response(new_status)
-
-                pull_message = (
-                    f"Pulled {result.commits_pulled} commits" if result.commits_pulled else "Already up to date"
-                )
-                return GitSyncResponse(
-                    success=True,
-                    action="pull",
-                    message=pull_message,
-                    commits_pulled=result.commits_pulled or 0,
-                    updated_status=updated_status,
-                )
-
-            elif action == "push":
-                # Push current commits
-                rc, stdout, stderr = await git_manager._run_git(path, "push")
-
-                if rc != 0:
-                    return GitSyncResponse(
-                        success=False,
-                        action="push",
-                        message="Push failed",
-                        error=stderr or "Unknown error",
-                    )
-
-                # Refresh status after push
-                new_status = await git_manager.refresh_status(project)
-                updated_status = await _build_git_status_response(new_status)
-                commits_pushed = status.commits_ahead
-
-                return GitSyncResponse(
-                    success=True,
-                    action="push",
-                    message=f"Pushed {commits_pushed} commits",
-                    commits_pushed=commits_pushed,
-                    updated_status=updated_status,
-                )
-
-            elif action == "commit+push":
-                # Stage, commit, and push
-                result = await git_manager.post_task_sync(
-                    project,
-                    commit_message="Manual sync from web UI",
-                )
-
-                if not result.success:
-                    return GitSyncResponse(
-                        success=False,
-                        action="commit+push",
-                        message=result.message,
-                        error=result.message,
-                    )
-
-                # Refresh status after commit+push
-                new_status = await git_manager.refresh_status(project)
-                updated_status = await _build_git_status_response(new_status)
-
-                return GitSyncResponse(
-                    success=True,
-                    action="commit+push",
-                    message=f"Committed {result.files_committed} files and pushed",
-                    files_committed=result.files_committed or 0,
-                    commits_pushed=1,
-                    updated_status=updated_status,
-                )
-
-            elif action == "fetch":
-                # Just refresh status (which does a fetch)
-                new_status = await git_manager.refresh_status(project)
-                updated_status = await _build_git_status_response(new_status)
-
-                return GitSyncResponse(
-                    success=True,
-                    action="fetch",
-                    message="Status refreshed",
-                    updated_status=updated_status,
-                )
-
-            else:
-                return GitSyncResponse(
-                    success=False,
-                    action="none",
-                    message=f"Unknown action: {action}",
-                    error=f"Unknown action: {action}",
-                )
 
         except Exception as e:
             logger.error(f"Git sync failed for {project.name}: {e}")

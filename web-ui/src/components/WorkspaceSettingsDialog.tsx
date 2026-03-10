@@ -1,5 +1,5 @@
 import { Eye, EyeOff, Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,53 @@ const OVERRIDABLE_SETTINGS = [
 ] as const
 
 const ENV_VAR_SUGGESTIONS = ['GH_TOKEN', 'GITHUB_TOKEN', 'AWS_PROFILE']
+
+/** Text input that uses local state while editing and saves on blur. */
+function SettingTextInput({
+  value: serverValue,
+  placeholder,
+  type = 'text',
+  disabled,
+  onSave,
+}: {
+  value: string
+  placeholder: string
+  type?: 'text' | 'password'
+  disabled?: boolean
+  onSave: (value: string) => void
+}) {
+  const [localValue, setLocalValue] = useState(serverValue)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Sync from server when not focused
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setLocalValue(serverValue)
+    }
+  }, [serverValue])
+
+  return (
+    <input
+      ref={inputRef}
+      type={type}
+      className="w-40 text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-carrotly)]/40"
+      value={localValue}
+      placeholder={placeholder}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={() => {
+        if (localValue !== serverValue) {
+          onSave(localValue)
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur()
+        }
+      }}
+      disabled={disabled}
+    />
+  )
+}
 
 export function WorkspaceSettingsDialog({
   workspaceId,
@@ -213,16 +260,15 @@ export function WorkspaceSettingsDialog({
                             />
                           </button>
                         ) : (
-                          <input
-                            type={setting.type === 'password' ? 'password' : 'text'}
-                            className="w-40 text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-carrotly)]/40"
+                          <SettingTextInput
                             value={value}
+                            type={setting.type === 'password' ? 'password' : 'text'}
                             placeholder={
                               data.global_defaults[setting.key]
                                 ? `Global: ${data.global_defaults[setting.key]}`
                                 : 'Not set'
                             }
-                            onChange={(e) => handleSettingChange(setting.key, e.target.value)}
+                            onSave={(v) => handleSettingChange(setting.key, v)}
                             disabled={saving}
                           />
                         )}
