@@ -1154,6 +1154,9 @@ Focus on preserving the functionality from both sides where possible.`
             {detail?.exit_code !== null && detail?.exit_code !== undefined && (
               <span className="text-mono">exit {detail?.exit_code}</span>
             )}
+            {detail?.stop_reason && (
+              <span className="text-mono text-[var(--color-stone)]/50">{detail.stop_reason}</span>
+            )}
             {detail?.cost_usd != null && detail.cost_usd > 0 && (
               <span className="text-mono text-[var(--color-harvest)]">
                 ${detail.cost_usd.toFixed(4)}
@@ -2053,9 +2056,17 @@ Focus on preserving the functionality from both sides where possible.`
           {/* Footer Meta */}
           {(detail?.session_id || detail?.input_tokens || detail?.model_used) && (
             <div className="mt-4 pt-3 border-t border-[rgba(163,163,163,0.06)] flex items-center justify-between">
-              <span className="text-mono text-caption text-[var(--color-stone)]/50">
-                {detail?.session_id ? `session ${detail.session_id.slice(0, 12)}` : ''}
-              </span>
+              {detail?.session_id ? (
+                <Link
+                  to={`/sessions?selected=${detail.session_id}`}
+                  className="text-mono text-caption text-[var(--color-stone)]/50 hover:text-[var(--color-sky)] transition-colors"
+                  title="View session in Session Browser"
+                >
+                  session {detail.session_id.slice(0, 12)}
+                </Link>
+              ) : (
+                <span className="text-mono text-caption text-[var(--color-stone)]/50" />
+              )}
               <div className="flex items-center gap-4 text-mono text-caption text-[var(--color-stone)]/50">
                 {(detail?.input_tokens || detail?.output_tokens) && (
                   <span>

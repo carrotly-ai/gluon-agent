@@ -172,6 +172,12 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
               Recovering
             </span>
           )}
+          {/* Max turns badge */}
+          {run.stop_reason === 'max_turns' && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+              Max Turns
+            </span>
+          )}
           {/* Needs input badge */}
           {hasPendingQuestions && (
             <span

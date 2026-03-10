@@ -14,7 +14,6 @@ function StatusIcon({ status }: { status: TodoItem['status'] }) {
       return <CheckCircle className="w-3.5 h-3.5 text-green-400 shrink-0" />
     case 'in_progress':
       return <Loader2 className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-spin" />
-    case 'pending':
     default:
       return <Circle className="w-3.5 h-3.5 text-[var(--color-stone)]/40 shrink-0" />
   }

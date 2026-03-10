@@ -1231,6 +1231,67 @@ def sessions(
     console.print(table)
 
 
+@app.command("session")
+def session_show(
+    session_id: Annotated[str, typer.Argument(help="Session ID (can use short prefix)")],
+):
+    """Show detail for a session including linked runs."""
+    store = GluonStore()
+
+    session = store.get_session_by_short_id(session_id) or store.get_session(session_id)
+    if not session:
+        console.print(f"[red]Error:[/red] Session not found: {session_id}")
+        raise typer.Exit(1)
+
+    project = store.get_project(session.project_id)
+    proj_name = project.name if project else session.project_id[:8]
+
+    status_color = {
+        "active": "green",
+        "paused": "yellow",
+        "completed": "blue",
+        "failed": "red",
+    }.get(session.status.value, "white")
+
+    console.print(
+        Panel.fit(
+            f"[bold]ID:[/bold] {session.id}\n"
+            f"[bold]Project:[/bold] {proj_name}\n"
+            f"[bold]Status:[/bold] [{status_color}]{session.status.value}[/{status_color}]\n"
+            f"[bold]Turns:[/bold] {session.total_turns}\n"
+            f"[bold]Cost:[/bold] ${session.total_cost_usd:.4f}\n"
+            f"[bold]Last Prompt:[/bold] {(session.last_prompt or '')[:80]}\n"
+            f"[bold]Created:[/bold] {session.created_at.strftime('%Y-%m-%d %H:%M')}\n"
+            f"[bold]Updated:[/bold] {session.updated_at.strftime('%Y-%m-%d %H:%M')}"
+            + (f"\n[bold]Claude Session:[/bold] {session.claude_session_id}" if session.claude_session_id else ""),
+            title="Session Detail",
+        )
+    )
+
+    # Show linked runs
+    if session.claude_session_id:
+        linked_runs = store.list_runs_by_claude_session(session.claude_session_id)
+        if linked_runs:
+            table = Table(title="Linked Runs")
+            table.add_column("ID", style="cyan")
+            table.add_column("Status")
+            table.add_column("Prompt")
+            table.add_column("Created", style="dim")
+
+            for run in linked_runs:
+                from gluon.runner import format_run_status
+
+                emoji, color = format_run_status(run.status, None)
+                table.add_row(
+                    run.id[:8],
+                    f"[{color}]{emoji} {run.status.value}[/{color}]",
+                    (run.prompt[:40] + "...") if len(run.prompt) > 40 else run.prompt,
+                    run.created_at.strftime("%Y-%m-%d %H:%M"),
+                )
+
+            console.print(table)
+
+
 @app.command("status")
 def status():
     """Show overall status."""
@@ -1629,6 +1690,7 @@ def runs(
     table.add_column("Project")
     table.add_column("Prompt")
     table.add_column("Duration")
+    table.add_column("Stop Reason", style="dim")
     table.add_column("Created", style="dim")
 
     log_path = runner.config.log_path
@@ -1647,6 +1709,9 @@ def runs(
             health_color = {"healthy": "green", "slow": "yellow", "stalled": "red"}.get(health.value, "dim")
             health_str = f"[{health_color}]{health.value}[/{health_color}]"
 
+        stop_reason = run.metadata.get("stop_reason", "") if run.metadata else ""
+        stop_reason_str = f"[yellow]{stop_reason}[/yellow]" if stop_reason == "max_turns" else stop_reason
+
         table.add_row(
             run.id[:8],
             f"[{color}]{emoji} {run.status.value}[/{color}]",
@@ -1654,6 +1719,7 @@ def runs(
             proj_name,
             (run.prompt[:30] + "...") if len(run.prompt) > 30 else run.prompt,
             duration,
+            stop_reason_str,
             run.created_at.strftime("%Y-%m-%d %H:%M"),
         )
 

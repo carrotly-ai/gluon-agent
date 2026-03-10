@@ -24,6 +24,9 @@ from claude_agent_sdk import (
     ProcessError,
     ResultMessage,
     SystemMessage,
+    TaskNotificationMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
     TextBlock,
     ThinkingBlock,
     ToolPermissionContext,
@@ -268,6 +271,7 @@ class AgentResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     model_used: str | None = None
+    stop_reason: str | None = None
 
 
 @dataclass
@@ -729,6 +733,7 @@ class GluonAgent:
         input_tokens: int | None = None
         output_tokens: int | None = None
         model_used: str | None = None
+        stop_reason: str | None = None
         success = True
         error_msg: str | None = None
 
@@ -776,7 +781,44 @@ class GluonAgent:
                 while True:
                     # Process one turn (query already issued above or at bottom of loop)
                     async for msg in client.receive_response():
-                        if isinstance(msg, SystemMessage):
+                        # Task message types must be checked before SystemMessage
+                        # because they inherit from SystemMessage
+                        if isinstance(msg, TaskStartedMessage):
+                            yield AgentMessage(
+                                type="task_started",
+                                content=f"Task started: {msg.description}",
+                                metadata={
+                                    "task_id": msg.task_id,
+                                    "session_id": msg.session_id,
+                                    "task_type": msg.task_type,
+                                    "tool_use_id": msg.tool_use_id,
+                                },
+                            )
+
+                        elif isinstance(msg, TaskProgressMessage):
+                            yield AgentMessage(
+                                type="task_progress",
+                                content=msg.description,
+                                metadata={
+                                    "task_id": msg.task_id,
+                                    "last_tool_name": msg.last_tool_name,
+                                    "usage": dict(msg.usage) if msg.usage else None,
+                                },
+                            )
+
+                        elif isinstance(msg, TaskNotificationMessage):
+                            yield AgentMessage(
+                                type="task_notification",
+                                content=f"Task {msg.status}: {msg.summary}",
+                                metadata={
+                                    "task_id": msg.task_id,
+                                    "status": msg.status,
+                                    "output_file": msg.output_file,
+                                    "usage": dict(msg.usage) if msg.usage else None,
+                                },
+                            )
+
+                        elif isinstance(msg, SystemMessage):
                             if msg.subtype == "init" and isinstance(msg.data, dict):
                                 session_from_data = msg.data.get("session_id")
                                 if session_from_data:
@@ -879,6 +921,7 @@ class GluonAgent:
                         elif isinstance(msg, ResultMessage):
                             total_cost_usd = msg.total_cost_usd or 0.0
                             total_turns = msg.num_turns or total_turns
+                            stop_reason = msg.stop_reason
                             usage = msg.usage or {}
                             input_tokens = usage.get("input_tokens")
                             output_tokens = usage.get("output_tokens")
@@ -896,6 +939,7 @@ class GluonAgent:
                                     "duration_api_ms": msg.duration_api_ms,
                                     "is_error": msg.is_error,
                                     "model_used": model_used,
+                                    "stop_reason": stop_reason,
                                 },
                             )
 
@@ -1076,6 +1120,7 @@ class GluonAgent:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             model_used=model_used or self.model,
+            stop_reason=stop_reason,
         )
 
     async def execute_simple(

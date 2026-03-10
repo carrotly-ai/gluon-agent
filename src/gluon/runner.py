@@ -904,10 +904,6 @@ but explicit commits with good messages are preferred.
                         todo_collector=todo_collector,
                     ):
                         if isinstance(item, AgentMessage):
-                            # Skip SDK heartbeat messages (no user value)
-                            if item.type == "system" and item.content == "task_progress":
-                                continue
-
                             # Log message
                             msg_dict = {
                                 "timestamp": datetime.now(UTC).isoformat(),
@@ -985,6 +981,10 @@ but explicit commits with good messages are preferred.
                                 run.input_tokens = item.input_tokens
                                 run.output_tokens = item.output_tokens
                             run.model_used = item.model_used
+                            if item.stop_reason:
+                                if run.metadata is None:
+                                    run.metadata = {}
+                                run.metadata["stop_reason"] = item.stop_reason
 
                             # Update tokens.json for WebSocket streaming
                             tokens_data = {
@@ -1141,8 +1141,6 @@ but explicit commits with good messages are preferred.
                                             todo_collector=todo_collector,
                                         ):
                                             if isinstance(ri, AgentMessage):
-                                                if ri.type == "system" and ri.content == "task_progress":
-                                                    continue
                                                 msg_dict = {
                                                     "timestamp": datetime.now(UTC).isoformat(),
                                                     "type": ri.type,
@@ -2251,9 +2249,6 @@ but explicit commits with good messages are preferred.
                 working_dir=working_dir,
             ):
                 if isinstance(item, AgentMessage):
-                    if item.type == "system" and item.content == "task_progress":
-                        continue
-
                     # Log message
                     msg_dict = {
                         "timestamp": datetime.now(UTC).isoformat(),

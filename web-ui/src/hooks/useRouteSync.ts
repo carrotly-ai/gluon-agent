@@ -44,6 +44,7 @@ export function useRouteSync() {
     if (path.startsWith('/queue')) return 'queue' as const
     if (path.startsWith('/merge')) return 'merge' as const
     if (path.startsWith('/cost')) return 'usage' as const
+    if (path.startsWith('/sessions')) return 'sessions' as const
     if (path.startsWith('/settings')) return 'settings' as const
     return 'board' as const
   }, [location.pathname])
@@ -76,7 +77,7 @@ export function useRouteSync() {
 
   // Navigation functions
   const setViewMode = useCallback(
-    (view: 'board' | 'activity' | 'queue' | 'merge' | 'usage' | 'settings') => {
+    (view: 'board' | 'activity' | 'queue' | 'merge' | 'usage' | 'sessions' | 'settings') => {
       switch (view) {
         case 'board':
           navigate(`/board${location.search}`)
@@ -92,6 +93,9 @@ export function useRouteSync() {
           break
         case 'usage':
           navigate('/cost')
+          break
+        case 'sessions':
+          navigate('/sessions')
           break
         case 'settings':
           navigate('/settings')

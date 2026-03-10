@@ -58,6 +58,8 @@ export interface Run {
   chain_step_name?: string | null
   chain_step_index?: number | null
   chain_total_steps?: number | null
+  // SDK stop reason (surfaced in run lists/cards)
+  stop_reason?: string | null
 }
 
 /** Detailed run response (includes additional fields) */
@@ -91,6 +93,8 @@ export interface RunDetail extends Run {
   consecutive_same_error?: number
   test_only_loops?: number
   max_cost_usd?: number | null
+  // SDK stop reason
+  stop_reason?: string | null
 }
 
 /** Task profile options */
@@ -414,6 +418,34 @@ export interface NotificationsListResponse {
   unread_count: number
 }
 
+// ========== SDK Session Browser Types ==========
+
+export interface SDKSession {
+  session_id: string
+  summary: string
+  last_modified: number
+  file_size: number
+  custom_title?: string
+  first_prompt?: string
+  git_branch?: string
+  cwd?: string
+  linked_run_ids: string[]
+}
+
+export interface SessionMessage {
+  type: 'user' | 'assistant'
+  uuid: string
+  session_id: string
+  message: unknown
+  parent_tool_use_id?: string
+}
+
+export interface SessionDetail {
+  session: SDKSession
+  messages: SessionMessage[]
+  total_messages: number
+}
+
 // ========== Workspace Settings Types ==========
 
 export interface WorkspaceSettingsData {
@@ -481,6 +513,9 @@ export interface AgentMessageData {
     | 'screenshot'
     | 'thinking'
     | 'tool_result'
+    | 'task_started'
+    | 'task_progress'
+    | 'task_notification'
   content: string
   metadata?: Record<string, unknown>
   timestamp?: string

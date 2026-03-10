@@ -1,6 +1,7 @@
 import {
   Activity,
   BarChart3,
+  Database,
   GitMerge,
   LayoutGrid,
   ListTodo,
@@ -20,6 +21,7 @@ import { OfflineOverlay } from './components/OfflineOverlay'
 import { ProjectFilter } from './components/ProjectFilter'
 import { QuestionModal } from './components/QuestionModal'
 import { RunDetailDialog } from './components/RunDetailDialog'
+import { SessionBrowserPage } from './components/SessionBrowserPage'
 import { SettingsPage } from './components/SettingsPage'
 import { UpdateBanner } from './components/UpdateBanner'
 import { UsagePage } from './components/UsagePage'
@@ -359,6 +361,18 @@ function App() {
                 <button
                   className={cn(
                     'p-1.5 rounded-sm transition-colors',
+                    viewMode === 'sessions'
+                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                  )}
+                  onClick={() => setViewMode('sessions')}
+                  title="SDK Sessions"
+                >
+                  <Database className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  className={cn(
+                    'p-1.5 rounded-sm transition-colors',
                     viewMode === 'usage'
                       ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
                       : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -430,6 +444,8 @@ function App() {
             <WorkQueuePage projects={projects} />
           ) : viewMode === 'merge' ? (
             <MergeQueuePage />
+          ) : viewMode === 'sessions' ? (
+            <SessionBrowserPage />
           ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
             <div className="flex items-center justify-center h-full">
               <div className="mark mark-running w-2 h-2" />

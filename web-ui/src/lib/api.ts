@@ -51,6 +51,8 @@ import type {
   RunTodosResponse,
   RunUsageItem,
   ScanResultResponse,
+  SDKSession,
+  SessionDetail,
   SessionHistoryResponse,
   // Slash Command types
   SlashCommand,
@@ -935,6 +937,33 @@ export async function markAllNotificationsRead(
 
 export async function deleteAllNotifications(): Promise<{ deleted: number }> {
   return fetchJson<{ deleted: number }>('/notifications', { method: 'DELETE' })
+}
+
+// ========== SDK Session Browser ==========
+
+/** Fetch all SDK sessions from Claude CLI */
+export async function fetchSDKSessions(params?: {
+  directory?: string
+  limit?: number
+}): Promise<SDKSession[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.directory) searchParams.set('directory', params.directory)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  const query = searchParams.toString()
+  return fetchJson<SDKSession[]>(`/sdk-sessions${query ? `?${query}` : ''}`)
+}
+
+/** Fetch SDK session detail with messages */
+export async function fetchSDKSessionDetail(
+  sessionId: string,
+  params?: { directory?: string; limit?: number; offset?: number }
+): Promise<SessionDetail> {
+  const searchParams = new URLSearchParams()
+  if (params?.directory) searchParams.set('directory', params.directory)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  if (params?.offset) searchParams.set('offset', String(params.offset))
+  const query = searchParams.toString()
+  return fetchJson<SessionDetail>(`/sdk-sessions/${sessionId}${query ? `?${query}` : ''}`)
 }
 
 // ========== Workspace Settings ==========

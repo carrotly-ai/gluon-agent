@@ -8,6 +8,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   AlertCircle,
+  Bell,
   Camera,
   Check,
   CheckCircle2,
@@ -21,7 +22,9 @@ import {
   Flag,
   Lightbulb,
   ListChecks,
+  Loader2,
   MessageSquare,
+  PlayCircle,
   Settings2,
   TestTube,
   Wrench,
@@ -112,6 +115,27 @@ const MESSAGE_CONFIG: Record<
     border: 'border-l-2 border-l-[var(--color-sky)]/50',
     label: 'Notification',
   },
+  task_started: {
+    icon: PlayCircle,
+    color: 'text-[var(--color-sky)]',
+    bg: 'bg-[rgba(56,189,248,0.06)]',
+    border: 'border-l-2 border-l-[var(--color-sky)]/30',
+    label: 'Task Started',
+  },
+  task_progress: {
+    icon: Loader2,
+    color: 'text-[var(--color-stone)]/60',
+    bg: '',
+    border: '',
+    label: 'Progress',
+  },
+  task_notification: {
+    icon: Bell,
+    color: 'text-[var(--color-jade)]',
+    bg: 'bg-[rgba(45,212,191,0.06)]',
+    border: 'border-l-2 border-l-[var(--color-jade)]/30',
+    label: 'Task Notification',
+  },
 }
 
 // Helper to get primary parameter from tool input
@@ -182,6 +206,9 @@ interface AgentMessage {
     | 'notification'
     | 'thinking'
     | 'tool_result'
+    | 'task_started'
+    | 'task_progress'
+    | 'task_notification'
   content: string
   metadata?: {
     tool?: string
@@ -859,6 +886,51 @@ function SystemMessage({
   )
 }
 
+function TaskMessage({
+  msg,
+  showTimestamp = true,
+}: {
+  msg: AgentMessage
+  showTimestamp?: boolean
+}) {
+  const time = formatMessageTime(msg.timestamp)
+  const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
+  const Icon = config.icon
+  const meta = msg.metadata as Record<string, unknown> | undefined
+  const taskId = meta?.task_id as string | undefined
+  const lastTool = meta?.last_tool_name as string | undefined
+  const usage = meta?.usage as Record<string, unknown> | undefined
+
+  return (
+    <div className={cn('flex items-start gap-2 py-1.5 px-3', config.bg, config.border)}>
+      <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
+      <div className="flex-1 min-w-0">
+        <span className={cn('text-body', config.color)}>{msg.content}</span>
+        {(taskId || lastTool || usage) && (
+          <div className="flex items-center gap-3 mt-0.5 text-body text-[var(--color-stone)]/40 font-mono">
+            {taskId && <span>task={taskId.slice(0, 8)}</span>}
+            {lastTool && <span>tool={lastTool}</span>}
+            {usage && (usage as Record<string, unknown>).input_tokens != null && (
+              <span>
+                {String((usage as Record<string, unknown>).input_tokens)}→
+                {String((usage as Record<string, unknown>).output_tokens)} tokens
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <span
+        className={cn(
+          'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
+          !showTimestamp && 'hidden sm:inline'
+        )}
+      >
+        {time}
+      </span>
+    </div>
+  )
+}
+
 function ScreenshotMessage({
   msg,
   showTimestamp = true,
@@ -1046,7 +1118,9 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       ),
     ]
     return combined.filter((msg) => {
-      // Filter out SDK heartbeat messages (no user value)
+      // Filter out task_progress heartbeats (low signal, high volume)
+      // Handles both new format (type="task_progress") and old format (type="system", content="task_progress")
+      if (msg.type === 'task_progress') return false
       if (msg.type === 'system' && msg.content === 'task_progress') return false
       // Create unique key from timestamp + type + content preview
       // This handles the race condition between HTTP fetch and WebSocket streaming
@@ -1120,6 +1194,9 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       }
       if (msg.type === 'screenshot') {
         return <ScreenshotMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+      }
+      if (msg.type === 'task_started' || msg.type === 'task_notification') {
+        return <TaskMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
       }
       return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
     },

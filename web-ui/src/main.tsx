@@ -44,6 +44,9 @@ createRoot(document.getElementById('root')!).render(
         {/* Cost dashboard */}
         <Route path="/cost" element={<App />} />
 
+        {/* SDK Sessions */}
+        <Route path="/sessions" element={<App />} />
+
         {/* Settings routes */}
         <Route path="/settings" element={<App />} />
         <Route path="/settings/:tab" element={<App />} />

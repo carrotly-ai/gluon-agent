@@ -59,6 +59,8 @@ class RunResponse(BaseModel):
     chain_step_name: str | None = Field(default=None, description="Current/last step name")
     chain_step_index: int | None = Field(default=None, description="Current step index (0-based)")
     chain_total_steps: int | None = Field(default=None, description="Total steps in chain")
+    # SDK stop reason (surfaced to run lists/cards)
+    stop_reason: str | None = Field(default=None, description="SDK stop reason (end_turn, max_turns, etc.)")
 
     class Config:
         from_attributes = True
@@ -96,6 +98,8 @@ class RunDetailResponse(RunResponse):
     consecutive_same_error: int = Field(default=0, description="Consecutive loops with same error")
     test_only_loops: int = Field(default=0, description="Number of test-only loop iterations")
     max_cost_usd: float | None = Field(default=None, description="Maximum cost limit for ralph loop")
+    # SDK stop reason
+    stop_reason: str | None = Field(default=None, description="SDK stop reason (end_turn, max_turns, etc.)")
     # Queued messages (for follow-up while task is running)
     queued_messages: list[QueuedMessageResponse] = Field(default_factory=list, description="Queued follow-up messages")
 
@@ -1102,3 +1106,38 @@ class NotificationsListResponse(BaseModel):
 
     notifications: list[NotificationResponse]
     unread_count: int
+
+
+# ========== SDK Session Browser Models ==========
+
+
+class SDKSessionResponse(BaseModel):
+    """Response model for a Claude SDK session."""
+
+    session_id: str
+    summary: str
+    last_modified: int = Field(description="Unix timestamp")
+    file_size: int
+    custom_title: str | None = None
+    first_prompt: str | None = None
+    git_branch: str | None = None
+    cwd: str | None = None
+    linked_run_ids: list[str] = Field(default_factory=list)
+
+
+class SessionMessageResponse(BaseModel):
+    """Response model for a session message."""
+
+    type: str = Field(description="user or assistant")
+    uuid: str
+    session_id: str
+    message: object = None
+    parent_tool_use_id: str | None = None
+
+
+class SessionDetailResponse(BaseModel):
+    """Response model for session detail with messages."""
+
+    session: SDKSessionResponse
+    messages: list[SessionMessageResponse]
+    total_messages: int
