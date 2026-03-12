@@ -408,7 +408,8 @@ curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker
 curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
 
 # 2. Edit .env with your credentials
-#    At minimum set: GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
+#    At minimum set: PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
+#    Find your UID/GID with: id -u && id -g
 
 # 3. Start the container
 docker compose up -d
@@ -422,6 +423,7 @@ The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push
 > **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and AWS credentials at `~/.aws` for Bedrock access.
 
 **Docker Features:**
+- **PUID/PGID Support** - Container adapts to any host user's UID/GID — no permission issues with bind mounts
 - **HTTPS Git Authentication** - Uses `GH_TOKEN` for GitHub access (no SSH keys needed)
 - **MCP Server Auto-Registration** - Mount `.mcp.json` to auto-register MCP servers on startup
 - **Pre-built Image** - `ghcr.io/carrotly-ai/gluon-agent:latest` updated on every push to `main`
@@ -550,6 +552,8 @@ gluon run myapp 'Redesign database schema' --model opus
 
 | Variable | Description |
 |----------|-------------|
+| `PUID` | Host user UID — container runs as this user (default `1000`, find with `id -u`) |
+| `PGID` | Host group GID — container runs as this group (default `1000`, find with `id -g`) |
 | `GH_TOKEN` | GitHub token for HTTPS authentication (replaces SSH) |
 | `GIT_USER_NAME` | Git commit author name |
 | `GIT_USER_EMAIL` | Git commit author email |
@@ -560,7 +564,7 @@ gluon run myapp 'Redesign database schema' --model opus
 Run Gluon on a home server (e.g., Mac mini) and access it securely from anywhere using [Tailscale](https://tailscale.com), a zero-config VPN:
 
 1. Install Tailscale on your server and devices
-2. Start Gluon: `gluon web` or `docker-compose up -d`
+2. Start Gluon: `gluon web` or `docker compose up -d`
 3. Access the dashboard from any device via your Tailscale IP: `http://your-server:45866`
 
 This enables monitoring and managing AI coding tasks from your phone, tablet, or laptop while on the go - with the PWA providing a native app-like experience on mobile.
