@@ -117,6 +117,9 @@ RUN npm install -g vercel
 RUN groupadd -g 1000 gluon && \
     useradd -m -u 1000 -g gluon -s /bin/bash gluon && \
     mkdir -p /home/gluon/.claude \
+             /home/gluon/.gluon \
+             /home/gluon/.gluon/logs \
+             /home/gluon/.gluon/images \
              /home/gluon/workspaces \
              /home/gluon/.cache/gluon \
              /home/gluon/.ssh \

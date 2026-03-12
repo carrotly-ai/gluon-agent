@@ -138,6 +138,14 @@ start_redis() {
     fi
 }
 
+# Ensure data directories exist and are writable by gluon user
+# When Docker bind-mounts a host path that doesn't exist, it creates it as root:root.
+# This fixes ownership so the gluon user can write to them.
+for dir in "$HOME/.gluon" "$HOME/.gluon/logs" "$HOME/.gluon/images" "$HOME/.gluon/worktrees" \
+           "$HOME/.claude" "$HOME/.cache/gluon"; do
+    mkdir -p "$dir" 2>/dev/null || true
+done
+
 start_redis
 
 # Configure git authentication
