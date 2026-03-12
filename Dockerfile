@@ -51,6 +51,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     redis-server \
     && rm -rf /var/lib/apt/lists/*
 
+# Layer 1b: gosu for dropping root privileges in entrypoint
+# Allows PUID/PGID pattern — container starts as root, adjusts UID/GID, then drops to gluon user
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && gosu nobody true
+
 # Layer 2: GitHub CLI (rarely changes)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -182,13 +188,13 @@ RUN . /tmp/version.env && \
     echo "GLUON_FULL_VERSION=${VITE_APP_FULL_VERSION}" >> /etc/environment && \
     echo "GLUON_BUILD_TIME=${VITE_APP_BUILD_TIME}" >> /etc/environment
 
-# Final setup
-USER gluon
+# Final setup — entrypoint runs as root to adjust UID/GID, then drops to gluon via gosu
+USER root
 ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon
 
-# Entrypoint registers MCP servers from mounted .mcp.json on startup
+# Entrypoint adjusts UID/GID from PUID/PGID env vars, then drops privileges
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Default command (can be overridden by docker-compose or docker run)

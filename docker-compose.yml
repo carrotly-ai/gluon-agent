@@ -33,6 +33,10 @@ services:
 
     # Pass environment variables
     environment:
+      # Run as the host user's UID/GID so bind-mounted volumes have correct ownership
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+
       # AWS credentials (passed from host)
       - AWS_PROFILE=${AWS_PROFILE:-default}
       - AWS_REGION=${AWS_REGION:-us-east-1}

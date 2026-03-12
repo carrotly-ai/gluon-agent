@@ -1,52 +1,79 @@
 #!/bin/bash
 # Docker entrypoint for gluon-agent
-# Registers MCP servers from mounted .mcp.json on first run
+# Runs as root, adjusts UID/GID to match host user, then drops to gluon user via gosu.
+# Set PUID/PGID environment variables to match your host user's UID/GID.
 
 set -e
 
-# Source version info if available (set during Docker build)
+# ─── UID/GID adjustment ─────────────────────────────────────────────────────
+# Adjust the gluon user's UID/GID to match the host user so bind-mounted
+# volumes have correct ownership. Defaults to 1000:1000 if not set.
+PUID=${PUID:-1000}
+PGID=${PGID:-1000}
+
+CURRENT_UID=$(id -u gluon)
+CURRENT_GID=$(id -g gluon)
+
+if [ "$PGID" != "$CURRENT_GID" ]; then
+    groupmod -o -g "$PGID" gluon 2>/dev/null || true
+fi
+
+if [ "$PUID" != "$CURRENT_UID" ]; then
+    usermod -o -u "$PUID" gluon 2>/dev/null || true
+fi
+
+# Fix ownership of internal directories that were created at build time with UID 1000
+# Only needed when PUID != 1000 (the build-time default)
+if [ "$PUID" != "1000" ] || [ "$PGID" != "1000" ]; then
+    chown -R gluon:gluon /home/gluon/.local 2>/dev/null || true
+    chown gluon:gluon /home/gluon 2>/dev/null || true
+    chown -R gluon:gluon /app 2>/dev/null || true
+fi
+
+echo "Running as gluon (uid=$(id -u gluon), gid=$(id -g gluon))"
+
+# ─── Ensure data directories exist ──────────────────────────────────────────
+# When Docker bind-mounts a host path that doesn't exist, it creates it as root.
+for dir in /home/gluon/.gluon /home/gluon/.gluon/logs /home/gluon/.gluon/images \
+           /home/gluon/.gluon/worktrees /home/gluon/.claude /home/gluon/.cache/gluon; do
+    mkdir -p "$dir" 2>/dev/null || true
+    chown gluon:gluon "$dir" 2>/dev/null || true
+done
+
+# ─── Source version info ────────────────────────────────────────────────────
 if [ -f /tmp/version.env ]; then
     set -a
     . /tmp/version.env
-    # Convert VITE_ prefixed vars to GLUON_ prefixed for backend
     export GLUON_VERSION="${VITE_APP_VERSION:-}"
     export GLUON_FULL_VERSION="${VITE_APP_FULL_VERSION:-}"
     export GLUON_BUILD_TIME="${VITE_APP_BUILD_TIME:-}"
     set +a
 fi
 
-# Configure git to use HTTPS with GH_TOKEN instead of SSH
+# ─── Git authentication ────────────────────────────────────────────────────
 configure_git_auth() {
-    # Configure user identity if provided
     if [ -n "$GIT_USER_EMAIL" ]; then
-        git config --global user.email "$GIT_USER_EMAIL"
+        gosu gluon git config --global user.email "$GIT_USER_EMAIL"
         echo "Git user.email: $GIT_USER_EMAIL"
     fi
     if [ -n "$GIT_USER_NAME" ]; then
-        git config --global user.name "$GIT_USER_NAME"
+        gosu gluon git config --global user.name "$GIT_USER_NAME"
         echo "Git user.name: $GIT_USER_NAME"
     fi
 
     if [ -n "$GH_TOKEN" ]; then
-        # Clear any existing URL rewrite rules first (prevents duplicates on restart)
-        git config --global --unset-all url."https://github.com/".insteadOf 2>/dev/null || true
-
-        # Rewrite SSH URLs to HTTPS (need separate sections for each pattern)
-        git config --global url."https://github.com/".insteadOf "git@github.com:"
-        git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
-
-        # Configure credential helper to use GH_TOKEN
-        git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
-
+        gosu gluon git config --global --unset-all url."https://github.com/".insteadOf 2>/dev/null || true
+        gosu gluon git config --global url."https://github.com/".insteadOf "git@github.com:"
+        gosu gluon git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+        gosu gluon git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
         echo "Git configured to use HTTPS with GH_TOKEN"
     fi
 }
 
-# Function to register MCP servers from .mcp.json
+# ─── MCP server registration ───────────────────────────────────────────────
 register_mcp_servers() {
-    local MCP_CONFIG="${HOME}/.claude/.mcp.json"
+    local MCP_CONFIG="/home/gluon/.claude/.mcp.json"
 
-    # Check if config file exists
     if [ ! -f "$MCP_CONFIG" ]; then
         echo "No MCP config found at $MCP_CONFIG, skipping MCP registration"
         return 0
@@ -54,13 +81,7 @@ register_mcp_servers() {
 
     echo "Checking MCP server registration..."
 
-    # Check if servers are already registered
-    local registered_servers
-    registered_servers=$(claude mcp list 2>/dev/null | grep -E "^\S+:" | cut -d: -f1 || true)
-
-    # Parse .mcp.json and register each server
-    # Using python since jq might not be available
-    python3 << 'EOF'
+    gosu gluon python3 << 'EOF'
 import json
 import subprocess
 import os
@@ -79,7 +100,6 @@ if not servers:
     print("No MCP servers in config")
     exit(0)
 
-# Get currently registered servers
 result = subprocess.run(["claude", "mcp", "list"], capture_output=True, text=True)
 registered = set()
 for line in result.stdout.splitlines():
@@ -101,10 +121,8 @@ for name, server_config in servers.items():
             print(f"  {name}: skipping (no URL)")
             continue
 
-        # Build command
         cmd = ["claude", "mcp", "add", "--transport", server_type, "--scope", "user", name, url]
 
-        # Add env vars if present
         headers = server_config.get("headers", {})
         for key, value in headers.items():
             cmd.extend(["--env", f"{key}={value}"])
@@ -114,7 +132,6 @@ for name, server_config in servers.items():
             subprocess.run(cmd, check=True, capture_output=True, text=True)
             print(f"  {name}: registered successfully")
         except subprocess.CalledProcessError as e:
-            # Check if already exists
             if "already exists" in e.stderr:
                 print(f"  {name}: already registered")
             else:
@@ -126,8 +143,7 @@ print("MCP registration complete")
 EOF
 }
 
-# Start embedded Redis for cross-process event bus
-# In-memory only, no persistence — used for pub/sub between web server and runner subprocesses
+# ─── Start Redis (event bus) ───────────────────────────────────────────────
 start_redis() {
     if command -v redis-server &> /dev/null; then
         redis-server --daemonize yes --save "" --appendonly no --loglevel warning \
@@ -138,23 +154,13 @@ start_redis() {
     fi
 }
 
-# Ensure data directories exist and are writable by gluon user
-# When Docker bind-mounts a host path that doesn't exist, it creates it as root:root.
-# This fixes ownership so the gluon user can write to them.
-for dir in "$HOME/.gluon" "$HOME/.gluon/logs" "$HOME/.gluon/images" "$HOME/.gluon/worktrees" \
-           "$HOME/.claude" "$HOME/.cache/gluon"; do
-    mkdir -p "$dir" 2>/dev/null || true
-done
-
+# ─── Main ──────────────────────────────────────────────────────────────────
 start_redis
-
-# Configure git authentication
 configure_git_auth
 
-# Register MCP servers on first run
-if [ -f "${HOME}/.claude/.mcp.json" ]; then
+if [ -f "/home/gluon/.claude/.mcp.json" ]; then
     register_mcp_servers
 fi
 
-# Execute the command passed to docker run
-exec "$@"
+# Drop privileges and exec the command as the gluon user
+exec gosu gluon "$@"
