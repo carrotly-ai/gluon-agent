@@ -11,6 +11,23 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 > See all screenshots in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)
 
+## Table of Contents
+
+- [Why Gluon?](#why-gluon)
+- [Docker Quickstart](#docker-quickstart)
+- [Installation (from source)](#installation-from-source)
+- [Quick Start (CLI)](#quick-start-cli-reference)
+- [Features](#features)
+- [Web Dashboard](#web-dashboard-docs--api)
+- [Chat Bots](#chat-bots-telegram--discord)
+- [Architecture](#architecture-docs)
+- [Model Selection](#model-selection)
+- [Documentation](#documentation)
+- [Data Storage](#data-storage)
+- [Environment Variables](#environment-variables)
+- [Remote Access](#remote-access)
+- [License](#license)
+
 ## Why Gluon?
 
 **Run multiple AI coding agents in parallel**, each in isolated git branches, while monitoring progress from a single dashboard. Deploy with Docker for containerized execution - AI agents run in isolated environments, keeping your host system secure. Perfect for:
@@ -24,9 +41,109 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 Because every team needs a fundamental force for getting things (and code) to stick together.
 
-In physics, a gluon is a massless, spin-1 gauge boson — in plain speak, it's the subatomic “glue” holding quarks together, keeping protons, neutrons, and the heart of atoms from flying apart like a badly managed project. Gluons do the heavy lifting in quantum chromodynamics, ensuring that the universe, as well as your software, doesn’t unravel at the seams.
+In physics, a gluon is a massless, spin-1 gauge boson — in plain speak, it's the subatomic "glue" holding quarks together, keeping protons, neutrons, and the heart of atoms from flying apart like a badly managed project. Gluons do the heavy lifting in quantum chromodynamics, ensuring that the universe, as well as your software, doesn't unravel at the seams.
 
 So, like its namesake, Gluon binds together your scattered projects and tasks, orchestrating collaboration with the (strong) force of a particle accelerator and the finesse of quantum mechanics. Strong interaction? That's our vibe.
+
+## Docker Quickstart
+
+Run Gluon from a pre-built image — no clone or build required:
+
+```bash
+# 1. Download the compose file and env template
+curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
+
+# 2. Edit .env with your credentials
+#    At minimum set: PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
+#    Find your UID/GID with: id -u && id -g
+
+# 3. Start the container
+docker compose up -d
+
+# 4. Open the dashboard
+open http://localhost:45866
+```
+
+The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push to `main`.
+
+> **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and AWS credentials at `~/.aws` for Bedrock access.
+
+**Docker Features:**
+- **PUID/PGID Support** - Container adapts to any host user's UID/GID — no permission issues with bind mounts
+- **HTTPS Git Authentication** - Uses `GH_TOKEN` for GitHub access (no SSH keys needed)
+- **MCP Server Auto-Registration** - Mount `.mcp.json` to auto-register MCP servers on startup
+- **Pre-built Image** - `ghcr.io/carrotly-ai/gluon-agent:latest` updated on every push to `main`
+
+See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions, building from source, and `docker-compose.dev.yml` for local development.
+
+## Installation (from source)
+
+```bash
+# Clone the repository
+git clone https://github.com/carrotly-ai/gluon-agent.git
+cd gluon-agent
+
+# Create virtual environment and install
+uv venv
+uv pip install -e .
+
+# Or install with bot support
+uv pip install -e '.[telegram]'      # Telegram bot
+uv pip install -e '.[discord]'       # Discord bot
+uv pip install -e '.[all]'           # All features
+```
+
+**Requirements:** Python 3.12+, [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated, [uv](https://github.com/astral-sh/uv) package manager, AWS credentials for Bedrock, Git, GitHub CLI (`gh`) optional.
+
+## Quick Start ([CLI Reference](docs/CLI-REFERENCE.md))
+
+### 1. Register a Project
+
+```bash
+gluon project add myapp ~/projects/myapp
+```
+
+### 2. Run a Task
+
+```bash
+# Interactive mode (see output in terminal)
+gluon run myapp 'Fix the authentication bug in login.py'
+
+# Background mode (monitor via dashboard)
+gluon run myapp 'Implement user registration' --background
+
+# Use git worktree for isolated branch
+gluon run myapp 'Add dark mode support' --background --worktree
+```
+
+### 3. Run a Formula (Multi-Step Workflow)
+
+```bash
+# Full feature lifecycle: Plan → Implement → Test → Review
+gluon formula run feature myapp --var description="Add dark mode support"
+
+# Bug diagnosis and fix: Diagnose → Fix → Test
+gluon formula run bugfix myapp --var description="Login fails on expired tokens"
+```
+
+### 4. Resume with Follow-up
+
+```bash
+# Continue the conversation
+gluon resume myapp 'Also add unit tests for the new code'
+```
+
+### 5. Monitor Progress
+
+```bash
+# Check all runs
+gluon runs
+
+# View specific run logs
+gluon logs <run-id>
+gluon logs <run-id> -f  # Follow live
+```
 
 ## Features
 
@@ -271,81 +388,6 @@ Tips:
 - **Log Cleanup** - Retention-based cleanup of old log files (`gluon cleanup`)
 - **Disk Stats** - Monitor `~/.gluon` disk usage (`gluon stats`)
 
-## Requirements
-
-- Python 3.12+
-- [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated
-- [uv](https://github.com/astral-sh/uv) package manager
-- AWS credentials configured for Bedrock (for Claude models)
-- Git (for repository synchronization)
-- GitHub CLI (`gh`) - optional, for PR features
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/carrotly-ai/gluon-agent.git
-cd gluon-agent
-
-# Create virtual environment and install
-uv venv
-uv pip install -e .
-
-# Or install with bot support
-uv pip install -e '.[telegram]'      # Telegram bot
-uv pip install -e '.[discord]'       # Discord bot
-uv pip install -e '.[all]'           # All features
-```
-
-## Quick Start ([CLI Reference](docs/CLI-REFERENCE.md))
-
-### 1. Register a Project
-
-```bash
-gluon project add myapp ~/projects/myapp
-```
-
-### 2. Run a Task
-
-```bash
-# Interactive mode (see output in terminal)
-gluon run myapp 'Fix the authentication bug in login.py'
-
-# Background mode (monitor via dashboard)
-gluon run myapp 'Implement user registration' --background
-
-# Use git worktree for isolated branch
-gluon run myapp 'Add dark mode support' --background --worktree
-```
-
-### 3. Run a Formula (Multi-Step Workflow)
-
-```bash
-# Full feature lifecycle: Plan → Implement → Test → Review
-gluon formula run feature myapp --var description="Add dark mode support"
-
-# Bug diagnosis and fix: Diagnose → Fix → Test
-gluon formula run bugfix myapp --var description="Login fails on expired tokens"
-```
-
-### 4. Resume with Follow-up
-
-```bash
-# Continue the conversation
-gluon resume myapp 'Also add unit tests for the new code'
-```
-
-### 5. Monitor Progress
-
-```bash
-# Check all runs
-gluon runs
-
-# View specific run logs
-gluon logs <run-id>
-gluon logs <run-id> -f  # Follow live
-```
-
 ## Web Dashboard ([docs](docs/WEB-DASHBOARD.md) · [API](docs/API.md))
 
 ```bash
@@ -397,38 +439,6 @@ Chat with Gluon using natural language:
 > "Run a task on myapp to fix the login bug"
 > "What's the status of my running tasks?"
 > "Show me the logs for the last task"
-
-## Docker Quickstart
-
-Run Gluon from a pre-built image — no clone or build required:
-
-```bash
-# 1. Download the compose file and env template
-curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker-compose.yml -o docker-compose.yml
-curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
-
-# 2. Edit .env with your credentials
-#    At minimum set: PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
-#    Find your UID/GID with: id -u && id -g
-
-# 3. Start the container
-docker compose up -d
-
-# 4. Open the dashboard
-open http://localhost:45866
-```
-
-The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push to `main`.
-
-> **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and AWS credentials at `~/.aws` for Bedrock access.
-
-**Docker Features:**
-- **PUID/PGID Support** - Container adapts to any host user's UID/GID — no permission issues with bind mounts
-- **HTTPS Git Authentication** - Uses `GH_TOKEN` for GitHub access (no SSH keys needed)
-- **MCP Server Auto-Registration** - Mount `.mcp.json` to auto-register MCP servers on startup
-- **Pre-built Image** - `ghcr.io/carrotly-ai/gluon-agent:latest` updated on every push to `main`
-
-See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions, building from source, and `docker-compose.dev.yml` for local development.
 
 ## Architecture ([docs](docs/ARCHITECTURE.md))
 
