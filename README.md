@@ -398,24 +398,35 @@ Chat with Gluon using natural language:
 > "What's the status of my running tasks?"
 > "Show me the logs for the last task"
 
-## Docker Deployment
+## Docker Quickstart
+
+Run Gluon from a pre-built image — no clone or build required:
 
 ```bash
-# Copy and configure environment
-cp .env.example .env
+# 1. Download the compose file and env template
+curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
 
-# Start all services
-docker-compose up -d
+# 2. Edit .env with your credentials
+#    At minimum set: GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
 
-# Access dashboard at http://localhost:45866
+# 3. Start the container
+docker compose up -d
+
+# 4. Open the dashboard
+open http://localhost:45866
 ```
+
+The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push to `main`.
+
+> **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and AWS credentials at `~/.aws` for Bedrock access.
 
 **Docker Features:**
 - **HTTPS Git Authentication** - Uses `GH_TOKEN` for GitHub access (no SSH keys needed)
 - **MCP Server Auto-Registration** - Mount `.mcp.json` to auto-register MCP servers on startup
-- **Build-time Versioning** - Git SHA captured at build for update detection
+- **Pre-built Image** - `ghcr.io/carrotly-ai/gluon-agent:latest` updated on every push to `main`
 
-See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions.
+See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions, building from source, and `docker-compose.dev.yml` for local development.
 
 ## Architecture ([docs](docs/ARCHITECTURE.md))
 

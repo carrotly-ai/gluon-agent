@@ -1,11 +1,19 @@
 services:
   gluon:
-    image: ghcr.io/carrotly-ai/gluon-agent:latest
-    container_name: gluon-agent
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Version args - pass via: docker compose build --build-arg VITE_APP_VERSION=$(git rev-parse --short HEAD)
+      args:
+        - VITE_APP_VERSION=${VITE_APP_VERSION:-dev}
+        - VITE_APP_FULL_VERSION=${VITE_APP_FULL_VERSION:-development}
+        - VITE_APP_BUILD_TIME=${VITE_APP_BUILD_TIME:-}
+    image: gluon-agent:latest
+    container_name: gluon-agent-dev
 
-    # Load environment variables from .env
+    # Load environment variables from .env.local
     env_file:
-      - .env
+      - .env.local
 
     # Mount host directories
     volumes:
@@ -46,7 +54,7 @@ services:
       - CLAUDE_LOG_LEVEL=info
       - CLAUDE_CODE_USE_BEDROCK=1
 
-      # Note: These are loaded from .env via env_file directive above:
+      # Note: These are loaded from .env.local via env_file directive above:
       # - GH_TOKEN (GitHub personal access token for PR operations)
       # - GIT_USER_EMAIL (git config user.email)
       # - GIT_USER_NAME (git config user.name)
@@ -64,10 +72,10 @@ services:
       # Browser automation (agent-browser)
       - AGENT_BROWSER_STREAM_PORT=9223
 
-      # Vercel CLI (optional, loaded from .env or host)
+      # Vercel CLI (optional, loaded from .env.local or host)
       - VERCEL_TOKEN
 
-      # SSL/HTTPS (optional - set both in .env to enable HTTPS for web dashboard)
+      # SSL/HTTPS (optional - set both in .env.local to enable HTTPS for web dashboard)
       # GLUON_SSL_CERTFILE and GLUON_SSL_KEYFILE are loaded via env_file
 
     # Interactive mode for CLI
