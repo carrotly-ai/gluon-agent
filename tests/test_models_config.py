@@ -17,7 +17,7 @@ class TestGetModelId:
     """Tests for get_model_id() resolution."""
 
     @pytest.mark.parametrize("tier", list(ModelTier))
-    def test_each_model_tier_returns_bedrock_id(self, tier: ModelTier):
+    def test_each_model_tier_returns_provider_id(self, tier: ModelTier):
         result = get_model_id(tier)
         assert result == MODEL_IDS[tier]
 
@@ -49,17 +49,13 @@ class TestGetModelId:
     def test_ui_alias_claude_haiku_45(self):
         assert get_model_id("claude-haiku-4.5") == MODEL_IDS[ModelTier.HAIKU]
 
-    def test_full_bedrock_id_global_passthrough(self):
-        bedrock_id = "global.anthropic.claude-sonnet-4-6"
-        assert get_model_id(bedrock_id) == bedrock_id
+    def test_full_model_id_passthrough(self):
+        """Full model IDs for the active provider pass through unchanged."""
+        from gluon.llm_provider import get_provider
 
-    def test_full_bedrock_id_us_passthrough(self):
-        bedrock_id = "us.anthropic.claude-sonnet-4-6"
-        assert get_model_id(bedrock_id) == bedrock_id
-
-    def test_full_bedrock_id_apac_passthrough(self):
-        bedrock_id = "apac.anthropic.claude-3-7-sonnet-20250219-v1:0"
-        assert get_model_id(bedrock_id) == bedrock_id
+        provider = get_provider()
+        for model_id in provider.MODELS.values():
+            assert get_model_id(model_id) == model_id
 
     def test_case_insensitive_haiku(self):
         assert get_model_id("HAIKU") == MODEL_IDS[ModelTier.HAIKU]
@@ -106,9 +102,9 @@ class TestGetFallbackModelId:
         result = get_fallback_model_id("opus-4.6")
         assert result == MODEL_IDS[ModelTier.SONNET]
 
-    def test_full_bedrock_id_input(self):
-        bedrock_id = MODEL_IDS[ModelTier.SONNET]
-        result = get_fallback_model_id(bedrock_id)
+    def test_full_model_id_input(self):
+        model_id = MODEL_IDS[ModelTier.SONNET]
+        result = get_fallback_model_id(model_id)
         assert result == MODEL_IDS[ModelTier.HAIKU]
 
     def test_ui_alias_input(self):

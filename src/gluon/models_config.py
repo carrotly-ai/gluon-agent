@@ -1,4 +1,8 @@
-"""Model configuration for Gluon Agent."""
+"""Model configuration for Gluon Agent.
+
+Model tier definitions, aliases, and fallback chains are provider-agnostic.
+Model ID resolution delegates to the active LLM provider (Bedrock or Anthropic).
+"""
 
 from enum import StrEnum
 
@@ -11,14 +15,6 @@ class ModelTier(StrEnum):
     SONNET = "sonnet"
     HAIKU = "haiku"
 
-
-# Model ID mappings to AWS Bedrock model IDs
-MODEL_IDS = {
-    ModelTier.OPUS_46: "global.anthropic.claude-opus-4-6-v1",
-    ModelTier.OPUS_45: "global.anthropic.claude-opus-4-5-20251101-v1:0",
-    ModelTier.SONNET: "global.anthropic.claude-sonnet-4-6",
-    ModelTier.HAIKU: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-}
 
 # UI model name aliases (maps UI names to tier names)
 MODEL_ALIASES = {
@@ -43,99 +39,95 @@ FALLBACK_TIERS: dict[ModelTier, ModelTier | None] = {
 DEFAULT_MODEL = ModelTier.SONNET
 
 
-def get_model_id(tier: ModelTier | str) -> str:
+def _get_model_ids() -> dict[ModelTier, str]:
+    """Get model ID mappings from the active LLM provider.
+
+    Returns a dict mapping ModelTier → provider-specific model ID string.
+    This is evaluated lazily to avoid circular imports at module load time.
     """
-    Get the full model ID for a given tier.
+    from gluon.llm_provider import get_provider
+
+    return dict(get_provider().MODELS)
+
+
+class _ModelIDsProxy:
+    """Lazy proxy for MODEL_IDS that delegates to the active provider.
+
+    Behaves like a dict but resolves model IDs from the active provider
+    on each access, so switching GLUON_LLM_PROVIDER takes effect immediately.
+    """
+
+    def __getitem__(self, key: ModelTier) -> str:
+        return _get_model_ids()[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in _get_model_ids()
+
+    def __iter__(self):
+        return iter(_get_model_ids())
+
+    def items(self):
+        return _get_model_ids().items()
+
+    def keys(self):
+        return _get_model_ids().keys()
+
+    def values(self):
+        return _get_model_ids().values()
+
+    def get(self, key: ModelTier, default=None):
+        return _get_model_ids().get(key, default)
+
+    def __repr__(self) -> str:
+        return repr(_get_model_ids())
+
+
+# Model ID mappings — delegates to the active LLM provider
+MODEL_IDS: dict[ModelTier, str] = _ModelIDsProxy()  # type: ignore[assignment]
+
+
+def get_model_id(tier: ModelTier | str) -> str:
+    """Get the full model ID for a given tier.
+
+    Delegates to the active LLM provider for model ID resolution.
 
     Args:
         tier: Model tier (opus/sonnet/haiku), UI name (claude-opus-4.5), or ModelTier enum
 
     Returns:
-        Full AWS Bedrock model ID
+        Full provider-specific model ID
 
     Raises:
         ValueError: If the tier is invalid
     """
-    if isinstance(tier, str):
-        # Check if it's already a full Bedrock model ID
-        if (
-            tier.startswith("global.anthropic.")
-            or tier.startswith("us.anthropic.")
-            or tier.startswith("apac.anthropic.")
-        ):
-            return tier
+    from gluon.llm_provider import get_provider
 
-        tier_lower = tier.lower()
-
-        # Check UI aliases first (e.g., "claude-haiku-4.5")
-        if tier_lower in MODEL_ALIASES:
-            tier = MODEL_ALIASES[tier_lower]
-        else:
-            # Try as tier name (e.g., "haiku")
-            try:
-                tier = ModelTier(tier_lower)
-            except ValueError:
-                raise ValueError(
-                    f"Invalid model: {tier}. Must be one of: "
-                    f"{', '.join(t.value for t in ModelTier)} or "
-                    f"{', '.join(MODEL_ALIASES.keys())}"
-                )
-
-    return MODEL_IDS[tier]
+    return get_provider().get_model_id(tier)
 
 
 def get_fallback_model_id(model: str) -> str | None:
-    """
-    Get the fallback model ID for graceful degradation.
+    """Get the fallback model ID for graceful degradation.
 
-    Maps a model (tier name, alias, or full Bedrock ID) to its fallback tier's
-    Bedrock model ID. Returns None if no fallback exists.
+    Maps a model (tier name, alias, or full model ID) to its fallback tier's
+    model ID. Returns None if no fallback exists.
 
     Args:
-        model: Model tier, UI name, or full Bedrock model ID
+        model: Model tier, UI name, or full model ID
 
     Returns:
-        Fallback Bedrock model ID, or None if no fallback
+        Fallback model ID, or None if no fallback
     """
-    # Resolve to a ModelTier
-    tier: ModelTier | None = None
+    from gluon.llm_provider import get_provider
 
-    if isinstance(model, ModelTier):
-        tier = model
-    else:
-        model_lower = model.lower()
-        # Check if it's a full Bedrock ID - reverse lookup
-        for t, bedrock_id in MODEL_IDS.items():
-            if bedrock_id == model:
-                tier = t
-                break
-
-        if tier is None:
-            # Check UI aliases
-            if model_lower in MODEL_ALIASES:
-                tier = MODEL_ALIASES[model_lower]
-            else:
-                try:
-                    tier = ModelTier(model_lower)
-                except ValueError:
-                    return None
-
-    fallback_tier = FALLBACK_TIERS.get(tier)
-    if fallback_tier is None:
-        return None
-
-    return MODEL_IDS[fallback_tier]
+    return get_provider().get_fallback_model_id(model)
 
 
 def describe_models() -> str:
-    """
-    Get a human-readable description of available models.
+    """Get a human-readable description of available models.
 
     Returns:
         Formatted string describing all available models
     """
-    return """Available models:
-- opus-4.6 : Claude Opus 4.6 - Latest, most capable (default opus)
-- opus-4.5 : Claude Opus 4.5 - Previous generation
-- sonnet   : Claude Sonnet 4.6 - Balanced performance (default)
-- haiku    : Claude Haiku 4.5 - Fast and efficient, for simple tasks"""
+    from gluon.llm_provider import get_provider
+
+    return get_provider().describe_models()
