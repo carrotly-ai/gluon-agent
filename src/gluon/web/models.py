@@ -189,6 +189,18 @@ class StatusResponse(BaseModel):
     total_projects: int
     active_runs: int
     total_runs: int
+    llm_provider: str = ""
+    llm_provider_name: str = ""
+
+
+class ProviderResponse(BaseModel):
+    """Response model for LLM provider information."""
+
+    provider: str
+    name: str
+    supports_cost_tracking: bool
+    source: str
+    models: dict[str, str]
 
 
 class VersionResponse(BaseModel):

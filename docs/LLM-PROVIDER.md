@@ -289,12 +289,14 @@ def describe_models() -> str:
 | `tests/conftest.py` | `llm_provider` fixture for cross-provider test parametrization |
 | `docs/LLM-PROVIDER.md` | This document |
 
+| `src/gluon/cli.py` | `gluon provider` command; provider indicator in `gluon status` |
+| `src/gluon/web/api.py` | `GET /api/provider` endpoint; provider fields in `/api/status` and `/api/settings` |
+| `src/gluon/web/models.py` | `ProviderResponse` model; `llm_provider`/`llm_provider_name` on `StatusResponse` |
+
 ### Not yet implemented
 
 | File | Change | Phase |
 |---|---|---|
-| `src/gluon/cli.py` | `gluon config provider` command | Phase 2 |
-| `src/gluon/web/api.py` | Expose provider setting in settings API | Phase 2 |
 | `CLAUDE.md` | Add Anthropic provider to supported models table | Phase 3 |
 
 ## Configuration
@@ -317,13 +319,13 @@ The provider can be set in the `settings` table (`llm_provider` key). The env va
 
 ```bash
 # View current provider
-gluon config provider
+gluon provider
 
 # Switch to Anthropic
-gluon config provider anthropic
+gluon provider anthropic
 
 # Switch to Bedrock
-gluon config provider bedrock
+gluon provider bedrock
 ```
 
 ### Web dashboard (not yet implemented)
@@ -472,7 +474,7 @@ Tests default to `GLUON_LLM_PROVIDER=bedrock` (preserving existing CI behaviour)
 
 1. **Phase 1** (done): Create `llm_provider.py` with ABC and both implementations. Update `models_config.py` to delegate. Update `witness.py`. Add tests. Default remains `bedrock` — zero behavioural change for existing users.
 
-2. **Phase 2**: Add `gluon config provider` CLI command. Update web dashboard Settings to expose provider dropdown. Add provider indicator to status displays.
+2. **Phase 2** (done): Add `gluon provider` CLI command. Add `GET /api/provider` endpoint. Add provider indicator to `gluon status` and `StatusResponse`. Expose provider metadata in settings API. Web dashboard Settings page already had provider toggle from Phase 1.
 
 3. **Phase 3**: Update `CLAUDE.md`, `docs/ARCHITECTURE.md`, Docker examples, and README to document both provider options.
 

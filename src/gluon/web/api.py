@@ -106,6 +106,7 @@ from gluon.web.models import (
     # Slash Command models
     SlashCommandResponse,
     SlashCommandsResponse,
+    ProviderResponse,
     StatusResponse,
     StopLoopResponse,
     SupervisionDecisionResponse,
@@ -1622,14 +1623,33 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.get("/api/status", response_model=StatusResponse)
     async def get_status() -> StatusResponse:
         """Get overall system status."""
+        from gluon.llm_provider import get_provider
+
         projects = orchestrator.list_projects()
         active_runs = store.list_active_runs()
         all_runs = store.list_runs(limit=1000)  # Get count
+        provider = get_provider()
 
         return StatusResponse(
             total_projects=len(projects),
             active_runs=len(active_runs),
             total_runs=len(all_runs),
+            llm_provider=provider.__class__.__name__.replace("Provider", "").lower(),
+            llm_provider_name=provider.name,
+        )
+
+    @app.get("/api/provider", response_model=ProviderResponse)
+    async def get_provider_info() -> ProviderResponse:
+        """Get current LLM provider configuration and model mappings."""
+        from gluon.llm_provider import get_provider, get_provider_source
+
+        provider = get_provider()
+        return ProviderResponse(
+            provider=provider.__class__.__name__.replace("Provider", "").lower(),
+            name=provider.name,
+            supports_cost_tracking=provider.supports_cost_tracking,
+            source=get_provider_source(),
+            models={tier.value: model_id for tier, model_id in provider.MODELS.items()},
         )
 
     # ========== Version Info ==========
@@ -2359,9 +2379,15 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.get("/api/settings")
     async def get_all_settings() -> dict[str, str]:
         """Get all settings as key-value pairs."""
+        from gluon.llm_provider import get_provider
+
         settings = store.get_all_settings()
         # Expose whether VERCEL_TOKEN is available from environment (without leaking the value)
         settings["_vercel_token_from_env"] = "true" if os.environ.get("VERCEL_TOKEN") else "false"
+        # Expose resolved provider info (the actual provider may come from env var, not DB)
+        provider = get_provider()
+        settings["_llm_provider_name"] = provider.name
+        settings["_llm_provider_supports_cost_tracking"] = str(provider.supports_cost_tracking).lower()
         return settings
 
     @app.put("/api/settings/{key}")

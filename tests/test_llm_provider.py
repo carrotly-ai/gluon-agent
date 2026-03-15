@@ -10,6 +10,7 @@ from gluon.llm_provider import (
     LLMProvider,
     LLMProviderConfig,
     get_provider,
+    get_provider_source,
 )
 from gluon.models_config import MODEL_ALIASES, ModelTier
 
@@ -260,6 +261,34 @@ class TestGetProvider:
         monkeypatch.setattr("gluon.llm_provider._read_provider_setting", lambda: None)
         provider = get_provider()
         assert isinstance(provider, BedrockProvider)
+
+
+# ---------------------------------------------------------------------------
+# get_provider_source()
+# ---------------------------------------------------------------------------
+
+
+class TestGetProviderSource:
+    """Tests for get_provider_source() resolution labelling."""
+
+    def test_source_env_var(self, monkeypatch):
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "anthropic")
+        assert get_provider_source() == "environment variable"
+
+    def test_source_database(self, monkeypatch):
+        monkeypatch.delenv("GLUON_LLM_PROVIDER", raising=False)
+        monkeypatch.setattr("gluon.llm_provider._read_provider_setting", lambda: "anthropic")
+        assert get_provider_source() == "database setting"
+
+    def test_source_default(self, monkeypatch):
+        monkeypatch.delenv("GLUON_LLM_PROVIDER", raising=False)
+        monkeypatch.setattr("gluon.llm_provider._read_provider_setting", lambda: None)
+        assert get_provider_source() == "default"
+
+    def test_env_var_takes_priority_over_db(self, monkeypatch):
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "bedrock")
+        monkeypatch.setattr("gluon.llm_provider._read_provider_setting", lambda: "anthropic")
+        assert get_provider_source() == "environment variable"
 
 
 # ---------------------------------------------------------------------------

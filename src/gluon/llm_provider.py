@@ -226,6 +226,18 @@ def _read_provider_setting() -> str | None:
         return None
 
 
+def get_provider_source() -> str:
+    """Return a human-readable label for where the active provider was resolved from.
+
+    Returns one of: "environment variable", "database setting", "default".
+    """
+    if os.environ.get("GLUON_LLM_PROVIDER"):
+        return "environment variable"
+    if _read_provider_setting():
+        return "database setting"
+    return "default"
+
+
 def get_provider(provider: LLMProvider | str | None = None) -> LLMProviderConfig:
     """Get the active LLM provider configuration.
 
