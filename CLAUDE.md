@@ -6,16 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI orchestrator for managing multiple Claude Code agents across projects. Provides session persistence, resume capability, workspace-based project discovery, and multiple interfaces (CLI, Telegram, Discord).
 
-## LLM models supported
+## LLM Provider
 
-IMPORTANT: We only support the following LLM models:
+Gluon supports two LLM providers, controlled by `GLUON_LLM_PROVIDER` env var or `gluon provider` CLI command. Default is `bedrock`.
 
-| Name                | AWS Bedrock Model ID                                 | Purpose                                           |
-|---------------------|------------------------------------------------------|---------------------------------------------------|
-| claude-opus-4.6     | global.anthropic.claude-opus-4-6-v1                  | Latest, most capable Claude model (default opus)   |
-| claude-opus-4.5     | global.anthropic.claude-opus-4-5-20251101-v1:0       | Previous generation Opus model                     |
-| claude-sonnet-4.6   | global.anthropic.claude-sonnet-4-6                   | Fast, high-quality Claude model for general use    |
-| claude-haiku-4.5    | global.anthropic.claude-haiku-4-5-20251001-v1:0      | Lightweight, fast Claude model for low latency     |
+| Name            | Bedrock Model ID                                    | Anthropic Model ID              | Purpose                                        |
+|-----------------|-----------------------------------------------------|---------------------------------|------------------------------------------------|
+| claude-opus-4.6 | global.anthropic.claude-opus-4-6-v1                 | claude-opus-4-6                 | Latest, most capable Claude model (default opus)|
+| claude-opus-4.5 | global.anthropic.claude-opus-4-5-20251101-v1:0      | claude-opus-4-5-20251101        | Previous generation Opus model                  |
+| claude-sonnet-4.6| global.anthropic.claude-sonnet-4-6                  | claude-sonnet-4-6               | Fast, high-quality Claude model for general use |
+| claude-haiku-4.5 | global.anthropic.claude-haiku-4-5-20251001-v1:0     | claude-haiku-4-5-20251001       | Lightweight, fast Claude model for low latency  |
+
+IMPORTANT: We only support the models listed above. The provider abstraction lives in `src/gluon/llm_provider.py`.
 
 ## Docker Operations
 
@@ -232,6 +234,9 @@ from gluon.core import ProjectNotFoundError, ProjectExistsError, WorkspaceNotFou
 ```
 
 ## Environment Variables
+
+**LLM Provider:**
+- `GLUON_LLM_PROVIDER` - `bedrock` (default) or `anthropic`
 
 **Telegram:**
 - `GLUON_TELEGRAM_TOKEN` - Telegram bot token

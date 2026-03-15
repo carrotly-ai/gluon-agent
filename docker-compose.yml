@@ -48,7 +48,7 @@ services:
       # Claude configuration
       - CLAUDE_API_KEY
       - CLAUDE_LOG_LEVEL=info
-      - CLAUDE_CODE_USE_BEDROCK=1
+      - CLAUDE_CODE_USE_BEDROCK
 
       # Note: These are loaded from .env via env_file directive above:
       # - GH_TOKEN (GitHub personal access token for PR operations)
@@ -60,6 +60,8 @@ services:
       - NODE_OPTIONS=--max-old-space-size=6144
 
       # Gluon configuration (loaded from env_file, only override if needed)
+      - GLUON_LLM_PROVIDER
+      - ANTHROPIC_API_KEY
       - GLUON_GIT_ENABLED=true
 
       # Redis (embedded in container for cross-process event bus)

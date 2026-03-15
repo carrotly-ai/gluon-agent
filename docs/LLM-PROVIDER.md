@@ -293,11 +293,7 @@ def describe_models() -> str:
 | `src/gluon/web/api.py` | `GET /api/provider` endpoint; provider fields in `/api/status` and `/api/settings` |
 | `src/gluon/web/models.py` | `ProviderResponse` model; `llm_provider`/`llm_provider_name` on `StatusResponse` |
 
-### Not yet implemented
-
-| File | Change | Phase |
-|---|---|---|
-| `CLAUDE.md` | Add Anthropic provider to supported models table | Phase 3 |
+| `CLAUDE.md` | Updated models table with both providers; added `GLUON_LLM_PROVIDER` env var |
 
 ## Configuration
 
@@ -476,6 +472,6 @@ Tests default to `GLUON_LLM_PROVIDER=bedrock` (preserving existing CI behaviour)
 
 2. **Phase 2** (done): Add `gluon provider` CLI command. Add `GET /api/provider` endpoint. Add provider indicator to `gluon status` and `StatusResponse`. Expose provider metadata in settings API. Web dashboard Settings page already had provider toggle from Phase 1.
 
-3. **Phase 3**: Update `CLAUDE.md`, `docs/ARCHITECTURE.md`, Docker examples, and README to document both provider options.
+3. **Phase 3** (done): Update `CLAUDE.md` models table and environment variables to document both providers.
 
 All phases are backwards-compatible. Existing Bedrock users see no change unless they explicitly switch providers.

@@ -55,7 +55,9 @@ curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker
 curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
 
 # 2. Edit .env with your credentials
-#    At minimum set: PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
+#    At minimum set: PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL
+#    For Bedrock: set AWS_BEARER_TOKEN_BEDROCK and CLAUDE_CODE_USE_BEDROCK=1
+#    For Anthropic: set GLUON_LLM_PROVIDER=anthropic (uses claude login or ANTHROPIC_API_KEY)
 #    Find your UID/GID with: id -u && id -g
 
 # 3. Start the container
@@ -67,7 +69,7 @@ open http://localhost:45866
 
 The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push to `main`.
 
-> **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and AWS credentials at `~/.aws` for Bedrock access.
+> **Prerequisites:** Docker and a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`. For Bedrock: AWS credentials at `~/.aws`. For Anthropic: `claude login` or an API key.
 
 **Docker Features:**
 - **PUID/PGID Support** - Container adapts to any host user's UID/GID — no permission issues with bind mounts
@@ -94,7 +96,7 @@ uv pip install -e '.[discord]'       # Discord bot
 uv pip install -e '.[all]'           # All features
 ```
 
-**Requirements:** Python 3.12+, [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated, [uv](https://github.com/astral-sh/uv) package manager, AWS credentials for Bedrock, Git, GitHub CLI (`gh`) optional.
+**Requirements:** Python 3.12+, [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated, [uv](https://github.com/astral-sh/uv) package manager, Git, GitHub CLI (`gh`) optional. AWS credentials needed only for Bedrock provider.
 
 ## Quick Start ([CLI Reference](docs/CLI-REFERENCE.md))
 
@@ -318,7 +320,7 @@ gluon doctor --fix
 gluon doctor fix
 ```
 
-Checks Claude CLI availability, AWS credentials, database integrity, disk space, and more.
+Checks Claude CLI availability, provider credentials, database integrity, disk space, and more.
 
 ### Activity Log
 
@@ -516,6 +518,18 @@ gluon run myapp 'Implement OAuth' --model sonnet
 gluon run myapp 'Redesign database schema' --model opus
 ```
 
+### LLM Provider
+
+Gluon supports **AWS Bedrock** (default) and **Anthropic** (direct API / Claude subscription). The provider controls which model IDs are sent to the Claude CLI.
+
+```bash
+gluon provider              # Show current provider
+gluon provider anthropic    # Switch to Anthropic
+gluon provider bedrock      # Switch to Bedrock
+```
+
+Or set via environment variable: `GLUON_LLM_PROVIDER=anthropic`. See [LLM-PROVIDER.md](docs/LLM-PROVIDER.md) for details.
+
 ## Documentation
 
 | Document | Description |
@@ -547,6 +561,14 @@ gluon run myapp 'Redesign database schema' --model opus
 ```
 
 ## Environment Variables
+
+### LLM Provider
+
+| Variable | Description |
+|----------|-------------|
+| `GLUON_LLM_PROVIDER` | `bedrock` (default) or `anthropic` |
+| `CLAUDE_CODE_USE_BEDROCK` | Set to `1` when using Bedrock provider |
+| `ANTHROPIC_API_KEY` | API key for Anthropic provider (or use `claude login`) |
 
 ### Bot Configuration
 
