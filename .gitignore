@@ -60,9 +60,6 @@ Thumbs.db
 # Temporary files
 tmp/
 
-#claude 
-.claude/
-
 # Chat transcripts
 *.txt
 .playwright-mcp/
