@@ -1,6 +1,6 @@
 [project]
 name = "gluon-agent"
-version = "0.7.0"
+version = "0.7.1"
 description = "AI orchestrator for managing multiple Claude Code agents across projects"
 readme = "README.md"
 requires-python = ">=3.12"
