@@ -74,7 +74,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
 RUN curl -fsSL https://bun.sh/install | bash \
     && mv /root/.bun /opt/bun \
     && ln -s /opt/bun/bin/bun /usr/local/bin/bun \
-    && ln -s /opt/bun/bin/bunx /usr/local/bin/bunx
+    && ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 # Layer 5: Claude Code CLI — no longer needed as a standalone install.
 # The claude-agent-sdk bundles its own CLI binary and uses it by default.
