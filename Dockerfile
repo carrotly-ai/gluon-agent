@@ -82,27 +82,10 @@ RUN curl -fsSL https://bun.sh/install | bash \
 #     && cp -L /root/.local/bin/claude /usr/local/bin/claude \
 #     && chmod 755 /usr/local/bin/claude
 
-# Layer 5b: Chromium system dependencies for agent-browser/Playwright
-# Required for headless browser automation in Docker
+# Layer 5b: Chromium browser + fonts for agent-browser/Playwright
+# Chrome for Testing has no Linux ARM64 builds, so install system Chromium instead.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
-    libatspi2.0-0 \
-    libxshmfence1 \
+    chromium \
     fonts-liberation \
     fonts-noto-color-emoji \
     fonts-noto-cjk \
@@ -118,6 +101,9 @@ RUN npm install -g agent-browser
 
 # Layer 5d: Vercel CLI (optional, activated via settings)
 RUN npm install -g vercel
+
+# Layer 5e: Biome linter/formatter (global fallback for bind-mounted node_modules)
+RUN npm install -g @biomejs/biome
 
 # Layer 6: Create non-root user and directories (rarely changes)
 RUN groupadd -g 1000 gluon && \
@@ -135,11 +121,8 @@ RUN groupadd -g 1000 gluon && \
     chown gluon:gluon /home/gluon/.ssh/known_hosts && \
     chmod 644 /home/gluon/.ssh/known_hosts
 
-# Layer 6b: Download Chromium browser for agent-browser (as gluon user)
-# Placed early to cache browser download - only re-runs if user/npm layers change
-USER gluon
-RUN agent-browser install
-USER root
+# Layer 6b: Point agent-browser at system Chromium (no download needed on ARM64)
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 

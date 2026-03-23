@@ -1,6 +1,7 @@
 services:
   gluon:
     image: ghcr.io/carrotly-ai/gluon-agent:latest
+    build: .
     container_name: gluon-agent
 
     # Load environment variables from .env
@@ -66,6 +67,7 @@ services:
       - GLUON_REDIS_URL=redis://localhost:6379/0
 
       # Browser automation (agent-browser)
+      - AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
       - AGENT_BROWSER_STREAM_PORT=9223
 
       # Vercel CLI (optional, loaded from .env or host)

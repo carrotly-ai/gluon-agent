@@ -154,8 +154,24 @@ start_redis() {
     fi
 }
 
+# ─── Ensure cross-platform CLI tools ──────────────────────────────────────
+# Fix missing symlinks for tools installed in /opt but not on PATH
+ensure_cli_tools() {
+    # bunx: bun installer doesn't always create the bunx symlink
+    if ! command -v bunx &>/dev/null && command -v bun &>/dev/null; then
+        ln -sf "$(command -v bun)" /usr/local/bin/bunx
+        echo "Created bunx symlink"
+    fi
+
+    # biome: install globally if not available (projects may only have darwin binary)
+    if ! command -v biome &>/dev/null; then
+        npm install -g --silent @biomejs/biome 2>/dev/null && echo "Installed biome globally" || true
+    fi
+}
+
 # ─── Main ──────────────────────────────────────────────────────────────────
 start_redis
+ensure_cli_tools
 configure_git_auth
 
 if [ -f "/home/gluon/.claude/.mcp.json" ]; then
