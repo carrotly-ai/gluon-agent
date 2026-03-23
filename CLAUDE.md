@@ -21,16 +21,48 @@ IMPORTANT: We only support the following LLM models:
 
 **IMPORTANT: Always use `docker compose` for container operations. NEVER use raw `docker run` commands.**
 
-The `docker-compose.yml` contains critical volume mounts and environment variables that are easy to forget with manual commands:
+There are two compose files for different purposes:
+
+| File | Purpose | Image | Container | Env file |
+|------|---------|-------|-----------|----------|
+| `docker-compose.dev.yml` | Local dev/test — builds from source | `gluon-agent:latest` (local) | `gluon-agent-dev` | `.env.local` |
+| `docker-compose.yml` | Production — pulls from GHCR | `ghcr.io/carrotly-ai/gluon-agent:latest` | `gluon-agent` | `.env` |
+
+Both compose files mount critical host directories:
 - `~/.claude` - Claude CLI credentials (authentication)
 - `~/.gluon` - Gluon database and logs
 - `~/.aws` - AWS credentials for Bedrock
 - `~/.config/gh` - GitHub CLI for PR operations
-- Environment variables from `.env.local`
+
+### Dev/Test (build from source)
 
 ```bash
 # Rebuild and restart (after code changes)
-docker compose build && docker compose up -d
+docker compose -f docker-compose.dev.yml build && docker compose -f docker-compose.dev.yml up -d
+
+# View logs
+docker compose -f docker-compose.dev.yml logs -f
+
+# Stop
+docker compose -f docker-compose.dev.yml down
+
+# Full rebuild (no cache)
+docker compose -f docker-compose.dev.yml build --no-cache && docker compose -f docker-compose.dev.yml up -d
+
+# Shell into container
+docker exec -it gluon-agent-dev bash
+```
+
+**After any significant changes** (dependency upgrades, new features, bug fixes), rebuild and redeploy locally:
+```bash
+docker compose -f docker-compose.dev.yml build && docker compose -f docker-compose.dev.yml up -d
+```
+
+### Production (GHCR images)
+
+```bash
+# Pull latest and start
+docker compose pull && docker compose up -d
 
 # View logs
 docker compose logs -f
@@ -38,20 +70,11 @@ docker compose logs -f
 # Stop
 docker compose down
 
-# Full rebuild (no cache)
-docker compose build --no-cache && docker compose up -d
-
 # Shell into container
-docker exec -it gluon-agent-dev bash
+docker exec -it gluon-agent bash
 ```
 
-**Container name:** `gluon-agent-dev` (not `gluon-agent`)
-**Port:** 45866
-
-**After any significant changes** (dependency upgrades, new features, bug fixes), rebuild and redeploy locally:
-```bash
-docker compose build && docker compose up -d
-```
+**Port:** 45866 (both dev and production)
 
 ## Commands
 
