@@ -67,6 +67,11 @@ class WorktreeManager:
         self._source_branch: str | None = None
         self._is_git_repo: bool | None = None
 
+    @property
+    def source_branch(self) -> str | None:
+        """The branch that was checked out when the worktree was created."""
+        return self._source_branch
+
     async def create(self, run_id: str) -> Path:
         """
         Create a new worktree for the given run.

@@ -2652,6 +2652,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                     branch_name=run.branch_name,
                     prompt=run.prompt,
                     run_id=run.id,
+                    base_branch=run.source_branch,
                 )
 
             if pr_result.get("pr_url"):

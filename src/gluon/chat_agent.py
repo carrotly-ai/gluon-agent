@@ -730,6 +730,7 @@ class GluonChatAgent:
                     branch_name=run.branch_name,
                     prompt=run.prompt,
                     run_id=run.id,
+                    base_branch=run.source_branch,
                 )
 
                 if result.get("pr_url"):
