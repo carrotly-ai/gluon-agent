@@ -711,13 +711,32 @@ class TaskRunner:
                 try:
                     working_dir = await worktree_manager.create(worktree_run_id)
                     run.worktree_path = str(working_dir)
-                    # Get the branch name from the worktree (format: gluon-{run_id})
                     run.branch_name = f"gluon-{worktree_run_id}"
+                    run.source_branch = worktree_manager.source_branch
                     self.store.update_run(run)
                 except WorktreeError:
                     # Log warning but continue with main directory
                     run.use_worktree = False
                     worktree_manager = None
+
+        # Capture source branch for non-worktree git repos (worktree path sets it above)
+        if not run.source_branch and await is_git_repository(project.expanded_path):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "git",
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
+                    cwd=str(project.expanded_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout_bytes, _ = await proc.communicate()
+                if proc.returncode == 0:
+                    run.source_branch = stdout_bytes.decode().strip() or None
+                    self.store.update_run(run)
+            except Exception:
+                pass
 
         # Setup logging
         log_dir = self._get_log_dir(run.id)
@@ -1052,6 +1071,7 @@ but explicit commits with good messages are preferred.
                                             branch_name=run.branch_name,
                                             prompt=run.prompt,
                                             run_id=run.id,
+                                            base_branch=run.source_branch,
                                         )
                                         if pr_result.get("pushed"):
                                             stdout_file.write(f"\n✓ Pushed branch {run.branch_name} to remote\n")
@@ -2093,6 +2113,7 @@ but explicit commits with good messages are preferred.
                                 branch_name=updated_run.branch_name,
                                 prompt=updated_run.prompt,
                                 run_id=updated_run.id,
+                                base_branch=updated_run.source_branch,
                             )
                             if pr_result.get("pushed"):
                                 with open(stdout_path, "a") as f:

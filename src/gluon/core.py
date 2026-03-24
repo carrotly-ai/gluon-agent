@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -511,6 +512,10 @@ class Orchestrator:
                 worktree_manager = WorktreeManager(project.expanded_path)
                 try:
                     working_dir = await worktree_manager.create(worktree_run_id)
+                    run.source_branch = worktree_manager.source_branch
+                    run.worktree_path = str(working_dir)
+                    run.branch_name = f"gluon-{worktree_run_id}"
+                    self.store.update_run(run)
                     yield AgentMessage(
                         type="system",
                         content=f"Created worktree at {working_dir}",
@@ -521,6 +526,25 @@ class Orchestrator:
                     worktree_manager = None
             else:
                 logger.info(f"Worktree requested but {project.expanded_path} is not a git repo, using main directory")
+
+        # Capture source branch for non-worktree git repos
+        if not run.source_branch and await is_git_repository(project.expanded_path):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "git",
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
+                    cwd=str(project.expanded_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout_bytes, _ = await proc.communicate()
+                if proc.returncode == 0:
+                    run.source_branch = stdout_bytes.decode().strip() or None
+                    self.store.update_run(run)
+            except Exception:
+                pass
 
         try:
             # Pre-task git sync (only for main directory, not worktree)

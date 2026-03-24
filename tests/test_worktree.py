@@ -73,6 +73,18 @@ class TestWorktreeManager:
         assert manager.branch_name == "gluon-task/test-run-123"
 
     @pytest.mark.asyncio
+    async def test_create_worktree_captures_source_branch(self, git_repo: Path, worktree_base: Path):
+        """Test that source_branch is captured from HEAD during worktree creation."""
+        config = WorktreeConfig(base_dir=worktree_base)
+        manager = WorktreeManager(git_repo, config)
+
+        await manager.create("test-source-branch")
+
+        assert manager.source_branch is not None
+        # Default branch in test fixture is typically "main" or "master"
+        assert manager.source_branch in ("main", "master")
+
+    @pytest.mark.asyncio
     async def test_create_worktree_copies_env_files(self, git_repo: Path, worktree_base: Path):
         """Test that .env files are copied to worktree."""
         # Create .env file in repo
