@@ -215,7 +215,15 @@ class TestReturnShape:
 
     def test_all_expected_keys_present(self):
         result = resolve_task_options()
-        expected_keys = {"model", "max_thinking_tokens", "max_turns", "max_budget_usd", "force_planning", "effort"}
+        expected_keys = {
+            "model",
+            "max_thinking_tokens",
+            "max_turns",
+            "max_budget_usd",
+            "force_planning",
+            "effort",
+            "task_budget",
+        }
         assert set(result.keys()) == expected_keys
 
     def test_return_types(self):
