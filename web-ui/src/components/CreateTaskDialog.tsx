@@ -195,6 +195,7 @@ export function CreateTaskDialog({
   const [modelOverride, setModelOverride] = useState('')
   const [thinkingOverride, setThinkingOverride] = useState('')
   const [maxBudgetOverride, setMaxBudgetOverride] = useState<string>('')
+  const [taskBudgetOverride, setTaskBudgetOverride] = useState<string>('')
   const [advancedModelDropdownOpen, setAdvancedModelDropdownOpen] = useState(false)
   const [advancedThinkingDropdownOpen, setAdvancedThinkingDropdownOpen] = useState(false)
   const [effortOverride, setEffortOverride] = useState('')
@@ -541,6 +542,7 @@ export function CreateTaskDialog({
       // Create the run first
       const costValue = maxCostUsd ? parseFloat(maxCostUsd) : undefined
       const budgetOverrideValue = maxBudgetOverride ? parseFloat(maxBudgetOverride) : undefined
+      const taskBudgetValue = taskBudgetOverride ? parseInt(taskBudgetOverride, 10) : undefined
 
       // Get profile config for model fallback
       const profileConfig = PROFILE_OPTIONS.find((p) => p.value === profile)
@@ -555,6 +557,7 @@ export function CreateTaskDialog({
         thinking_override: thinkingOverride ? (thinkingOverride as ThinkingBudget) : undefined,
         effort_override: effortOverride ? (effortOverride as EffortLevel) : undefined,
         max_budget_override: budgetOverrideValue,
+        task_budget_override: taskBudgetValue,
         force_planning: profile === 'planning',
         // Existing options
         use_worktree: useWorktree,
@@ -1496,6 +1499,29 @@ export function CreateTaskDialog({
                         className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
                       />
                     </div>
+                  </div>
+
+                  {/* Task Budget (Token Budget) */}
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                      Task Budget (Tokens)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="No limit"
+                      value={taskBudgetOverride}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (value === '' || /^\d+$/.test(value)) {
+                          setTaskBudgetOverride(value)
+                        }
+                      }}
+                      className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                    />
+                    <p className="text-[10px] text-[var(--color-stone)]/40 mt-0.5">
+                      Model paces itself to finish within budget
+                    </p>
                   </div>
 
                   {/* Model Transition (only shown for Planning profile) */}

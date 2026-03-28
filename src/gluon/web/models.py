@@ -133,6 +133,10 @@ class CreateRunRequest(BaseModel):
         default=None,
         description="Override planning mode (True = plan before executing)",
     )
+    task_budget_override: int | None = Field(
+        default=None,
+        description="Override task token budget (model paces itself to finish within budget)",
+    )
     # Ralph Loop options (autonomous execution mode)
     ralph_enabled: bool = Field(default=False, description="Enable ralph loop for autonomous execution")
     max_loops: int = Field(default=50, description="Maximum loop iterations (1-100)")

@@ -118,6 +118,7 @@ export interface CreateRunRequest {
   effort_override?: EffortLevel
   max_budget_override?: number
   force_planning?: boolean
+  task_budget_override?: number
   // Existing options
   use_worktree?: boolean
   // Ralph Loop options (autonomous execution mode)

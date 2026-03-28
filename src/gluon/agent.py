@@ -34,6 +34,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 from claude_agent_sdk.types import (
+    TaskBudget,
     ThinkingConfigAdaptive,
     ThinkingConfigDisabled,
     ThinkingConfigEnabled,
@@ -368,6 +369,7 @@ class GluonAgent:
         effort: str | None = None,
         vercel_cli_enabled: bool = False,
         vercel_token: str | None = None,
+        task_budget: int | None = None,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -401,6 +403,8 @@ class GluonAgent:
         self.model_transition = model_transition
         self.vercel_cli_enabled = vercel_cli_enabled
         self.vercel_token = vercel_token
+        # Task budget in tokens — model paces itself to finish within budget
+        self.task_budget = task_budget
 
     async def _can_use_tool(
         self,
@@ -552,6 +556,10 @@ class GluonAgent:
         # Add max_budget_usd if configured
         if self.max_budget_usd is not None:
             options.max_budget_usd = self.max_budget_usd
+
+        # SDK 0.1.51: Task budget — token-level budget the model uses to pace itself
+        if self.task_budget is not None:
+            options.task_budget = TaskBudget(total=self.task_budget)
 
         # SDK 0.1.35: Extended context beta (1M token context window)
         if self.extended_context_enabled:
@@ -940,6 +948,7 @@ class GluonAgent:
                                     "is_error": msg.is_error,
                                     "model_used": model_used,
                                     "stop_reason": stop_reason,
+                                    "errors": msg.errors,
                                 },
                             )
 

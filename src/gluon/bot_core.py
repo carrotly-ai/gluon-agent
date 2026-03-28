@@ -251,6 +251,7 @@ class GluonBotCore:
         max_budget_usd: float | None = None,
         force_planning: bool | None = None,
         effort: str | None = None,
+        task_budget: int | None = None,
     ) -> None:
         """Execute a Gluon task with streaming updates.
 
@@ -273,6 +274,7 @@ class GluonBotCore:
             max_turns: Maximum conversation turns
             max_budget_usd: Maximum cost in USD
             force_planning: Force planning mode
+            task_budget: Token budget for task (model paces itself)
         """
         result: AgentResult | None = None
         message_buffer: list[str] = []
@@ -316,6 +318,7 @@ class GluonBotCore:
                     max_budget_usd=max_budget_usd,
                     force_planning=force_planning,
                     effort=effort,
+                    task_budget=task_budget,
                 )
 
                 async for item in execution:

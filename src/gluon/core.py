@@ -440,6 +440,7 @@ class Orchestrator:
         max_budget_usd: float | None = None,
         force_planning: bool | None = None,
         effort: str | None = None,
+        task_budget: int | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -466,6 +467,7 @@ class Orchestrator:
             max_budget_usd: Override max cost budget.
             force_planning: Override planning mode (True = plan before executing).
             effort: Override reasoning effort (low/medium/high).
+            task_budget: Override task token budget (model paces itself).
 
         Yields:
             AgentMessage during execution
@@ -591,6 +593,7 @@ class Orchestrator:
                 max_budget_usd=max_budget_usd,
                 force_planning=force_planning,
                 effort=effort,
+                task_budget=task_budget,
             )
 
             # Pre-hydration: gather project context if enabled
@@ -616,6 +619,7 @@ class Orchestrator:
                 force_planning=task_options["force_planning"],
                 effort=task_options.get("effort"),
                 agent_teams_enabled=agent_teams_enabled,
+                task_budget=task_options.get("task_budget"),
             )
 
             # Execute via agent with log file writing

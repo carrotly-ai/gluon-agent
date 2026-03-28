@@ -497,6 +497,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             thinking_budget=body.thinking_override,
             force_planning=body.force_planning,
             effort=body.effort_override,
+            task_budget=body.task_budget_override,
             # Ralph Loop options
             ralph_enabled=body.ralph_enabled,
             max_loops=body.max_loops,

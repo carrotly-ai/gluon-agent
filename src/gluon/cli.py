@@ -848,6 +848,10 @@ def run(
         typer.Option("--effort", help="Reasoning effort: low/medium/high/max"),
     ] = None,
     planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,
+    task_budget: Annotated[
+        int | None,
+        typer.Option("--task-budget", help="Token budget for task (model paces itself to finish within budget)"),
+    ] = None,
     no_hydrate: Annotated[bool, typer.Option("--no-hydrate", help="Disable pre-hydration of project context")] = False,
     no_validate: Annotated[
         bool, typer.Option("--no-validate", help="Disable lint+test validation after completion")
@@ -905,6 +909,7 @@ def run(
                 thinking_budget=thinking,
                 force_planning=planning if planning else None,
                 effort=effort,
+                task_budget=task_budget,
                 enable_prehydration=not no_hydrate,
                 blueprint_enabled=not no_validate,
             )
@@ -961,6 +966,7 @@ def run(
             thinking_budget=thinking,
             force_planning=planning if planning else None,
             effort=effort,
+            task_budget=task_budget,
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:

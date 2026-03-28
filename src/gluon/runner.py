@@ -348,6 +348,7 @@ class TaskRunner:
         agent_teams: bool | None = None,
         model_transition: str | None = None,
         effort: str | None = None,
+        task_budget: int | None = None,
         enable_prehydration: bool = True,
         blueprint_enabled: bool = True,
     ) -> ExecutionRun:
@@ -383,6 +384,7 @@ class TaskRunner:
             max_budget_usd=max_cost_usd,  # Use max_cost_usd as budget override
             force_planning=force_planning,
             effort=effort,
+            task_budget=task_budget,
         )
 
         # Determine cost limit:
@@ -420,6 +422,8 @@ class TaskRunner:
         run.metadata["force_planning"] = task_options["force_planning"]
         if task_options.get("effort"):
             run.metadata["effort"] = task_options["effort"]
+        if task_options.get("task_budget"):
+            run.metadata["task_budget"] = task_options["task_budget"]
         if agent_teams is not None:
             run.metadata["agent_teams"] = agent_teams
         if model_transition:
@@ -851,6 +855,7 @@ but explicit commits with good messages are preferred.
                     disallowed_tools = []
                 model_transition = metadata.get("model_transition")
                 effort = metadata.get("effort")
+                task_budget = metadata.get("task_budget")
 
                 # Vercel CLI integration (optional)
                 vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
@@ -873,6 +878,7 @@ but explicit commits with good messages are preferred.
                     effort=effort,
                     vercel_cli_enabled=vercel_cli_enabled,
                     vercel_token=vercel_token,
+                    task_budget=task_budget,
                 )
 
                 # Create screenshot collector for intercepting agent-browser screenshots

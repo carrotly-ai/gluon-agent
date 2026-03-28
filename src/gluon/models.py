@@ -353,6 +353,7 @@ def resolve_task_options(
     max_budget_usd: float | None = None,
     force_planning: bool | None = None,
     effort: str | None = None,
+    task_budget: int | None = None,
 ) -> dict[str, Any]:
     """
     Resolve task options from profile and overrides.
@@ -366,6 +367,7 @@ def resolve_task_options(
         max_budget_usd: Override profile's cost budget
         force_planning: Override profile's planning mode
         effort: Override reasoning effort (low/medium/high/max)
+        task_budget: Override task token budget (model paces itself)
 
     Returns:
         Dict with resolved options:
@@ -375,6 +377,7 @@ def resolve_task_options(
         - max_budget_usd: float | None
         - force_planning: bool
         - effort: str | None
+        - task_budget: int | None
     """
     # Resolve profile enum
     if profile is None:
@@ -420,6 +423,9 @@ def resolve_task_options(
     if effort is not None:
         config["effort"] = effort
 
+    if task_budget is not None:
+        config["task_budget"] = task_budget
+
     return {
         "model": config["model"],
         "max_thinking_tokens": config["max_thinking_tokens"],
@@ -427,6 +433,7 @@ def resolve_task_options(
         "max_budget_usd": config.get("max_budget_usd"),
         "force_planning": config["force_planning"],
         "effort": config.get("effort"),
+        "task_budget": config.get("task_budget"),
     }
 
 
