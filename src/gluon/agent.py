@@ -653,9 +653,7 @@ class GluonAgent:
             # channel conflicts with other Claude processes (including
             # interactive Claude sessions running in the terminal)
             if new_session_id:
-                if options.extra_args is None:
-                    options.extra_args = {}
-                options.extra_args["session-id"] = new_session_id
+                options.session_id = new_session_id
             if fork_session:
                 options.fork_session = True
 
