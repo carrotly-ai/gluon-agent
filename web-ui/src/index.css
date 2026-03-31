@@ -373,6 +373,20 @@ body {
     display: none;
   }
 
+  /* Tab scroll affordance - fade on trailing edge */
+  .tab-scroll-fade {
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+  }
+
+  @media (min-width: 640px) {
+    .tab-scroll-fade {
+      mask-image: none;
+      -webkit-mask-image: none;
+    }
+  }
+
   .kanban-tab {
     flex-shrink: 0;
     padding: 0.75rem 1rem;

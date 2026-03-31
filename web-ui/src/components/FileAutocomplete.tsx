@@ -138,9 +138,9 @@ export function FileAutocomplete({
   if (loading) {
     return createPortal(
       <div
-        className="fixed z-[99999] w-[400px] rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl p-4"
+        className="fixed z-[99999] w-[min(400px,calc(100vw-2rem))] rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl p-4 touch-manipulation"
         style={{
-          top: position.top,
+          top: Math.max(position.top, 60),
           left: position.left,
           transform: 'translateY(-100%)',
         }}
@@ -157,9 +157,9 @@ export function FileAutocomplete({
   if (filteredFiles.length === 0) {
     return createPortal(
       <div
-        className="fixed z-[99999] w-[400px] rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl p-4"
+        className="fixed z-[99999] w-[min(400px,calc(100vw-2rem))] rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl p-4 touch-manipulation"
         style={{
-          top: position.top,
+          top: Math.max(position.top, 60),
           left: position.left,
           transform: 'translateY(-100%)',
         }}
@@ -175,9 +175,9 @@ export function FileAutocomplete({
   // Use portal to render outside dialog stacking context
   return createPortal(
     <div
-      className="fixed z-[99999] w-[400px] max-h-[300px] overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl"
+      className="fixed z-[99999] w-[min(400px,calc(100vw-2rem))] max-h-[300px] overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl touch-manipulation"
       style={{
-        top: position.top,
+        top: Math.max(position.top, 60),
         left: position.left,
         transform: 'translateY(-100%)', // Position above the anchor
       }}
