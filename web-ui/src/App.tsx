@@ -5,13 +5,14 @@ import {
   GitMerge,
   LayoutGrid,
   ListTodo,
+  Menu,
   Moon,
   Plus,
   Settings,
   Sun,
   WifiOff,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityPage } from './components/ActivityPage'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
@@ -49,6 +50,110 @@ import {
 import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
 import { cn } from './lib/utils'
+
+type ViewMode = 'board' | 'activity' | 'queue' | 'merge' | 'sessions' | 'usage' | 'settings'
+
+const SECONDARY_NAV_ITEMS: { mode: ViewMode; icon: typeof Activity; label: string }[] = [
+  { mode: 'activity', icon: Activity, label: 'Activity' },
+  { mode: 'queue', icon: ListTodo, label: 'Work Queue' },
+  { mode: 'merge', icon: GitMerge, label: 'Merge Queue' },
+  { mode: 'sessions', icon: Database, label: 'Sessions' },
+  { mode: 'usage', icon: BarChart3, label: 'Usage' },
+]
+
+function MobileNavMenu({
+  viewMode,
+  onViewChange,
+}: {
+  viewMode: string
+  onViewChange: (mode: ViewMode) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const isSecondaryActive = SECONDARY_NAV_ITEMS.some((item) => item.mode === viewMode)
+
+  return (
+    <div className="md:hidden relative" ref={menuRef}>
+      <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+        <button
+          className={cn(
+            'p-1.5 rounded-sm transition-colors',
+            viewMode === 'board'
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+          )}
+          onClick={() => {
+            onViewChange('board')
+            setOpen(false)
+          }}
+          title="Board view"
+        >
+          <LayoutGrid className="w-3.5 h-3.5" />
+        </button>
+        <button
+          className={cn(
+            'p-1.5 rounded-sm transition-colors',
+            viewMode === 'settings'
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+          )}
+          onClick={() => {
+            onViewChange('settings')
+            setOpen(false)
+          }}
+          title="Settings"
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
+        <button
+          className={cn(
+            'p-1.5 rounded-sm transition-colors',
+            open || isSecondaryActive
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+          )}
+          onClick={() => setOpen((prev) => !prev)}
+          title="More views"
+        >
+          <Menu className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
+          {SECONDARY_NAV_ITEMS.map(({ mode, icon: Icon, label }) => (
+            <button
+              key={mode}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3 py-2 text-body transition-colors',
+                viewMode === mode
+                  ? 'text-[var(--color-paper)] bg-[var(--color-paper)]/8'
+                  : 'text-[var(--color-stone)] hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5'
+              )}
+              onClick={() => {
+                onViewChange(mode)
+                setOpen(false)
+              }}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span className="uppercase tracking-widest">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function App() {
   // Notification center
@@ -308,93 +413,36 @@ function App() {
 
             {/* Right - view toggle + theme + connection pulse */}
             <div className="flex items-center gap-3 sm:gap-4">
-              {/* View Toggle */}
-              <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'board'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('board')}
-                  title="Board view"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'activity'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('activity')}
-                  title="Activity log"
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'queue'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('queue')}
-                  title="Work queue"
-                >
-                  <ListTodo className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'merge'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('merge')}
-                  title="Merge queue"
-                >
-                  <GitMerge className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'sessions'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('sessions')}
-                  title="SDK Sessions"
-                >
-                  <Database className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'usage'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('usage')}
-                  title="Usage view"
-                >
-                  <BarChart3 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  className={cn(
-                    'p-1.5 rounded-sm transition-colors',
-                    viewMode === 'settings'
-                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                  )}
-                  onClick={() => setViewMode('settings')}
-                  title="Settings"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </button>
+              {/* View Toggle - Desktop: all buttons visible */}
+              <div className="hidden md:flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+                {(
+                  [
+                    { mode: 'board', icon: LayoutGrid, title: 'Board view' },
+                    { mode: 'activity', icon: Activity, title: 'Activity log' },
+                    { mode: 'queue', icon: ListTodo, title: 'Work queue' },
+                    { mode: 'merge', icon: GitMerge, title: 'Merge queue' },
+                    { mode: 'sessions', icon: Database, title: 'SDK Sessions' },
+                    { mode: 'usage', icon: BarChart3, title: 'Usage view' },
+                    { mode: 'settings', icon: Settings, title: 'Settings' },
+                  ] as const
+                ).map(({ mode, icon: Icon, title }) => (
+                  <button
+                    key={mode}
+                    className={cn(
+                      'p-1.5 rounded-sm transition-colors',
+                      viewMode === mode
+                        ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                    )}
+                    onClick={() => setViewMode(mode)}
+                    title={title}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
               </div>
+              {/* View Toggle - Mobile: Board + Settings + overflow menu */}
+              <MobileNavMenu viewMode={viewMode} onViewChange={setViewMode} />
               <NotificationBell onNavigateToRun={(runId) => openRunDetail(runId)} />
               <button
                 className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"

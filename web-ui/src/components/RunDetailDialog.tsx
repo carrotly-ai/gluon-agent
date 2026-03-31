@@ -17,6 +17,7 @@ import {
   ListChecks,
   Maximize2,
   Minus,
+  MoreVertical,
   Pencil,
   Play,
   Plus,
@@ -77,6 +78,200 @@ import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
+
+// Mobile overflow menu for run detail action buttons
+function MobileActionMenu({
+  run,
+  detail,
+  isActive,
+  isResumable,
+  activeTab,
+  onMerge,
+  onCreatePr,
+  onCancel,
+  onArchive,
+  onRefresh,
+  onResolveConflicts,
+  merging,
+  creatingPr,
+  cancelling,
+  archiving,
+  loading,
+}: {
+  run: Run | null
+  detail: RunDetail | null
+  isActive: boolean
+  isResumable: boolean
+  activeTab: string
+  onMerge: () => void
+  onCreatePr: () => void
+  onCancel: () => void
+  onArchive: () => void
+  onRefresh: () => void
+  onResolveConflicts: () => void
+  merging: boolean
+  creatingPr: boolean
+  cancelling: boolean
+  archiving: boolean
+  loading: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const canMergePr =
+    detail?.pr_status === 'open' &&
+    detail?.pr_mergeable !== 'CONFLICTING' &&
+    detail?.branch_name &&
+    !isActive
+  const canResolve = detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive
+  const canCreatePr =
+    detail?.use_worktree &&
+    detail?.branch_name &&
+    detail?.has_remote &&
+    !detail?.pr_url &&
+    !isActive
+  const canMergeLocal =
+    detail?.use_worktree &&
+    detail?.branch_name &&
+    !detail?.pr_url &&
+    detail?.pr_status !== 'merged' &&
+    !isActive
+
+  return (
+    <div className="flex sm:hidden items-center gap-1" ref={menuRef}>
+      <Link
+        to={`/runs/${run?.id}/${activeTab}`}
+        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm"
+        title="Open in full screen"
+      >
+        <Maximize2 className="w-3.5 h-3.5" />
+      </Link>
+      <button
+        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm"
+        onClick={onRefresh}
+        disabled={loading}
+        title="Refresh"
+      >
+        <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+      </button>
+      <div className="relative">
+        <button
+          className={cn(
+            'p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-sm transition-colors',
+            open
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/50 hover:text-[var(--color-paper)]'
+          )}
+          onClick={() => setOpen((prev) => !prev)}
+          title="More actions"
+        >
+          <MoreVertical className="w-3.5 h-3.5" />
+        </button>
+        {open && (
+          <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
+            {canMergePr && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
+                onClick={() => {
+                  onMerge()
+                  setOpen(false)
+                }}
+                disabled={merging}
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest">
+                  {merging ? 'Merging...' : 'Merge PR'}
+                </span>
+              </button>
+            )}
+            {canResolve && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-purple-400 hover:bg-[rgba(168,85,247,0.1)] transition-colors"
+                onClick={() => {
+                  onResolveConflicts()
+                  setOpen(false)
+                }}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest">Resolve</span>
+              </button>
+            )}
+            {canCreatePr && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
+                onClick={() => {
+                  onCreatePr()
+                  setOpen(false)
+                }}
+                disabled={creatingPr}
+              >
+                <GitPullRequest className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest">
+                  {creatingPr ? 'Creating...' : 'Create PR'}
+                </span>
+              </button>
+            )}
+            {canMergeLocal && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
+                onClick={() => {
+                  onMerge()
+                  setOpen(false)
+                }}
+                disabled={merging}
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest">
+                  {merging ? 'Merging...' : 'Merge'}
+                </span>
+              </button>
+            )}
+            {isActive && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.1)] transition-colors"
+                onClick={() => {
+                  onCancel()
+                  setOpen(false)
+                }}
+                disabled={cancelling}
+              >
+                <X className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest">
+                  {cancelling ? 'Cancelling...' : 'Cancel'}
+                </span>
+              </button>
+            )}
+            {!isActive && (
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+                onClick={() => {
+                  onArchive()
+                  setOpen(false)
+                }}
+                disabled={archiving}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest">
+                  {archiving ? 'Archiving...' : 'Archive'}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 import { LoopProgressTab } from './LoopProgressTab'
 import { QuestionModal } from './QuestionModal'
 import { StreamingLogViewer } from './StreamingLogViewer'
@@ -1314,9 +1509,9 @@ Focus on preserving functionality from both sides where possible.`
               <div className="hidden sm:block w-px h-4 bg-[var(--color-stone)]/20" />
             )}
 
-            {/* Action buttons */}
-            <div className="flex items-center gap-1 pr-8">
-              {/* Merge - only show when PR is open AND mergeable (no conflicts) */}
+            {/* Action buttons — desktop: inline, mobile: overflow menu */}
+            {/* Desktop actions */}
+            <div className="hidden sm:flex items-center gap-1 pr-8">
               {detail?.pr_status === 'open' &&
                 detail?.pr_mergeable !== 'CONFLICTING' &&
                 detail?.branch_name &&
@@ -1336,7 +1531,6 @@ Focus on preserving functionality from both sides where possible.`
                     <span>{merging ? 'Merging...' : 'Merge'}</span>
                   </button>
                 )}
-              {/* Resolve Conflicts - show when PR has conflicts and run is resumable */}
               {detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive && (
                 <button
                   onClick={() => {
@@ -1349,7 +1543,6 @@ Focus on preserving functionality from both sides where possible.`
 
 Focus on preserving the functionality from both sides where possible.`
                     setResumePrompt(conflictPrompt)
-                    // Scroll to resume section
                     setTimeout(() => {
                       document
                         .querySelector('textarea[placeholder*="Continue with follow-up"]')
@@ -1363,7 +1556,6 @@ Focus on preserving the functionality from both sides where possible.`
                   <span>Resolve</span>
                 </button>
               )}
-              {/* Create PR - show for worktree runs with branch, has remote, but no PR */}
               {detail?.use_worktree &&
                 detail?.branch_name &&
                 detail?.has_remote &&
@@ -1383,7 +1575,6 @@ Focus on preserving the functionality from both sides where possible.`
                     <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
                   </button>
                 )}
-              {/* Merge (local) - show for worktree runs with branch and no PR, hide if already merged */}
               {detail?.use_worktree &&
                 detail?.branch_name &&
                 !detail?.pr_url &&
@@ -1404,7 +1595,6 @@ Focus on preserving the functionality from both sides where possible.`
                     <span>{merging ? 'Merging...' : 'Merge'}</span>
                   </button>
                 )}
-              {/* Cancel - for active runs */}
               {isActive && (
                 <button
                   className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgba(199,62,58,0.1)] rounded-sm transition-colors"
@@ -1414,7 +1604,6 @@ Focus on preserving the functionality from both sides where possible.`
                   {cancelling ? 'Cancelling...' : 'Cancel'}
                 </button>
               )}
-              {/* Archive - for completed/failed/cancelled runs */}
               {!isActive && (
                 <button
                   className="flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] border border-[var(--color-stone)]/15 hover:border-[var(--color-stone)]/30 rounded-sm transition-colors"
@@ -1426,7 +1615,6 @@ Focus on preserving the functionality from both sides where possible.`
                   <span>{archiving ? '...' : 'Archive'}</span>
                 </button>
               )}
-              {/* Full-screen view toggle */}
               <Link
                 to={`/runs/${run?.id}/${activeTab}`}
                 className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
@@ -1434,7 +1622,6 @@ Focus on preserving the functionality from both sides where possible.`
               >
                 <Maximize2 className="w-3.5 h-3.5" />
               </Link>
-              {/* Refresh */}
               <button
                 className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
                 onClick={handleRefresh}
@@ -1444,6 +1631,40 @@ Focus on preserving the functionality from both sides where possible.`
                 <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
               </button>
             </div>
+            {/* Mobile actions: refresh + overflow menu */}
+            <MobileActionMenu
+              run={run}
+              detail={detail}
+              isActive={isActive}
+              isResumable={isResumable}
+              activeTab={activeTab}
+              onMerge={handleMerge}
+              onCreatePr={handleCreatePr}
+              onCancel={handleCancel}
+              onArchive={handleArchive}
+              onRefresh={handleRefresh}
+              onResolveConflicts={() => {
+                const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
+
+1. Rebase this branch onto ${detail?.source_branch || 'main'}
+2. For each conflict, understand the intent of both changes and merge them intelligently
+3. After resolving all conflicts, force-push the rebased branch
+4. The PR should become mergeable after this
+
+Focus on preserving the functionality from both sides where possible.`
+                setResumePrompt(conflictPrompt)
+                setTimeout(() => {
+                  document
+                    .querySelector('textarea[placeholder*="Continue with follow-up"]')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }, 100)
+              }}
+              merging={merging}
+              creatingPr={creatingPr}
+              cancelling={cancelling}
+              archiving={archiving}
+              loading={loading}
+            />
           </div>
         </div>
 
@@ -1603,7 +1824,7 @@ Focus on preserving the functionality from both sides where possible.`
             <div className="flex flex-col flex-1 min-h-0">
               {/* Tab Bar */}
               <div className="flex items-center justify-between mb-3 shrink-0 gap-2">
-                <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-nowrap min-w-0">
+                <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide tab-scroll-fade flex-nowrap min-w-0">
                   <button
                     className={cn(
                       'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0',
@@ -2603,7 +2824,7 @@ Focus on preserving the functionality from both sides where possible.`
                       <button
                         className={cn(
                           'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
-                          'p-2 sm:px-3 sm:py-2 sm:gap-1.5',
+                          'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:gap-1.5',
                           resumePrompt.trim() && !queuing && !resuming
                             ? 'bg-[var(--color-stone)]/20 text-[var(--color-paper)] hover:bg-[var(--color-stone)]/30'
                             : 'bg-[var(--color-stone)]/10 text-[var(--color-stone)]/40 cursor-not-allowed'
@@ -2620,7 +2841,7 @@ Focus on preserving the functionality from both sides where possible.`
                       <button
                         className={cn(
                           'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
-                          'p-2 sm:px-3 sm:py-2 sm:gap-1.5',
+                          'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:gap-1.5',
                           resumePrompt.trim() && !resuming && !queuing
                             ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                             : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
@@ -2640,7 +2861,7 @@ Focus on preserving the functionality from both sides where possible.`
                     <button
                       className={cn(
                         'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
-                        'p-2 sm:px-4 sm:py-2 sm:gap-2',
+                        'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-4 sm:py-2 sm:gap-2',
                         resumePrompt.trim() && !resuming
                           ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                           : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
