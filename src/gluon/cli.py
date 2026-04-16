@@ -13,7 +13,7 @@ from rich.table import Table
 
 from gluon import __version__
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
-from gluon.cleanup import LogCleanupService
+from gluon.cleanup import LogCleanupService, WorktreeCleanupService
 from gluon.core import (
     Orchestrator,
     ProjectExistsError,
@@ -68,6 +68,9 @@ app.add_typer(chain_app, name="chain")
 
 supervisor_app = typer.Typer(help="Supervisor daemon management")
 app.add_typer(supervisor_app, name="supervisor")
+
+worktree_app = typer.Typer(help="Worktree management and cleanup")
+app.add_typer(worktree_app, name="worktree")
 
 console = Console()
 
@@ -3285,6 +3288,142 @@ def witness_show(run_id: Annotated[str, typer.Argument(help="Run ID")]) -> None:
         )
 
     console.print(table)
+
+
+# ========== Worktree Commands ==========
+
+
+def _get_worktree_service(retention_days: int | None = None) -> WorktreeCleanupService:
+    """Get WorktreeCleanupService with optional retention override."""
+    store = GluonStore()
+    # Resolve retention from settings if not explicitly provided
+    if retention_days is None:
+        setting = store.resolve_setting("worktree_retention_days")
+        retention_days = int(setting) if setting else 7
+    return WorktreeCleanupService(store=store, retention_days=retention_days)
+
+
+@worktree_app.command("list")
+def worktree_list():
+    """List all worktree directories and their status."""
+    service = _get_worktree_service()
+    preview = service.preview()
+    usage = service.get_disk_usage()
+
+    if usage["run_count"] == 0:
+        console.print("[green]No worktrees found[/green]")
+        return
+
+    console.print(
+        f"[bold]Worktrees:[/bold] {usage['run_count']} directories, {_format_bytes(usage['total_bytes'])} total\n"
+    )
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Directory")
+    table.add_column("Run ID")
+    table.add_column("Size", justify="right")
+    table.add_column("Status")
+    table.add_column("Reason")
+
+    # Show eligible for deletion first
+    for category, style in [
+        ("orphan", "red"),
+        ("merged", "yellow"),
+        ("expired", "yellow"),
+        ("active", "green"),
+        ("retained", "dim"),
+    ]:
+        for info in preview.get(category, []):
+            run_id_display = info["run_id"][:8] + "..." if info["run_id"] else "[orphan]"
+            table.add_row(
+                info["path"].name,
+                run_id_display,
+                _format_bytes(info["size_bytes"]),
+                f"[{style}]{category}[/{style}]",
+                info["reason"],
+            )
+
+    console.print(table)
+
+    # Summary of what would be cleaned
+    deletable = sum(len(preview.get(cat, [])) for cat in ("orphan", "merged", "expired"))
+    if deletable > 0:
+        deletable_bytes = sum(
+            info["size_bytes"] for cat in ("orphan", "merged", "expired") for info in preview.get(cat, [])
+        )
+        console.print(
+            f"\n[bold]{deletable}[/bold] worktrees eligible for cleanup "
+            f"({_format_bytes(deletable_bytes)}). "
+            f"Run [cyan]gluon worktree gc[/cyan] to clean up."
+        )
+
+
+@worktree_app.command("gc")
+def worktree_gc(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Preview what would be deleted without deleting"),
+    ] = False,
+    retention_days: Annotated[
+        int | None,
+        typer.Option("--retention-days", "-r", help="Override retention period in days (default: 7)"),
+    ] = None,
+):
+    """Garbage-collect stale worktrees.
+
+    Deletes worktree directories for:
+    - Orphan worktrees (no matching run in DB): immediately
+    - Merged PRs: immediately
+    - Completed/failed/cancelled runs: after retention period (default 7 days)
+
+    Active runs (pending/running/review) are never touched.
+    """
+    service = _get_worktree_service(retention_days)
+
+    if dry_run:
+        preview = service.preview()
+        deletable_cats = ("orphan", "merged", "expired")
+        total = sum(len(preview.get(cat, [])) for cat in deletable_cats)
+        total_bytes = sum(info["size_bytes"] for cat in deletable_cats for info in preview.get(cat, []))
+
+        if total == 0:
+            console.print("[green]No worktrees to clean up[/green]")
+            return
+
+        console.print("[bold]Worktrees that would be deleted:[/bold]\n")
+
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Category")
+        table.add_column("Count", justify="right")
+        table.add_column("Size", justify="right")
+
+        for category in deletable_cats:
+            items = preview.get(category, [])
+            if items:
+                cat_bytes = sum(i["size_bytes"] for i in items)
+                table.add_row(category.title(), str(len(items)), _format_bytes(cat_bytes))
+
+        console.print(table)
+        console.print(f"\n[bold]Total:[/bold] {total} worktrees, {_format_bytes(total_bytes)} would be freed")
+    else:
+        stats = service.cleanup()
+        total = stats["orphan_deleted"] + stats["merged_deleted"] + stats["expired_deleted"]
+
+        if total == 0:
+            console.print("[green]No worktrees to clean up[/green]")
+        else:
+            freed = _format_bytes(stats["bytes_freed"])
+            console.print("[bold]Worktree cleanup complete:[/bold]")
+            console.print(f"  Orphan:  {stats['orphan_deleted']}")
+            console.print(f"  Merged:  {stats['merged_deleted']}")
+            console.print(f"  Expired: {stats['expired_deleted']}")
+            console.print(f"  [bold]Total:[/bold]  {total} ({freed} freed)")
+
+        if stats["git_pruned"] > 0:
+            console.print(f"  Git refs pruned in {stats['git_pruned']} repo(s)")
+
+        if stats["errors"] > 0:
+            console.print(f"\n[yellow]Errors: {stats['errors']}[/yellow]")
 
 
 if __name__ == "__main__":

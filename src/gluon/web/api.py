@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from gluon.cleanup import LogCleanupService
+from gluon.cleanup import LogCleanupService, WorktreeCleanupService
 from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.files import get_project_files
@@ -3972,6 +3972,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     _cleanup_task: asyncio.Task | None = None
     _log_polling_task: asyncio.Task | None = None
     _pr_polling_task: asyncio.Task | None = None
+    _worktree_cleanup_task: asyncio.Task | None = None
     _health_monitor: object | None = None  # HealthMonitor, optional
 
     # Track file positions for incremental log reading
@@ -4257,10 +4258,43 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             # Wait for next cleanup cycle
             await asyncio.sleep(cleanup_interval_seconds)
 
+    async def _cleanup_old_worktrees() -> None:
+        """Background task to garbage-collect stale Git worktrees.
+
+        Runs alongside log cleanup on the same schedule.
+        - Orphan worktrees (no DB record): deleted immediately
+        - Merged PRs: deleted immediately
+        - Completed/failed/cancelled runs: deleted after retention period
+        """
+        retention_setting = store.resolve_setting("worktree_retention_days")
+        retention_days = int(retention_setting) if retention_setting else 7
+        wt_service = WorktreeCleanupService(store=store, retention_days=retention_days)
+
+        # Use same initial delay as log cleanup
+        await asyncio.sleep(cleanup_initial_delay_seconds)
+
+        while True:
+            try:
+                stats = wt_service.cleanup()
+                total = stats["orphan_deleted"] + stats["merged_deleted"] + stats["expired_deleted"]
+                if total > 0 or stats["errors"] > 0:
+                    freed_mb = stats["bytes_freed"] / (1024 * 1024)
+                    logger.info(
+                        f"Worktree cleanup: {stats['orphan_deleted']} orphan, "
+                        f"{stats['merged_deleted']} merged, "
+                        f"{stats['expired_deleted']} expired deleted "
+                        f"({freed_mb:.1f} MB freed, {stats['errors']} errors)"
+                    )
+            except Exception as e:
+                logger.error(f"Error in worktree cleanup task: {e}")
+
+            await asyncio.sleep(cleanup_interval_seconds)
+
     @app.on_event("startup")
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
-        nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task, _health_monitor
+        nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task
+        nonlocal _worktree_cleanup_task, _health_monitor
 
         # Start event bus
         from gluon.events import event_bus
@@ -4283,6 +4317,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         _cleanup_task = asyncio.create_task(_cleanup_old_logs())
         _log_polling_task = asyncio.create_task(_poll_log_updates())
         _pr_polling_task = asyncio.create_task(_poll_pr_status_changes())
+        _worktree_cleanup_task = asyncio.create_task(_cleanup_old_worktrees())
 
         # Start supervisor for ralph mode auto-resume
         await runner.start_supervisor(poll_interval=30)
@@ -4302,7 +4337,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         logger.info(
             "Started background tasks: run status polling, log streaming, log cleanup, "
-            "PR status polling, supervision coordinator"
+            "worktree cleanup, PR status polling, supervision coordinator"
         )
 
     @app.on_event("shutdown")
@@ -4334,6 +4369,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             tasks_to_cancel.append(("log cleanup", _cleanup_task))
         if _pr_polling_task:
             tasks_to_cancel.append(("PR status polling", _pr_polling_task))
+        if _worktree_cleanup_task:
+            tasks_to_cancel.append(("worktree cleanup", _worktree_cleanup_task))
 
         for name, task in tasks_to_cancel:
             task.cancel()
