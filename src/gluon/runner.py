@@ -860,6 +860,7 @@ but explicit commits with good messages are preferred.
                 # Vercel CLI integration (optional)
                 vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
                 vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
+                skills_enabled = _resolve("skills_enabled", "false", workspace_id) == "true"
 
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
@@ -879,6 +880,7 @@ but explicit commits with good messages are preferred.
                     vercel_cli_enabled=vercel_cli_enabled,
                     vercel_token=vercel_token,
                     task_budget=task_budget,
+                    skills_enabled=skills_enabled,
                 )
 
                 # Create screenshot collector for intercepting agent-browser screenshots
@@ -2040,6 +2042,7 @@ but explicit commits with good messages are preferred.
             # Vercel CLI integration (optional)
             vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
             vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
+            skills_enabled = _resolve("skills_enabled", "false", workspace_id) == "true"
 
             agent = GluonAgent(
                 model=run.model or self.agent.model,
@@ -2049,6 +2052,7 @@ but explicit commits with good messages are preferred.
                 agent_teams_enabled=agent_teams_enabled,
                 vercel_cli_enabled=vercel_cli_enabled,
                 vercel_token=vercel_token,
+                skills_enabled=skills_enabled,
             )
 
             # Create and execute ralph manager
