@@ -609,6 +609,7 @@ class Orchestrator:
 
             # Read experimental feature settings
             agent_teams_enabled = self.store.get_setting("agent_teams_enabled", "false") == "true"
+            skills_enabled = self.store.get_setting("skills_enabled", "false") == "true"
 
             # Create agent with resolved options
             agent = GluonAgent(
@@ -619,6 +620,7 @@ class Orchestrator:
                 force_planning=task_options["force_planning"],
                 effort=task_options.get("effort"),
                 agent_teams_enabled=agent_teams_enabled,
+                skills_enabled=skills_enabled,
                 task_budget=task_options.get("task_budget"),
             )
 

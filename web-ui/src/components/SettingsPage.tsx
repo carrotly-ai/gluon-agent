@@ -104,6 +104,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
 
   // Experimental features
   const [agentTeamsEnabled, setAgentTeamsEnabled] = useState(false)
+  const [skillsEnabled, setSkillsEnabled] = useState(false)
 
   // SDK 0.1.35 feature settings
   const [extendedContextEnabled, setExtendedContextEnabled] = useState(false)
@@ -144,6 +145,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setSandboxAvailable(sandboxStatus.available)
       setSandboxRuntime(sandboxStatus.runtime)
       setAgentTeamsEnabled(settings.agent_teams_enabled === 'true')
+      setSkillsEnabled(settings.skills_enabled === 'true')
       setExtendedContextEnabled(settings.extended_context_enabled === 'true')
       setFileCheckpointingEnabled(settings.file_checkpointing_enabled === 'true')
       setNotificationsEnabled(settings.notifications_enabled !== 'false') // default true
@@ -313,6 +315,19 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
     try {
       await updateSetting('agent_teams_enabled', newValue ? 'true' : 'false')
       setAgentTeamsEnabled(newValue)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update setting')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const handleToggleSkills = async () => {
+    const newValue = !skillsEnabled
+    setSavingKey('skills')
+    try {
+      await updateSetting('skills_enabled', newValue ? 'true' : 'false')
+      setSkillsEnabled(newValue)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update setting')
     } finally {
@@ -1243,6 +1258,31 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     className={cn(
                       'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
                       agentTeamsEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-[var(--color-paper)]">Skills</p>
+                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                    Enable Claude Code skills on agent sessions. When enabled, tasks can use
+                    installed slash-command skills (e.g. /plan, /review) during execution.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleSkills}
+                  disabled={savingKey === 'skills'}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    skillsEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
+                    savingKey === 'skills' && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      skillsEnabled && 'translate-x-5'
                     )}
                   />
                 </button>

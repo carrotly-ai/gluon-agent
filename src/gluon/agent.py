@@ -370,6 +370,7 @@ class GluonAgent:
         vercel_cli_enabled: bool = False,
         vercel_token: str | None = None,
         task_budget: int | None = None,
+        skills_enabled: bool = False,
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -405,6 +406,8 @@ class GluonAgent:
         self.vercel_token = vercel_token
         # Task budget in tokens — model paces itself to finish within budget
         self.task_budget = task_budget
+        # SDK 0.1.62: Enable Claude Code skills on agent sessions
+        self.skills_enabled = skills_enabled
 
     async def _can_use_tool(
         self,
@@ -523,6 +526,10 @@ class GluonAgent:
 
         # Load CLAUDE.md from target project (but not user/local settings to avoid leakage)
         options.setting_sources = ["project"]
+
+        # SDK 0.1.62: Enable skills on agent sessions
+        if self.skills_enabled:
+            options.skills = "all"
 
         # Pass custom environment variables to the SDK subprocess
         # This avoids mutating os.environ globally
