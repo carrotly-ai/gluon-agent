@@ -23,6 +23,8 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ProcessError,
     ResultMessage,
+    ServerToolResultBlock,
+    ServerToolUseBlock,
     SystemMessage,
     TaskNotificationMessage,
     TaskProgressMessage,
@@ -928,6 +930,24 @@ class GluonAgent:
                                         metadata={
                                             "tool_use_id": block.tool_use_id,
                                             "is_error": block.is_error,
+                                        },
+                                    )
+                                elif isinstance(block, ServerToolUseBlock):
+                                    yield AgentMessage(
+                                        type="server_tool_use",
+                                        content=f"Server tool: {block.name}",
+                                        metadata={
+                                            "tool": block.name,
+                                            "id": block.id,
+                                            "input": block.input,
+                                        },
+                                    )
+                                elif isinstance(block, ServerToolResultBlock):
+                                    yield AgentMessage(
+                                        type="server_tool_result",
+                                        content=str(block.content) if block.content else "",
+                                        metadata={
+                                            "tool_use_id": block.tool_use_id,
                                         },
                                     )
 
