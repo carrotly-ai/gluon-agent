@@ -12,7 +12,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +44,7 @@ from gluon.web.models import (
     BranchOperationResponse,
     BranchResponse,
     ChangeBaseBranchRequest,
+    ChangePasswordRequest,
     ClaudeSessionInfo,
     ClaudeSessionListResponse,
     ClaudeSessionMessageItem,
@@ -48,6 +58,7 @@ from gluon.web.models import (
     ConflictFileResponse,
     CreateProjectRequest,
     CreateRunRequest,
+    CreateUserRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
     EditQueuedMessageRequest,
@@ -67,7 +78,10 @@ from gluon.web.models import (
     GitSyncRequest,
     GitSyncResponse,
     ImageResponse,
+    LoginRequest,
+    LoginResponse,
     LogResponse,
+    MeResponse,
     MergeQueueEntryResponse,
     MergeQueueListResponse,
     NotificationResponse,
@@ -129,8 +143,11 @@ from gluon.web.models import (
     TodoItemResponse,
     UpdateStatusRequest,
     UpdateStatusResponse,
+    UpdateUserRequest,
     UpdateWorkspaceBudgetRequest,
     UsageSummaryResponse,
+    UserListResponse,
+    UserResponse,
     VersionResponse,
     WitnessDecisionListResponse,
     WitnessDecisionResponse,
@@ -1691,6 +1708,294 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             source=get_provider_source(),
             models={tier.value: model_id for tier, model_id in provider.MODELS.items()},
         )
+
+    # ========== Auth (D5 Phase 2) ==========
+    #
+    # Session-cookie based auth. When GLUON_AUTH_ENABLED=false (default), the
+    # /api/auth/me endpoint still works and returns the SYSTEM_USER so clients
+    # have a uniform shape. Login/logout are always defined but only do real
+    # work when auth is enabled.
+
+    from gluon.auth import (
+        DEFAULT_SESSION_TTL_DAYS,
+        SESSION_COOKIE_NAME,
+        SYSTEM_USER,
+        InvalidCredentialsError,
+        UserDisabledError,
+        create_session_for_user,
+        get_auth_provider,
+        is_auth_enabled,
+        make_current_user_dependency,
+        make_require_role,
+    )
+    from gluon.models import User as UserModel
+    from gluon.models import UserRole
+
+    current_user_dep = make_current_user_dependency(store)
+    require_admin = make_require_role(store, UserRole.ADMIN)
+
+    def _user_to_response(u: UserModel) -> UserResponse:
+        return UserResponse(
+            id=u.id,
+            username=u.username,
+            display_name=u.display_name,
+            email=u.email,
+            role=u.role.value,
+            auth_provider=u.auth_provider.value,
+            disabled=u.disabled,
+            telegram_user_id=u.telegram_user_id,
+            discord_user_id=u.discord_user_id,
+            created_at=u.created_at.isoformat(),
+            last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
+        )
+
+    @app.post("/api/auth/login", response_model=LoginResponse)
+    async def auth_login(
+        body: LoginRequest,
+        request: Request,
+        response: Response,
+    ) -> LoginResponse:
+        """Authenticate a username + password and set the session cookie.
+
+        Returns 400 if auth is disabled (the endpoint exists so clients can
+        detect the mode, but using it is meaningless in single-user).
+        Returns 401 on bad credentials or a disabled user — the two are
+        deliberately indistinguishable to callers (prevents user enumeration).
+        """
+        if not is_auth_enabled():
+            raise HTTPException(
+                status_code=400,
+                detail=("GLUON_AUTH_ENABLED is false — login is a no-op. Use the system user or enable auth."),
+            )
+        provider = get_auth_provider(store)
+        if not hasattr(provider, "authenticate"):
+            raise HTTPException(status_code=500, detail="auth provider misconfigured")
+        try:
+            user = provider.authenticate(body.username, body.password)  # type: ignore[attr-defined]
+        except InvalidCredentialsError:
+            raise HTTPException(status_code=401, detail="invalid credentials") from None
+        except UserDisabledError:
+            raise HTTPException(status_code=401, detail="invalid credentials") from None
+
+        session = create_session_for_user(
+            store,
+            user,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        # Cookie settings: httpOnly + sameSite=lax. `secure` is left off because
+        # the dev dashboard runs on http://localhost; operators deploying with
+        # the `GLUON_SSL_*` envs should reverse-proxy and flip `secure` via
+        # the proxy (we don't have enough context here to know).
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=session.id,
+            max_age=DEFAULT_SESSION_TTL_DAYS * 24 * 3600,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+        return LoginResponse(user=_user_to_response(user))
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(
+        response: Response,
+        request: Request,
+    ) -> dict[str, bool]:
+        """Clear the session cookie and delete the session from the store.
+
+        Always succeeds — even with no valid session, we clear the cookie so
+        state-mismatch scenarios don't lock users in a broken state.
+        """
+        session_id = request.cookies.get(SESSION_COOKIE_NAME)
+        if session_id:
+            try:
+                store.delete_user_session(session_id)
+            except Exception:
+                # Never fail logout — worst case the session expires naturally.
+                pass
+        response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+        return {"ok": True}
+
+    @app.get("/api/auth/me", response_model=MeResponse)
+    async def auth_me(
+        request: Request,
+    ) -> MeResponse:
+        """Return the current user.
+
+        With auth disabled: always returns SYSTEM_USER.
+        With auth enabled + no/invalid session: returns SYSTEM_USER with
+        `auth_enabled=True` so the client knows to show a login prompt.
+        With auth enabled + valid session: returns the real user.
+        """
+        auth_on = is_auth_enabled()
+        if not auth_on:
+            return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=False)
+
+        session_id = request.cookies.get(SESSION_COOKIE_NAME)
+        if not session_id:
+            # Tell client they're not logged in — use SYSTEM_USER payload as
+            # a placeholder so the shape is uniform.
+            return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=True)
+        from gluon.auth import resolve_session
+
+        result = resolve_session(store, session_id)
+        if result is None:
+            return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=True)
+        user, _ = result
+        return MeResponse(user=_user_to_response(user), auth_enabled=True)
+
+    # ========== User management (D5 Phase 2 — admin-only) ==========
+
+    @app.get("/api/users", response_model=UserListResponse)
+    async def list_users_endpoint(
+        include_disabled: bool = False,
+        _admin: UserModel = Depends(require_admin),
+    ) -> UserListResponse:
+        """List all users. Admin-only."""
+        users = store.list_users(include_disabled=include_disabled)
+        return UserListResponse(
+            users=[_user_to_response(u) for u in users],
+            total=len(users),
+        )
+
+    @app.post("/api/users", response_model=UserResponse)
+    async def create_user_endpoint(
+        body: CreateUserRequest,
+        _admin: UserModel = Depends(require_admin),
+    ) -> UserResponse:
+        """Create a new user. Admin-only.
+
+        Password must be at least 12 characters. Returns 409 if the username
+        already exists.
+        """
+        provider = get_auth_provider(store)
+        if not hasattr(provider, "create_user"):
+            raise HTTPException(
+                status_code=500,
+                detail="current auth provider does not support user creation",
+            )
+        try:
+            role_enum = UserRole(body.role.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown role '{body.role}'; valid: {[r.value for r in UserRole]}",
+            ) from None
+        try:
+            user = provider.create_user(  # type: ignore[attr-defined]
+                username=body.username,
+                password=body.password,
+                display_name=body.display_name,
+                email=body.email,
+                role=role_enum,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                raise HTTPException(status_code=409, detail="username already exists") from None
+            raise
+        return _user_to_response(user)
+
+    @app.patch("/api/users/{user_id}", response_model=UserResponse)
+    async def update_user_endpoint(
+        user_id: str,
+        body: UpdateUserRequest,
+        admin: UserModel = Depends(require_admin),
+    ) -> UserResponse:
+        """Update a user's display_name / email / role / disabled. Admin-only.
+
+        Any field left `None` is unchanged. Role changes and `disabled=True`
+        rotate the target user's active sessions.
+        """
+        user = store.get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        needs_session_rotation = False
+        if body.display_name is not None:
+            user.display_name = body.display_name
+        if body.email is not None:
+            user.email = body.email
+        if body.role is not None and body.role.lower() != user.role.value:
+            try:
+                user.role = UserRole(body.role.lower())
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown role '{body.role}'",
+                ) from None
+            needs_session_rotation = True
+        if body.disabled is not None and body.disabled != user.disabled:
+            user.disabled = body.disabled
+            if body.disabled:
+                needs_session_rotation = True
+
+        store.update_user(user)
+        if needs_session_rotation:
+            store.delete_user_sessions_for_user(user.id)
+        return _user_to_response(user)
+
+    @app.delete("/api/users/{user_id}", response_model=UserResponse)
+    async def disable_user_endpoint(
+        user_id: str,
+        _admin: UserModel = Depends(require_admin),
+    ) -> UserResponse:
+        """Disable a user (soft delete). Admin-only. Rotates their sessions.
+
+        We don't hard-delete users because all the attribution links
+        (``runs.user_id`` etc. — added in a follow-up) would lose their
+        target. Disable-and-preserve is the right semantics here.
+        """
+        user = store.get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        if not user.disabled:
+            user.disabled = True
+            store.update_user(user)
+            store.delete_user_sessions_for_user(user.id)
+        return _user_to_response(user)
+
+    @app.post("/api/users/{user_id}/password", response_model=UserResponse)
+    async def change_password_endpoint(
+        user_id: str,
+        body: ChangePasswordRequest,
+        current: UserModel = Depends(current_user_dep),
+    ) -> UserResponse:
+        """Change a user's password.
+
+        - Admins may change anyone's password without providing `current_password`.
+        - Any other user may change only their own password AND must provide
+          `current_password` which is verified against the stored hash.
+
+        All sessions for the target user are rotated on success.
+        """
+        target = store.get_user(user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        provider = get_auth_provider(store)
+        if not hasattr(provider, "set_password") or not hasattr(provider, "verify_password"):
+            raise HTTPException(status_code=500, detail="auth provider misconfigured")
+
+        is_admin = current.role == UserRole.ADMIN
+        is_self = current.id == target.id
+
+        if not is_admin:
+            if not is_self:
+                raise HTTPException(status_code=403, detail="can only change your own password")
+            if not body.current_password:
+                raise HTTPException(status_code=400, detail="current_password required")
+            if not provider.verify_password(target.auth_subject, body.current_password):  # type: ignore[attr-defined]
+                raise HTTPException(status_code=401, detail="current password is incorrect")
+
+        try:
+            provider.set_password(target, body.new_password)  # type: ignore[attr-defined]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        return _user_to_response(target)
 
     # ========== Version Info ==========
 

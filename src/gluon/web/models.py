@@ -228,6 +228,89 @@ class VersionResponse(BaseModel):
     environment: str  # "development" or "production"
 
 
+class UserResponse(BaseModel):
+    """Response model for a Gluon user (D5 Phase 2).
+
+    Sensitive fields (auth_subject / password hash) are never returned.
+    """
+
+    id: str
+    username: str
+    display_name: str
+    email: str | None = None
+    role: str  # admin / operator / viewer
+    auth_provider: str  # local / oidc / system
+    disabled: bool = False
+    telegram_user_id: int | None = None
+    discord_user_id: int | None = None
+    created_at: str  # ISO 8601
+    last_login_at: str | None = None
+
+
+class UserListResponse(BaseModel):
+    """Response model for GET /api/users."""
+
+    users: list[UserResponse]
+    total: int
+
+
+class LoginRequest(BaseModel):
+    """Request body for POST /api/auth/login."""
+
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """Response body for POST /api/auth/login."""
+
+    user: UserResponse
+
+
+class MeResponse(BaseModel):
+    """Response for GET /api/auth/me.
+
+    When ``auth_enabled`` is False, `user` is the SYSTEM_USER placeholder.
+    Clients can use the `auth_enabled` flag to hide login/logout UI.
+    """
+
+    user: UserResponse
+    auth_enabled: bool
+
+
+class CreateUserRequest(BaseModel):
+    """Request body for POST /api/users (admin-only)."""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=12)
+    display_name: str | None = None
+    email: str | None = None
+    role: str = "operator"
+
+
+class UpdateUserRequest(BaseModel):
+    """Request body for PATCH /api/users/{id} (admin-only).
+
+    Any subset of fields may be provided — only non-None fields are applied.
+    """
+
+    display_name: str | None = None
+    email: str | None = None
+    role: str | None = None
+    disabled: bool | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    """Request body for POST /api/users/{id}/password.
+
+    Admins can change anyone's password without providing the current one;
+    non-admin users must provide `current_password` to change their own.
+    """
+
+    new_password: str = Field(min_length=12)
+    current_password: str | None = None
+
+
 class ProviderResponse(BaseModel):
     """Response model for LLM provider information."""
 
