@@ -776,9 +776,9 @@ Shipped as part of #42 (roadmap sprint). `_send_nudge` injects `LOOPING_NUDGE_PR
 
 See §6.2. Wire the NUDGE action into a live message injection. Write a template library: LOOPING → "stop and re-plan" prompt.
 
-### Deliverable D5 — Multi-user auth (Week 5-8, the big one) &nbsp;· &nbsp;**Open** ⚪
+### Deliverable D5 — Multi-user auth (Week 5-8, the big one) &nbsp;· &nbsp;**Design pass done** 🟡
 
-Unchanged from initial plan. Needs a design pass before implementation.
+Design doc: [`d5-multi-user-auth.md`](d5-multi-user-auth.md) (18 sections, 4 implementation phases, RBAC model, migration sequence, open questions). Implementation is not started; the doc is ready to drive it.
 
 This is the largest unshipped capability. Keep it scoped.
 
