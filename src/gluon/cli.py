@@ -1681,8 +1681,8 @@ def discord_bot(
         from gluon.transport.discord import DiscordTransport
 
         _ = DiscordTransport  # Verify import succeeded
-    except ImportError:
-        console.print("[red]Error:[/red] Discord support not installed.")
+    except ImportError as exc:
+        console.print(f"[red]Error:[/red] Discord support not installed (missing: [yellow]{exc.name or exc}[/yellow]).")
         console.print("Install with: [cyan]pip install 'gluon-agent[discord]'[/cyan]")
         raise typer.Exit(1)
 
@@ -1800,8 +1800,8 @@ def serve(
             from gluon.transport.discord import DiscordTransport
 
             _ = DiscordTransport  # Verify import succeeded
-        except ImportError:
-            console.print("[yellow]⚠[/yellow] Discord skipped: discord.py not installed")
+        except ImportError as exc:
+            console.print(f"[yellow]⚠[/yellow] Discord skipped: missing [yellow]{exc.name or exc}[/yellow]")
         else:
             discord_token = os.environ.get("GLUON_DISCORD_TOKEN")
             discord_guild_str = os.environ.get("GLUON_DISCORD_GUILD", "0")
@@ -1876,8 +1876,8 @@ def serve(
             web_server = uvicorn.Server(uvicorn.Config(web_app, **config_kwargs))
             protocol = "HTTPS" if ssl_enabled else "HTTP"
             console.print(f"[green]✓[/green] Web dashboard configured ({protocol}, port {web_port})")
-        except ImportError:
-            console.print("[red]Error:[/red] Web dashboard dependencies not installed.")
+        except ImportError as exc:
+            console.print(f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{exc.name or exc}[/yellow]).")
             console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
             raise typer.Exit(1)
 
@@ -2122,8 +2122,8 @@ def web(
         import uvicorn
 
         from gluon.web import create_app
-    except ImportError:
-        console.print("[red]Error:[/red] Web dashboard dependencies not installed.")
+    except ImportError as exc:
+        console.print(f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{exc.name or exc}[/yellow]).")
         console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
         raise typer.Exit(1)
 
