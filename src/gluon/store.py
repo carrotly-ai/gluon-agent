@@ -725,6 +725,11 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_approvals_run ON pending_approvals(run_id, status);",
     "CREATE INDEX IF NOT EXISTS idx_approvals_status ON pending_approvals(status, created_at);",
+    # Transport delivery tracking (approval watcher uses this to find
+    # PENDING approvals not yet posted to async transports like Telegram).
+    # NULL = needs delivery; non-NULL = already posted at that time.
+    "ALTER TABLE pending_approvals ADD COLUMN notified_at TEXT;",
+    "CREATE INDEX IF NOT EXISTS idx_approvals_notified ON pending_approvals(notified_at, status);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2211,6 +2216,7 @@ class GluonStore:
             tool_input = json.loads(row["tool_input"]) if row["tool_input"] else {}
         except (json.JSONDecodeError, TypeError):
             tool_input = {}
+        keys = row.keys()
         return PendingApproval(
             id=row["id"],
             run_id=row["run_id"],
@@ -2224,7 +2230,44 @@ class GluonStore:
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             decided_at=_parse_datetime(row["decided_at"]),
             timeout_at=_parse_datetime(row["timeout_at"]),
+            notified_at=_parse_datetime(row["notified_at"]) if "notified_at" in keys else None,
         )
+
+    def list_pending_undelivered_approvals(self, limit: int = 50) -> list[PendingApproval]:
+        """Return PENDING approvals that have not yet been notified to an async transport.
+
+        Used by the ApprovalWatcher to find approvals needing a Telegram/Discord
+        notification. Once the watcher posts an approval, it calls
+        `mark_approval_notified` so subsequent polls skip it.
+        """
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM pending_approvals
+                WHERE status = ? AND notified_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (ApprovalStatus.PENDING.value, limit),
+            ).fetchall()
+            return [self._row_to_approval(row) for row in rows]
+
+    def mark_approval_notified(self, approval_id: str) -> bool:
+        """Record that an approval has been posted to an async transport.
+
+        Atomic — uses WHERE notified_at IS NULL so two watchers don't
+        double-notify. Returns True if this caller won the race.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE pending_approvals
+                SET notified_at = ?
+                WHERE id = ? AND notified_at IS NULL
+                """,
+                (utc_now().isoformat(), approval_id),
+            )
+            return cursor.rowcount > 0
 
     # ========== Utility Methods ==========
 
