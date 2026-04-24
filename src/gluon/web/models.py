@@ -61,6 +61,10 @@ class RunResponse(BaseModel):
     chain_total_steps: int | None = Field(default=None, description="Total steps in chain")
     # SDK stop reason (surfaced to run lists/cards)
     stop_reason: str | None = Field(default=None, description="SDK stop reason (end_turn, max_turns, etc.)")
+    # D5 Phase 2 attribution
+    user_id: str | None = Field(
+        default=None, description="FK to users(id) — who submitted the run (null for SYSTEM_USER / pre-auth era)"
+    )
 
     class Config:
         from_attributes = True
@@ -1314,6 +1318,11 @@ class TaskResponse(BaseModel):
     created_at: str
     updated_at: str
     completed_at: str | None = None
+    # D5 Phase 2 attribution
+    created_by_user_id: str | None = Field(
+        default=None,
+        description="FK to users(id) — who created the task (null for SYSTEM_USER / pre-auth era)",
+    )
 
 
 class TaskListResponse(BaseModel):
