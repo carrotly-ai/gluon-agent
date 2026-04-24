@@ -558,6 +558,68 @@ class Agent(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class TaskStatus(StrEnum):
+    """Workflow status for an OrchestratorTask."""
+
+    BACKLOG = "backlog"  # Created, not yet assigned
+    ASSIGNED = "assigned"  # Assigned to an agent, waiting for them to pick it up
+    IN_PROGRESS = "in_progress"  # Actively being worked on (lock held)
+    REVIEW = "review"  # Work complete, pending review
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+# Task-lock TTL: if execution_locked_at is older than this, the lock is stale
+# and the task can be re-checked-out. Expressed in seconds.
+TASK_LOCK_TTL_SECS = 3600  # 1 hour
+
+
+class OrchestratorTask(BaseModel):
+    """A tracked unit of work at the orchestrator layer (Theme B Phase 3).
+
+    Distinct from ExecutionRun — a Task survives across runs, can be
+    assigned to an agent, and is atomically checkout-able to prevent two
+    agents from claiming the same work. One Task may spawn many runs over
+    its lifetime.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    project_id: str  # FK to Project
+    title: str
+    description: str | None = None
+    status: TaskStatus = TaskStatus.BACKLOG
+    priority: int = 5  # 1-10; higher picks first in inbox ordering
+    assigned_agent_id: str | None = None  # FK to Agent, nullable
+    created_by: str = "cli"  # "cli", "web", "heartbeat", "webhook", agent_id, etc.
+    assigned_files: list[str] = Field(default_factory=list)  # Advisory — files this task touches
+    parent_task_id: str | None = None  # Optional hierarchy (subtasks)
+
+    # Atomic checkout fields (lock semantics)
+    execution_locked_at: datetime | None = None
+    execution_run_id: str | None = None  # FK to the run currently holding the lock
+
+    # Audit
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+
+
+class TaskComment(BaseModel):
+    """A comment on a task — enables agent-to-agent coordination.
+
+    Kept simple (no threading / reactions / attachments). Either a human
+    or an agent posts a message; other agents can read the thread as part
+    of their context when working on the task.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    task_id: str  # FK to OrchestratorTask
+    author_agent_id: str | None = None  # None = system / human via CLI
+    author_label: str | None = None  # Human-readable author e.g. "cli:michael"
+    content: str
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class Project(BaseModel):
     """A registered project that can be managed by Gluon."""
 
