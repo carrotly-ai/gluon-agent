@@ -2,7 +2,14 @@
 
 **Date**: 2026-04-24
 **Version at time of writing**: 0.9.1
-**Status**: Draft for discussion
+**Status**: Theme B/C/D mostly shipped; Theme A + D5 + E remain open.
+
+> **Shipment status banner (2026-04-25):** Themes B (phases 1-4), C (all five
+> deliverables), and D (D1-D4) are shipped to `main` plus a bonus Theme G —
+> the multi-cloud LLM provider abstraction (Bedrock / Anthropic / Vertex /
+> Foundry). What remains open from this document: Theme A (positioning
+> content), D5 (multi-user auth), and Theme E (native mobile). See
+> [CHANGELOG.md](../../CHANGELOG.md) for the full delta.
 
 ## TL;DR
 
@@ -188,7 +195,7 @@ Actions:
 
 ---
 
-### Theme E — Native mobile experience (defend the positioning)
+### Theme E — Native mobile experience (defend the positioning) &nbsp;· &nbsp;**Open** ⚪
 
 **Rationale**: KingCoding's tagline is "your Claude Code dev, now in your
 pocket." They're coming for Gluon's Telegram-first story. Web dashboard is
@@ -404,7 +411,9 @@ The [`doctor.py:182`](../../src/gluon/doctor.py) message "Activity log table not
 Goal: turn the Anthropic pricing shift into measurable demand for Gluon. Zero
 code. This is a one-week sprint of content and site work.
 
-### Deliverable A1 — Landing page rewrite
+### Deliverable A1 — Landing page rewrite &nbsp;· &nbsp;**Partial** 🟡
+
+README hero rewritten to lead with "self-hosted Claude Code orchestrator, bring your own backend" and multi-provider comparison table added (#69, #70). Landing page itself not yet produced.
 - New hero copy leading with **self-hosted / Bedrock / BYO-key**, not transports
 - Add a "Why Gluon" section with three pillars:
   1. **Own your agents** — Docker compose, your infrastructure, your data
@@ -417,7 +426,9 @@ code. This is a one-week sprint of content and site work.
 
 **Effort**: 1 day.
 
-### Deliverable A2 — Comparison matrix
+### Deliverable A2 — Comparison matrix &nbsp;· &nbsp;**Partial** 🟡
+
+A small "Gluon vs other Claude Code orchestrators" table is in the README. A dedicated public comparison matrix (outside the README) is still open.
 Table comparing Gluon against the five closest competitors:
 
 |  | Gluon | Claude Deck | claudectl | KingCoding | claude-code-remote-access |
@@ -437,7 +448,7 @@ Table comparing Gluon against the five closest competitors:
 
 **Effort**: 1 day.
 
-### Deliverable A3 — 30-second Docker quickstart video
+### Deliverable A3 — 30-second Docker quickstart video &nbsp;· &nbsp;**Open** ⚪
 - Record terminal cast: `docker compose up -d`, then `gluon status`, then run a task via Telegram
 - Keep it under 30s — no voice-over, captions only
 - Host on YouTube unlisted, embed on landing page and pin to GitHub README
@@ -447,7 +458,9 @@ Table comparing Gluon against the five closest competitors:
 
 **Effort**: 1 day (including reshoots).
 
-### Deliverable A4 — "Why we built Gluon" blog post
+### Deliverable A4 — "Why we built Gluon" blog post &nbsp;· &nbsp;**Open** ⚪
+
+`docs/blog/2026-04-self-hosted-claude-code.md` exists as raw material; not yet published as a blog post.
 - Angle: the Pro pricing change creates a category of self-hosted orchestrators, here's what one looks like
 - Cover technical moats: session resume with `fork_session`, worktree GC, witness auto-recovery
 - Link to docs/ARCHITECTURE.md for deep readers
@@ -458,7 +471,7 @@ Table comparing Gluon against the five closest competitors:
 
 **Effort**: 1-2 days writing + review cycle.
 
-### Deliverable A5 — Reddit presence
+### Deliverable A5 — Reddit presence &nbsp;· &nbsp;**Open** ⚪
 - Don't spam. Pick three threads where Gluon genuinely answers the question:
   - [r/ClaudeAI 1sthldc](https://www.reddit.com/r/ClaudeAI/comments/1sthldc) — Claude chat ↔ Code handoff (Gluon's chat agent solves this)
   - [r/microsaas 1ss6lqw](https://www.reddit.com/r/microsaas/comments/1ss6lqw) — "RIP Claude Code on Pro" (direct pricing relevance)
@@ -495,7 +508,9 @@ market pull.
 4. **How do agents claim tasks?** — DB-level atomic update with a lock TTL. If the lock is held >1h with no progress, it auto-releases. This is what [`work_queue.py`](../../src/gluon/work_queue.py) already does for work items; lift the pattern into tasks.
 5. **File-level locks?** — *Don't build these for v1*. Defer to v2 after we see real conflicts. Task-level coordination is the MVP.
 
-### Phase B1 — Agent identity (Week 1-2)
+### Phase B1 — Agent identity (Week 1-2) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as part of the roadmap sprint (#42, #55). `Agent` model + workspace budgets + `gluon agent` CLI.
 
 Follow [paperclip-patterns-implementation.md §Phase 1](paperclip-patterns-implementation.md) verbatim. Key deliverables:
 
@@ -512,7 +527,9 @@ Follow [paperclip-patterns-implementation.md §Phase 1](paperclip-patterns-imple
 
 **Tests**: `test_agent_model.py`, extend `test_core.py` for agent-linked execution.
 
-### Phase B2 — Task tracking with atomic checkout (Week 3-5)
+### Phase B2 — Task tracking with atomic checkout (Week 3-5) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #56: `OrchestratorTask` model + `checkout_task()` with `BEGIN IMMEDIATE` transaction + `gluon task` CLI + `/api/tasks` endpoints (#62).
 
 Follow [paperclip-patterns-implementation.md §Phase 3](paperclip-patterns-implementation.md). Key adjustments from the plan:
 
@@ -534,7 +551,9 @@ Deliverables:
 
 **Tests**: `test_tasks.py`, `test_task_concurrency.py` with two processes contending for the same task.
 
-### Phase B3 — Heartbeats (Week 6-8)
+### Phase B3 — Heartbeats (Week 6-8) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #57: `AgentSchedule` + `HeartbeatRun` models + `HeartbeatScheduler` with croniter + coalesce policy + `gluon schedule` and `gluon heartbeat` CLIs.
 
 Follow [paperclip-patterns-implementation.md §Phase 2](paperclip-patterns-implementation.md). Use `croniter` (pure-Python, ~30KB) for cron parsing.
 
@@ -553,7 +572,9 @@ Deliverables:
 
 **Tests**: `test_scheduler.py` (cron parsing, coalesce, circuit breaker), `test_heartbeat_integration.py`.
 
-### Phase B4 — Budget enforcement (Week 9, 3-5 days)
+### Phase B4 — Budget enforcement (Week 9, 3-5 days) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #55 (agent-level monthly budgets) + #63 (workspace-level daily/monthly rolling budgets). `BudgetExceededError` + `WorkspaceBudgetExceededError`.
 
 Trivial once Agent model exists. Follow [paperclip-patterns-implementation.md §Phase 4](paperclip-patterns-implementation.md).
 
@@ -586,7 +607,9 @@ Aggressive but doable. Can compress to 7 weeks by parallelizing B2 (tasks) with 
 
 Goal: users can understand, trust, and debug what their agents did.
 
-### Deliverable C1 — Replay viewer (Week 1-2)
+### Deliverable C1 — Replay viewer (Week 1-2) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #76 (MVP) + #77 (keyboard shortcuts). New "Timeline" tab on Run Detail dialog with horizontal dot strip, hover tooltip, click-to-focus detail card, prev/next buttons, and `←`/`→`/`Home`/`End` shortcuts. Client-side parse of `messages.jsonl` — no backend changes.
 
 Today the web UI streams logs live but has no scrub-backwards timeline.
 
@@ -605,7 +628,9 @@ Today the web UI streams logs live but has no scrub-backwards timeline.
 
 **Effort**: 1-2 weeks.
 
-### Deliverable C2 — "Why did the agent do X?" (Week 3)
+### Deliverable C2 — "Why did the agent do X?" (Week 3) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #75. Rolling assistant reasoning/thinking attached to each `tool_use`'s `metadata.reasoning` during the `allMessages` post-processing step in `StreamingLogViewer`. Expanded tool cards gain a "Reasoning" section; collapsed cards get a lightbulb indicator.
 
 The SDK emits assistant reasoning blocks; they're in messages.jsonl but the viewer doesn't surface them adjacent to tool calls.
 
@@ -619,7 +644,9 @@ The SDK emits assistant reasoning blocks; they're in messages.jsonl but the view
 
 **Effort**: 3-5 days.
 
-### Deliverable C3 — Per-run cost breakdown by tool (Week 3)
+### Deliverable C3 — Per-run cost breakdown by tool (Week 3) &nbsp;· &nbsp;**Shipped (scope-honest)** ✅
+
+Shipped as #74. New "Tools" tab on Run Detail dialog. **Scope-honest:** the SDK doesn't attribute `$` per tool call, so the tab shows frequency + percentage + timing rather than faking dollar attribution. The footnote explains why. Reuses C3's color palette across tabs.
 
 Already have tool call logs and cost totals. Aggregate.
 
@@ -633,7 +660,9 @@ Already have tool call logs and cost totals. Aggregate.
 
 **Effort**: 2-3 days.
 
-### Deliverable C4 — Session explorer (Week 4)
+### Deliverable C4 — Session explorer (Week 4) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #66. `GET /api/projects/{id}/claude-sessions` list + show + messages endpoints, plus `gluon claude-sessions` CLI and chat-agent MCP tools.
 
 Follow [`sdk-0.1.48-feature-integration.md` §Feature 2](sdk-0.1.48-feature-integration.md). SDK is at 0.1.65; the APIs (`list_sessions`, `get_session_messages`, `get_session_info`) are stable and available.
 
@@ -646,7 +675,9 @@ Deliverables:
 
 **Effort**: 3-5 days (well-designed already, just ship).
 
-### Deliverable C5 — Session cleanup (Week 5)
+### Deliverable C5 — Session cleanup (Week 5) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #61. Opt-in session cleanup on run completion, orphan-session sweep, `gluon sessions-cleanup` CLI with `--dry-run`, doctor check for session disk usage.
 
 Follow [`session-management-exploration.md` §1](../session-management-exploration.md). Critical: long-running deployments will exhaust disk without this.
 
@@ -676,7 +707,9 @@ Deliverables:
 
 Goal: convert "I have to watch it" runs into "I can go to dinner" runs.
 
-### Deliverable D1 — Approval gates on risky tool calls (Week 1-3)
+### Deliverable D1 — Approval gates on risky tool calls (Week 1-3) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #58 (core) + #59 (Telegram approve/deny buttons) + #60 (Discord persistent-view buttons). `PendingApproval` model, `classify_tool_call()` with 25+ destructive patterns, PreToolUse hook, `ApprovalWatcher` polling loop with `ApprovalPoster` Protocol across transports.
 
 The blocking concept: before certain tool calls execute, pause and ask the user. Telegram/Discord/web prompt the user; reply resumes. This is a PreToolUse hook pattern.
 
@@ -702,7 +735,9 @@ Design:
 
 **File pointers**: [`agent_hooks.py`](../../src/gluon/agent_hooks.py), [`bot_core.py`](../../src/gluon/bot_core.py), [`transport/telegram.py`](../../src/gluon/transport/telegram.py), [`transport/discord.py`](../../src/gluon/transport/discord.py), [`web/api.py`](../../src/gluon/web/api.py).
 
-### Deliverable D2 — Daily/workspace budget caps (Week 3, 3-5 days)
+### Deliverable D2 — Daily/workspace budget caps (Week 3, 3-5 days) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #63. `Workspace.daily_budget_usd` + `monthly_budget_usd`, `get_workspace_spend_since()` rolling aggregation, `_enforce_workspace_budget()` in the orchestrator, `gluon workspace set-budget` CLI.
 
 See §6.1 for full rationale. This is the corrected "20-line fix."
 
@@ -717,7 +752,9 @@ See §6.1 for full rationale. This is the corrected "20-line fix."
 
 **Effort**: 3-5 days.
 
-### Deliverable D3 — Hard step/time caps per run (Week 4, 2-3 days)
+### Deliverable D3 — Hard step/time caps per run (Week 4, 2-3 days) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as #64. `max_tool_calls` and `max_duration_minutes` on `ExecutionRun`, PreToolUse hook that denies at cap, duration watchdog in `runner.py`, `--max-tool-calls` + `--max-duration` CLI flags.
 
 Leverage existing SDK options; surface in UI:
 
@@ -733,11 +770,15 @@ Surface all three in:
 
 **Effort**: 2-3 days.
 
-### Deliverable D4 — Witness NUDGE implementation (Week 4, 1-2 days)
+### Deliverable D4 — Witness NUDGE implementation (Week 4, 1-2 days) &nbsp;· &nbsp;**Shipped** ✅
+
+Shipped as part of #42 (roadmap sprint). `_send_nudge` injects `LOOPING_NUDGE_PROMPT` into the agent's follow-up queue with a 900s cooldown guard.
 
 See §6.2. Wire the NUDGE action into a live message injection. Write a template library: LOOPING → "stop and re-plan" prompt.
 
-### Deliverable D5 — Multi-user auth (Week 5-8, the big one)
+### Deliverable D5 — Multi-user auth (Week 5-8, the big one) &nbsp;· &nbsp;**Open** ⚪
+
+Unchanged from initial plan. Needs a design pass before implementation.
 
 This is the largest unshipped capability. Keep it scoped.
 

@@ -601,6 +601,7 @@ gluon run myapp 'Redesign database schema' --model opus
 
 | Document | Description |
 |----------|-------------|
+| [Changelog](CHANGELOG.md) | Release history and notable changes |
 | [CLI Reference](docs/CLI-REFERENCE.md) | Complete CLI command reference |
 | [LLM Provider Guide](docs/LLM-PROVIDER.md) | Bedrock / Anthropic / Vertex / Foundry configuration |
 | [Web Dashboard](docs/WEB-DASHBOARD.md) | Dashboard features and API |
