@@ -626,6 +626,9 @@ class PendingApproval(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
     decided_at: datetime | None = None
     timeout_at: datetime | None = None  # When this approval auto-expires
+    # When an async transport (Telegram/Discord) posted this approval to a
+    # human. Used by the ApprovalWatcher to avoid re-posting. NULL = not yet.
+    notified_at: datetime | None = None
 
 
 class AgentSchedule(BaseModel):

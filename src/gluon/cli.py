@@ -1463,7 +1463,15 @@ def bot(
         async def _run_telegram():
             from gluon.transport.telegram import TelegramTransport
 
-            transport = TelegramTransport(bot_token, bot_core, allowed_users)
+            approval_chat_env = os.environ.get("GLUON_TELEGRAM_APPROVAL_CHAT")
+            approval_chat_id = int(approval_chat_env) if approval_chat_env else None
+
+            transport = TelegramTransport(
+                bot_token,
+                bot_core,
+                allowed_users,
+                approval_chat_id=approval_chat_id,
+            )
             bot_core.notifier.transports[transport.name] = transport
             await transport.start()
             try:
@@ -1599,7 +1607,15 @@ def serve(
 
             from gluon.transport.telegram import TelegramTransport
 
-            tg_transport = TelegramTransport(telegram_token, bot_core, telegram_users)
+            telegram_approval_chat_env = os.environ.get("GLUON_TELEGRAM_APPROVAL_CHAT")
+            telegram_approval_chat_id = int(telegram_approval_chat_env) if telegram_approval_chat_env else None
+
+            tg_transport = TelegramTransport(
+                telegram_token,
+                bot_core,
+                telegram_users,
+                approval_chat_id=telegram_approval_chat_id,
+            )
             transports_to_run.append(("Telegram", tg_transport))
             console.print("[green]✓[/green] Telegram transport configured")
 
