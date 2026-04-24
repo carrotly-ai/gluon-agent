@@ -35,6 +35,10 @@ from gluon.web.models import (
     BranchOperationResponse,
     BranchResponse,
     ChangeBaseBranchRequest,
+    ClaudeSessionInfo,
+    ClaudeSessionListResponse,
+    ClaudeSessionMessageItem,
+    ClaudeSessionMessagesResponse,
     CloneRepositoryRequest,
     CloneResultResponse,
     CommitDetailResponse,
@@ -4493,6 +4497,237 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             session=session_resp,
             messages=message_responses,
             total_messages=len(message_responses),
+        )
+
+    # ========== Claude Session Explorer (C4) ==========
+    #
+    # Expose Claude Code sessions scoped to a registered Gluon project.
+    # Read-only. Differs from /api/sdk-sessions (which is global) by always
+    # resolving the directory from project.expanded_path.
+
+    def _flatten_claude_message(raw: object) -> str:
+        """Flatten a raw Anthropic API message dict into a display string.
+
+        Messages from the SDK are the raw wire-protocol dicts: either a plain
+        ``str`` content (older format) or a list of content blocks with
+        ``type="text"``/``"tool_use"``/``"tool_result"`` entries. We stringify
+        text blocks and leave tool calls out of the preview to keep the
+        payload small and readable.
+        """
+        if raw is None:
+            return ""
+        if isinstance(raw, str):
+            return raw
+        if isinstance(raw, dict):
+            content = raw.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts: list[str] = []
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get("type")
+                    if btype == "text":
+                        text_val = block.get("text")
+                        if isinstance(text_val, str):
+                            parts.append(text_val)
+                    elif btype == "tool_use":
+                        name = block.get("name") or "tool"
+                        parts.append(f"[tool_use: {name}]")
+                    elif btype == "tool_result":
+                        parts.append("[tool_result]")
+                return "\n".join(p for p in parts if p)
+        # Unknown shape — stringify defensively.
+        return str(raw)
+
+    def _extract_message_timestamp(msg: object) -> str | None:
+        """Best-effort timestamp extraction from a SessionMessage's payload."""
+        if not msg:
+            return None
+        raw = getattr(msg, "message", None)
+        if isinstance(raw, dict):
+            ts = raw.get("timestamp") or raw.get("created_at")
+            if isinstance(ts, str):
+                return ts
+        return None
+
+    @app.get(
+        "/api/projects/{project_id}/claude-sessions",
+        response_model=ClaudeSessionListResponse,
+    )
+    async def list_claude_sessions(
+        project_id: str,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> ClaudeSessionListResponse:
+        """List Claude Code sessions located under a project directory.
+
+        The project's ``expanded_path`` is passed as the ``directory``
+        argument to the SDK so worktree sessions are included.
+        """
+        project = store.get_project(project_id)
+        if not project:
+            project = store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        project_dir = str(project.expanded_path)
+
+        try:
+            from claude_agent_sdk import list_sessions
+        except ImportError as e:
+            logger.warning("claude_agent_sdk unavailable: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="claude_agent_sdk not installed — session browsing unavailable",
+            )
+
+        try:
+            sessions = list_sessions(
+                directory=project_dir,
+                limit=limit,
+                offset=offset,
+                include_worktrees=True,
+            )
+        except Exception as e:
+            logger.warning("Failed to list Claude sessions for %s: %s", project.name, e)
+            return ClaudeSessionListResponse(sessions=[], project_dir=project_dir, total=0)
+
+        items: list[ClaudeSessionInfo] = []
+        for s in sessions:
+            items.append(
+                ClaudeSessionInfo(
+                    session_id=s.session_id,
+                    summary=s.summary,
+                    last_modified_ms=s.last_modified,
+                    file_size=s.file_size,
+                    tag=getattr(s, "tag", None),
+                    created_at_ms=getattr(s, "created_at", None),
+                    git_branch=s.git_branch,
+                    cwd=s.cwd,
+                    first_prompt=s.first_prompt,
+                    custom_title=s.custom_title,
+                )
+            )
+
+        return ClaudeSessionListResponse(
+            sessions=items,
+            project_dir=project_dir,
+            total=len(items),
+        )
+
+    @app.get(
+        "/api/projects/{project_id}/claude-sessions/{session_id}",
+        response_model=ClaudeSessionInfo,
+    )
+    async def get_claude_session(
+        project_id: str,
+        session_id: str,
+    ) -> ClaudeSessionInfo:
+        """Fetch a single Claude Code session's metadata."""
+        project = store.get_project(project_id)
+        if not project:
+            project = store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        project_dir = str(project.expanded_path)
+
+        try:
+            from claude_agent_sdk import get_session_info
+        except ImportError as e:
+            logger.warning("claude_agent_sdk unavailable: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="claude_agent_sdk not installed — session browsing unavailable",
+            )
+
+        try:
+            info = get_session_info(session_id=session_id, directory=project_dir)
+        except Exception as e:
+            logger.warning("Failed to look up Claude session %s: %s", session_id, e)
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        return ClaudeSessionInfo(
+            session_id=info.session_id,
+            summary=info.summary,
+            last_modified_ms=info.last_modified,
+            file_size=info.file_size,
+            tag=getattr(info, "tag", None),
+            created_at_ms=getattr(info, "created_at", None),
+            git_branch=info.git_branch,
+            cwd=info.cwd,
+            first_prompt=info.first_prompt,
+            custom_title=info.custom_title,
+        )
+
+    @app.get(
+        "/api/projects/{project_id}/claude-sessions/{session_id}/messages",
+        response_model=ClaudeSessionMessagesResponse,
+    )
+    async def get_claude_session_messages(
+        project_id: str,
+        session_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> ClaudeSessionMessagesResponse:
+        """Return conversation messages for a Claude Code session."""
+        project = store.get_project(project_id)
+        if not project:
+            project = store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+        project_dir = str(project.expanded_path)
+
+        try:
+            from claude_agent_sdk import get_session_messages
+        except ImportError as e:
+            logger.warning("claude_agent_sdk unavailable: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="claude_agent_sdk not installed — session browsing unavailable",
+            )
+
+        try:
+            # Pull one extra row to compute `has_more` cheaply.
+            batch = get_session_messages(
+                session_id=session_id,
+                directory=project_dir,
+                limit=limit + 1,
+                offset=offset,
+            )
+        except Exception as e:
+            logger.warning("Failed to read messages for session %s: %s", session_id, e)
+            return ClaudeSessionMessagesResponse(
+                session_id=session_id,
+                messages=[],
+                total=0,
+                has_more=False,
+            )
+
+        has_more = len(batch) > limit
+        visible = batch[:limit]
+
+        items: list[ClaudeSessionMessageItem] = []
+        for m in visible:
+            items.append(
+                ClaudeSessionMessageItem(
+                    type=m.type,
+                    message=_flatten_claude_message(m.message),
+                    timestamp=_extract_message_timestamp(m),
+                )
+            )
+
+        return ClaudeSessionMessagesResponse(
+            session_id=session_id,
+            messages=items,
+            total=len(items),
+            has_more=has_more,
         )
 
     # ========== Static Files (SPA) ==========

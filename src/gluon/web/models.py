@@ -1145,3 +1145,50 @@ class SessionDetailResponse(BaseModel):
     session: SDKSessionResponse
     messages: list[SessionMessageResponse]
     total_messages: int
+
+
+# ========== Claude Session Explorer Models (C4) ==========
+
+
+class ClaudeSessionInfo(BaseModel):
+    """Read-only metadata for a Claude Code session (from ``~/.claude/projects``).
+
+    Exposes the fields of ``claude_agent_sdk.SDKSessionInfo`` in a
+    web-friendly shape. Epoch timestamps are expressed in milliseconds.
+    """
+
+    session_id: str
+    summary: str | None = None
+    last_modified_ms: int | None = Field(default=None, description="Last modified time (epoch ms)")
+    file_size: int | None = None
+    tag: str | None = None
+    created_at_ms: int | None = Field(default=None, description="Creation time (epoch ms)")
+    git_branch: str | None = None
+    cwd: str | None = None
+    first_prompt: str | None = None
+    custom_title: str | None = None
+
+
+class ClaudeSessionListResponse(BaseModel):
+    """Response for ``GET /api/projects/{project_id}/claude-sessions``."""
+
+    sessions: list[ClaudeSessionInfo]
+    project_dir: str | None = None
+    total: int
+
+
+class ClaudeSessionMessageItem(BaseModel):
+    """A single user/assistant message from a Claude session transcript."""
+
+    type: str = Field(description="Message type: 'user', 'assistant', or other")
+    message: str = Field(description="Message body (flattened to text)")
+    timestamp: str | None = None
+
+
+class ClaudeSessionMessagesResponse(BaseModel):
+    """Response for ``GET /api/projects/{project_id}/claude-sessions/{session_id}/messages``."""
+
+    session_id: str
+    messages: list[ClaudeSessionMessageItem]
+    total: int
+    has_more: bool
