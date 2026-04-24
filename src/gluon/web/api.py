@@ -124,6 +124,7 @@ from gluon.web.models import (
     TodoItemResponse,
     UpdateStatusRequest,
     UpdateStatusResponse,
+    UpdateWorkspaceBudgetRequest,
     UsageSummaryResponse,
     VersionResponse,
     WitnessDecisionListResponse,
@@ -492,6 +493,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             AgentAmbiguousError,
             AgentNotFoundError,
             BudgetExceededError,
+            WorkspaceBudgetExceededError,
         )
 
         try:
@@ -534,6 +536,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 agent_id=resolved_agent_id,
             )
         except BudgetExceededError as e:
+            raise HTTPException(status_code=402, detail=str(e)) from None
+        except WorkspaceBudgetExceededError as e:
             raise HTTPException(status_code=402, detail=str(e)) from None
 
         # Store dev_port in metadata if provided
@@ -2026,9 +2030,35 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                     path=str(ws.path),
                     project_count=len(projects),
                     auto_discover=ws.auto_discover,
+                    daily_budget_usd=ws.daily_budget_usd,
+                    monthly_budget_usd=ws.monthly_budget_usd,
+                    daily_spend_usd=store.get_workspace_daily_spend(ws.id),
+                    monthly_spend_usd=store.get_workspace_monthly_spend(ws.id),
                 )
             )
         return result
+
+    @app.get("/api/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+    async def get_workspace_detail(workspace_id: str) -> WorkspaceResponse:
+        """Get a single workspace including rolling budgets and current spend."""
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            workspace = store.get_workspace_by_name(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        projects = store.list_projects_by_workspace(workspace.id)
+        return WorkspaceResponse(
+            id=workspace.id,
+            name=workspace.name,
+            path=str(workspace.path),
+            project_count=len(projects),
+            auto_discover=workspace.auto_discover,
+            daily_budget_usd=workspace.daily_budget_usd,
+            monthly_budget_usd=workspace.monthly_budget_usd,
+            daily_spend_usd=store.get_workspace_daily_spend(workspace.id),
+            monthly_spend_usd=store.get_workspace_monthly_spend(workspace.id),
+        )
 
     @app.post("/api/workspaces", response_model=WorkspaceResponse)
     async def create_workspace(body: CreateWorkspaceRequest) -> WorkspaceResponse:
@@ -2048,8 +2078,13 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
         workspace_path = Path(resolved)
 
-        # Create workspace
-        workspace = store.create_workspace(name=body.name, path=workspace_path)
+        # Create workspace (with optional budgets)
+        workspace = store.create_workspace(
+            name=body.name,
+            path=workspace_path,
+            daily_budget_usd=body.daily_budget_usd,
+            monthly_budget_usd=body.monthly_budget_usd,
+        )
 
         # Auto-scan for projects if requested
         projects_added = []
@@ -2071,6 +2106,43 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             path=str(workspace.path),
             project_count=len(projects_added),
             auto_discover=workspace.auto_discover,
+            daily_budget_usd=workspace.daily_budget_usd,
+            monthly_budget_usd=workspace.monthly_budget_usd,
+            daily_spend_usd=store.get_workspace_daily_spend(workspace.id),
+            monthly_spend_usd=store.get_workspace_monthly_spend(workspace.id),
+        )
+
+    @app.put("/api/workspaces/{workspace_id}/budget", response_model=WorkspaceResponse)
+    async def update_workspace_budget(workspace_id: str, body: UpdateWorkspaceBudgetRequest) -> WorkspaceResponse:
+        """Set or clear workspace rolling budgets (Theme D2).
+
+        Pass 0 for daily/monthly to clear that scope. Null/omitted fields are
+        left unchanged.
+        """
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            workspace = store.get_workspace_by_name(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+        if body.daily_budget_usd is not None:
+            workspace.daily_budget_usd = body.daily_budget_usd if body.daily_budget_usd > 0 else None
+        if body.monthly_budget_usd is not None:
+            workspace.monthly_budget_usd = body.monthly_budget_usd if body.monthly_budget_usd > 0 else None
+
+        store.update_workspace(workspace)
+
+        projects = store.list_projects_by_workspace(workspace.id)
+        return WorkspaceResponse(
+            id=workspace.id,
+            name=workspace.name,
+            path=str(workspace.path),
+            project_count=len(projects),
+            auto_discover=workspace.auto_discover,
+            daily_budget_usd=workspace.daily_budget_usd,
+            monthly_budget_usd=workspace.monthly_budget_usd,
+            daily_spend_usd=store.get_workspace_daily_spend(workspace.id),
+            monthly_spend_usd=store.get_workspace_monthly_spend(workspace.id),
         )
 
     @app.delete("/api/workspaces/{workspace_id}")

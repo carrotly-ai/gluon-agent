@@ -730,6 +730,9 @@ MIGRATIONS = [
     # NULL = needs delivery; non-NULL = already posted at that time.
     "ALTER TABLE pending_approvals ADD COLUMN notified_at TEXT;",
     "CREATE INDEX IF NOT EXISTS idx_approvals_notified ON pending_approvals(notified_at, status);",
+    # Workspace rolling budgets (Theme D2) — daily/monthly caps across the workspace
+    "ALTER TABLE workspaces ADD COLUMN daily_budget_usd REAL;",
+    "ALTER TABLE workspaces ADD COLUMN monthly_budget_usd REAL;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1191,15 +1194,28 @@ class GluonStore:
 
     # ========== Workspace CRUD ==========
 
-    def create_workspace(self, name: str, path: Path) -> Workspace:
+    def create_workspace(
+        self,
+        name: str,
+        path: Path,
+        *,
+        daily_budget_usd: float | None = None,
+        monthly_budget_usd: float | None = None,
+    ) -> Workspace:
         """Create a new workspace."""
-        workspace = Workspace(name=name, path=path)
+        workspace = Workspace(
+            name=name,
+            path=path,
+            daily_budget_usd=daily_budget_usd,
+            monthly_budget_usd=monthly_budget_usd,
+        )
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO workspaces
-                (id, name, path, created_at, updated_at, scan_depth, auto_discover, ignore_patterns)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, path, created_at, updated_at, scan_depth, auto_discover,
+                 ignore_patterns, daily_budget_usd, monthly_budget_usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     workspace.id,
@@ -1210,6 +1226,8 @@ class GluonStore:
                     workspace.scan_depth,
                     1 if workspace.auto_discover else 0,
                     json.dumps(workspace.ignore_patterns),
+                    workspace.daily_budget_usd,
+                    workspace.monthly_budget_usd,
                 ),
             )
         return workspace
@@ -1243,7 +1261,8 @@ class GluonStore:
             conn.execute(
                 """
                 UPDATE workspaces
-                SET name = ?, path = ?, updated_at = ?, scan_depth = ?, auto_discover = ?, ignore_patterns = ?
+                SET name = ?, path = ?, updated_at = ?, scan_depth = ?, auto_discover = ?,
+                    ignore_patterns = ?, daily_budget_usd = ?, monthly_budget_usd = ?
                 WHERE id = ?
                 """,
                 (
@@ -1253,6 +1272,8 @@ class GluonStore:
                     workspace.scan_depth,
                     1 if workspace.auto_discover else 0,
                     json.dumps(workspace.ignore_patterns),
+                    workspace.daily_budget_usd,
+                    workspace.monthly_budget_usd,
                     workspace.id,
                 ),
             )
@@ -1267,6 +1288,10 @@ class GluonStore:
 
     def _row_to_workspace(self, row: sqlite3.Row) -> Workspace:
         """Convert database row to Workspace model."""
+        # Guard budget columns so older DBs (pre-migration) still hydrate cleanly
+        keys = row.keys()
+        daily_budget = row["daily_budget_usd"] if "daily_budget_usd" in keys else None
+        monthly_budget = row["monthly_budget_usd"] if "monthly_budget_usd" in keys else None
         return Workspace(
             id=row["id"],
             name=row["name"],
@@ -1276,7 +1301,46 @@ class GluonStore:
             scan_depth=row["scan_depth"],
             auto_discover=bool(row["auto_discover"]),
             ignore_patterns=json.loads(row["ignore_patterns"]) if row["ignore_patterns"] else [],
+            daily_budget_usd=daily_budget,
+            monthly_budget_usd=monthly_budget,
         )
+
+    # ========== Workspace Rolling Budgets (Theme D2) ==========
+
+    def get_workspace_spend_since(self, workspace_id: str, since: datetime) -> float:
+        """Sum cost_usd of runs across all projects in the workspace since timestamp.
+
+        Runs with NULL cost_usd are treated as zero. Only runs whose projects
+        currently belong to the given workspace contribute; detached runs (whose
+        project has been moved or removed) are ignored.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(cost_usd), 0.0) AS total
+                FROM execution_runs
+                WHERE project_id IN (SELECT id FROM projects WHERE workspace_id = ?)
+                  AND created_at >= ?
+                """,
+                (workspace_id, since.isoformat()),
+            ).fetchone()
+            return float(row["total"]) if row else 0.0
+
+    def get_workspace_daily_spend(self, workspace_id: str, now: datetime | None = None) -> float:
+        """Spend since today's UTC midnight across the workspace."""
+        from datetime import UTC
+
+        reference = now if now is not None else datetime.now(UTC)
+        day_start = reference.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        return self.get_workspace_spend_since(workspace_id, day_start)
+
+    def get_workspace_monthly_spend(self, workspace_id: str, now: datetime | None = None) -> float:
+        """Spend since the first of the current UTC month across the workspace."""
+        from datetime import UTC
+
+        reference = now if now is not None else datetime.now(UTC)
+        month_start = reference.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return self.get_workspace_spend_since(workspace_id, month_start)
 
     # ========== Agent CRUD (Theme B Phase 1) ==========
 
