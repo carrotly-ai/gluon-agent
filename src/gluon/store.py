@@ -776,6 +776,18 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);",
     "CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);",
+    # D5 Phase 2 attribution — nullable FKs to users(id) on action-attributable
+    # tables. NULL means "pre-auth era" or "SYSTEM_USER" (no persistence).
+    # No FK constraint because the users table is only populated when
+    # GLUON_AUTH_ENABLED=true, but the column must exist always.
+    "ALTER TABLE execution_runs ADD COLUMN user_id TEXT;",
+    "ALTER TABLE orchestrator_tasks ADD COLUMN created_by_user_id TEXT;",
+    "ALTER TABLE pending_approvals ADD COLUMN decided_by_user_id TEXT;",
+    "CREATE INDEX IF NOT EXISTS idx_runs_user ON execution_runs(user_id) WHERE user_id IS NOT NULL;",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_tasks_creator ON orchestrator_tasks(created_by_user_id) "
+        "WHERE created_by_user_id IS NOT NULL;"
+    ),
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1820,10 +1832,17 @@ class GluonStore:
         priority: int = 5,
         assigned_agent_id: str | None = None,
         created_by: str = "cli",
+        created_by_user_id: str | None = None,
         assigned_files: list[str] | None = None,
         parent_task_id: str | None = None,
     ) -> OrchestratorTask:
-        """Create a new orchestrator task."""
+        """Create a new orchestrator task.
+
+        ``created_by_user_id`` (D5 Phase 2): attribution to a logged-in
+        Gluon user. Pass ``None`` for single-user / SYSTEM_USER context —
+        the row will have NULL in that column and audit views will show
+        ``system``.
+        """
         status = TaskStatus.ASSIGNED if assigned_agent_id else TaskStatus.BACKLOG
         task = OrchestratorTask(
             project_id=project_id,
@@ -1833,6 +1852,7 @@ class GluonStore:
             priority=priority,
             assigned_agent_id=assigned_agent_id,
             created_by=created_by,
+            created_by_user_id=created_by_user_id,
             assigned_files=assigned_files or [],
             parent_task_id=parent_task_id,
         )
@@ -1841,10 +1861,11 @@ class GluonStore:
                 """
                 INSERT INTO orchestrator_tasks
                 (id, project_id, title, description, status, priority,
-                 assigned_agent_id, created_by, assigned_files, parent_task_id,
+                 assigned_agent_id, created_by, created_by_user_id,
+                 assigned_files, parent_task_id,
                  execution_locked_at, execution_run_id,
                  created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.id,
@@ -1855,6 +1876,7 @@ class GluonStore:
                     task.priority,
                     task.assigned_agent_id,
                     task.created_by,
+                    task.created_by_user_id,
                     json.dumps(task.assigned_files) if task.assigned_files else None,
                     task.parent_task_id,
                     None,
@@ -2081,6 +2103,13 @@ class GluonStore:
         except (json.JSONDecodeError, TypeError):
             pass
 
+        # `created_by_user_id` is a D5 Phase 2 column — guard the lookup so
+        # tests running against schemas built from older snapshots don't KeyError.
+        try:
+            created_by_user_id = row["created_by_user_id"]
+        except (KeyError, IndexError):
+            created_by_user_id = None
+
         return OrchestratorTask(
             id=row["id"],
             project_id=row["project_id"],
@@ -2090,6 +2119,7 @@ class GluonStore:
             priority=row["priority"] or 5,
             assigned_agent_id=row["assigned_agent_id"],
             created_by=row["created_by"] or "cli",
+            created_by_user_id=created_by_user_id,
             assigned_files=assigned_files,
             parent_task_id=row["parent_task_id"],
             execution_locked_at=_parse_datetime(row["execution_locked_at"]),
@@ -2525,22 +2555,32 @@ class GluonStore:
         status: ApprovalStatus,
         decided_by: str,
         decision_reason: str | None = None,
+        decided_by_user_id: str | None = None,
     ) -> PendingApproval | None:
         """Record a grant/deny decision on a PENDING approval.
 
         Only mutates approvals in PENDING status — idempotent if already decided.
         Returns the updated approval, or None if not found.
+
+        ``decided_by`` (legacy) keeps its existing semantics — a transport/source
+        tag like ``"web"``, ``"telegram:12345"``, ``"system:timeout"``.
+        ``decided_by_user_id`` (D5 Phase 2) is the FK to the logged-in Gluon user
+        who made the decision, when known. The two are complementary — both get
+        populated for post-D5 decisions so audit trails can render the human name
+        while still telling you which surface the decision came from.
         """
         with self._get_conn() as conn:
             cursor = conn.execute(
                 """
                 UPDATE pending_approvals SET
-                    status = ?, decided_by = ?, decision_reason = ?, decided_at = ?
+                    status = ?, decided_by = ?, decided_by_user_id = ?,
+                    decision_reason = ?, decided_at = ?
                 WHERE id = ? AND status = ?
                 """,
                 (
                     status.value,
                     decided_by,
+                    decided_by_user_id,
                     decision_reason,
                     utc_now().isoformat(),
                     approval_id,
@@ -2589,6 +2629,7 @@ class GluonStore:
             status=ApprovalStatus(row["status"]),
             decision_reason=row["decision_reason"],
             decided_by=row["decided_by"],
+            decided_by_user_id=row["decided_by_user_id"] if "decided_by_user_id" in keys else None,
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             decided_at=_parse_datetime(row["decided_at"]),
             timeout_at=_parse_datetime(row["timeout_at"]),
@@ -2673,8 +2714,14 @@ class GluonStore:
         approval_policy: ApprovalPolicy = ApprovalPolicy.PERMISSIVE,
         max_tool_calls: int | None = None,
         max_duration_minutes: int | None = None,
+        user_id: str | None = None,
     ) -> ExecutionRun:
-        """Create a new execution run."""
+        """Create a new execution run.
+
+        ``user_id`` (D5 Phase 2): attribution to a logged-in Gluon user.
+        Pass ``None`` for single-user / SYSTEM_USER context — the row will
+        have NULL in that column and audit views will show ``system``.
+        """
         run = ExecutionRun(
             project_id=project_id,
             prompt=prompt,
@@ -2691,6 +2738,7 @@ class GluonStore:
             approval_policy=approval_policy,
             max_tool_calls=max_tool_calls,
             max_duration_minutes=max_duration_minutes,
+            user_id=user_id,
         )
         with self._get_conn() as conn:
             conn.execute(
@@ -2699,8 +2747,8 @@ class GluonStore:
                 (id, session_id, project_id, pid, status, prompt, original_prompt, initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message, model,
                  ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy,
-                 max_tool_calls, max_duration_minutes, tool_call_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 max_tool_calls, max_duration_minutes, tool_call_count, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -2727,6 +2775,7 @@ class GluonStore:
                     run.max_tool_calls,
                     run.max_duration_minutes,
                     run.tool_call_count,
+                    run.user_id,
                 ),
             )
         return run
@@ -2977,6 +3026,7 @@ class GluonStore:
             prompt=row["prompt"],
             original_prompt=row["original_prompt"] if "original_prompt" in keys else None,
             initiator=row["initiator"] if "initiator" in keys else None,
+            user_id=row["user_id"] if "user_id" in keys else None,
             thread_id=row["thread_id"] if "thread_id" in keys else None,
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             started_at=_parse_datetime(row["started_at"]),

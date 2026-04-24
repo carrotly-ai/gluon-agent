@@ -531,6 +531,7 @@ class TaskRunner:
         approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
         max_tool_calls: int | None = None,
         max_duration_minutes: int | None = None,
+        user_id: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -612,6 +613,7 @@ class TaskRunner:
             approval_policy=resolved_approval,
             max_tool_calls=max_tool_calls,
             max_duration_minutes=max_duration_minutes,
+            user_id=user_id,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 

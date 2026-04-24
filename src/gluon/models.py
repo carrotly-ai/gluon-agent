@@ -688,7 +688,10 @@ class PendingApproval(BaseModel):
     classification_reason: str  # Why the classifier flagged this call
     status: ApprovalStatus = ApprovalStatus.PENDING
     decision_reason: str | None = None  # Human-supplied explanation on grant/deny
-    decided_by: str | None = None  # "cli", "web", "telegram", etc.
+    decided_by: str | None = None  # "cli", "web", "telegram", etc. (legacy transport/source tag)
+    # D5 Phase 2 — nullable FK to users(id). Populated when GLUON_AUTH_ENABLED
+    # and a logged-in user decided the approval. Null for pre-auth era.
+    decided_by_user_id: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     decided_at: datetime | None = None
     timeout_at: datetime | None = None  # When this approval auto-expires
@@ -763,6 +766,9 @@ class OrchestratorTask(BaseModel):
     priority: int = 5  # 1-10; higher picks first in inbox ordering
     assigned_agent_id: str | None = None  # FK to Agent, nullable
     created_by: str = "cli"  # "cli", "web", "heartbeat", "webhook", agent_id, etc.
+    # D5 Phase 2 — nullable FK to users(id). Populated when GLUON_AUTH_ENABLED
+    # and a logged-in user created the task. Null for SYSTEM_USER / pre-auth era.
+    created_by_user_id: str | None = None
     assigned_files: list[str] = Field(default_factory=list)  # Advisory — files this task touches
     parent_task_id: str | None = None  # Optional hierarchy (subtasks)
 
@@ -879,6 +885,9 @@ class ExecutionRun(BaseModel):
     original_prompt: str | None = None  # Original task prompt (preserved across resumes)
     model: str | None = None  # Requested model (e.g., "claude-haiku-4.5", "haiku")
     initiator: str | None = None  # Who started the run (e.g., "cli", "telegram:12345")
+    # D5 Phase 2 — nullable FK to users(id). Populated when GLUON_AUTH_ENABLED
+    # and a logged-in user submitted the run. Null for SYSTEM_USER / pre-auth era.
+    user_id: str | None = None
     thread_id: str | None = None  # Discord/Slack thread ID for resume detection
     metadata: dict[str, Any] | None = None  # Task profile options and other metadata
     created_at: datetime = Field(default_factory=utc_now)

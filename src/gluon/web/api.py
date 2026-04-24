@@ -255,6 +255,21 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     # Store notifier on app.state so transports can register later
     app.state.notifier = notifier
 
+    # Auth dependency factories (D5 Phase 2) — defined up here because
+    # endpoints throughout the file reference them in `Depends(...)` at
+    # registration time. The auth endpoints themselves live further down in
+    # their own section; these are just the reusable injectors.
+    from gluon.auth import (  # noqa: E402 — intentional late import to avoid cycles
+        SYSTEM_USER,
+        make_current_user_dependency,
+        make_require_role,
+    )
+    from gluon.models import User as UserModel  # noqa: E402
+    from gluon.models import UserRole  # noqa: E402
+
+    current_user_dep = make_current_user_dependency(store)
+    require_admin = make_require_role(store, UserRole.ADMIN)
+
     # Build project lookup helper
     def get_project_lookup() -> dict[str, str]:
         """Build project_id → project_name lookup."""
@@ -304,6 +319,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             prompt=run.prompt,
             original_prompt=run.original_prompt,
             initiator=run.initiator,
+            user_id=run.user_id,
             created_at=run.created_at,
             started_at=run.started_at,
             completed_at=run.completed_at,
@@ -513,14 +529,25 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         )
 
     @app.post("/api/runs", response_model=RunResponse)
-    async def create_run(body: CreateRunRequest) -> RunResponse:
-        """Create and start a new execution run."""
+    async def create_run(
+        body: CreateRunRequest,
+        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
+    ) -> RunResponse:
+        """Create and start a new execution run.
+
+        D5 Phase 2 attribution: the created run's ``user_id`` is set to the
+        current user's ID when auth is enabled, or None for SYSTEM_USER.
+        """
         from gluon.core import (
             AgentAmbiguousError,
             AgentNotFoundError,
             BudgetExceededError,
             WorkspaceBudgetExceededError,
         )
+
+        # Only attribute when a real (non-SYSTEM) user is logged in. SYSTEM_USER
+        # has a deterministic zero-UUID but we don't want to pollute rows with it.
+        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
 
         try:
             project = orchestrator.get_project(body.project_name)
@@ -563,6 +590,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 # Hard caps (Theme D3)
                 max_tool_calls=body.max_tool_calls,
                 max_duration_minutes=body.max_duration_minutes,
+                # D5 Phase 2 — attribution
+                user_id=attribution_user_id,
             )
         except BudgetExceededError as e:
             raise HTTPException(status_code=402, detail=str(e)) from None
@@ -1715,24 +1744,20 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     # /api/auth/me endpoint still works and returns the SYSTEM_USER so clients
     # have a uniform shape. Login/logout are always defined but only do real
     # work when auth is enabled.
+    #
+    # Note: `current_user_dep` and `require_admin` were already constructed
+    # at the top of `create_app` so endpoints defined before this section
+    # (like POST /api/runs) can reference them in their Depends() defaults.
 
     from gluon.auth import (
         DEFAULT_SESSION_TTL_DAYS,
         SESSION_COOKIE_NAME,
-        SYSTEM_USER,
         InvalidCredentialsError,
         UserDisabledError,
         create_session_for_user,
         get_auth_provider,
         is_auth_enabled,
-        make_current_user_dependency,
-        make_require_role,
     )
-    from gluon.models import User as UserModel
-    from gluon.models import UserRole
-
-    current_user_dep = make_current_user_dependency(store)
-    require_admin = make_require_role(store, UserRole.ADMIN)
 
     def _user_to_response(u: UserModel) -> UserResponse:
         return UserResponse(
@@ -4320,8 +4345,14 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     async def grant_approval_endpoint(
         approval_id: str,
         body: dict[str, Any] | None = None,
+        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
     ) -> dict[str, Any]:
-        """Grant an approval — the waiting hook will unblock and allow the tool call."""
+        """Grant an approval — the waiting hook will unblock and allow the tool call.
+
+        D5 Phase 2 attribution: the approval's ``decided_by_user_id`` is set to
+        the current user's ID when auth is enabled. ``decided_by`` remains a
+        free-form string like "web" for cross-surface compatibility.
+        """
         from gluon.models import ApprovalStatus
 
         approval = store.get_approval(approval_id)
@@ -4334,10 +4365,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             )
         reason = (body or {}).get("reason") if body else None
         decided_by = (body or {}).get("decided_by", "web") if body else "web"
+        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
         updated = store.decide_approval(
             approval_id,
             status=ApprovalStatus.GRANTED,
             decided_by=decided_by,
+            decided_by_user_id=attribution_user_id,
             decision_reason=reason,
         )
         if updated is None:
@@ -4348,6 +4381,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     async def deny_approval_endpoint(
         approval_id: str,
         body: dict[str, Any] | None = None,
+        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
     ) -> dict[str, Any]:
         """Deny an approval — the waiting hook will return `permissionDecision: deny`."""
         from gluon.models import ApprovalStatus
@@ -4362,10 +4396,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             )
         reason = (body or {}).get("reason") if body else None
         decided_by = (body or {}).get("decided_by", "web") if body else "web"
+        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
         updated = store.decide_approval(
             approval_id,
             status=ApprovalStatus.DENIED,
             decided_by=decided_by,
+            decided_by_user_id=attribution_user_id,
             decision_reason=reason,
         )
         if updated is None:
@@ -4524,6 +4560,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             assigned_agent_id=task.assigned_agent_id,
             assigned_agent_name=agent_name,
             created_by=task.created_by,
+            created_by_user_id=task.created_by_user_id,
             assigned_files=list(task.assigned_files),
             parent_task_id=task.parent_task_id,
             execution_locked_at=task.execution_locked_at.isoformat() if task.execution_locked_at else None,
@@ -4621,9 +4658,19 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         return TaskListResponse(tasks=responses, total=len(responses))
 
     @app.post("/api/tasks", response_model=TaskResponse)
-    async def create_task_endpoint(body: TaskCreateRequest) -> TaskResponse:
-        """Create a new orchestrator task."""
+    async def create_task_endpoint(
+        body: TaskCreateRequest,
+        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
+    ) -> TaskResponse:
+        """Create a new orchestrator task.
+
+        D5 Phase 2 attribution: the task's ``created_by_user_id`` is set to the
+        current user's ID when auth is enabled.
+        """
         from gluon.core import AgentAmbiguousError, AgentNotFoundError
+
+        # Only attribute when a real (non-SYSTEM) user is logged in.
+        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
 
         project = store.get_project(body.project_id)
         if project is None:
@@ -4653,6 +4700,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             priority=body.priority,
             assigned_agent_id=assigned_agent_id,
             created_by="web",
+            created_by_user_id=attribution_user_id,
             assigned_files=body.assigned_files,
             parent_task_id=body.parent_task_id,
         )
