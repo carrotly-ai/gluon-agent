@@ -484,6 +484,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 )
                 for m in run.queued_messages
             ],
+            # Hard caps (Theme D3)
+            max_tool_calls=run.max_tool_calls,
+            max_duration_minutes=run.max_duration_minutes,
+            tool_call_count=run.tool_call_count,
         )
 
     @app.post("/api/runs", response_model=RunResponse)
@@ -534,6 +538,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 enable_prehydration=body.enable_prehydration,
                 blueprint_enabled=body.blueprint_enabled,
                 agent_id=resolved_agent_id,
+                # Hard caps (Theme D3)
+                max_tool_calls=body.max_tool_calls,
+                max_duration_minutes=body.max_duration_minutes,
             )
         except BudgetExceededError as e:
             raise HTTPException(status_code=402, detail=str(e)) from None

@@ -102,6 +102,12 @@ class RunDetailResponse(RunResponse):
     stop_reason: str | None = Field(default=None, description="SDK stop reason (end_turn, max_turns, etc.)")
     # Queued messages (for follow-up while task is running)
     queued_messages: list[QueuedMessageResponse] = Field(default_factory=list, description="Queued follow-up messages")
+    # Hard caps (Theme D3)
+    max_tool_calls: int | None = Field(default=None, description="Hard cap on total tool calls (None = unlimited)")
+    max_duration_minutes: int | None = Field(
+        default=None, description="Hard cap on wall-clock runtime in minutes (None = unlimited)"
+    )
+    tool_call_count: int = Field(default=0, description="Tool calls made so far (for cap tracking)")
 
 
 class CreateRunRequest(BaseModel):
@@ -159,6 +165,15 @@ class CreateRunRequest(BaseModel):
             "project's workspace has exactly one active agent, that agent is "
             "auto-selected."
         ),
+    )
+    # Hard caps (Theme D3)
+    max_tool_calls: int | None = Field(
+        default=None,
+        description="Hard cap on total tool calls. Abort if exceeded.",
+    )
+    max_duration_minutes: int | None = Field(
+        default=None,
+        description="Hard cap on wall-clock runtime in minutes. Abort if exceeded.",
     )
 
 

@@ -1033,6 +1033,20 @@ def run(
             "npm publish, etc.). PARANOID gates ALL Bash + writes.",
         ),
     ] = "permissive",
+    max_tool_calls: Annotated[
+        int | None,
+        typer.Option(
+            "--max-tool-calls",
+            help="Hard cap on total tool calls. Run aborts with deny once reached.",
+        ),
+    ] = None,
+    max_duration: Annotated[
+        int | None,
+        typer.Option(
+            "--max-duration",
+            help="Hard cap on wall-clock runtime in minutes. Run cancelled when exceeded.",
+        ),
+    ] = None,
 ):
     """Execute a task on a project.
 
@@ -1081,6 +1095,10 @@ def run(
         raise typer.Exit(code=1) from None
     if resolved_approval_policy != ApprovalPolicy.PERMISSIVE:
         console.print(f"[dim]Approval policy:[/dim] [yellow]{resolved_approval_policy.value}[/yellow]")
+    if max_tool_calls is not None:
+        console.print(f"[dim]Hard cap:[/dim] max {max_tool_calls} tool calls")
+    if max_duration is not None:
+        console.print(f"[dim]Hard cap:[/dim] max {max_duration} minute(s) wall-clock")
 
     # Validate model if provided
     model_tier: ModelTier | None = None
@@ -1120,6 +1138,8 @@ def run(
                 blueprint_enabled=not no_validate,
                 agent_id=resolved_agent_id,
                 approval_policy=resolved_approval_policy,
+                max_tool_calls=max_tool_calls,
+                max_duration_minutes=max_duration,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
@@ -1184,6 +1204,8 @@ def run(
             task_budget=task_budget,
             agent_id=resolved_agent_id,
             approval_policy=resolved_approval_policy,
+            max_tool_calls=max_tool_calls,
+            max_duration_minutes=max_duration,
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:

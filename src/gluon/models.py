@@ -891,6 +891,11 @@ class ExecutionRun(BaseModel):
     # Approval gates (Theme D1). Default PERMISSIVE = existing no-gating behavior.
     approval_policy: ApprovalPolicy = ApprovalPolicy.PERMISSIVE
 
+    # Hard per-run safety caps (Theme D3). Both default None = no enforcement.
+    max_tool_calls: int | None = None  # Abort if tool-call count exceeds this
+    max_duration_minutes: int | None = None  # Abort if wall-clock elapsed exceeds this
+    tool_call_count: int = 0  # Running count of tool calls for this run
+
     # Supervision tracking (auto-resume until complete)
     supervision_config: SupervisionConfig | None = None  # Per-task supervision settings
     supervision_auto_resume_count: int = 0  # Number of supervisor-initiated resumes
