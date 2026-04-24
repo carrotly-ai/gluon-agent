@@ -120,6 +120,9 @@ class TaskRunner:
         # Supervision coordinator (lazy initialized)
         self._supervisor: ResumeCoordinator | None = None
 
+        # Background queue drain task (populated by start_queue_drain)
+        self._queue_drain_task: asyncio.Task | None = None
+
         # Ensure log directory exists
         self.config.log_path.mkdir(parents=True, exist_ok=True)
 
@@ -1828,6 +1831,114 @@ but explicit commits with good messages are preferred.
             await self._supervisor.stop()
             self._supervisor = None
             logger.info("Stopped supervision")
+
+    async def start_queue_drain(self, interval_secs: int = 60) -> None:
+        """Start a background task that periodically drains the work queue.
+
+        The self-propelling queue normally drains when a run completes. But if
+        every run has completed and new items land in the queue, nothing will
+        pick them up until the next completion. This loop covers that gap.
+
+        Args:
+            interval_secs: Seconds between drain cycles (default 60)
+        """
+        if self._queue_drain_task is not None and not self._queue_drain_task.done():
+            logger.warning("Queue drain already running")
+            return
+
+        async def _drain_loop() -> None:
+            while True:
+                try:
+                    await asyncio.sleep(interval_secs)
+                    await self._drain_queue_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.debug("Queue drain cycle failed", exc_info=True)
+
+        self._queue_drain_task = asyncio.create_task(_drain_loop())
+        logger.info("Started queue drain with %ds interval", interval_secs)
+
+    async def stop_queue_drain(self) -> None:
+        """Stop the periodic queue drain task."""
+        if self._queue_drain_task is None:
+            return
+        self._queue_drain_task.cancel()
+        try:
+            await self._queue_drain_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        self._queue_drain_task = None
+        logger.info("Stopped queue drain")
+
+    async def _drain_queue_once(self) -> int:
+        """Scan projects with PENDING queue items and dispatch the next one per idle project.
+
+        Returns the number of items dispatched this cycle.
+        """
+        from gluon.models import WorkQueueStatus, resolve_task_options
+        from gluon.work_queue import WorkQueueManager
+
+        pending = self.store.list_work_items(status=WorkQueueStatus.PENDING.value, limit=200)
+        if not pending:
+            return 0
+
+        # Group by project, preserve priority order from list_work_items()
+        seen_projects: set[str] = set()
+        dispatched = 0
+
+        # Respect global concurrency cap
+        if len(self._active_tasks) >= self.config.max_concurrent:
+            return 0
+
+        wq = WorkQueueManager(self.store)
+
+        for item in pending:
+            if item.project_id in seen_projects:
+                continue
+            seen_projects.add(item.project_id)
+
+            # Skip if this project already has an active run
+            has_active = any(
+                (self.store.get_run(run_id) and self.store.get_run(run_id).project_id == item.project_id)  # type: ignore[union-attr]
+                for run_id in list(self._active_tasks.keys())
+            )
+            if has_active:
+                continue
+
+            claimed = wq.claim_next(item.project_id)
+            if claimed is None:
+                continue
+
+            try:
+                task_options = resolve_task_options(profile=claimed.profile)
+                new_run = await self.submit(
+                    project_id=claimed.project_id,
+                    prompt=claimed.prompt,
+                    model=task_options["model"],
+                    profile=claimed.profile,
+                    initiator=f"queue_drain:{claimed.id}",
+                )
+                wq.mark_running(claimed.id, new_run.id)
+                dispatched += 1
+                logger.info(
+                    "Queue drain dispatched item %s -> run %s (project %s)",
+                    claimed.id[:8],
+                    new_run.id[:8],
+                    claimed.project_id[:8],
+                )
+            except Exception:
+                logger.warning(
+                    "Queue drain failed to dispatch item %s; releasing claim",
+                    claimed.id[:8],
+                    exc_info=True,
+                )
+                wq.release(claimed.id)
+
+            if len(self._active_tasks) >= self.config.max_concurrent:
+                break
+
+        return dispatched
 
     @property
     def supervisor(self) -> ResumeCoordinator | None:

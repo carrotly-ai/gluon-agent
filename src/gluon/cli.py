@@ -3426,5 +3426,26 @@ def worktree_gc(
             console.print(f"\n[yellow]Errors: {stats['errors']}[/yellow]")
 
 
+@queue_app.command("release")
+def queue_release_stale(
+    threshold_minutes: Annotated[
+        int,
+        typer.Option("--threshold", "-t", help="Release items claimed more than N minutes ago"),
+    ] = 30,
+) -> None:
+    """Release stale CLAIMED items back to PENDING.
+
+    Useful when a runner crashed and left queue items stuck. Default threshold
+    is 30 minutes with no heartbeat.
+    """
+    store = GluonStore()
+    released = store.release_stale_work_claims(threshold_secs=threshold_minutes * 60)
+
+    if released == 0:
+        console.print("[green]No stale claims found[/green]")
+    else:
+        console.print(f"[yellow]Released {released} stale claim(s) back to pending[/yellow]")
+
+
 if __name__ == "__main__":
     app()
