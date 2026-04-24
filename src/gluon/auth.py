@@ -373,3 +373,101 @@ def get_auth_provider(
 
     # Unreachable but explicit for mypy and future backends.
     raise ValueError(f"Unhandled auth backend: {backend}")
+
+
+# ---------------------------------------------------------------------------
+# Web / FastAPI integration helpers (D5 Phase 2)
+#
+# Everything below is only meaningful when GLUON_AUTH_ENABLED=true. When the
+# flag is false, `get_current_user` returns SYSTEM_USER and `require_role` is
+# a no-op — so existing endpoints keep working identically.
+# ---------------------------------------------------------------------------
+
+SESSION_COOKIE_NAME = "gluon_session"
+"""Cookie name for the session ID. httpOnly + sameSite=lax + secure (in prod)."""
+
+
+def _role_rank(role: UserRole) -> int:
+    """Numeric rank so `require_role` can do >= comparisons.
+
+    admin > operator > viewer. A user with a higher-ranked role passes any
+    check that requires a lower-ranked role.
+    """
+    return {UserRole.ADMIN: 3, UserRole.OPERATOR: 2, UserRole.VIEWER: 1}[role]
+
+
+def _current_user_impl(store: GluonStore, session_cookie: str | None) -> User:
+    """Resolve the current user from a session cookie, raising on failure.
+
+    - Auth disabled → returns SYSTEM_USER unconditionally
+    - Auth enabled + no cookie → raises ``HTTPException(401)``
+    - Auth enabled + invalid/expired cookie → raises ``HTTPException(401)``
+
+    Kept as a plain function (not a FastAPI dependency) so tests + non-FastAPI
+    callers (future CLI remote mode) can reuse it without pulling FastAPI in.
+    """
+    if not is_auth_enabled():
+        return SYSTEM_USER
+
+    from fastapi import HTTPException  # local import — only needed here
+
+    if not session_cookie:
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    result = resolve_session(store, session_cookie)
+    if result is None:
+        raise HTTPException(status_code=401, detail="session invalid or expired")
+    user, _session = result
+    return user
+
+
+def make_current_user_dependency(store: GluonStore):
+    """Build a FastAPI dependency that returns the current `User` for a request.
+
+    Usage (inside `create_app`):
+        current_user = make_current_user_dependency(store)
+
+        @app.get("/api/something")
+        async def something(user: User = Depends(current_user)):
+            ...
+
+    Factory shape matches the existing store/orchestrator wiring style in
+    `create_app` — everything that depends on runtime state takes `store` as
+    a closure.
+    """
+    from fastapi import Cookie, Depends  # noqa: F401 — used as FastAPI hints
+
+    async def current_user(
+        session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    ) -> User:
+        return _current_user_impl(store, session)
+
+    return current_user
+
+
+def make_require_role(store: GluonStore, required: UserRole):
+    """Build a FastAPI dependency that 403s if the current user's role is too low.
+
+    Usage:
+        require_admin = make_require_role(store, UserRole.ADMIN)
+
+        @app.post("/api/users", dependencies=[Depends(require_admin)])
+        async def create_user(...): ...
+
+    When ``GLUON_AUTH_ENABLED=false`` the check is a no-op — SYSTEM_USER has
+    admin role and passes every level.
+    """
+    from fastapi import Cookie, HTTPException
+
+    async def role_check(
+        session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    ) -> User:
+        user = _current_user_impl(store, session)
+        if _role_rank(user.role) < _role_rank(required):
+            raise HTTPException(
+                status_code=403,
+                detail=f"role '{required.value}' required (you are '{user.role.value}')",
+            )
+        return user
+
+    return role_check
