@@ -113,6 +113,28 @@ class GitSyncError(Exception):
     pass
 
 
+class AgentNotFoundError(Exception):
+    """Raised when an agent name doesn't resolve within the expected workspace."""
+
+    pass
+
+
+class AgentAmbiguousError(Exception):
+    """Raised when a workspace has multiple agents and none was explicitly selected."""
+
+    pass
+
+
+class BudgetExceededError(Exception):
+    """Raised when an agent attempts to start a run that would exceed its monthly budget."""
+
+    def __init__(self, agent_name: str, spent: float, budget: float):
+        self.agent_name = agent_name
+        self.spent = spent
+        self.budget = budget
+        super().__init__(f"Agent '{agent_name}' monthly budget exceeded: spent ${spent:.2f} of ${budget:.2f} cap")
+
+
 # ========== Advanced Git Operation Exceptions ==========
 
 
@@ -238,6 +260,91 @@ class Orchestrator:
     def list_projects(self) -> list[Project]:
         """List all registered projects."""
         return self.store.list_projects()
+
+    # ========== Agent Resolution & Budget Helpers (Theme B Phase 1+4) ==========
+
+    def resolve_agent(
+        self,
+        name_or_id: str | None,
+        workspace_id: str | None,
+    ) -> str | None:
+        """Resolve an agent reference to an agent_id.
+
+        Accepts:
+          - Explicit agent name (looked up within the given workspace)
+          - Explicit agent ID (full UUID or 8-char prefix)
+          - None → auto-link only if the workspace has exactly one active agent
+
+        Raises:
+          AgentNotFoundError: Name/id given but no match within the workspace
+          AgentAmbiguousError: `name_or_id` matches multiple agents by prefix
+        """
+        if name_or_id is None:
+            if workspace_id is None:
+                return None
+            active = self.store.list_agents(workspace_id=workspace_id, is_active=True)
+            if len(active) == 1:
+                return active[0].id
+            return None
+
+        # Try by exact ID first
+        agent = self.store.get_agent(name_or_id)
+        if agent is not None:
+            return agent.id
+
+        # Try by (workspace, name)
+        if workspace_id is not None:
+            by_name = self.store.get_agent_by_name(workspace_id, name_or_id)
+            if by_name is not None:
+                return by_name.id
+
+        # Try as ID prefix within the workspace scope
+        scope = self.store.list_agents(workspace_id=workspace_id) if workspace_id else self.store.list_agents()
+        prefix_matches = [a for a in scope if a.id.startswith(name_or_id)]
+        if len(prefix_matches) == 1:
+            return prefix_matches[0].id
+        if len(prefix_matches) > 1:
+            raise AgentAmbiguousError(
+                f"Agent prefix '{name_or_id}' matches multiple agents: " + ", ".join(a.name for a in prefix_matches[:5])
+            )
+
+        raise AgentNotFoundError(
+            f"Agent not found: '{name_or_id}'" + (f" in workspace {workspace_id[:8]}" if workspace_id else "")
+        )
+
+    def _enforce_agent_budget(self, agent_id: str) -> None:
+        """Raise BudgetExceededError if the agent has hit its monthly cap.
+
+        No-op if the agent has no budget configured or doesn't exist.
+        """
+        agent = self.store.get_agent(agent_id)
+        if agent is None or agent.monthly_budget_usd is None:
+            return
+
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        spent = self.store.get_agent_monthly_spend(agent_id, month_start)
+        if spent >= agent.monthly_budget_usd:
+            raise BudgetExceededError(
+                agent_name=agent.name,
+                spent=spent,
+                budget=agent.monthly_budget_usd,
+            )
+
+    def _touch_agent_last_active(self, agent_id: str) -> None:
+        """Best-effort update of the agent's last_active_at timestamp."""
+        try:
+            agent = self.store.get_agent(agent_id)
+            if agent is None:
+                return
+            from datetime import UTC, datetime
+
+            agent.last_active_at = datetime.now(UTC)
+            self.store.update_agent(agent)
+        except Exception:
+            logger.debug("Failed to update agent last_active_at", exc_info=True)
 
     def remove_project(self, name_or_id: str) -> bool:
         """
@@ -441,6 +548,7 @@ class Orchestrator:
         force_planning: bool | None = None,
         effort: str | None = None,
         task_budget: int | None = None,
+        agent_id: str | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -475,6 +583,19 @@ class Orchestrator:
         """
         project = self.get_project(project_name)
 
+        # Resolve agent — explicit argument > auto-link (only if workspace has
+        # exactly one active agent) > None. Only applies when we're creating a
+        # new run; existing runs keep whatever agent_id they had.
+        resolved_agent_id: str | None = agent_id
+        if run_id is None and resolved_agent_id is None and project.workspace_id:
+            active = self.store.list_agents(workspace_id=project.workspace_id, is_active=True)
+            if len(active) == 1:
+                resolved_agent_id = active[0].id
+
+        # Enforce the resolved agent's monthly budget before spawning a run
+        if resolved_agent_id is not None:
+            self._enforce_agent_budget(resolved_agent_id)
+
         # ========== ExecutionRun Management ==========
         # All executions are tracked via ExecutionRun for unified visibility
         run: ExecutionRun | None = None
@@ -490,9 +611,14 @@ class Orchestrator:
                 prompt=prompt,
                 initiator=initiator or "orchestrator",
                 use_worktree=use_worktree,
+                agent_id=resolved_agent_id,
             )
             # Broadcast new run to dashboard (only for newly created runs)
             await _broadcast_run_event("created", run, project.name)
+
+            # Touch agent activity on fresh run creation
+            if resolved_agent_id is not None:
+                self._touch_agent_last_active(resolved_agent_id)
 
         # Create log directory for all runs
         log_dir = Path.home() / ".gluon" / "logs" / run.id

@@ -1291,6 +1291,36 @@ class GluonStore:
             cursor = conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
             return cursor.rowcount > 0
 
+    def get_agent_monthly_spend(self, agent_id: str, since: datetime) -> float:
+        """Sum cost_usd of runs for this agent since the given timestamp.
+
+        Callers typically pass the current month's start (UTC). Runs with NULL
+        cost_usd are treated as zero. Only runs linked to this agent contribute.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(cost_usd), 0.0) AS total
+                FROM execution_runs
+                WHERE agent_id = ? AND created_at >= ?
+                """,
+                (agent_id, since.isoformat()),
+            ).fetchone()
+            return float(row["total"]) if row else 0.0
+
+    def count_agent_active_runs(self, agent_id: str) -> int:
+        """Count currently-running or pending runs for an agent."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM execution_runs
+                WHERE agent_id = ? AND status IN ('pending', 'running')
+                """,
+                (agent_id,),
+            ).fetchone()
+            return int(row["cnt"]) if row else 0
+
     def _row_to_agent(self, row: sqlite3.Row) -> Agent:
         """Convert database row to Agent model."""
         return Agent(
@@ -1345,6 +1375,7 @@ class GluonStore:
         max_loops: int = 50,
         max_calls_per_hour: int = 100,
         max_cost_usd: float | None = None,
+        agent_id: str | None = None,
     ) -> ExecutionRun:
         """Create a new execution run."""
         run = ExecutionRun(
@@ -1359,6 +1390,7 @@ class GluonStore:
             max_loops=max_loops,
             max_calls_per_hour=max_calls_per_hour,
             max_cost_usd=max_cost_usd,
+            agent_id=agent_id,
         )
         with self._get_conn() as conn:
             conn.execute(
@@ -1366,8 +1398,8 @@ class GluonStore:
                 INSERT INTO execution_runs
                 (id, session_id, project_id, pid, status, prompt, original_prompt, initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message, model,
-                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -1389,6 +1421,7 @@ class GluonStore:
                     run.max_loops,
                     run.max_calls_per_hour,
                     run.max_cost_usd,
+                    run.agent_id,
                 ),
             )
         return run
