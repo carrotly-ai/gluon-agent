@@ -642,6 +642,8 @@ class Orchestrator:
         task_budget: int | None = None,
         agent_id: str | None = None,
         approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
+        max_tool_calls: int | None = None,
+        max_duration_minutes: int | None = None,
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -715,6 +717,8 @@ class Orchestrator:
                 use_worktree=use_worktree,
                 agent_id=resolved_agent_id,
                 approval_policy=approval_policy or _ApprovalPolicy.PERMISSIVE,
+                max_tool_calls=max_tool_calls,
+                max_duration_minutes=max_duration_minutes,
             )
             # Broadcast new run to dashboard (only for newly created runs)
             await _broadcast_run_event("created", run, project.name)
