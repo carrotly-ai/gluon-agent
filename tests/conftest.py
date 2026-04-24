@@ -11,7 +11,7 @@ from gluon.models import Workspace
 from gluon.store import GluonStore
 
 
-@pytest.fixture(params=["bedrock", "anthropic"])
+@pytest.fixture(params=["bedrock", "anthropic", "vertex", "foundry"])
 def llm_provider(request, monkeypatch):
     """Parametrize tests across all LLM providers."""
     monkeypatch.setenv("GLUON_LLM_PROVIDER", request.param)

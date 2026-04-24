@@ -284,6 +284,99 @@ def check_claude_session_disk_usage(store: GluonStore) -> DiagnosticResult:
     )
 
 
+def check_llm_provider_config(_store: GluonStore) -> DiagnosticResult:
+    """Verify the active LLM provider's required env vars are set.
+
+    Each of the four providers reads a different set of credentials — this
+    check surfaces missing config early (before a run fails at inference
+    time) and suggests the fix.
+    """
+    try:
+        from gluon.llm_provider import get_provider, get_provider_source
+    except Exception as e:  # pragma: no cover — import-time failure
+        return DiagnosticResult(
+            name="LLM Provider Config",
+            status="error",
+            message=f"Could not import LLM provider abstraction: {e}",
+        )
+
+    try:
+        provider = get_provider()
+    except Exception as e:
+        return DiagnosticResult(
+            name="LLM Provider Config",
+            status="error",
+            message=f"Unknown provider configured: {e}. Run `gluon provider <name>` to fix.",
+        )
+
+    provider_key = provider.__class__.__name__.replace("Provider", "").lower()
+    source = get_provider_source()
+
+    missing: list[str] = []
+    hints: list[str] = []
+
+    if provider_key == "bedrock":
+        if not os.environ.get("AWS_REGION"):
+            missing.append("AWS_REGION")
+        has_creds = any(
+            os.environ.get(k)
+            for k in (
+                "AWS_BEARER_TOKEN_BEDROCK",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_PROFILE",
+                "AWS_SESSION_TOKEN",
+            )
+        )
+        if not has_creds and not Path.home().joinpath(".aws", "credentials").exists():
+            missing.append("AWS credentials (bearer token, access keys, or ~/.aws/credentials)")
+    elif provider_key == "anthropic":
+        # Valid if either the API key is set OR the user has a Claude CLI login
+        # (~/.claude). We can't verify the login from here, so we treat missing
+        # API key as a *warn* rather than *error*.
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            hints.append("ANTHROPIC_API_KEY not set; relying on `claude login` session at ~/.claude")
+    elif provider_key == "vertex":
+        if not os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"):
+            missing.append("ANTHROPIC_VERTEX_PROJECT_ID")
+        if not os.environ.get("CLOUD_ML_REGION"):
+            hints.append("CLOUD_ML_REGION not set (defaulting to 'global')")
+        adc_path = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        has_adc = adc_path.exists() or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if not has_adc:
+            missing.append(
+                "GCP credentials (run `gcloud auth application-default login` or set GOOGLE_APPLICATION_CREDENTIALS)"
+            )
+    elif provider_key == "foundry":
+        has_endpoint = os.environ.get("ANTHROPIC_FOUNDRY_RESOURCE") or os.environ.get("ANTHROPIC_FOUNDRY_BASE_URL")
+        if not has_endpoint:
+            missing.append("ANTHROPIC_FOUNDRY_RESOURCE or ANTHROPIC_FOUNDRY_BASE_URL")
+        has_api_key = bool(os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"))
+        azure_dir = Path.home() / ".azure"
+        has_entra = azure_dir.exists() or os.environ.get("AZURE_CLIENT_ID")
+        if not has_api_key and not has_entra:
+            missing.append("Azure credentials (set ANTHROPIC_FOUNDRY_API_KEY or run `az login`)")
+
+    if missing:
+        return DiagnosticResult(
+            name="LLM Provider Config",
+            status="error",
+            message=f"{provider.name} (source: {source}) is missing required config",
+            details=[f"Missing: {m}" for m in missing] + hints,
+        )
+    if hints:
+        return DiagnosticResult(
+            name="LLM Provider Config",
+            status="warn",
+            message=f"{provider.name} (source: {source}) configured with warnings",
+            details=hints,
+        )
+    return DiagnosticResult(
+        name="LLM Provider Config",
+        status="ok",
+        message=f"{provider.name} (source: {source})",
+    )
+
+
 def run_diagnostics(store: GluonStore, log_path: Path) -> list[DiagnosticResult]:
     """Run all health checks and return results."""
     return [
@@ -295,6 +388,7 @@ def run_diagnostics(store: GluonStore, log_path: Path) -> list[DiagnosticResult]
         check_activity_log_size(store),
         check_stale_queue_claims(store),
         check_claude_session_disk_usage(store),
+        check_llm_provider_config(store),
     ]
 
 

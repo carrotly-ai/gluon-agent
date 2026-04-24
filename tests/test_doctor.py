@@ -207,6 +207,76 @@ class TestCheckStalePendingQuestions:
 
 
 # ===================================================================
+# check_llm_provider_config
+# ===================================================================
+
+
+class TestCheckLlmProviderConfig:
+    """Tests for the LLM provider config diagnostic."""
+
+    def test_bedrock_ok_when_region_and_creds_set(self, store: GluonStore, monkeypatch):
+        from gluon.doctor import check_llm_provider_config
+
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "bedrock")
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "token")
+        result = check_llm_provider_config(store)
+        assert result.status == "ok"
+        assert "Bedrock" in result.message
+
+    def test_vertex_errors_without_project_id(self, store: GluonStore, monkeypatch):
+        from gluon.doctor import check_llm_provider_config
+
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "vertex")
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+        result = check_llm_provider_config(store)
+        assert result.status == "error"
+        assert any("ANTHROPIC_VERTEX_PROJECT_ID" in d for d in result.details)
+
+    def test_vertex_ok_with_project_id_and_creds(self, store: GluonStore, monkeypatch, tmp_path):
+        from gluon.doctor import check_llm_provider_config
+
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "vertex")
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+        monkeypatch.setenv("CLOUD_ML_REGION", "global")
+        # Simulate a service account key file
+        key = tmp_path / "sa.json"
+        key.write_text("{}")
+        monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(key))
+        result = check_llm_provider_config(store)
+        assert result.status == "ok"
+
+    def test_foundry_errors_without_endpoint(self, store: GluonStore, monkeypatch):
+        from gluon.doctor import check_llm_provider_config
+
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "foundry")
+        monkeypatch.delenv("ANTHROPIC_FOUNDRY_RESOURCE", raising=False)
+        monkeypatch.delenv("ANTHROPIC_FOUNDRY_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_FOUNDRY_API_KEY", raising=False)
+        result = check_llm_provider_config(store)
+        assert result.status == "error"
+
+    def test_foundry_ok_with_resource_and_api_key(self, store: GluonStore, monkeypatch):
+        from gluon.doctor import check_llm_provider_config
+
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "foundry")
+        monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "my-res")
+        monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "sk-test")
+        result = check_llm_provider_config(store)
+        assert result.status == "ok"
+
+    def test_anthropic_warns_without_api_key(self, store: GluonStore, monkeypatch):
+        from gluon.doctor import check_llm_provider_config
+
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", "anthropic")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        result = check_llm_provider_config(store)
+        # warn, not error — user may have `claude login` session
+        assert result.status == "warn"
+
+
+# ===================================================================
 # run_diagnostics
 # ===================================================================
 
@@ -214,13 +284,20 @@ class TestCheckStalePendingQuestions:
 class TestRunDiagnostics:
     def test_returns_all_checks(self, store: GluonStore, tmp_path: Path):
         results = run_diagnostics(store, tmp_path / "logs")
-        # 7 pre-existing + 1 new (check_claude_session_disk_usage, Theme C5)
-        assert len(results) == 8
+        # 7 pre-existing + check_claude_session_disk_usage (C5) + check_llm_provider_config
+        assert len(results) == 9
         assert all(isinstance(r, DiagnosticResult) for r in results)
 
-    def test_all_ok_for_clean_store(self, store: GluonStore, tmp_path: Path):
+    def test_all_ok_for_clean_store(self, store: GluonStore, tmp_path: Path, monkeypatch):
+        # Force the default Bedrock provider with enough env set to pass the
+        # new check_llm_provider_config check.
+        monkeypatch.delenv("GLUON_LLM_PROVIDER", raising=False)
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "dummy")
         results = run_diagnostics(store, tmp_path / "logs")
-        assert all(r.status == "ok" for r in results)
+        assert all(r.status == "ok" for r in results), [
+            (r.name, r.status, r.message) for r in results if r.status != "ok"
+        ]
 
 
 # ===================================================================
