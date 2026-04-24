@@ -88,6 +88,9 @@ app.add_typer(schedule_app, name="schedule")
 heartbeat_app = typer.Typer(help="Heartbeat runs — history of scheduled agent firings")
 app.add_typer(heartbeat_app, name="heartbeat")
 
+approvals_app = typer.Typer(help="Approval gates for risky tool calls (Theme D1)")
+app.add_typer(approvals_app, name="approvals")
+
 console = Console()
 
 
@@ -883,6 +886,15 @@ def run(
             "Auto-selects if the project's workspace has exactly one active agent.",
         ),
     ] = None,
+    approval_policy: Annotated[
+        str,
+        typer.Option(
+            "--approval-policy",
+            help="Approval policy: permissive (default) / careful / paranoid. "
+            "CAREFUL gates known-destructive Bash (rm -rf, git push --force, "
+            "npm publish, etc.). PARANOID gates ALL Bash + writes.",
+        ),
+    ] = "permissive",
 ):
     """Execute a task on a project.
 
@@ -917,6 +929,20 @@ def run(
         resolved = orchestrator.store.get_agent(resolved_agent_id)
         if resolved is not None:
             console.print(f"[dim]Agent:[/dim] [cyan]{resolved.name}[/cyan]")
+
+    # Resolve approval policy
+    from gluon.models import ApprovalPolicy
+
+    try:
+        resolved_approval_policy = ApprovalPolicy(approval_policy.lower())
+    except ValueError:
+        console.print(
+            f"[red]Invalid --approval-policy:[/red] {approval_policy}. "
+            f"Must be one of: {[p.value for p in ApprovalPolicy]}"
+        )
+        raise typer.Exit(code=1) from None
+    if resolved_approval_policy != ApprovalPolicy.PERMISSIVE:
+        console.print(f"[dim]Approval policy:[/dim] [yellow]{resolved_approval_policy.value}[/yellow]")
 
     # Validate model if provided
     model_tier: ModelTier | None = None
@@ -955,6 +981,7 @@ def run(
                 enable_prehydration=not no_hydrate,
                 blueprint_enabled=not no_validate,
                 agent_id=resolved_agent_id,
+                approval_policy=resolved_approval_policy,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
@@ -1015,6 +1042,7 @@ def run(
             effort=effort,
             task_budget=task_budget,
             agent_id=resolved_agent_id,
+            approval_policy=resolved_approval_policy,
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:
@@ -4478,6 +4506,182 @@ def heartbeat_list(
             summary,
         )
     console.print(table)
+
+
+# ========== Approval Commands (Theme D1) ==========
+
+
+@approvals_app.command("list")
+def approvals_list(
+    status: Annotated[
+        str | None,
+        typer.Option("--status", "-s", help="Filter by status (pending/granted/denied/expired)"),
+    ] = "pending",
+    run: Annotated[str | None, typer.Option("--run", "-r", help="Filter by run ID or short prefix")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max rows to show")] = 50,
+) -> None:
+    """List approval requests — defaults to pending-only.
+
+    Use `--status all` (or pass any invalid value) to see everything.
+    """
+    from gluon.models import ApprovalStatus
+
+    orchestrator = get_orchestrator()
+
+    resolved_status = None
+    if status and status.lower() != "all":
+        try:
+            resolved_status = ApprovalStatus(status.lower())
+        except ValueError:
+            console.print(
+                f"[red]Invalid status:[/red] {status}. Must be one of {[s.value for s in ApprovalStatus]} (or 'all')."
+            )
+            raise typer.Exit(code=1) from None
+
+    resolved_run_id = None
+    if run:
+        target = orchestrator.store.get_run_by_short_id(run) or orchestrator.store.get_run(run)
+        if target is None:
+            console.print(f"[red]Run not found:[/red] {run}")
+            raise typer.Exit(code=1)
+        resolved_run_id = target.id
+
+    approvals = orchestrator.store.list_approvals(run_id=resolved_run_id, status=resolved_status, limit=limit)
+
+    if not approvals:
+        console.print("[dim]No approvals found.[/dim]")
+        return
+
+    status_colors = {
+        "pending": "yellow",
+        "granted": "green",
+        "denied": "red",
+        "expired": "dim",
+    }
+
+    table = Table(title="Approvals")
+    table.add_column("ID", style="dim")
+    table.add_column("Run", style="dim")
+    table.add_column("Tool", style="cyan")
+    table.add_column("Status")
+    table.add_column("Reason")
+    table.add_column("Created", style="dim")
+
+    for a in approvals:
+        color = status_colors.get(a.status.value, "white")
+        reason_preview = (
+            (a.classification_reason[:60] + "…") if len(a.classification_reason) > 60 else a.classification_reason
+        )
+        table.add_row(
+            a.id[:8],
+            a.run_id[:8],
+            a.tool_name,
+            f"[{color}]{a.status.value}[/{color}]",
+            reason_preview,
+            a.created_at.strftime("%Y-%m-%d %H:%M"),
+        )
+    console.print(table)
+
+
+@approvals_app.command("show")
+def approvals_show(
+    approval_id: Annotated[str, typer.Argument(help="Approval ID or 8-char prefix")],
+) -> None:
+    """Show detail for a single approval, including the tool input."""
+    import json as _json
+
+    orchestrator = get_orchestrator()
+    approval = orchestrator.store.get_approval(approval_id)
+    if approval is None:
+        console.print(f"[red]Approval not found:[/red] {approval_id}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold cyan]Approval {approval.id[:8]}[/bold cyan] ([dim]{approval.id}[/dim])")
+    console.print(f"  Run: [dim]{approval.run_id[:8]}[/dim]")
+    console.print(f"  Tool: [bold]{approval.tool_name}[/bold]")
+    console.print(f"  Status: [bold]{approval.status.value}[/bold]")
+    console.print(f"  Classification: {approval.classification_reason}")
+    if approval.tool_use_id:
+        console.print(f"  tool_use_id: [dim]{approval.tool_use_id}[/dim]")
+    console.print(f"  Created: {approval.created_at.isoformat()}")
+    if approval.timeout_at:
+        console.print(f"  Timeout at: {approval.timeout_at.isoformat()}")
+    if approval.decided_at:
+        console.print(f"  Decided: {approval.decided_at.isoformat()} by {approval.decided_by}")
+    if approval.decision_reason:
+        console.print(f"  Decision reason: {approval.decision_reason}")
+    console.print()
+    console.print("[bold]Tool input[/bold]")
+    console.print(_json.dumps(approval.tool_input, indent=2))
+
+
+@approvals_app.command("grant")
+def approvals_grant(
+    approval_id: Annotated[str, typer.Argument(help="Approval ID or 8-char prefix")],
+    reason: Annotated[str | None, typer.Option("--reason", help="Optional reason for the approval")] = None,
+) -> None:
+    """Grant an approval — the blocking hook will unblock and allow the tool call."""
+    from gluon.models import ApprovalStatus
+
+    orchestrator = get_orchestrator()
+    approval = orchestrator.store.get_approval(approval_id)
+    if approval is None:
+        console.print(f"[red]Approval not found:[/red] {approval_id}")
+        raise typer.Exit(code=1)
+    if approval.status != ApprovalStatus.PENDING:
+        console.print(f"[red]Approval already {approval.status.value}[/red]")
+        raise typer.Exit(code=1)
+
+    updated = orchestrator.store.decide_approval(
+        approval.id,
+        status=ApprovalStatus.GRANTED,
+        decided_by="cli",
+        decision_reason=reason,
+    )
+    if updated is None:
+        console.print("[red]Approval vanished[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Granted[/green] approval [cyan]{updated.id[:8]}[/cyan] ({updated.tool_name})")
+
+
+@approvals_app.command("deny")
+def approvals_deny(
+    approval_id: Annotated[str, typer.Argument(help="Approval ID or 8-char prefix")],
+    reason: Annotated[str | None, typer.Option("--reason", help="Reason for denial — surfaced to the agent")] = None,
+) -> None:
+    """Deny an approval — the hook will return `permissionDecision: deny` to the SDK."""
+    from gluon.models import ApprovalStatus
+
+    orchestrator = get_orchestrator()
+    approval = orchestrator.store.get_approval(approval_id)
+    if approval is None:
+        console.print(f"[red]Approval not found:[/red] {approval_id}")
+        raise typer.Exit(code=1)
+    if approval.status != ApprovalStatus.PENDING:
+        console.print(f"[red]Approval already {approval.status.value}[/red]")
+        raise typer.Exit(code=1)
+
+    updated = orchestrator.store.decide_approval(
+        approval.id,
+        status=ApprovalStatus.DENIED,
+        decided_by="cli",
+        decision_reason=reason or "Denied via CLI",
+    )
+    if updated is None:
+        console.print("[red]Approval vanished[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[yellow]Denied[/yellow] approval [cyan]{updated.id[:8]}[/cyan] ({updated.tool_name})")
+
+
+@approvals_app.command("expire")
+def approvals_expire() -> None:
+    """Manually expire any pending approvals past their timeout. Returns count."""
+    orchestrator = get_orchestrator()
+    count = orchestrator.store.expire_stale_approvals()
+    if count == 0:
+        console.print("[green]No stale approvals found[/green]")
+    else:
+        console.print(f"[yellow]Expired {count} stale approval(s)[/yellow]")
 
 
 @queue_app.command("release")

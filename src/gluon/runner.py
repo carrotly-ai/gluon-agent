@@ -430,6 +430,7 @@ class TaskRunner:
         enable_prehydration: bool = True,
         blueprint_enabled: bool = True,
         agent_id: str | None = None,
+        approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -484,6 +485,11 @@ class TaskRunner:
         if agent_id is not None:
             _enforce_agent_budget(self.store, agent_id)
 
+        # Resolve approval_policy — explicit arg or default PERMISSIVE
+        from gluon.models import ApprovalPolicy as _ApprovalPolicy
+
+        resolved_approval = approval_policy or _ApprovalPolicy.PERMISSIVE
+
         # Create run record with resolved model
         run = self.store.create_run(
             project_id,
@@ -496,6 +502,7 @@ class TaskRunner:
             max_calls_per_hour=max_calls_per_hour,
             max_cost_usd=effective_cost_limit,
             agent_id=agent_id,
+            approval_policy=resolved_approval,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 
@@ -971,6 +978,9 @@ but explicit commits with good messages are preferred.
                     vercel_token=vercel_token,
                     task_budget=task_budget,
                     skills_enabled=skills_enabled,
+                    # Theme D1: approval gates on risky tool calls
+                    approval_policy=run.approval_policy,
+                    store=self.store,
                 )
 
                 # Create screenshot collector for intercepting agent-browser screenshots

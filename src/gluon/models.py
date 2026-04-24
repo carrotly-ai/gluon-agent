@@ -580,6 +580,54 @@ class HeartbeatStatus(StrEnum):
     SKIPPED = "skipped"  # Skipped for other reasons (agent inactive, over budget, etc.)
 
 
+class ApprovalPolicy(StrEnum):
+    """Per-run approval policy for tool calls (Theme D1).
+
+    PERMISSIVE — default; no gating, existing behavior.
+    CAREFUL   — gate known-destructive operations (rm -rf, git push --force,
+                npm publish, gh pr merge, anything with --force, file deletes).
+    PARANOID  — gate ALL Bash commands and ALL writes (Write, Edit, NotebookEdit).
+    """
+
+    PERMISSIVE = "permissive"
+    CAREFUL = "careful"
+    PARANOID = "paranoid"
+
+
+class ApprovalStatus(StrEnum):
+    """Lifecycle status for a PendingApproval."""
+
+    PENDING = "pending"  # Waiting for human decision
+    GRANTED = "granted"  # Approved — tool call should proceed
+    DENIED = "denied"  # Rejected — tool call should be aborted
+    EXPIRED = "expired"  # Timed out without a decision
+
+
+# How long a PreToolUse hook waits for an approval decision before timing
+# out. This must be shorter than the Claude API overall request timeout.
+APPROVAL_TIMEOUT_SECS = 300  # 5 minutes
+
+# Interval between polls inside the approval hook's wait loop
+APPROVAL_POLL_INTERVAL_SECS = 2
+
+
+class PendingApproval(BaseModel):
+    """A pending approval request for a risky tool call (Theme D1)."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str  # FK to ExecutionRun
+    tool_name: str  # e.g. "Bash", "Write", "Edit"
+    tool_input: dict[str, Any] = Field(default_factory=dict)  # Original tool arguments
+    tool_use_id: str | None = None  # Claude SDK tool_use_id, if available
+    classification_reason: str  # Why the classifier flagged this call
+    status: ApprovalStatus = ApprovalStatus.PENDING
+    decision_reason: str | None = None  # Human-supplied explanation on grant/deny
+    decided_by: str | None = None  # "cli", "web", "telegram", etc.
+    created_at: datetime = Field(default_factory=utc_now)
+    decided_at: datetime | None = None
+    timeout_at: datetime | None = None  # When this approval auto-expires
+
+
 class AgentSchedule(BaseModel):
     """Cron-scheduled wakeup rule for an Agent (Theme B Phase 2).
 
@@ -833,6 +881,9 @@ class ExecutionRun(BaseModel):
     hour_start: datetime | None = None  # When current hour started
     max_calls_per_hour: int = 100  # Hourly API call limit
     max_cost_usd: float | None = None  # Optional cost cap
+
+    # Approval gates (Theme D1). Default PERMISSIVE = existing no-gating behavior.
+    approval_policy: ApprovalPolicy = ApprovalPolicy.PERMISSIVE
 
     # Supervision tracking (auto-resume until complete)
     supervision_config: SupervisionConfig | None = None  # Per-task supervision settings

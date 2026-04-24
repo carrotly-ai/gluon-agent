@@ -373,6 +373,8 @@ class GluonAgent:
         vercel_token: str | None = None,
         task_budget: int | None = None,
         skills_enabled: bool = False,
+        approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
+        store: Any = None,  # GluonStore — required when approval_policy != PERMISSIVE
     ):
         # Convert tier names (opus/sonnet/haiku) to full Bedrock model IDs
         # This ensures consistent model resolution across local and Docker environments
@@ -410,6 +412,11 @@ class GluonAgent:
         self.task_budget = task_budget
         # SDK 0.1.62: Enable Claude Code skills on agent sessions
         self.skills_enabled = skills_enabled
+        # Approval gates (Theme D1). `approval_policy=None` resolves to PERMISSIVE.
+        from gluon.models import ApprovalPolicy as _ApprovalPolicy
+
+        self.approval_policy = approval_policy or _ApprovalPolicy.PERMISSIVE
+        self.store = store
 
     async def _can_use_tool(
         self,
@@ -550,12 +557,29 @@ class GluonAgent:
         _sdk_logger = logging.getLogger("claude_sdk")
         options.stderr = lambda line: _sdk_logger.debug("sdk_stderr: %s", line.rstrip())
 
+        # Build optional approval gate hook (Theme D1)
+        from gluon.models import ApprovalPolicy as _ApprovalPolicy
+
+        extra_pre_tool_hooks: list[Any] | None = None
+        if self.approval_policy != _ApprovalPolicy.PERMISSIVE and self.store is not None and self.run_id is not None:
+            from gluon.approvals import _make_approval_hook
+
+            extra_pre_tool_hooks = [
+                _make_approval_hook(
+                    store=self.store,
+                    run_id=self.run_id,
+                    policy=self.approval_policy,
+                    message_callback=notification_callback,
+                )
+            ]
+
         # Wire SDK hooks for structured tool-use logging (and team tracking when enabled)
         options.hooks = build_hooks(
             tracker=subagent_tracker,
             screenshot_collector=screenshot_collector,
             notification_callback=notification_callback,
             todo_collector=todo_collector,
+            extra_pre_tool_hooks=extra_pre_tool_hooks,
         )
 
         # Add max_turns if configured

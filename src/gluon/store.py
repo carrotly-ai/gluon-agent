@@ -13,6 +13,8 @@ from gluon.models import (
     ActivityEvent,
     Agent,
     AgentSchedule,
+    ApprovalPolicy,
+    ApprovalStatus,
     ChainStatus,
     ChannelMapping,
     ChatHistoryEntry,
@@ -35,6 +37,7 @@ from gluon.models import (
     NotificationSeverity,
     NotificationType,
     OrchestratorTask,
+    PendingApproval,
     PendingQuestion,
     Project,
     QuestionStatus,
@@ -702,6 +705,26 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_heartbeats_agent ON heartbeat_runs(agent_id, fired_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_heartbeats_schedule ON heartbeat_runs(schedule_id, fired_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_heartbeats_run ON heartbeat_runs(execution_run_id);",
+    # Approval gates (Theme D1)
+    "ALTER TABLE execution_runs ADD COLUMN approval_policy TEXT DEFAULT 'permissive';",
+    """
+    CREATE TABLE IF NOT EXISTS pending_approvals (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        tool_name TEXT NOT NULL,
+        tool_input TEXT,
+        tool_use_id TEXT,
+        classification_reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decision_reason TEXT,
+        decided_by TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        timeout_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_approvals_run ON pending_approvals(run_id, status);",
+    "CREATE INDEX IF NOT EXISTS idx_approvals_status ON pending_approvals(status, created_at);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2042,6 +2065,167 @@ class GluonStore:
             completed_at=_parse_datetime(row["completed_at"]),
         )
 
+    # ========== PendingApproval CRUD (Theme D1) ==========
+
+    def create_approval(
+        self,
+        run_id: str,
+        tool_name: str,
+        classification_reason: str,
+        *,
+        tool_input: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        timeout_at: datetime | None = None,
+    ) -> PendingApproval:
+        """Create a pending approval record for a risky tool call."""
+        approval = PendingApproval(
+            run_id=run_id,
+            tool_name=tool_name,
+            tool_input=tool_input or {},
+            tool_use_id=tool_use_id,
+            classification_reason=classification_reason,
+            timeout_at=timeout_at,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO pending_approvals
+                (id, run_id, tool_name, tool_input, tool_use_id, classification_reason,
+                 status, decision_reason, decided_by, created_at, decided_at, timeout_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    approval.id,
+                    approval.run_id,
+                    approval.tool_name,
+                    json.dumps(approval.tool_input) if approval.tool_input else None,
+                    approval.tool_use_id,
+                    approval.classification_reason,
+                    approval.status.value,
+                    approval.decision_reason,
+                    approval.decided_by,
+                    approval.created_at.isoformat(),
+                    approval.decided_at.isoformat() if approval.decided_at else None,
+                    approval.timeout_at.isoformat() if approval.timeout_at else None,
+                ),
+            )
+        return approval
+
+    def get_approval(self, approval_id: str) -> PendingApproval | None:
+        """Get an approval by ID. Supports 8-char prefix when unique."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM pending_approvals WHERE id = ?", (approval_id,)).fetchone()
+            if row:
+                return self._row_to_approval(row)
+            rows = conn.execute(
+                "SELECT * FROM pending_approvals WHERE id LIKE ? LIMIT 2",
+                (approval_id + "%",),
+            ).fetchall()
+            if len(rows) == 1:
+                return self._row_to_approval(rows[0])
+        return None
+
+    def list_approvals(
+        self,
+        *,
+        run_id: str | None = None,
+        status: str | ApprovalStatus | None = None,
+        limit: int = 100,
+    ) -> list[PendingApproval]:
+        """List approvals with optional filters, newest first."""
+        query = "SELECT * FROM pending_approvals"
+        params: list[Any] = []
+        conditions: list[str] = []
+        if run_id is not None:
+            conditions.append("run_id = ?")
+            params.append(run_id)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status.value if isinstance(status, ApprovalStatus) else status)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_approval(row) for row in rows]
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        *,
+        status: ApprovalStatus,
+        decided_by: str,
+        decision_reason: str | None = None,
+    ) -> PendingApproval | None:
+        """Record a grant/deny decision on a PENDING approval.
+
+        Only mutates approvals in PENDING status — idempotent if already decided.
+        Returns the updated approval, or None if not found.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE pending_approvals SET
+                    status = ?, decided_by = ?, decision_reason = ?, decided_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    status.value,
+                    decided_by,
+                    decision_reason,
+                    utc_now().isoformat(),
+                    approval_id,
+                    ApprovalStatus.PENDING.value,
+                ),
+            )
+            if cursor.rowcount == 0:
+                # Either doesn't exist or already decided — return current state
+                return self.get_approval(approval_id)
+        return self.get_approval(approval_id)
+
+    def expire_stale_approvals(self, now: datetime | None = None) -> int:
+        """Mark all PENDING approvals past their timeout_at as EXPIRED. Returns count."""
+        now = now or utc_now()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE pending_approvals
+                SET status = ?, decided_at = ?, decided_by = 'system:timeout',
+                    decision_reason = 'Approval request timed out'
+                WHERE status = ? AND timeout_at IS NOT NULL AND timeout_at <= ?
+                """,
+                (
+                    ApprovalStatus.EXPIRED.value,
+                    now.isoformat(),
+                    ApprovalStatus.PENDING.value,
+                    now.isoformat(),
+                ),
+            )
+            return cursor.rowcount
+
+    def _row_to_approval(self, row: sqlite3.Row) -> PendingApproval:
+        """Convert database row to PendingApproval model."""
+        try:
+            tool_input = json.loads(row["tool_input"]) if row["tool_input"] else {}
+        except (json.JSONDecodeError, TypeError):
+            tool_input = {}
+        return PendingApproval(
+            id=row["id"],
+            run_id=row["run_id"],
+            tool_name=row["tool_name"],
+            tool_input=tool_input,
+            tool_use_id=row["tool_use_id"],
+            classification_reason=row["classification_reason"],
+            status=ApprovalStatus(row["status"]),
+            decision_reason=row["decision_reason"],
+            decided_by=row["decided_by"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            decided_at=_parse_datetime(row["decided_at"]),
+            timeout_at=_parse_datetime(row["timeout_at"]),
+        )
+
     # ========== Utility Methods ==========
 
     def get_active_sessions(self) -> list[Session]:
@@ -2081,6 +2265,7 @@ class GluonStore:
         max_calls_per_hour: int = 100,
         max_cost_usd: float | None = None,
         agent_id: str | None = None,
+        approval_policy: ApprovalPolicy = ApprovalPolicy.PERMISSIVE,
     ) -> ExecutionRun:
         """Create a new execution run."""
         run = ExecutionRun(
@@ -2096,6 +2281,7 @@ class GluonStore:
             max_calls_per_hour=max_calls_per_hour,
             max_cost_usd=max_cost_usd,
             agent_id=agent_id,
+            approval_policy=approval_policy,
         )
         with self._get_conn() as conn:
             conn.execute(
@@ -2103,8 +2289,8 @@ class GluonStore:
                 INSERT INTO execution_runs
                 (id, session_id, project_id, pid, status, prompt, original_prompt, initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message, model,
-                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -2127,6 +2313,7 @@ class GluonStore:
                     run.max_calls_per_hour,
                     run.max_cost_usd,
                     run.agent_id,
+                    run.approval_policy.value,
                 ),
             )
         return run
@@ -2225,7 +2412,8 @@ class GluonStore:
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?,
                     queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?,
                     metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?,
-                    agent_id = ?
+                    agent_id = ?,
+                    approval_policy = ?
                 WHERE id = ?
                 """,
                 (
@@ -2302,6 +2490,8 @@ class GluonStore:
                     run.step_id,
                     # Agent linkage (Theme B Phase 1)
                     run.agent_id,
+                    # Approval gates (Theme D1)
+                    run.approval_policy.value,
                     run.id,
                 ),
             )
@@ -2463,6 +2653,12 @@ class GluonStore:
             if "max_calls_per_hour" in keys and row["max_calls_per_hour"] is not None
             else 100,
             max_cost_usd=row["max_cost_usd"] if "max_cost_usd" in keys else None,
+            # Approval gates (Theme D1)
+            approval_policy=(
+                ApprovalPolicy(row["approval_policy"])
+                if "approval_policy" in keys and row["approval_policy"]
+                else ApprovalPolicy.PERMISSIVE
+            ),
             # Supervision fields
             supervision_config=SupervisionConfig(**json.loads(row["supervision_config"]))
             if "supervision_config" in keys and row["supervision_config"]
