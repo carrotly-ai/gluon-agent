@@ -41,6 +41,40 @@ from gluon.worktree import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_default_run_cost_cap(store: "GluonStore") -> float | None:
+    """Resolve the operator-configured default per-run cost cap.
+
+    Priority order:
+        1. DB setting `default_run_max_cost_usd`
+        2. Environment variable `GLUON_DEFAULT_RUN_MAX_COST_USD`
+        3. None (caller falls back to the profile default)
+
+    Returns None when no operator default is configured; callers should then
+    use the profile's built-in budget as before.
+    """
+    try:
+        db_value = store.get_setting("default_run_max_cost_usd")
+    except Exception:
+        db_value = None
+    if db_value:
+        try:
+            return float(db_value)
+        except ValueError:
+            logger.warning("Invalid default_run_max_cost_usd setting %r; ignoring", db_value)
+
+    env_value = os.environ.get("GLUON_DEFAULT_RUN_MAX_COST_USD")
+    if env_value:
+        try:
+            return float(env_value)
+        except ValueError:
+            logger.warning(
+                "Invalid GLUON_DEFAULT_RUN_MAX_COST_USD env var %r; ignoring",
+                env_value,
+            )
+
+    return None
+
+
 # ========== Run Health Assessment ==========
 
 
@@ -393,6 +427,7 @@ class TaskRunner:
         # Determine cost limit:
         # - If user provided explicit cost limit, use it
         # - If Ralph enabled with no explicit limit, use high default ($1000 or env var)
+        # - Else if operator configured `default_run_max_cost_usd` setting, use it
         # - Otherwise use profile's budget
         default_ralph_cost = float(os.environ.get("DEFAULT_RALPH_COST_LIMIT", "1000.0"))
         if max_cost_usd is not None:
@@ -400,7 +435,8 @@ class TaskRunner:
         elif ralph_enabled:
             effective_cost_limit = default_ralph_cost
         else:
-            effective_cost_limit = task_options["max_budget_usd"]
+            operator_default = _resolve_default_run_cost_cap(self.store)
+            effective_cost_limit = operator_default if operator_default is not None else task_options["max_budget_usd"]
 
         # Create run record with resolved model
         run = self.store.create_run(

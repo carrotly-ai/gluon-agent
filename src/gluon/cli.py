@@ -72,6 +72,9 @@ app.add_typer(supervisor_app, name="supervisor")
 worktree_app = typer.Typer(help="Worktree management and cleanup")
 app.add_typer(worktree_app, name="worktree")
 
+settings_app = typer.Typer(help="Gluon global settings (stored in gluon.db)")
+app.add_typer(settings_app, name="settings")
+
 console = Console()
 
 
@@ -3424,6 +3427,88 @@ def worktree_gc(
 
         if stats["errors"] > 0:
             console.print(f"\n[yellow]Errors: {stats['errors']}[/yellow]")
+
+
+# ========== Settings Commands ==========
+
+
+# Well-known setting keys with short descriptions for `gluon settings list`.
+_KNOWN_SETTINGS: dict[str, str] = {
+    "default_run_max_cost_usd": "Default per-run cost cap (USD). Overrides profile default for non-ralph runs.",
+    "prehydration_enabled": "Pre-hydrate project context before the run starts (true/false).",
+    "agent_teams_enabled": "Enable agent teams / sub-agents (true/false).",
+    "skills_enabled": "Enable SDK skills feature (true/false).",
+    "sandbox_enabled": "Enable sandboxed execution (true/false).",
+    "github_webhook_secret": "HMAC secret for GitHub webhook signature verification.",
+}
+
+
+@settings_app.command("list")
+def settings_list() -> None:
+    """Show all Gluon settings stored in the database."""
+    store = GluonStore()
+    all_settings = store.get_all_settings()
+
+    if not all_settings and not _KNOWN_SETTINGS:
+        console.print("[dim]No settings configured.[/dim]")
+        return
+
+    table = Table(title="Gluon Settings")
+    table.add_column("Key", style="cyan")
+    table.add_column("Value")
+    table.add_column("Description", style="dim")
+
+    # Show known settings first (configured or not), then any extras
+    shown: set[str] = set()
+    for key, desc in _KNOWN_SETTINGS.items():
+        value = all_settings.get(key, "[dim](unset)[/dim]")
+        table.add_row(key, value, desc)
+        shown.add(key)
+
+    for key, value in sorted(all_settings.items()):
+        if key in shown:
+            continue
+        table.add_row(key, value, "")
+
+    console.print(table)
+
+
+@settings_app.command("get")
+def settings_get(
+    key: Annotated[str, typer.Argument(help="Setting key")],
+) -> None:
+    """Print a single setting value."""
+    store = GluonStore()
+    value = store.get_setting(key)
+    if value is None:
+        console.print(f"[dim]{key} is unset[/dim]")
+        raise typer.Exit(code=1)
+    console.print(value)
+
+
+@settings_app.command("set")
+def settings_set(
+    key: Annotated[str, typer.Argument(help="Setting key")],
+    value: Annotated[str, typer.Argument(help="Value to store")],
+) -> None:
+    """Set a Gluon setting. Pass values as strings; numeric settings are parsed at use."""
+    store = GluonStore()
+    store.set_setting(key, value)
+    desc = _KNOWN_SETTINGS.get(key, "")
+    console.print(f"[green]Set[/green] [cyan]{key}[/cyan] = {value}")
+    if desc:
+        console.print(f"  [dim]{desc}[/dim]")
+
+
+@settings_app.command("delete")
+def settings_delete(
+    key: Annotated[str, typer.Argument(help="Setting key")],
+) -> None:
+    """Delete a setting (reverts to default)."""
+    store = GluonStore()
+    with store._get_conn() as conn:
+        conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+    console.print(f"[yellow]Deleted[/yellow] setting [cyan]{key}[/cyan]")
 
 
 @queue_app.command("release")
