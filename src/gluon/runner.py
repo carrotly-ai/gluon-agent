@@ -75,6 +75,47 @@ def _resolve_default_run_cost_cap(store: "GluonStore") -> float | None:
     return None
 
 
+def _month_start_utc() -> datetime:
+    """Return the first-of-month timestamp (UTC midnight) for today."""
+    now = datetime.now(UTC)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _enforce_agent_budget(store: "GluonStore", agent_id: str) -> None:
+    """Raise BudgetExceededError if the agent has already hit its monthly cap.
+
+    No-op when the agent has no budget configured. Callers pass the agent_id
+    they're about to link a new run to.
+    """
+    from gluon.core import BudgetExceededError
+
+    agent = store.get_agent(agent_id)
+    if agent is None:
+        return
+    if agent.monthly_budget_usd is None:
+        return
+
+    spent = store.get_agent_monthly_spend(agent_id, _month_start_utc())
+    if spent >= agent.monthly_budget_usd:
+        raise BudgetExceededError(
+            agent_name=agent.name,
+            spent=spent,
+            budget=agent.monthly_budget_usd,
+        )
+
+
+def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
+    """Update the agent's last_active_at timestamp on run start. Best-effort."""
+    try:
+        agent = store.get_agent(agent_id)
+        if agent is None:
+            return
+        agent.last_active_at = datetime.now(UTC)
+        store.update_agent(agent)
+    except Exception:
+        logger.debug("Failed to update agent last_active_at", exc_info=True)
+
+
 # ========== Run Health Assessment ==========
 
 
@@ -388,6 +429,7 @@ class TaskRunner:
         task_budget: int | None = None,
         enable_prehydration: bool = True,
         blueprint_enabled: bool = True,
+        agent_id: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -438,6 +480,10 @@ class TaskRunner:
             operator_default = _resolve_default_run_cost_cap(self.store)
             effective_cost_limit = operator_default if operator_default is not None else task_options["max_budget_usd"]
 
+        # Enforce per-agent monthly budget before spawning the run
+        if agent_id is not None:
+            _enforce_agent_budget(self.store, agent_id)
+
         # Create run record with resolved model
         run = self.store.create_run(
             project_id,
@@ -449,8 +495,13 @@ class TaskRunner:
             max_loops=max_loops,
             max_calls_per_hour=max_calls_per_hour,
             max_cost_usd=effective_cost_limit,
+            agent_id=agent_id,
         )
         run.claude_session_id = claude_session_id  # Set for resume
+
+        # Touch agent activity timestamp
+        if agent_id is not None:
+            _touch_agent_last_active(self.store, agent_id)
 
         # Store profile options in run metadata for _run_task to use
         if run.metadata is None:
