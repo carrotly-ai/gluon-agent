@@ -63,3 +63,4 @@ tmp/
 # Chat transcripts
 *.txt
 .playwright-mcp/
+.claude/scheduled_tasks.lock
