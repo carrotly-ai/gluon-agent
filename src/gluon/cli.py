@@ -3550,6 +3550,8 @@ _KNOWN_SETTINGS: dict[str, str] = {
     "skills_enabled": "Enable SDK skills feature (true/false).",
     "sandbox_enabled": "Enable sandboxed execution (true/false).",
     "github_webhook_secret": "HMAC secret for GitHub webhook signature verification.",
+    "session_cleanup_enabled": ("Auto-delete previous Claude session JSONL files on run completion (default false)."),
+    "session_cleanup_retention_days": "Retention window for orphan Claude sessions (default 30 days).",
 }
 
 
@@ -4718,6 +4720,129 @@ def approvals_expire() -> None:
         console.print("[green]No stale approvals found[/green]")
     else:
         console.print(f"[yellow]Expired {count} stale approval(s)[/yellow]")
+
+
+# ========== Session Cleanup (Theme C5) ==========
+
+
+def _format_bytes_short(num_bytes: int) -> str:
+    """Format a byte count compactly."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if num_bytes < 1024 or unit == "TB":
+            return f"{num_bytes:.1f} {unit}" if unit != "B" else f"{num_bytes} B"
+        num_bytes /= 1024  # type: ignore[assignment]
+    return f"{num_bytes} B"
+
+
+@app.command("sessions-cleanup")
+def sessions_cleanup(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Preview what would be deleted without deleting"),
+    ] = False,
+    older_than_days: Annotated[
+        int | None,
+        typer.Option("--older-than", help="Only delete sessions older than N days (default: from settings)"),
+    ] = None,
+    project: Annotated[
+        str | None,
+        typer.Option("--project", "-p", help="Limit sweep to a single project"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Skip confirmation prompt"),
+    ] = False,
+) -> None:
+    """Delete stale Claude session JSONL files (Theme C5).
+
+    Scopes:
+      - Per-run tracked ancestors (previous_session_ids in metadata) are deleted
+        automatically when a run reaches COMPLETED, if session_cleanup_enabled=true.
+      - This command is the batch sweeper for orphan files on disk.
+
+    By default, sessions referenced by any run (current or previous) are kept,
+    and sessions younger than `session_cleanup_retention_days` (default 30)
+    are kept. Use --older-than to override.
+    """
+    from gluon.session_cleanup import cleanup_orphan_sessions, get_retention_days
+
+    orchestrator = get_orchestrator()
+
+    project_dir: str | None = None
+    if project:
+        try:
+            proj = orchestrator.get_project(project)
+            project_dir = str(proj.expanded_path)
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1) from None
+
+    effective_days = older_than_days if older_than_days is not None else get_retention_days(orchestrator.store)
+
+    console.print(
+        f"[dim]Scanning for orphan sessions older than {effective_days} days"
+        + (f" in project [cyan]{project}[/cyan]" if project else " (all projects)")
+        + "...[/dim]"
+    )
+
+    preview = cleanup_orphan_sessions(
+        orchestrator.store,
+        directory=project_dir,
+        older_than_days=effective_days,
+        dry_run=True,
+    )
+
+    from gluon.session_cleanup import CleanupPreview
+
+    assert isinstance(preview, CleanupPreview)
+
+    console.print()
+    console.print(f"[bold]Candidates for deletion:[/bold] {preview.count}")
+    console.print(f"  Skipped (referenced by a run): {preview.skipped_referenced}")
+    console.print(f"  Skipped (within retention):    {preview.skipped_recent}")
+    console.print(f"  Total bytes to free:           {_format_bytes_short(preview.total_bytes)}")
+
+    if preview.count == 0:
+        console.print()
+        console.print("[green]Nothing to clean up.[/green]")
+        return
+
+    if dry_run:
+        console.print()
+        console.print("[dim]Dry run — no files deleted.[/dim]")
+        return
+
+    if not force:
+        console.print()
+        confirm = typer.confirm(f"Delete {preview.count} session JSONL files?")
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    result = cleanup_orphan_sessions(
+        orchestrator.store,
+        directory=project_dir,
+        older_than_days=effective_days,
+        dry_run=False,
+    )
+
+    from gluon.session_cleanup import CleanupResult
+
+    assert isinstance(result, CleanupResult)
+
+    console.print()
+    console.print("[bold]Cleanup complete:[/bold]")
+    console.print(f"  Deleted: [green]{result.deleted}[/green]")
+    console.print(f"  Failed:  [red]{result.failed}[/red]")
+    console.print(f"  Freed:   {_format_bytes_short(result.bytes_freed)}")
+
+    if result.failed:
+        console.print()
+        console.print("[red]Failed session IDs:[/red]")
+        for sid in result.errors[:10]:
+            console.print(f"  - {sid}")
+        if len(result.errors) > 10:
+            console.print(f"  ...and {len(result.errors) - 10} more")
 
 
 @queue_app.command("release")

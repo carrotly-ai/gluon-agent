@@ -235,6 +235,55 @@ def check_stale_queue_claims(store: GluonStore) -> DiagnosticResult:
     )
 
 
+def check_claude_session_disk_usage(store: GluonStore) -> DiagnosticResult:
+    """Warn when Claude SDK session JSONL files consume >1 GB.
+
+    Part of Theme C5. Sessions accumulate with every fork; long-lived
+    projects can hit double-digit GB if nothing cleans up. The `gluon
+    sessions-cleanup` command drains orphans safely.
+    """
+    try:
+        from claude_agent_sdk import list_sessions
+    except ImportError:
+        return DiagnosticResult(
+            name="Claude Session Disk Usage",
+            status="ok",
+            message="SDK session inspection unavailable",
+        )
+
+    try:
+        sessions = list_sessions(limit=100000)
+    except Exception:
+        return DiagnosticResult(
+            name="Claude Session Disk Usage",
+            status="ok",
+            message="Session store unreadable (may be empty)",
+        )
+
+    total_bytes = sum(int(getattr(s, "file_size", 0) or 0) for s in sessions)
+    count = len(sessions)
+
+    def _fmt(n: int) -> str:
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if n < 1024 or unit == "TB":
+                return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+            n //= 1024
+        return f"{n} B"
+
+    if total_bytes > 1024**3:  # >1 GB
+        return DiagnosticResult(
+            name="Claude Session Disk Usage",
+            status="warn",
+            message=(f"{count:,} sessions consuming {_fmt(total_bytes)}. Consider running 'gluon sessions-cleanup'."),
+            fixable=True,
+        )
+    return DiagnosticResult(
+        name="Claude Session Disk Usage",
+        status="ok",
+        message=f"{count:,} sessions, {_fmt(total_bytes)}",
+    )
+
+
 def run_diagnostics(store: GluonStore, log_path: Path) -> list[DiagnosticResult]:
     """Run all health checks and return results."""
     return [
@@ -245,6 +294,7 @@ def run_diagnostics(store: GluonStore, log_path: Path) -> list[DiagnosticResult]
         check_stale_pending_questions(store),
         check_activity_log_size(store),
         check_stale_queue_claims(store),
+        check_claude_session_disk_usage(store),
     ]
 
 
