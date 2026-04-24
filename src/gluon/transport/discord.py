@@ -299,24 +299,52 @@ def parse_project_specifier(text: str) -> tuple[str, str | None]:
     return text.strip(), None
 
 
+def parse_agent_flag(text: str) -> tuple[str, str | None]:
+    """Parse --agent or -a flag from prompt text.
+
+    Mirrors `parse_model_flag` but for agent name/ID. The flag value is not
+    normalized (agent names are opaque strings resolved by the orchestrator).
+
+    Args:
+        text: The prompt text potentially containing --agent flag
+
+    Returns:
+        Tuple of (cleaned_prompt, agent_name_or_id or None)
+
+    Examples:
+        "fix the bug --agent researcher" -> ("fix the bug", "researcher")
+        "fix the bug -a abc12345" -> ("fix the bug", "abc12345")
+        "fix the bug" -> ("fix the bug", None)
+    """
+    pattern = r"\s*(?:--agent|-a)\s+(\S+)\s*"
+    match = re.search(pattern, text, re.IGNORECASE)
+
+    if not match:
+        return text.strip(), None
+
+    agent = match.group(1)
+    cleaned = re.sub(pattern, " ", text, flags=re.IGNORECASE).strip()
+    return cleaned, agent
+
+
 def parse_channel_topic(topic: str | None) -> dict[str, str | None]:
     """Parse channel topic for configuration flags.
 
     Channel topics can contain configuration like:
-        --project myproject --model haiku
+        --project myproject --model haiku --agent researcher
 
     Args:
         topic: The channel topic string
 
     Returns:
-        Dict with 'project' and 'model' keys (values may be None)
+        Dict with 'project', 'model', and 'agent' keys (values may be None)
 
     Examples:
-        "--project foo --model opus" -> {"project": "foo", "model": "claude-opus-4.5"}
-        "This is our dev channel --model haiku" -> {"project": None, "model": "claude-haiku-4.5"}
-        "Regular topic" -> {"project": None, "model": None}
+        "--project foo --model opus" -> {"project": "foo", "model": "claude-opus-4.5", "agent": None}
+        "--project foo --agent researcher" -> {"project": "foo", "model": None, "agent": "researcher"}
+        "Regular topic" -> {"project": None, "model": None, "agent": None}
     """
-    result: dict[str, str | None] = {"project": None, "model": None}
+    result: dict[str, str | None] = {"project": None, "model": None, "agent": None}
 
     if not topic:
         return result
@@ -333,6 +361,12 @@ def parse_channel_topic(topic: str | None) -> dict[str, str | None]:
     if model_match:
         model_arg = model_match.group(1).lower()
         result["model"] = MODEL_ALIASES.get(model_arg)
+
+    # Parse --agent or -a flag (agent names pass through verbatim)
+    agent_pattern = r"(?:--agent|-a)\s+(\S+)"
+    agent_match = re.search(agent_pattern, topic, re.IGNORECASE)
+    if agent_match:
+        result["agent"] = agent_match.group(1)
 
     return result
 
@@ -841,7 +875,8 @@ class DiscordTransport(Transport):
             "**Tasks:**\n"
             f"`@{bot_name} <task>` - Run a task\n"
             f"`@{bot_name} <task> --model opus` - Override model for this task\n"
-            f"`@{bot_name} <task> -m haiku` - Short form\n\n"
+            f"`@{bot_name} <task> --agent researcher` - Run as a specific agent\n"
+            f"`@{bot_name} <task> -m haiku -a researcher` - Short forms\n\n"
             "**Commands:**\n"
             "`projects` - List registered projects\n"
             "`runs` - List active/recent runs\n"
@@ -852,7 +887,7 @@ class DiscordTransport(Transport):
             "`help` - Show this help\n\n"
             "**Channel Topic Config:**\n"
             "Set defaults in channel topic:\n"
-            "`--project myproject --model haiku`\n\n"
+            "`--project myproject --model haiku --agent researcher`\n\n"
             "**Resume:** Reply to a completion message to continue\n\n"
             "**DMs:** Send me a direct message!\n"
             "- Chat naturally, or\n"
@@ -935,7 +970,8 @@ class DiscordTransport(Transport):
             "check status, or help plan tasks.\n\n"
             "**Task Mode:**\n"
             "`project:myapp fix the bug` - Run task on project\n"
-            "`p:myapp add tests --model opus` - Short form with model override\n\n"
+            "`p:myapp add tests --model opus` - Short form with model override\n"
+            "`p:myapp review PR --agent researcher` - Target a specific agent\n\n"
             "**Commands:**\n"
             "`projects` - List registered projects\n"
             "`runs` - List your recent runs\n"
@@ -978,6 +1014,8 @@ class DiscordTransport(Transport):
 
     async def _handle_dm_task(self, message: discord.Message, project_name: str, prompt: str) -> None:
         """Handle task execution from DM with project specifier."""
+        from gluon.core import AgentAmbiguousError, AgentNotFoundError, BudgetExceededError
+
         user_id = f"discord:{message.author.id}"
 
         # Validate project exists
@@ -1007,10 +1045,37 @@ class DiscordTransport(Transport):
             )
             return
 
-        # Parse --model flag from prompt
-        cleaned_prompt, model = parse_model_flag(prompt)
+        # Parse --agent flag from prompt (DM has no channel topic fallback)
+        cleaned_prompt, agent_ref = parse_agent_flag(prompt)
+
+        try:
+            resolved_agent_id = self.bot_core.orchestrator.resolve_agent(agent_ref, project.workspace_id)
+        except AgentNotFoundError as e:
+            await message.reply(f"❌ {e}")
+            return
+        except AgentAmbiguousError as e:
+            await message.reply(f"❌ {e}")
+            return
+
+        agent_display_name: str | None = None
+        if resolved_agent_id is not None:
+            resolved_agent = self.bot_core.store.get_agent(resolved_agent_id)
+            if resolved_agent is not None:
+                agent_display_name = resolved_agent.name
+
+        # Parse --model flag from the (agent-stripped) prompt
+        cleaned_prompt, model = parse_model_flag(cleaned_prompt)
         if not model:
             model = DEFAULT_MODEL
+
+        # Proactively check the agent's monthly budget so we fail fast before
+        # creating the run.
+        if resolved_agent_id is not None:
+            try:
+                self.bot_core.orchestrator._enforce_agent_budget(resolved_agent_id)
+            except BudgetExceededError as e:
+                await message.reply(f"❌ {e}")
+                return
 
         # Create run record
         run = self.bot_core.store.create_run(
@@ -1018,14 +1083,17 @@ class DiscordTransport(Transport):
             cleaned_prompt,
             initiator=user_id,
             model=model,
+            agent_id=resolved_agent_id,
         )
 
         # Format model name for display
         model_short = model.replace("claude-", "").replace("-4.5", "")
 
-        # Send initial status message
+        # Send initial status message (optionally showing the agent name)
+        agent_line = f" with agent `{agent_display_name}`" if agent_display_name else ""
         status_msg = await message.reply(
-            f"🚀 **Starting task** on `{project.name}` ({model_short})\nRun: `{run.id[:8]}`\nStatus: Running..."
+            f"🚀 **Starting task** on `{project.name}` ({model_short}){agent_line}\n"
+            f"Run: `{run.id[:8]}`\nStatus: Running..."
         )
 
         ctx = self._make_context(message, project_hint=project.name)
@@ -1180,6 +1248,8 @@ class DiscordTransport(Transport):
         prompt: str,
     ) -> None:
         """Handle a task execution request."""
+        from gluon.core import AgentAmbiguousError, AgentNotFoundError, BudgetExceededError
+
         user_id = ctx.user_id
 
         if self.bot_core.is_at_capacity():
@@ -1189,28 +1259,68 @@ class DiscordTransport(Transport):
             )
             return
 
-        # Parse --model flag from prompt (highest priority)
-        cleaned_prompt, model = parse_model_flag(prompt)
+        # Resolve the project (we need workspace_id for agent resolution)
+        try:
+            project = self.bot_core.orchestrator.get_project(project_name)
+        except ProjectNotFoundError as e:
+            await message.reply(f"Error: {e}")
+            return
+
+        # Parse --agent flag from prompt (highest priority), then channel topic
+        cleaned_prompt, agent_ref = parse_agent_flag(prompt)
+        topic_config = self._get_channel_topic_config(message.channel)
+        if agent_ref is None:
+            agent_ref = topic_config.get("agent")
+
+        # Resolve the agent; None triggers auto-link if the workspace has one active agent
+        try:
+            resolved_agent_id = self.bot_core.orchestrator.resolve_agent(agent_ref, project.workspace_id)
+        except AgentNotFoundError as e:
+            await message.reply(f"❌ {e}")
+            return
+        except AgentAmbiguousError as e:
+            await message.reply(f"❌ {e}")
+            return
+
+        agent_display_name: str | None = None
+        if resolved_agent_id is not None:
+            resolved_agent = self.bot_core.store.get_agent(resolved_agent_id)
+            if resolved_agent is not None:
+                agent_display_name = resolved_agent.name
+
+        # Parse --model flag from (already agent-stripped) prompt
+        cleaned_prompt, model = parse_model_flag(cleaned_prompt)
 
         # Fall back to channel topic --model, then default
         if not model:
-            topic_config = self._get_channel_topic_config(message.channel)
             model = topic_config["model"] or DEFAULT_MODEL
 
-        # Create run record with model
+        # Proactively check the agent's monthly budget so we fail fast before
+        # creating the run.
+        if resolved_agent_id is not None:
+            try:
+                self.bot_core.orchestrator._enforce_agent_budget(resolved_agent_id)
+            except BudgetExceededError as e:
+                await message.reply(f"❌ {e}")
+                return
+
+        # Create run record with model + resolved agent
         run = self.bot_core.store.create_run(
-            self.bot_core.orchestrator.get_project(project_name).id,
+            project.id,
             cleaned_prompt,
             initiator=user_id,
             model=model,
+            agent_id=resolved_agent_id,
         )
 
         # Format model name for display (opus/sonnet/haiku)
         model_short = model.replace("claude-", "").replace("-4.5", "")
 
-        # Send initial status message
+        # Send initial status message (optionally showing the agent name)
+        agent_line = f" with agent `{agent_display_name}`" if agent_display_name else ""
         status_msg = await message.reply(
-            f"🚀 **Starting task** on `{project_name}` ({model_short})\nRun: `{run.id[:8]}`\nStatus: Running..."
+            f"🚀 **Starting task** on `{project_name}` ({model_short}){agent_line}\n"
+            f"Run: `{run.id[:8]}`\nStatus: Running..."
         )
 
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
