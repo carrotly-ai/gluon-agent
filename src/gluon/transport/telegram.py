@@ -6,9 +6,10 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -20,9 +21,78 @@ from gluon.transport.base import Transport, TransportContext, TransportResponse
 from gluon.transport.capabilities import TELEGRAM_CAPS, TransportCapabilities
 
 if TYPE_CHECKING:
-    pass
+    from gluon.models import PendingApproval
 
 logger = logging.getLogger(__name__)
+
+
+# Prefix used in callback_data so the global callback dispatcher knows this
+# button belongs to an approval decision. Format: "approval:<decision>:<id>"
+# Total must stay under Telegram's 64-byte callback_data limit — we use the
+# full approval UUID which is 36 chars, leaving plenty of headroom.
+_APPROVAL_CALLBACK_PREFIX = "approval"
+
+
+def _truncate(text: str, limit: int = 300) -> str:
+    """Trim text to `limit` chars with an ellipsis — used for Telegram preview.
+
+    Telegram message bodies have a hard 4,096-char cap, but approval messages
+    should stay compact and scannable on a phone.
+    """
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def format_approval_message(approval: PendingApproval) -> str:
+    """Format a PendingApproval as a Telegram message body (Markdown)."""
+    lines = [
+        "🔒 *Approval needed*",
+        "",
+        f"*Run:* `{approval.run_id[:8]}`",
+        f"*Tool:* `{approval.tool_name}`",
+        f"*Reason:* {_truncate(approval.classification_reason, 200)}",
+    ]
+
+    # Render tool input — prioritize Bash commands, then fall back to JSON keys
+    command = approval.tool_input.get("command") if isinstance(approval.tool_input, dict) else None
+    if command:
+        lines.append("")
+        lines.append("```")
+        lines.append(_truncate(str(command), 400))
+        lines.append("```")
+    else:
+        # Show a compact key summary for Write/Edit/etc
+        if isinstance(approval.tool_input, dict) and approval.tool_input:
+            pieces = []
+            for key in ("file_path", "path", "url", "command"):
+                if key in approval.tool_input:
+                    pieces.append(f"{key}=`{_truncate(str(approval.tool_input[key]), 80)}`")
+            if pieces:
+                lines.append("")
+                lines.append("  ".join(pieces))
+
+    lines.append("")
+    lines.append(f"_approval `{approval.id[:8]}`_")
+    return "\n".join(lines)
+
+
+def build_approval_keyboard(approval_id: str) -> InlineKeyboardMarkup:
+    """Build the Approve/Deny inline keyboard for an approval message."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ Approve",
+                    callback_data=f"{_APPROVAL_CALLBACK_PREFIX}:grant:{approval_id}",
+                ),
+                InlineKeyboardButton(
+                    "❌ Deny",
+                    callback_data=f"{_APPROVAL_CALLBACK_PREFIX}:deny:{approval_id}",
+                ),
+            ]
+        ]
+    )
 
 
 class TelegramTransport(Transport):
@@ -36,6 +106,7 @@ class TelegramTransport(Transport):
         token: str,
         bot_core: GluonBotCore,
         allowed_users: list[int] | None = None,
+        approval_chat_id: int | None = None,
     ):
         """Initialize Telegram transport.
 
@@ -43,12 +114,22 @@ class TelegramTransport(Transport):
             token: Telegram bot token from @BotFather
             bot_core: Bot core instance for business logic
             allowed_users: List of allowed Telegram user IDs
+            approval_chat_id: Chat to send approval requests to. Defaults to
+                the first allowed user's DM — set via GLUON_TELEGRAM_APPROVAL_CHAT.
         """
         self.token = token
         self.bot_core = bot_core
         self._allowed_users: set[str] | None = None
+        self._allowed_user_ids: list[int] = list(allowed_users) if allowed_users else []
         if allowed_users:
             self._allowed_users = {f"telegram:{uid}" for uid in allowed_users}
+
+        # Where to post approval requests. Prefer explicit arg, else first
+        # allowed user (for DM notification). Transport falls back to
+        # logging-only if neither is available.
+        self.approval_chat_id = approval_chat_id
+        if self.approval_chat_id is None and self._allowed_user_ids:
+            self.approval_chat_id = self._allowed_user_ids[0]
 
         self.app: Application | None = None
 
@@ -169,6 +250,117 @@ class TelegramTransport(Transport):
             logger.warning(f"Failed to edit message: {e}")
             return False
 
+    async def post_approval_request(self, approval: PendingApproval) -> bool:
+        """Post an approval request to Telegram with Approve/Deny buttons.
+
+        Called by the ApprovalWatcher. Returns True on success, False on
+        failure so the watcher retries. If no approval_chat_id is configured,
+        skips (returns False — there's no one to notify).
+        """
+        if not self.app:
+            logger.debug("Telegram app not started; skipping approval post")
+            return False
+        if self.approval_chat_id is None:
+            logger.warning(
+                "Telegram has no approval_chat_id configured; skipping approval %s",
+                approval.id[:8],
+            )
+            # Return True so we don't spam the log — operator needs to configure
+            # GLUON_TELEGRAM_APPROVAL_CHAT for approvals to arrive.
+            return True
+
+        body = format_approval_message(approval)
+        keyboard = build_approval_keyboard(approval.id)
+
+        try:
+            await self.app.bot.send_message(
+                chat_id=self.approval_chat_id,
+                text=body,
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+            return True
+        except Exception as e:
+            logger.warning("Failed to post approval %s to Telegram: %s", approval.id[:8], e)
+            # Retry on next tick — markdown might be the problem, try plain
+            try:
+                await self.app.bot.send_message(
+                    chat_id=self.approval_chat_id,
+                    text=body,
+                    reply_markup=keyboard,
+                )
+                return True
+            except Exception as e2:
+                logger.warning("Plain-text approval post also failed: %s", e2)
+                return False
+
+    async def _handle_approval_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle Approve/Deny button presses on approval messages."""
+        from gluon.models import ApprovalStatus
+
+        query = update.callback_query
+        if query is None or not query.data:
+            return
+
+        # Parse callback_data: approval:grant:<id> or approval:deny:<id>
+        parts = query.data.split(":", 2)
+        if len(parts) != 3 or parts[0] != _APPROVAL_CALLBACK_PREFIX:
+            return
+        _, decision, approval_id = parts
+
+        user_id_int = query.from_user.id if query.from_user else 0
+        user_id = f"telegram:{user_id_int}"
+
+        if not self.is_authorized(user_id):
+            await query.answer("Not authorized.", show_alert=True)
+            return
+
+        approval = self.bot_core.store.get_approval(approval_id)
+        if approval is None:
+            await query.answer("Approval not found.", show_alert=True)
+            return
+
+        if approval.status != ApprovalStatus.PENDING:
+            # Already decided — acknowledge and update the UI
+            await query.answer(f"Already {approval.status.value}.", show_alert=False)
+            try:
+                await query.edit_message_text(
+                    text=(
+                        f"{format_approval_message(approval)}\n\n"
+                        f"_Already {approval.status.value} "
+                        f"by {approval.decided_by or 'unknown'}._"
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                logger.debug("Could not edit already-decided approval message", exc_info=True)
+            return
+
+        new_status = ApprovalStatus.GRANTED if decision == "grant" else ApprovalStatus.DENIED
+        updated = self.bot_core.store.decide_approval(
+            approval.id,
+            status=new_status,
+            decided_by=f"telegram:{user_id_int}",
+            decision_reason=f"Via Telegram by user {user_id_int}",
+        )
+        if updated is None:
+            await query.answer("Approval vanished after click.", show_alert=True)
+            return
+
+        # Update the message to show the decision
+        emoji = "✅" if new_status == ApprovalStatus.GRANTED else "❌"
+        verb = "Approved" if new_status == ApprovalStatus.GRANTED else "Denied"
+        try:
+            await query.edit_message_text(
+                text=(f"{format_approval_message(updated)}\n\n{emoji} *{verb}* by user `{user_id_int}`"),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            # If edit fails (e.g., message too old), at least acknowledge
+            logger.debug("Could not edit approval message after decision", exc_info=True)
+
+        await query.answer(f"{verb}.")
+
     async def send_typing(self, ctx: TransportContext) -> None:
         """Send typing indicator."""
         if not self.app:
@@ -198,6 +390,8 @@ class TelegramTransport(Transport):
 
     async def start(self) -> None:
         """Start the Telegram bot."""
+        from gluon.approval_watcher import ApprovalWatcher
+
         self.app = Application.builder().token(self.token).build()
         self._register_handlers()
 
@@ -211,11 +405,28 @@ class TelegramTransport(Transport):
         await self.app.start()
         await self.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
+        # Start approval watcher — posts un-notified approval requests with
+        # Approve/Deny buttons. Only meaningful if approval_chat_id is set.
+        self._approval_watcher: ApprovalWatcher | None = ApprovalWatcher(
+            store=self.bot_core.store,
+            poster=self,
+            name="telegram-approvals",
+        )
+        await self._approval_watcher.start()
+
         logger.info("Telegram transport started")
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
         if self.app:
+            # Stop approval watcher
+            watcher = getattr(self, "_approval_watcher", None)
+            if watcher is not None:
+                try:
+                    await watcher.stop()
+                except Exception:
+                    logger.debug("Approval watcher stop failed", exc_info=True)
+
             # Stop git sync
             await self.bot_core.git_manager.stop_background_sync()
 
@@ -239,6 +450,14 @@ class TelegramTransport(Transport):
         self.app.add_handler(CommandHandler("runs", self._handle_runs))
         self.app.add_handler(CommandHandler("cancel", self._handle_cancel))
         self.app.add_handler(CommandHandler("clear", self._handle_clear))
+
+        # Approval inline keyboard callbacks (Approve/Deny buttons)
+        self.app.add_handler(
+            CallbackQueryHandler(
+                self._handle_approval_callback,
+                pattern=f"^{_APPROVAL_CALLBACK_PREFIX}:",
+            )
+        )
 
         # Natural language handler
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message))
