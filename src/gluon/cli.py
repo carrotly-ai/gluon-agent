@@ -19,6 +19,7 @@ from gluon.core import (
     Orchestrator,
     ProjectExistsError,
     ProjectNotFoundError,
+    WorkspaceBudgetExceededError,
     WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
@@ -187,15 +188,37 @@ def workspace_add(
     name: Annotated[str, typer.Argument(help="Unique name for the workspace")],
     path: Annotated[Path, typer.Argument(help="Path to workspace directory")],
     no_scan: Annotated[bool, typer.Option("--no-scan", help="Don't auto-scan for projects")] = False,
+    daily: Annotated[
+        float | None,
+        typer.Option("--daily", help="Daily rolling budget in USD (0 = unset)"),
+    ] = None,
+    monthly: Annotated[
+        float | None,
+        typer.Option("--monthly", help="Monthly rolling budget in USD (0 = unset)"),
+    ] = None,
 ):
     """Register a new workspace and scan for projects."""
     orchestrator = get_orchestrator()
 
     try:
         workspace, projects = orchestrator.register_workspace(name, path, auto_scan=not no_scan)
+
+        # Apply initial budgets if supplied. Treat 0 as "unset" to match the
+        # `workspace budget` command semantics.
+        if daily is not None or monthly is not None:
+            if daily is not None:
+                workspace.daily_budget_usd = daily if daily > 0 else None
+            if monthly is not None:
+                workspace.monthly_budget_usd = monthly if monthly > 0 else None
+            orchestrator.store.update_workspace(workspace)
+
         console.print(f"[green]✓[/green] Workspace '{workspace.name}' registered")
         console.print(f"  Path: {workspace.path}")
         console.print(f"  ID: {workspace.id}")
+        if workspace.daily_budget_usd is not None:
+            console.print(f"  Daily budget: ${workspace.daily_budget_usd:.2f}")
+        if workspace.monthly_budget_usd is not None:
+            console.print(f"  Monthly budget: ${workspace.monthly_budget_usd:.2f}")
 
         if projects:
             console.print(f"\n[bold]Discovered {len(projects)} project(s):[/bold]")
@@ -230,15 +253,21 @@ def workspace_list():
     table.add_column("Name", style="cyan")
     table.add_column("Path")
     table.add_column("Projects", justify="right")
+    table.add_column("Daily budget", justify="right")
+    table.add_column("Monthly budget", justify="right")
     table.add_column("Auto-discover")
     table.add_column("ID", style="dim")
 
     for ws in workspaces:
         projects = orchestrator.list_workspace_projects(ws.name)
+        daily_str = f"${ws.daily_budget_usd:.2f}" if ws.daily_budget_usd is not None else "—"
+        monthly_str = f"${ws.monthly_budget_usd:.2f}" if ws.monthly_budget_usd is not None else "—"
         table.add_row(
             ws.name,
             str(ws.path),
             str(len(projects)),
+            daily_str,
+            monthly_str,
             "Yes" if ws.auto_discover else "No",
             ws.id[:8],
         )
@@ -342,6 +371,115 @@ def workspace_projects(
         table.add_row(p.name, str(p.path), str(len(sessions)))
 
     console.print(table)
+
+
+@workspace_app.command("budget")
+def workspace_budget(
+    name: Annotated[str, typer.Argument(help="Workspace name or ID")],
+    daily: Annotated[
+        float | None,
+        typer.Option("--daily", help="Daily rolling budget in USD (0 to clear)"),
+    ] = None,
+    monthly: Annotated[
+        float | None,
+        typer.Option("--monthly", help="Monthly rolling budget in USD (0 to clear)"),
+    ] = None,
+) -> None:
+    """Set or clear daily/monthly rolling cost budgets for a workspace.
+
+    Pass 0 to clear a budget. When neither flag is supplied, the current
+    budgets are printed (use `workspace show` for richer output).
+    """
+    orchestrator = get_orchestrator()
+
+    try:
+        workspace = orchestrator.get_workspace(name)
+    except WorkspaceNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    if daily is None and monthly is None:
+        console.print(f"[bold cyan]{workspace.name}[/bold cyan] budgets")
+        if workspace.daily_budget_usd is not None:
+            daily_str = f"${workspace.daily_budget_usd:.2f}"
+        else:
+            daily_str = "[dim]unset[/dim]"
+        if workspace.monthly_budget_usd is not None:
+            monthly_str = f"${workspace.monthly_budget_usd:.2f}"
+        else:
+            monthly_str = "[dim]unset[/dim]"
+        console.print(f"  Daily:   {daily_str}")
+        console.print(f"  Monthly: {monthly_str}")
+        console.print("\n[dim]Use --daily/--monthly to change; pass 0 to clear.[/dim]")
+        return
+
+    changes: list[str] = []
+    if daily is not None:
+        if daily == 0:
+            workspace.daily_budget_usd = None
+            changes.append("daily=cleared")
+        else:
+            workspace.daily_budget_usd = daily
+            changes.append(f"daily=${daily:.2f}")
+    if monthly is not None:
+        if monthly == 0:
+            workspace.monthly_budget_usd = None
+            changes.append("monthly=cleared")
+        else:
+            workspace.monthly_budget_usd = monthly
+            changes.append(f"monthly=${monthly:.2f}")
+
+    orchestrator.store.update_workspace(workspace)
+    console.print(f"[green]✓[/green] Updated workspace [cyan]{workspace.name}[/cyan]: {', '.join(changes)}")
+
+
+@workspace_app.command("show")
+def workspace_show(
+    name: Annotated[str, typer.Argument(help="Workspace name or ID")],
+) -> None:
+    """Show workspace detail including current-period spend vs budgets."""
+    orchestrator = get_orchestrator()
+
+    try:
+        workspace = orchestrator.get_workspace(name)
+    except WorkspaceNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    projects = orchestrator.list_workspace_projects(workspace.name)
+    store = orchestrator.store
+
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    spent_today = store.get_workspace_daily_spend(workspace.id, now)
+    spent_month = store.get_workspace_monthly_spend(workspace.id, now)
+
+    console.print(f"[bold cyan]{workspace.name}[/bold cyan] (id [dim]{workspace.id}[/dim])")
+    console.print(f"  Path: {workspace.path}")
+    console.print(f"  Projects: {len(projects)}")
+    console.print(f"  Auto-discover: {'yes' if workspace.auto_discover else 'no'}")
+
+    # Daily
+    if workspace.daily_budget_usd is not None:
+        pct = (spent_today / workspace.daily_budget_usd) * 100 if workspace.daily_budget_usd > 0 else 0
+        color = "green" if pct < 80 else ("yellow" if pct < 100 else "red")
+        console.print(
+            f"  Spend today: [{color}]${spent_today:.2f}[/{color}] / ${workspace.daily_budget_usd:.2f} ({pct:.1f}%)"
+        )
+    else:
+        console.print(f"  Spend today: ${spent_today:.2f} (no cap)")
+
+    # Monthly
+    if workspace.monthly_budget_usd is not None:
+        pct = (spent_month / workspace.monthly_budget_usd) * 100 if workspace.monthly_budget_usd > 0 else 0
+        color = "green" if pct < 80 else ("yellow" if pct < 100 else "red")
+        console.print(
+            f"  Spend this month: [{color}]${spent_month:.2f}[/{color}] / "
+            f"${workspace.monthly_budget_usd:.2f} ({pct:.1f}%)"
+        )
+    else:
+        console.print(f"  Spend this month: ${spent_month:.2f} (no cap)")
 
 
 # ========== Git Commands ==========
@@ -1007,6 +1145,9 @@ def run(
         except BudgetExceededError as e:
             console.print(f"[red]Budget exceeded:[/red] {e}")
             raise typer.Exit(1) from None
+        except WorkspaceBudgetExceededError as e:
+            console.print(f"[red]Workspace budget exceeded:[/red] {e}")
+            raise typer.Exit(1) from None
         return
 
     # Foreground execution (existing behavior)
@@ -1058,6 +1199,9 @@ def run(
         anyio.run(_run)
     except BudgetExceededError as e:
         console.print(f"[red]Budget exceeded:[/red] {e}")
+        raise typer.Exit(1) from None
+    except WorkspaceBudgetExceededError as e:
+        console.print(f"[red]Workspace budget exceeded:[/red] {e}")
         raise typer.Exit(1) from None
 
 

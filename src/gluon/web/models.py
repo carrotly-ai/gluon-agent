@@ -352,6 +352,27 @@ class CreateWorkspaceRequest(BaseModel):
     name: str = Field(description="Workspace name (must be unique)")
     path: str = Field(description="Absolute path to workspace directory")
     auto_scan: bool = Field(default=True, description="Auto-scan for projects on creation")
+    daily_budget_usd: float | None = Field(
+        default=None,
+        description="Optional daily rolling cost cap in USD",
+    )
+    monthly_budget_usd: float | None = Field(
+        default=None,
+        description="Optional monthly rolling cost cap in USD",
+    )
+
+
+class UpdateWorkspaceBudgetRequest(BaseModel):
+    """Request model for updating workspace rolling budgets (Theme D2)."""
+
+    daily_budget_usd: float | None = Field(
+        default=None,
+        description="Daily rolling cost cap in USD. Pass 0 to clear.",
+    )
+    monthly_budget_usd: float | None = Field(
+        default=None,
+        description="Monthly rolling cost cap in USD. Pass 0 to clear.",
+    )
 
 
 class WorkspaceResponse(BaseModel):
@@ -362,6 +383,10 @@ class WorkspaceResponse(BaseModel):
     path: str
     project_count: int = 0
     auto_discover: bool = True
+    daily_budget_usd: float | None = None
+    monthly_budget_usd: float | None = None
+    daily_spend_usd: float = 0.0
+    monthly_spend_usd: float = 0.0
 
     class Config:
         from_attributes = True

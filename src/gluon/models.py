@@ -486,6 +486,9 @@ class Workspace(BaseModel):
     scan_depth: int = 1  # How deep to scan for projects (1 = immediate children)
     auto_discover: bool = True  # Whether to auto-discover projects
     ignore_patterns: list[str] = Field(default_factory=lambda: [".*", "node_modules", "__pycache__", "venv", ".venv"])
+    # Rolling budgets — None = unset/no cap; enforced across all projects and runs in this workspace
+    daily_budget_usd: float | None = None  # Per-calendar-day (UTC) cost cap in USD
+    monthly_budget_usd: float | None = None  # Per-calendar-month (UTC) cost cap in USD
 
     def model_post_init(self, __context: Any) -> None:
         """Convert path to Path object if needed."""
