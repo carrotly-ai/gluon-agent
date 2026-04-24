@@ -774,7 +774,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'discord'", specifier = ">=3.13.3" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=0.39.0" },
     { name = "anyio", specifier = ">=4.0.0" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.65" },
+    { name = "claude-agent-sdk", specifier = ">=0.1.66" },
     { name = "croniter", specifier = ">=2.0.0" },
     { name = "discord-py", marker = "extra == 'all'", specifier = ">=2.3.0" },
     { name = "discord-py", marker = "extra == 'discord'", specifier = ">=2.3.0" },
