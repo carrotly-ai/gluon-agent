@@ -1,7 +1,7 @@
-# Why we built Gluon: self-hosted Claude Code orchestration on AWS Bedrock
+# Why we built Gluon: self-hosted Claude Code orchestration on your own backend
 
 **Status**: Draft
-**Date**: 2026-04-24
+**Date**: 2026-04-25
 **Audience**: engineers evaluating Claude Code orchestrators
 **Publication target**: Medium + dev.to + r/ClaudeAI + HN
 
@@ -37,30 +37,44 @@ your own server. It gives you:
 - Background execution with a self-propelling work queue
 - Cost tracking + per-run caps + (as of this week) operator-settable defaults
 
-None of that depends on Claude Pro. Gluon invokes Claude through **AWS
-Bedrock** using your own AWS credentials. When Anthropic's subscription
-model shifts, nothing about Gluon changes.
+None of that depends on Claude Pro. Gluon invokes Claude through whichever
+backend your organisation already pays for — **AWS Bedrock**, **Google
+Vertex AI**, **Microsoft Foundry** (Azure AI Foundry), or the **direct
+Anthropic API** / Claude CLI subscription. Switch with a single command
+(`gluon provider vertex`), an env var, or a toggle in the web dashboard
+Settings page. When Anthropic's subscription model shifts, you can pivot
+to Bedrock or Vertex in ten seconds without touching code.
 
-## Why Bedrock, specifically
+## Why multi-backend, specifically
 
-Bedrock is not a workaround. For teams with any AWS footprint it's the
-better place to run Claude for three reasons:
+The standard "use Claude Code" story ties you to Anthropic's direct API
+pricing and reliability. That's fine for a lot of teams. For the rest,
+running Claude through a cloud provider you already use adds three things
+the direct API can't:
 
-1. **Pricing is per-token at published rates.** No subscription tiers. You
-   set budgets, track spend per run, and can predict the monthly bill.
-2. **Your data stays inside your AWS account.** Gluon's container reads
-   your `~/.aws/credentials`; prompts and responses go between you, Bedrock,
-   and Anthropic's inference endpoints. Nothing touches
-   `console.anthropic.com` unless you want it to.
-3. **Enterprise controls already exist.** IAM policies, VPC endpoints, CloudTrail
-   logging, tag-based cost allocation — the things your security team wants
-   — are already in Bedrock. No separate admin surface.
+1. **Pricing is per-token at published rates from whichever cloud.** No
+   subscription tiers. You set budgets, track spend per run, and can
+   predict the monthly bill against the AWS/GCP/Azure invoice you already
+   process.
+2. **Your data stays inside your existing cloud account.** Gluon's
+   container reads your cloud credentials from the host (`~/.aws`,
+   `~/.config/gcloud`, `~/.azure`); prompts and responses travel between
+   you, your cloud's Claude endpoint, and Anthropic's inference backbone.
+   Nothing touches `console.anthropic.com` unless you want it to.
+3. **Enterprise controls already exist.** IAM policies, VPC endpoints,
+   audit logging, tag-based cost allocation, Entra ID / managed identity
+   — the things your security team wants — are already in your cloud.
+   No separate admin surface.
 
-The technical story is almost boring: Gluon's agent layer uses the
-`claude-agent-sdk` which speaks to Bedrock via the standard
-`AnthropicBedrock` client. Bedrock gives you the same Claude models
-(Sonnet 4.6, Opus 4.6, Haiku 4.5). The abstraction is tight and the
-behavior is identical.
+The technical story is almost boring. Gluon's `llm_provider.py` wraps the
+official `anthropic` SDK's four client classes (`AsyncAnthropicBedrock`,
+`AsyncAnthropic`, `AsyncAnthropicVertex`, `AsyncAnthropicFoundry`) behind
+a common interface. Each provider contributes its own `CLAUDE_CODE_USE_*`
+flag to the subprocess environment when Gluon spawns Claude Code. Model
+IDs get resolved to the right format per backend automatically
+(`global.anthropic.claude-sonnet-4-6` on Bedrock, `claude-sonnet-4-6` on
+Vertex or Anthropic direct, etc.) — the same `--model sonnet` works
+everywhere. Bedrock is the default; everything else is opt-in.
 
 ## The three things that are actually hard
 
@@ -123,9 +137,13 @@ A few things we deliberately don't try to be:
 
 - **Not a Claude Code replacement.** We shell out to the SDK. When
   Claude Code gets better, Gluon gets better.
-- **Not multi-provider.** We run on Bedrock with the four Claude models our
-  CLAUDE.md locks to. Adding "works with OpenAI too" dilutes the integration
-  and breaks the value proposition.
+- **Not multi-model.** We run Claude — the four tiers our CLAUDE.md locks
+  to (Opus 4.6 / 4.5, Sonnet 4.6, Haiku 4.5) — on any of four cloud
+  backends. Adding "works with GPT-4 too" would dilute the integration
+  story: Claude-specific features like the SDK's hooks, `fork_session`,
+  and witness-class Haiku calls don't have clean equivalents on other
+  vendors. The value is *one Claude abstraction, backend flexibility*,
+  not "any LLM."
 - **Not a SaaS.** There's no hosted Gluon. We publish the Docker image, you
   run it. If you want the SaaS experience, use Anthropic's web UI.
 - **Not a team product yet.** Gluon today assumes one user. Per-user auth
@@ -133,38 +151,67 @@ A few things we deliberately don't try to be:
 
 ## Getting started
 
-If you have an AWS account with Bedrock access and a machine with Docker:
+If you have credentials for any of the four backends and a machine with
+Docker:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker-compose.yml -o docker-compose.yml
 curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
-# Edit .env — set PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
+# Edit .env — set PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL
+# Then pick ONE provider block (Bedrock is the default):
+#   Bedrock   → AWS_REGION + AWS_BEARER_TOKEN_BEDROCK (or standard AWS creds)
+#   Anthropic → ANTHROPIC_API_KEY (or reuse your `claude login` at ~/.claude)
+#   Vertex    → ANTHROPIC_VERTEX_PROJECT_ID + CLOUD_ML_REGION + `gcloud` ADC
+#   Foundry   → ANTHROPIC_FOUNDRY_RESOURCE + API key (or `az login` via Entra ID)
 docker compose up -d
 open http://localhost:45866
 ```
 
-That's the full install. No CLI install, no pip requirements, no Anthropic
-subscription. If you're missing the Bedrock model-access approval step
+That's the full install. No CLI install, no pip requirements. If you
+pick Bedrock and you're missing the Model Garden approval step
 (Anthropic > Sonnet/Opus/Haiku), AWS will prompt you in the console.
+Vertex has the same model-garden gate. Foundry needs deployments created
+in the Foundry portal matching the tier names.
 
-## Where Gluon is going
+## What's shipped in the last month
 
-Three themes in the next 6 months, in priority order:
+The three themes the earlier draft of this post pointed at as "next" all
+landed in v0.10.0:
 
-1. **Multi-agent coordination.** Task-level atomic checkout so two agents
-   can't claim the same work. File-level locks. An inbox model. Agent
-   identities with per-agent budgets and schedules. This is the hot new
-   category and we have Paperclip-inspired designs ready to implement.
-2. **Observability & replay.** Scrub-backwards timelines, per-tool cost
-   breakdowns, the reasoning chain that led to each tool call. Tools
-   spend 60% of their time on context (Anthropic's 2026 Agentic Coding
-   Trends report); showing that breakdown is itself a feature.
-3. **Trust & control.** Approval gates for risky tool calls (push, delete,
-   publish) with two-way Telegram/Discord confirmation. Per-user auth so
-   Gluon can be deployed to a team server. Hard per-run caps on tokens,
-   tool calls, and duration.
+1. **Multi-agent coordination.** Persistent `Agent` identities, a task
+   queue with atomic `BEGIN IMMEDIATE` checkout so two agents can't
+   claim the same work, cron-based heartbeats, and per-agent monthly
+   budgets with a `BudgetExceededError` that fires before a run starts.
+2. **Observability & replay.** A "Timeline" tab that shows one dot per
+   tool call on a horizontal strip — click a dot or press ←/→ to step
+   through the run, with the full inputs and the agent's reasoning for
+   each call surfaced inline. A "Tools" tab with the per-run tool-usage
+   breakdown. Reasoning threading so every tool call is one click away
+   from *"here's what the agent was thinking right before it ran this."*
+3. **Trust & control.** Approval gates on risky tool calls (25+ patterns
+   like `rm -rf`, `git push --force`, `npm publish`) with two-way
+   Telegram / Discord approve/deny buttons and a web-dashboard queue.
+   Per-workspace daily and monthly budgets. Hard per-run caps on tool
+   calls and wall-clock duration, enforced by a PreToolUse hook and a
+   watchdog.
 
-Everything that ships first goes into the public Docker image.
+The one item from that list still open is **per-user auth**. That's the
+big Theme D5 push — designed-before-coded, intentionally not rushed, and
+the last thing between Gluon and a team deployment.
+
+## What's next
+
+- **Cut-and-shut polish** on the observability views — per-tool cost
+  attribution once the SDK exposes it, cumulative-cost axis on the
+  Timeline, cross-session search
+- **Multi-user auth (D5).** OIDC against whatever your organisation
+  already uses, per-user budgets, RBAC for approval policies.
+- **Mobile experience.** The PWA works; native shell around it is the
+  open question.
+
+Everything that ships first goes into the public Docker image at
+`ghcr.io/carrotly-ai/gluon-agent:latest`, with tagged releases
+(`:v0.10.0`, etc.) for pinning.
 
 ## If you want to try it
 
@@ -173,8 +220,9 @@ Everything that ships first goes into the public Docker image.
 
 If you're currently paying for Claude Pro *primarily* for Claude Code, the
 pricing page update is a nudge to look at what else is possible. Self-hosted
-isn't for everyone. But for engineers who already have AWS, the math has
-quietly flipped.
+isn't for everyone. But for engineers who already have AWS, GCP, or Azure,
+the math has quietly flipped — and if you just want the direct API without
+a subscription, that's now a one-line toggle in Gluon too.
 
 ---
 
