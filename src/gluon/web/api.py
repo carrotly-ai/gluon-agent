@@ -4322,6 +4322,11 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         # Start supervisor for ralph mode auto-resume
         await runner.start_supervisor(poll_interval=30)
 
+        # Start periodic queue drain so pending items dispatch even when
+        # no run completes to trigger the self-propelling path
+        queue_drain_secs = int(os.environ.get("GLUON_QUEUE_DRAIN_INTERVAL_SECS", "60"))
+        await runner.start_queue_drain(interval_secs=queue_drain_secs)
+
         # Start witness health monitor if enabled
         if os.environ.get("GLUON_WITNESS_ENABLED", "").lower() in ("1", "true", "yes"):
             from gluon.health_monitor import HealthMonitor
@@ -4359,6 +4364,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Stop supervisor first
         await runner.stop_supervisor()
+
+        # Stop queue drain
+        await runner.stop_queue_drain()
 
         tasks_to_cancel = []
         if _polling_task:

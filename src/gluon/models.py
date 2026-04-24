@@ -534,6 +534,30 @@ class Workspace(BaseModel):
         return False
 
 
+class Agent(BaseModel):
+    """Persistent agent identity scoped to a workspace.
+
+    An Agent is a named, long-lived identity that owns execution runs within
+    a workspace. It carries budget/concurrency policy and can be wired to
+    scheduled heartbeats (future) and assigned tasks (future).
+
+    Distinct from `Worker` (execution target) — a single Agent may map to
+    many workers, and a workspace may have zero-to-many Agents.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    workspace_id: str  # FK to Workspace
+    name: str  # Human-readable name, unique within the workspace
+    description: str | None = None
+    role: str = "worker"  # Free-form label: researcher, engineer, reviewer, etc.
+    is_active: bool = True
+    monthly_budget_usd: float | None = None
+    max_concurrent_runs: int = 1
+    last_active_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class Project(BaseModel):
     """A registered project that can be managed by Gluon."""
 
@@ -614,6 +638,7 @@ class ExecutionRun(BaseModel):
     session_id: str | None = None  # FK to Session (created when run starts)
     claude_session_id: str | None = None  # Claude SDK session ID for resume (NOT a FK)
     project_id: str  # FK to Project
+    agent_id: str | None = None  # FK to Agent (nullable — runs pre-Agent-model remain unlinked)
     pid: int | None = None  # OS process ID for cancellation
     status: RunStatus = RunStatus.PENDING
     prompt: str  # The task prompt (may be updated on resume)

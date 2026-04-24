@@ -41,6 +41,40 @@ from gluon.worktree import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_default_run_cost_cap(store: "GluonStore") -> float | None:
+    """Resolve the operator-configured default per-run cost cap.
+
+    Priority order:
+        1. DB setting `default_run_max_cost_usd`
+        2. Environment variable `GLUON_DEFAULT_RUN_MAX_COST_USD`
+        3. None (caller falls back to the profile default)
+
+    Returns None when no operator default is configured; callers should then
+    use the profile's built-in budget as before.
+    """
+    try:
+        db_value = store.get_setting("default_run_max_cost_usd")
+    except Exception:
+        db_value = None
+    if db_value:
+        try:
+            return float(db_value)
+        except ValueError:
+            logger.warning("Invalid default_run_max_cost_usd setting %r; ignoring", db_value)
+
+    env_value = os.environ.get("GLUON_DEFAULT_RUN_MAX_COST_USD")
+    if env_value:
+        try:
+            return float(env_value)
+        except ValueError:
+            logger.warning(
+                "Invalid GLUON_DEFAULT_RUN_MAX_COST_USD env var %r; ignoring",
+                env_value,
+            )
+
+    return None
+
+
 # ========== Run Health Assessment ==========
 
 
@@ -119,6 +153,9 @@ class TaskRunner:
 
         # Supervision coordinator (lazy initialized)
         self._supervisor: ResumeCoordinator | None = None
+
+        # Background queue drain task (populated by start_queue_drain)
+        self._queue_drain_task: asyncio.Task | None = None
 
         # Ensure log directory exists
         self.config.log_path.mkdir(parents=True, exist_ok=True)
@@ -390,6 +427,7 @@ class TaskRunner:
         # Determine cost limit:
         # - If user provided explicit cost limit, use it
         # - If Ralph enabled with no explicit limit, use high default ($1000 or env var)
+        # - Else if operator configured `default_run_max_cost_usd` setting, use it
         # - Otherwise use profile's budget
         default_ralph_cost = float(os.environ.get("DEFAULT_RALPH_COST_LIMIT", "1000.0"))
         if max_cost_usd is not None:
@@ -397,7 +435,8 @@ class TaskRunner:
         elif ralph_enabled:
             effective_cost_limit = default_ralph_cost
         else:
-            effective_cost_limit = task_options["max_budget_usd"]
+            operator_default = _resolve_default_run_cost_cap(self.store)
+            effective_cost_limit = operator_default if operator_default is not None else task_options["max_budget_usd"]
 
         # Create run record with resolved model
         run = self.store.create_run(
@@ -1828,6 +1867,114 @@ but explicit commits with good messages are preferred.
             await self._supervisor.stop()
             self._supervisor = None
             logger.info("Stopped supervision")
+
+    async def start_queue_drain(self, interval_secs: int = 60) -> None:
+        """Start a background task that periodically drains the work queue.
+
+        The self-propelling queue normally drains when a run completes. But if
+        every run has completed and new items land in the queue, nothing will
+        pick them up until the next completion. This loop covers that gap.
+
+        Args:
+            interval_secs: Seconds between drain cycles (default 60)
+        """
+        if self._queue_drain_task is not None and not self._queue_drain_task.done():
+            logger.warning("Queue drain already running")
+            return
+
+        async def _drain_loop() -> None:
+            while True:
+                try:
+                    await asyncio.sleep(interval_secs)
+                    await self._drain_queue_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.debug("Queue drain cycle failed", exc_info=True)
+
+        self._queue_drain_task = asyncio.create_task(_drain_loop())
+        logger.info("Started queue drain with %ds interval", interval_secs)
+
+    async def stop_queue_drain(self) -> None:
+        """Stop the periodic queue drain task."""
+        if self._queue_drain_task is None:
+            return
+        self._queue_drain_task.cancel()
+        try:
+            await self._queue_drain_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        self._queue_drain_task = None
+        logger.info("Stopped queue drain")
+
+    async def _drain_queue_once(self) -> int:
+        """Scan projects with PENDING queue items and dispatch the next one per idle project.
+
+        Returns the number of items dispatched this cycle.
+        """
+        from gluon.models import WorkQueueStatus, resolve_task_options
+        from gluon.work_queue import WorkQueueManager
+
+        pending = self.store.list_work_items(status=WorkQueueStatus.PENDING.value, limit=200)
+        if not pending:
+            return 0
+
+        # Group by project, preserve priority order from list_work_items()
+        seen_projects: set[str] = set()
+        dispatched = 0
+
+        # Respect global concurrency cap
+        if len(self._active_tasks) >= self.config.max_concurrent:
+            return 0
+
+        wq = WorkQueueManager(self.store)
+
+        for item in pending:
+            if item.project_id in seen_projects:
+                continue
+            seen_projects.add(item.project_id)
+
+            # Skip if this project already has an active run
+            has_active = any(
+                (self.store.get_run(run_id) and self.store.get_run(run_id).project_id == item.project_id)  # type: ignore[union-attr]
+                for run_id in list(self._active_tasks.keys())
+            )
+            if has_active:
+                continue
+
+            claimed = wq.claim_next(item.project_id)
+            if claimed is None:
+                continue
+
+            try:
+                task_options = resolve_task_options(profile=claimed.profile)
+                new_run = await self.submit(
+                    project_id=claimed.project_id,
+                    prompt=claimed.prompt,
+                    model=task_options["model"],
+                    profile=claimed.profile,
+                    initiator=f"queue_drain:{claimed.id}",
+                )
+                wq.mark_running(claimed.id, new_run.id)
+                dispatched += 1
+                logger.info(
+                    "Queue drain dispatched item %s -> run %s (project %s)",
+                    claimed.id[:8],
+                    new_run.id[:8],
+                    claimed.project_id[:8],
+                )
+            except Exception:
+                logger.warning(
+                    "Queue drain failed to dispatch item %s; releasing claim",
+                    claimed.id[:8],
+                    exc_info=True,
+                )
+                wq.release(claimed.id)
+
+            if len(self._active_tasks) >= self.config.max_concurrent:
+                break
+
+        return dispatched
 
     @property
     def supervisor(self) -> ResumeCoordinator | None:

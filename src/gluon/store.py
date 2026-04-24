@@ -4,11 +4,13 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from gluon.models import (
     CHAT_HISTORY_TTL_HOURS,
     MESSAGE_RUN_MAP_TTL_DAYS,
     ActivityEvent,
+    Agent,
     ChainStatus,
     ChannelMapping,
     ChatHistoryEntry,
@@ -596,6 +598,28 @@ MIGRATIONS = [
         PRIMARY KEY (workspace_id, key)
     );
     """,
+    # Agents: persistent per-workspace identities (Theme B Phase 1)
+    """
+    CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        role TEXT DEFAULT 'worker',
+        is_active INTEGER DEFAULT 1,
+        monthly_budget_usd REAL,
+        max_concurrent_runs INTEGER DEFAULT 1,
+        last_active_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id, name)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_id);",
+    "CREATE INDEX IF NOT EXISTS idx_agents_active ON agents(is_active);",
+    # Link ExecutionRun to Agent (nullable — pre-existing runs remain unlinked)
+    "ALTER TABLE execution_runs ADD COLUMN agent_id TEXT;",
+    "CREATE INDEX IF NOT EXISTS idx_runs_agent ON execution_runs(agent_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1144,6 +1168,145 @@ class GluonStore:
             ignore_patterns=json.loads(row["ignore_patterns"]) if row["ignore_patterns"] else [],
         )
 
+    # ========== Agent CRUD (Theme B Phase 1) ==========
+
+    def create_agent(
+        self,
+        workspace_id: str,
+        name: str,
+        *,
+        description: str | None = None,
+        role: str = "worker",
+        monthly_budget_usd: float | None = None,
+        max_concurrent_runs: int = 1,
+    ) -> Agent:
+        """Create a new agent within a workspace.
+
+        Raises sqlite3.IntegrityError if (workspace_id, name) already exists.
+        """
+        agent = Agent(
+            workspace_id=workspace_id,
+            name=name,
+            description=description,
+            role=role,
+            monthly_budget_usd=monthly_budget_usd,
+            max_concurrent_runs=max_concurrent_runs,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO agents
+                (id, workspace_id, name, description, role, is_active,
+                 monthly_budget_usd, max_concurrent_runs, last_active_at,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    agent.id,
+                    agent.workspace_id,
+                    agent.name,
+                    agent.description,
+                    agent.role,
+                    1 if agent.is_active else 0,
+                    agent.monthly_budget_usd,
+                    agent.max_concurrent_runs,
+                    agent.last_active_at.isoformat() if agent.last_active_at else None,
+                    agent.created_at.isoformat(),
+                    agent.updated_at.isoformat(),
+                ),
+            )
+        return agent
+
+    def get_agent(self, agent_id: str) -> Agent | None:
+        """Get an agent by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            return self._row_to_agent(row) if row else None
+
+    def get_agent_by_name(self, workspace_id: str, name: str) -> Agent | None:
+        """Get an agent by (workspace_id, name)."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM agents WHERE workspace_id = ? AND name = ?",
+                (workspace_id, name),
+            ).fetchone()
+            return self._row_to_agent(row) if row else None
+
+    def list_agents(
+        self,
+        workspace_id: str | None = None,
+        *,
+        is_active: bool | None = None,
+    ) -> list[Agent]:
+        """List agents, optionally filtered by workspace and active status."""
+        query = "SELECT * FROM agents"
+        params: list[Any] = []
+        conditions: list[str] = []
+        if workspace_id is not None:
+            conditions.append("workspace_id = ?")
+            params.append(workspace_id)
+        if is_active is not None:
+            conditions.append("is_active = ?")
+            params.append(1 if is_active else 0)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY created_at ASC"
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_agent(row) for row in rows]
+
+    def update_agent(self, agent: Agent) -> None:
+        """Persist modifications to an agent record."""
+        agent.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE agents SET
+                    name = ?, description = ?, role = ?, is_active = ?,
+                    monthly_budget_usd = ?, max_concurrent_runs = ?,
+                    last_active_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    agent.name,
+                    agent.description,
+                    agent.role,
+                    1 if agent.is_active else 0,
+                    agent.monthly_budget_usd,
+                    agent.max_concurrent_runs,
+                    agent.last_active_at.isoformat() if agent.last_active_at else None,
+                    agent.updated_at.isoformat(),
+                    agent.id,
+                ),
+            )
+
+    def delete_agent(self, agent_id: str) -> bool:
+        """Delete an agent. Historical runs are preserved; their agent_id is set to NULL.
+
+        Returns True if the agent was found and deleted.
+        """
+        with self._get_conn() as conn:
+            conn.execute("UPDATE execution_runs SET agent_id = NULL WHERE agent_id = ?", (agent_id,))
+            cursor = conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_agent(self, row: sqlite3.Row) -> Agent:
+        """Convert database row to Agent model."""
+        return Agent(
+            id=row["id"],
+            workspace_id=row["workspace_id"],
+            name=row["name"],
+            description=row["description"],
+            role=row["role"] or "worker",
+            is_active=bool(row["is_active"]),
+            monthly_budget_usd=row["monthly_budget_usd"],
+            max_concurrent_runs=row["max_concurrent_runs"] or 1,
+            last_active_at=_parse_datetime(row["last_active_at"]),
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
     # ========== Utility Methods ==========
 
     def get_active_sessions(self) -> list[Session]:
@@ -1323,7 +1486,8 @@ class GluonStore:
                     supervision_auto_resume_count = ?, last_supervision_check_at = ?,
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?,
                     queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?,
-                    metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?
+                    metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?,
+                    agent_id = ?
                 WHERE id = ?
                 """,
                 (
@@ -1398,6 +1562,8 @@ class GluonStore:
                     run.last_output_at.isoformat() if run.last_output_at else None,
                     run.chain_id,
                     run.step_id,
+                    # Agent linkage (Theme B Phase 1)
+                    run.agent_id,
                     run.id,
                 ),
             )
@@ -1459,6 +1625,7 @@ class GluonStore:
             session_id=row["session_id"],
             claude_session_id=row["claude_session_id"] if "claude_session_id" in keys else None,
             project_id=row["project_id"],
+            agent_id=row["agent_id"] if "agent_id" in keys else None,
             pid=row["pid"],
             status=RunStatus(row["status"]),
             prompt=row["prompt"],

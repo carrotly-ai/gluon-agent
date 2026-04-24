@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-AI orchestrator for managing multiple Claude Code agents across projects. Run AI-powered coding tasks with session persistence, git worktree isolation, and real-time monitoring via web dashboard or chat interface (Telegram, Discord). It runs in a containerized Docker environment each instance of the agent is isolated with bubblewrap sandboxing.
+**Self-hosted orchestrator for Claude Code on AWS Bedrock.** Run fleets of AI coding agents from your own infrastructure — with session persistence, git worktree isolation, and remote control from CLI, web dashboard, Telegram, or Discord. Agents run in a containerized Docker environment with bubblewrap sandboxing, using your own AWS Bedrock credentials (no Anthropic subscription required).
 
 ![Kanban board](docs/screenshots/gluon_kanban.png)
 
@@ -30,12 +30,47 @@ AI orchestrator for managing multiple Claude Code agents across projects. Run AI
 
 ## Why Gluon?
 
-**Run multiple AI coding agents in parallel**, each in isolated git branches, while monitoring progress from a single dashboard. Deploy with Docker for containerized execution - AI agents run in isolated environments, keeping your host system secure. Perfect for:
+Three things most Claude Code orchestrators don't give you:
 
-- Running several feature implementations simultaneously
+**1. You own the agents.** Docker compose, your server, your data. `~/.gluon`
+holds the full SQLite database and every run log — nothing leaves your
+infrastructure. Mount `~/.claude` and `~/.aws` from the host and the container
+uses your existing credentials.
+
+**2. Runs on AWS Bedrock.** Gluon uses your own AWS Bedrock access to invoke
+Claude — decoupled from Anthropic's subscription pricing. Pay per-token at
+AWS rates, cap spend per run, and keep running if a subscription plan changes
+underfoot.
+
+**3. Control from anywhere.** Kick off a task from your desk via CLI or web,
+approve the PR from your phone via Telegram, review failures in Discord while
+you're at lunch. All four transports talk to the same orchestrator and see
+the same runs.
+
+### Well-suited for
+
+- Running several feature implementations simultaneously across a project
 - Delegating bug fixes to AI agents while you focus on architecture
 - Managing a backlog of AI-assisted tasks across multiple projects
-- Teams wanting visibility into AI-assisted development work
+- Teams that want visibility into AI-assisted development work
+- Operators who need Bedrock-native deployment for compliance or cost reasons
+
+### Gluon vs other Claude Code orchestrators
+
+|  | Gluon | Claude Deck | claudectl | KingCoding |
+| --- | --- | --- | --- | --- |
+| Self-hosted | ✅ | ✅ | ✅ | ❌ |
+| AWS Bedrock-native | ✅ | ❌ | ❌ | ❌ |
+| Multi-transport (CLI+TG+Discord+Web) | ✅ | Web only | CLI only | Mobile only |
+| Session resume (fork_session) | ✅ | — | — | — |
+| Git worktree isolation + GC | ✅ | — | Partial | — |
+| Witness auto-recovery | ✅ | — | — | — |
+| Background execution | ✅ | ✅ | ✅ | ✅ |
+| Docker one-liner | ✅ | ✅ | — | — |
+| Work queue (self-propelling) | ✅ | — | Partial | — |
+
+*Table reflects published features as of 2026-04. See each project's README
+for current state; this is not a sponsored comparison.*
 
 ## No really, why the name Gluon?
 
