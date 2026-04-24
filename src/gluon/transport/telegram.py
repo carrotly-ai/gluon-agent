@@ -44,6 +44,35 @@ def _truncate(text: str, limit: int = 300) -> str:
     return text[: limit - 1] + "…"
 
 
+def extract_agent_flag(args: list[str]) -> tuple[list[str], str | None]:
+    """Pull a --agent / -a flag and its value out of a Telegram args list.
+
+    Telegram splits commands on whitespace into a list. Rather than
+    reconstructing a string and re-parsing, operate on the list directly.
+    Returns (remaining_args, agent_or_None). Case-insensitive flag match.
+
+    Examples:
+        ["myapp", "fix", "--agent", "researcher"] -> (["myapp", "fix"], "researcher")
+        ["myapp", "fix", "-a", "abc1234", "more"] -> (["myapp", "fix", "more"], "abc1234")
+        ["myapp", "fix"] -> (["myapp", "fix"], None)
+        ["--agent"] -> (["--agent"], None)  # flag without value is preserved as-is
+    """
+    remaining: list[str] = []
+    agent: str | None = None
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token.lower() in ("--agent", "-a") and i + 1 < len(args):
+            # Consume the flag and its value (but only the first occurrence)
+            if agent is None:
+                agent = args[i + 1]
+                i += 2
+                continue
+        remaining.append(token)
+        i += 1
+    return remaining, agent
+
+
 def format_approval_message(approval: PendingApproval) -> str:
     """Format a PendingApproval as a Telegram message body (Markdown)."""
     lines = [
@@ -487,7 +516,7 @@ class TelegramTransport(Transport):
             "**Commands:**\n"
             "/projects [filter] - List projects (filter by name)\n"
             "/sessions [project] - List sessions\n"
-            "/run <project> <prompt> - Run a task\n"
+            "/run <project> <prompt> [--agent name] - Run a task\n"
             "/resume <project> [prompt] - Resume last session\n"
             "/runs - List your background runs\n"
             "/status - Show overall status\n"
@@ -591,19 +620,54 @@ class TelegramTransport(Transport):
             return
 
         if not context.args or len(context.args) < 2:
-            await update.message.reply_text("Usage: /run <project> <prompt>\nExample: /run myapp Fix the login bug")
+            await update.message.reply_text(
+                "Usage: /run <project> <prompt> [--agent name]\n"
+                "Example: /run myapp Fix the login bug --agent researcher"
+            )
             return
 
-        project_name = context.args[0]
-        prompt = " ".join(context.args[1:])
+        # Pull out --agent / -a before splitting project/prompt so the agent flag
+        # can appear anywhere in the argument list.
+        args, agent_ref = extract_agent_flag(list(context.args))
 
-        from gluon.core import ProjectNotFoundError
+        if len(args) < 2:
+            await update.message.reply_text(
+                "Usage: /run <project> <prompt> [--agent name]\n"
+                "Example: /run myapp Fix the login bug --agent researcher"
+            )
+            return
+
+        project_name = args[0]
+        prompt = " ".join(args[1:])
+
+        from gluon.core import (
+            AgentAmbiguousError,
+            AgentNotFoundError,
+            BudgetExceededError,
+            ProjectNotFoundError,
+        )
 
         try:
             project = self.bot_core.orchestrator.get_project(project_name)
         except ProjectNotFoundError as e:
             await update.message.reply_text(f"Error: {e}")
             return
+
+        # Resolve the agent (explicit or auto-select if the workspace has one active)
+        try:
+            resolved_agent_id = self.bot_core.orchestrator.resolve_agent(agent_ref, project.workspace_id)
+        except AgentNotFoundError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+        except AgentAmbiguousError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+
+        agent_display_name: str | None = None
+        if resolved_agent_id is not None:
+            resolved_agent = self.bot_core.store.get_agent(resolved_agent_id)
+            if resolved_agent is not None:
+                agent_display_name = resolved_agent.name
 
         if self.bot_core.is_at_capacity():
             await update.message.reply_text(
@@ -612,13 +676,26 @@ class TelegramTransport(Transport):
             )
             return
 
-        # Create run record
-        run = self.bot_core.store.create_run(project.id, prompt, initiator=user_id)
+        # Proactively check the agent's monthly budget so we fail fast *before*
+        # creating the run + showing a "Task started" message. The orchestrator
+        # also enforces this, but only when agent_id is passed through its
+        # execute() path — bots pre-create runs, so we must check here too.
+        if resolved_agent_id is not None:
+            try:
+                self.bot_core.orchestrator._enforce_agent_budget(resolved_agent_id)
+            except BudgetExceededError as e:
+                await update.message.reply_text(f"❌ {e}")
+                return
 
-        # Send initial message
+        # Create run record
+        run = self.bot_core.store.create_run(project.id, prompt, initiator=user_id, agent_id=resolved_agent_id)
+
+        # Send initial message (agent line only shown when one is linked)
+        agent_line = f"Agent: `{agent_display_name}`\n" if agent_display_name else ""
         start_msg = await update.message.reply_text(
             f"🚀 Task started: `{run.id[:8]}`\n"
             f"Project: `{project_name}`\n"
+            f"{agent_line}"
             f"Prompt: _{prompt[:80]}{'...' if len(prompt) > 80 else ''}_\n\n"
             f"Use /runs to check status",
             parse_mode="Markdown",
