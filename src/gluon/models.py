@@ -561,6 +561,69 @@ class Agent(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class UserRole(StrEnum):
+    """Multi-user role (D5 Phase 1).
+
+    See `docs/plans/d5-multi-user-auth.md` §3.2 for the capability matrix.
+    """
+
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
+
+
+class AuthProvider(StrEnum):
+    """Which auth backend minted a given User record (D5 Phase 1)."""
+
+    LOCAL = "local"  # Username + argon2 password hash
+    OIDC = "oidc"  # Auth Code + PKCE via external IdP
+    SYSTEM = "system"  # Built-in singleton for single-user mode (GLUON_AUTH_ENABLED=false)
+
+
+class User(BaseModel):
+    """A human user of Gluon (D5 Phase 1).
+
+    Created only when `GLUON_AUTH_ENABLED=true`. In single-user mode a built-in
+    `SYSTEM_USER` singleton stands in and is never persisted.
+
+    `auth_subject` semantics by provider:
+      - `local`: argon2 password hash
+      - `oidc`: the OIDC `sub` claim
+      - `system`: the literal string "system" (never stored in DB)
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    username: str  # unique, URL-safe
+    display_name: str
+    email: str | None = None
+    auth_provider: AuthProvider = AuthProvider.LOCAL
+    auth_subject: str  # hash for local; sub claim for OIDC
+    role: UserRole = UserRole.OPERATOR
+    disabled: bool = False
+    # Transport identity links — populated via the /link flow in Phase 4
+    telegram_user_id: int | None = None
+    discord_user_id: int | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    last_login_at: datetime | None = None
+
+
+class UserSession(BaseModel):
+    """A logged-in session for a `User` (D5 Phase 1).
+
+    Named `UserSession` (not `Session`) to avoid collision with the Claude SDK
+    session model above. DB-backed per the design doc — not JWT.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    user_id: str  # FK to users
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime  # hard expiry; rolled forward on activity
+    last_seen_at: datetime = Field(default_factory=utc_now)
+    ip: str | None = None
+    user_agent: str | None = None
+
+
 class TaskStatus(StrEnum):
     """Workflow status for an OrchestratorTask."""
 

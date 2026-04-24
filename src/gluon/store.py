@@ -57,6 +57,9 @@ from gluon.models import (
     TaskStatus,
     TaskStep,
     TodoSnapshot,
+    User,
+    UserRole,
+    UserSession,
     WebhookConfig,
     WitnessDecision,
     Worker,
@@ -737,6 +740,42 @@ MIGRATIONS = [
     "ALTER TABLE execution_runs ADD COLUMN max_tool_calls INTEGER;",
     "ALTER TABLE execution_runs ADD COLUMN max_duration_minutes INTEGER;",
     "ALTER TABLE execution_runs ADD COLUMN tool_call_count INTEGER DEFAULT 0;",
+    # Multi-user auth (D5 Phase 1) — users + sessions. Rows only exist when
+    # GLUON_AUTH_ENABLED=true. Single-user mode never touches these tables.
+    """
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL,
+        email TEXT,
+        auth_provider TEXT NOT NULL,
+        auth_subject TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'operator',
+        disabled INTEGER NOT NULL DEFAULT 0,
+        telegram_user_id INTEGER,
+        discord_user_id INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT,
+        UNIQUE(auth_provider, auth_subject)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);",
+    "CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_user_id) WHERE telegram_user_id IS NOT NULL;",
+    "CREATE INDEX IF NOT EXISTS idx_users_discord ON users(discord_user_id) WHERE discord_user_id IS NOT NULL;",
+    """
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);",
+    "CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1513,6 +1552,261 @@ class GluonStore:
             last_active_at=_parse_datetime(row["last_active_at"]),
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== User CRUD (D5 Phase 1 — multi-user auth) ==========
+    #
+    # These tables are only populated when GLUON_AUTH_ENABLED=true. In
+    # single-user mode the SYSTEM_USER singleton from `auth.py` stands in and
+    # nothing is ever written here.
+
+    def create_user(
+        self,
+        username: str,
+        display_name: str,
+        *,
+        auth_subject: str,
+        auth_provider: str = "local",
+        email: str | None = None,
+        role: UserRole = UserRole.OPERATOR,
+    ) -> User:
+        """Create a new user.
+
+        Raises sqlite3.IntegrityError on duplicate username or
+        (auth_provider, auth_subject).
+        """
+        user = User(
+            username=username,
+            display_name=display_name,
+            auth_subject=auth_subject,
+            auth_provider=auth_provider,  # type: ignore[arg-type]
+            email=email,
+            role=role,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO users
+                (id, username, display_name, email, auth_provider, auth_subject,
+                 role, disabled, telegram_user_id, discord_user_id,
+                 created_at, updated_at, last_login_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user.id,
+                    user.username,
+                    user.display_name,
+                    user.email,
+                    user.auth_provider.value,
+                    user.auth_subject,
+                    user.role.value,
+                    1 if user.disabled else 0,
+                    user.telegram_user_id,
+                    user.discord_user_id,
+                    user.created_at.isoformat(),
+                    user.updated_at.isoformat(),
+                    user.last_login_at.isoformat() if user.last_login_at else None,
+                ),
+            )
+        return user
+
+    def get_user(self, user_id: str) -> User | None:
+        """Get a user by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            return self._row_to_user(row) if row else None
+
+    def get_user_by_username(self, username: str) -> User | None:
+        """Get a user by username. Case-insensitive via COLLATE NOCASE."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+            return self._row_to_user(row) if row else None
+
+    def get_user_by_auth_subject(self, auth_provider: str, auth_subject: str) -> User | None:
+        """Get a user by (provider, subject) — used during login/OIDC callback."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE auth_provider = ? AND auth_subject = ?",
+                (auth_provider, auth_subject),
+            ).fetchone()
+            return self._row_to_user(row) if row else None
+
+    def get_user_by_telegram_id(self, telegram_user_id: int) -> User | None:
+        """Look up the user linked to a Telegram account (Phase 4)."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE telegram_user_id = ?",
+                (telegram_user_id,),
+            ).fetchone()
+            return self._row_to_user(row) if row else None
+
+    def get_user_by_discord_id(self, discord_user_id: int) -> User | None:
+        """Look up the user linked to a Discord account (Phase 4)."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE discord_user_id = ?",
+                (discord_user_id,),
+            ).fetchone()
+            return self._row_to_user(row) if row else None
+
+    def list_users(self, *, include_disabled: bool = False) -> list[User]:
+        """List all users, ordered by username."""
+        query = "SELECT * FROM users"
+        if not include_disabled:
+            query += " WHERE disabled = 0"
+        query += " ORDER BY username COLLATE NOCASE"
+        with self._get_conn() as conn:
+            return [self._row_to_user(r) for r in conn.execute(query).fetchall()]
+
+    def update_user(self, user: User) -> User:
+        """Update a user's mutable fields. `updated_at` is bumped automatically."""
+        user.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET display_name = ?, email = ?, role = ?, disabled = ?,
+                    auth_subject = ?,
+                    telegram_user_id = ?, discord_user_id = ?,
+                    last_login_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    user.display_name,
+                    user.email,
+                    user.role.value,
+                    1 if user.disabled else 0,
+                    user.auth_subject,
+                    user.telegram_user_id,
+                    user.discord_user_id,
+                    user.last_login_at.isoformat() if user.last_login_at else None,
+                    user.updated_at.isoformat(),
+                    user.id,
+                ),
+            )
+        return user
+
+    def delete_user(self, user_id: str) -> None:
+        """Hard-delete a user. Usually you want `user.disabled = True` instead —
+        this removes all audit attribution and is only meant for test cleanup
+        or mistaken bootstraps."""
+        with self._get_conn() as conn:
+            # ON DELETE CASCADE handles user_sessions
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    def _row_to_user(self, row: sqlite3.Row) -> User:
+        return User(
+            id=row["id"],
+            username=row["username"],
+            display_name=row["display_name"],
+            email=row["email"],
+            auth_provider=row["auth_provider"],
+            auth_subject=row["auth_subject"],
+            role=UserRole(row["role"]),
+            disabled=bool(row["disabled"]),
+            telegram_user_id=row["telegram_user_id"],
+            discord_user_id=row["discord_user_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+            last_login_at=_parse_datetime(row["last_login_at"]),
+        )
+
+    # ========== UserSession CRUD (D5 Phase 1) ==========
+
+    def create_user_session(
+        self,
+        user_id: str,
+        expires_at: datetime,
+        *,
+        ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> UserSession:
+        """Create a new auth session for an authenticated user."""
+        session = UserSession(
+            user_id=user_id,
+            expires_at=expires_at,
+            ip=ip,
+            user_agent=user_agent,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_sessions
+                (id, user_id, created_at, expires_at, last_seen_at, ip, user_agent)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session.id,
+                    session.user_id,
+                    session.created_at.isoformat(),
+                    session.expires_at.isoformat(),
+                    session.last_seen_at.isoformat(),
+                    session.ip,
+                    session.user_agent,
+                ),
+            )
+        return session
+
+    def get_user_session(self, session_id: str) -> UserSession | None:
+        """Get an auth session by ID. Returns None for unknown or expired sessions."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM user_sessions WHERE id = ?", (session_id,)).fetchone()
+            if not row:
+                return None
+            session = self._row_to_user_session(row)
+            # Expired sessions are returned-but-filterable: the auth layer
+            # decides what to do (renew, reject, etc.). We don't auto-delete.
+            return session
+
+    def touch_user_session(self, session_id: str, *, new_expires_at: datetime | None = None) -> None:
+        """Update `last_seen_at` (and optionally roll the expiry forward)."""
+        now = utc_now()
+        with self._get_conn() as conn:
+            if new_expires_at:
+                conn.execute(
+                    "UPDATE user_sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?",
+                    (now.isoformat(), new_expires_at.isoformat(), session_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE user_sessions SET last_seen_at = ? WHERE id = ?",
+                    (now.isoformat(), session_id),
+                )
+
+    def delete_user_session(self, session_id: str) -> None:
+        """Explicit logout — delete a single session."""
+        with self._get_conn() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE id = ?", (session_id,))
+
+    def delete_user_sessions_for_user(self, user_id: str) -> int:
+        """Delete all sessions for a user. Returns count deleted.
+
+        Called on password change, role change, or disable — per the design
+        doc's "rotation" policy (§4.4).
+        """
+        with self._get_conn() as conn:
+            cur = conn.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+            return cur.rowcount
+
+    def delete_expired_user_sessions(self) -> int:
+        """Sweep expired sessions. Suitable for a periodic cleanup job."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute("DELETE FROM user_sessions WHERE expires_at < ?", (now,))
+            return cur.rowcount
+
+    def _row_to_user_session(self, row: sqlite3.Row) -> UserSession:
+        return UserSession(
+            id=row["id"],
+            user_id=row["user_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            expires_at=_parse_datetime(row["expires_at"]),  # type: ignore[arg-type]
+            last_seen_at=_parse_datetime(row["last_seen_at"]),  # type: ignore[arg-type]
+            ip=row["ip"],
+            user_agent=row["user_agent"],
         )
 
     # ========== Task CRUD (Theme B Phase 3) ==========
