@@ -60,6 +60,7 @@ When users ask you to do something, use the available tools to help them. Be con
 
 **Gluon Tools:**
 - list_projects, list_sessions, get_status - View projects and sessions
+- list_claude_sessions - Browse Claude Code sessions saved on disk for a project (read-only)
 - run_task, resume_session - Execute coding tasks
 - add_workspace, list_workspaces, scan_workspace - Manage workspaces
 - add_project, remove_project - Register/unregister projects
@@ -1634,6 +1635,59 @@ class GluonChatAgent:
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error resolving conflict: {e}"}]}
 
+        @tool(
+            "list_claude_sessions",
+            "List recent Claude Code sessions stored on disk for a Gluon project (read-only).",
+            {
+                "project": str,  # Project name or ID
+                "limit": int,  # Max sessions to return (default 10)
+            },
+        )
+        async def list_claude_sessions(args: dict[str, Any]) -> dict[str, Any]:
+            project_name = args.get("project", "")
+            limit = int(args.get("limit") or 10)
+
+            if not project_name:
+                return {"content": [{"type": "text", "text": "Error: project is required"}]}
+
+            try:
+                project = orchestrator.get_project(project_name)
+            except ProjectNotFoundError as e:
+                return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+            try:
+                from claude_agent_sdk import list_sessions as _sdk_list_sessions
+            except ImportError:
+                return {"content": [{"type": "text", "text": "Error: claude_agent_sdk is not installed."}]}
+
+            try:
+                sessions = _sdk_list_sessions(
+                    directory=str(project.expanded_path),
+                    limit=limit,
+                    include_worktrees=True,
+                )
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"Error listing sessions: {e}"}]}
+
+            if not sessions:
+                return {"content": [{"type": "text", "text": f"No Claude sessions found for {project.name}."}]}
+
+            from datetime import datetime as _dt
+
+            lines = [f"**Recent Claude sessions for `{project.name}`:**"]
+            for s in sessions:
+                ts = "-"
+                if s.last_modified:
+                    try:
+                        ts = _dt.fromtimestamp(s.last_modified / 1000).strftime("%Y-%m-%d %H:%M")
+                    except (OSError, ValueError, OverflowError):
+                        ts = "-"
+                title = (s.custom_title or s.summary or s.first_prompt or "(no summary)").strip().replace("\n", " ")
+                if len(title) > 80:
+                    title = title[:79] + "…"
+                lines.append(f"- `{(s.session_id or '')[:8]}` [{s.git_branch or 'no-branch'}] {ts} — {title}")
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
         return [
             list_projects,
             list_sessions,
@@ -1680,6 +1734,8 @@ class GluonChatAgent:
             # Conflict Resolution Tools
             get_conflict_diff,
             resolve_conflict,
+            # Claude Session Explorer (C4)
+            list_claude_sessions,
         ]
 
     async def chat(
@@ -1797,6 +1853,8 @@ class GluonChatAgent:
                 # Conflict Resolution Tools
                 "mcp__gluon__get_conflict_diff",
                 "mcp__gluon__resolve_conflict",
+                # Claude Session Explorer (C4)
+                "mcp__gluon__list_claude_sessions",
             ],
             max_turns=3,
             model=haiku_model,
