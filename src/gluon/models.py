@@ -569,6 +569,61 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class HeartbeatStatus(StrEnum):
+    """Lifecycle status for a HeartbeatRun."""
+
+    PENDING = "pending"  # Fired, not yet evaluated
+    RUNNING = "running"  # Spawned an ExecutionRun
+    COMPLETED = "completed"  # Spawned run completed successfully
+    FAILED = "failed"  # Error during fire or run failed
+    COALESCED = "coalesced"  # Skipped because an earlier heartbeat was still active
+    SKIPPED = "skipped"  # Skipped for other reasons (agent inactive, over budget, etc.)
+
+
+class AgentSchedule(BaseModel):
+    """Cron-scheduled wakeup rule for an Agent (Theme B Phase 2).
+
+    The HeartbeatScheduler evaluates all enabled schedules on a polling
+    interval and fires due ones. Each fire spawns a cheap (Haiku by default)
+    ExecutionRun that the agent uses to survey state and decide what to work
+    on next.
+
+    Circuit breaker: `consecutive_failures >= 3` disables the schedule
+    automatically; operators re-enable via `gluon schedule enable`.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    agent_id: str  # FK to Agent
+    project_id: str | None = None  # FK to Project; None = any project in workspace
+    # str.format_map template. Placeholders: {agent_name}, {agent_role},
+    # {workspace_name}, {project_name}, {inbox_count}, {inbox_summary}, {active_runs}.
+    prompt_template: str
+    schedule_cron: str  # Standard 5-field cron expression, UTC
+    is_enabled: bool = True
+    coalesce_ttl_seconds: int = 300  # Skip if a heartbeat ran within this window
+    task_profile: str = "quick"  # Profile for the spawned run (quick = Haiku)
+    consecutive_failures: int = 0
+    last_fired_at: datetime | None = None
+    next_fire_at: datetime | None = None
+    description: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class HeartbeatRun(BaseModel):
+    """Record of a scheduled agent wakeup firing (Theme B Phase 2)."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    schedule_id: str  # FK to AgentSchedule
+    agent_id: str  # FK to Agent (denormalized for filtering)
+    execution_run_id: str | None = None  # FK to ExecutionRun; None if coalesced/skipped
+    fired_at: datetime = Field(default_factory=utc_now)
+    status: HeartbeatStatus = HeartbeatStatus.PENDING
+    result_summary: str | None = None
+    error_message: str | None = None
+    completed_at: datetime | None = None
+
+
 # Task-lock TTL: if execution_locked_at is older than this, the lock is stale
 # and the task can be re-checked-out. Expressed in seconds.
 TASK_LOCK_TTL_SECS = 3600  # 1 hour

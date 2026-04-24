@@ -13,6 +13,7 @@ dependencies = [
     "python-telegram-bot>=21.0",
     "python-dotenv>=1.0.0",
     "redis[hiredis]>=5.0.0",
+    "croniter>=2.0.0",  # Cron expression parsing for heartbeat scheduler
     # Transitive dependency floors for security patches (Dependabot)
     "python-multipart>=0.0.22",  # CVE: arbitrary file write
     "mcp>=1.23.0",               # CVE: DNS rebinding via SSRF
