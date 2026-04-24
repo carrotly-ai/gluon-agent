@@ -1154,3 +1154,93 @@ class SessionDetailResponse(BaseModel):
     session: SDKSessionResponse
     messages: list[SessionMessageResponse]
     total_messages: int
+
+
+# ========== OrchestratorTask API Models (Theme B Phase 3) ==========
+
+
+class TaskResponse(BaseModel):
+    """Response model for an orchestrator task."""
+
+    id: str
+    project_id: str
+    title: str
+    description: str | None = None
+    status: str
+    priority: int
+    assigned_agent_id: str | None = None
+    assigned_agent_name: str | None = Field(
+        default=None,
+        description="Hydrated agent name for display (None if unassigned or agent deleted)",
+    )
+    created_by: str
+    assigned_files: list[str] = Field(default_factory=list)
+    parent_task_id: str | None = None
+    execution_locked_at: str | None = Field(default=None, description="ISO timestamp of active checkout, if any")
+    execution_run_id: str | None = None
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+
+
+class TaskListResponse(BaseModel):
+    """Response model for a list of tasks."""
+
+    tasks: list[TaskResponse]
+    total: int
+
+
+class TaskCreateRequest(BaseModel):
+    """Request model for creating a task."""
+
+    project_id: str
+    title: str = Field(min_length=1)
+    description: str | None = None
+    priority: int = Field(default=5, ge=1, le=10)
+    assigned_agent: str | None = Field(
+        default=None,
+        description="Agent name or ID prefix; resolved via Orchestrator.resolve_agent",
+    )
+    assigned_files: list[str] | None = None
+    parent_task_id: str | None = None
+
+
+class TaskUpdateRequest(BaseModel):
+    """Request model for updating a task."""
+
+    title: str | None = None
+    description: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=10)
+    status: str | None = Field(default=None, description="One of TaskStatus values")
+    assigned_files: list[str] | None = None
+
+
+class TaskAssignRequest(BaseModel):
+    """Request model for assigning a task to an agent."""
+
+    agent: str = Field(min_length=1, description="Agent name or ID prefix")
+
+
+class TaskCommentRequest(BaseModel):
+    """Request model for posting a comment on a task."""
+
+    content: str = Field(min_length=1)
+    author_label: str | None = None
+
+
+class TaskCommentResponse(BaseModel):
+    """Response model for a task comment."""
+
+    id: str
+    task_id: str
+    author_agent_id: str | None = None
+    author_label: str | None = None
+    content: str
+    created_at: str
+
+
+class TaskCommentListResponse(BaseModel):
+    """Response model for a list of task comments."""
+
+    comments: list[TaskCommentResponse]
+    total: int
