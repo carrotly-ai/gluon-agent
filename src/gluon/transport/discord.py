@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from typing import TYPE_CHECKING
 
 try:
     import discord
@@ -19,7 +20,198 @@ from gluon.core import ProjectNotFoundError
 from gluon.transport.base import Transport, TransportContext, TransportResponse
 from gluon.transport.capabilities import DISCORD_CAPS, TransportCapabilities
 
+if TYPE_CHECKING:
+    from gluon.models import PendingApproval
+    from gluon.store import GluonStore
+
 logger = logging.getLogger(__name__)
+
+
+# Button custom_id format: "approval:<decision>:<uuid>". Discord's custom_id
+# limit is 100 chars, which comfortably fits a decision keyword + UUID.
+_APPROVAL_CUSTOM_ID_PREFIX = "approval"
+
+
+def _truncate(text: str, limit: int = 300) -> str:
+    """Trim text with an ellipsis for embed fields."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def format_approval_embed(approval: PendingApproval):
+    """Format a PendingApproval as a rich Discord embed.
+
+    Returns a discord.Embed ready to send. Raises if discord.py isn't installed.
+    """
+    if not DISCORD_AVAILABLE:
+        raise RuntimeError("discord.py not installed")
+
+    embed = discord.Embed(
+        title="🔒 Approval needed",
+        description=_truncate(approval.classification_reason, 500),
+        color=0xFFA500,  # orange — pending action
+    )
+    embed.add_field(name="Run", value=f"`{approval.run_id[:8]}`", inline=True)
+    embed.add_field(name="Tool", value=f"`{approval.tool_name}`", inline=True)
+    embed.add_field(name="Approval", value=f"`{approval.id[:8]}`", inline=True)
+
+    # Render tool input — prioritize Bash commands
+    if isinstance(approval.tool_input, dict):
+        command = approval.tool_input.get("command")
+        if command:
+            embed.add_field(
+                name="Command",
+                value=f"```\n{_truncate(str(command), 1000)}\n```",
+                inline=False,
+            )
+        else:
+            # Show key summary for Write/Edit/etc
+            pieces = []
+            for key in ("file_path", "path", "url"):
+                if key in approval.tool_input:
+                    pieces.append(f"**{key}**: `{_truncate(str(approval.tool_input[key]), 100)}`")
+            if pieces:
+                embed.add_field(name="Input", value="\n".join(pieces), inline=False)
+
+    embed.set_footer(text="Reply with a button below to approve or deny.")
+    return embed
+
+
+def _build_approval_view(
+    approval_id: str,
+    store: GluonStore,
+    is_authorized: callable,
+):
+    """Build a persistent ApprovalView for this approval.
+
+    `is_authorized(user_id: str) -> bool` is the transport's auth check.
+    The view has timeout=None so buttons survive bot restarts, provided the
+    bot re-registers the view on startup with `bot.add_view(...)`.
+    """
+    if not DISCORD_AVAILABLE:
+        raise RuntimeError("discord.py not installed")
+
+    from gluon.models import ApprovalStatus
+
+    class ApprovalView(discord.ui.View):
+        def __init__(self) -> None:
+            super().__init__(timeout=None)
+
+        @discord.ui.button(
+            label="✅ Approve",
+            style=discord.ButtonStyle.success,
+            custom_id=f"{_APPROVAL_CUSTOM_ID_PREFIX}:grant:{approval_id}",
+        )
+        async def approve(
+            self,
+            interaction: discord.Interaction,
+            button: discord.ui.Button,
+        ) -> None:
+            await _handle_approval_decision(
+                interaction=interaction,
+                store=store,
+                approval_id=approval_id,
+                status=ApprovalStatus.GRANTED,
+                is_authorized=is_authorized,
+            )
+
+        @discord.ui.button(
+            label="❌ Deny",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"{_APPROVAL_CUSTOM_ID_PREFIX}:deny:{approval_id}",
+        )
+        async def deny(
+            self,
+            interaction: discord.Interaction,
+            button: discord.ui.Button,
+        ) -> None:
+            await _handle_approval_decision(
+                interaction=interaction,
+                store=store,
+                approval_id=approval_id,
+                status=ApprovalStatus.DENIED,
+                is_authorized=is_authorized,
+            )
+
+    return ApprovalView()
+
+
+async def _handle_approval_decision(
+    *,
+    interaction,
+    store: GluonStore,
+    approval_id: str,
+    status,
+    is_authorized: callable,
+) -> None:
+    """Shared callback logic for Approve/Deny button presses."""
+    from gluon.models import ApprovalStatus
+
+    user_id = f"discord:{interaction.user.id}"
+
+    if not is_authorized(user_id):
+        await interaction.response.send_message("Not authorized.", ephemeral=True)
+        return
+
+    approval = store.get_approval(approval_id)
+    if approval is None:
+        await interaction.response.send_message(
+            f"Approval {approval_id[:8]} not found.",
+            ephemeral=True,
+        )
+        return
+
+    if approval.status != ApprovalStatus.PENDING:
+        # Already decided — just update UI
+        await interaction.response.send_message(
+            f"Already {approval.status.value} by {approval.decided_by or 'unknown'}.",
+            ephemeral=True,
+        )
+        await _edit_approval_message(interaction, approval, decided_by_note=True)
+        return
+
+    decided_by = f"discord:{interaction.user.id}"
+    updated = store.decide_approval(
+        approval_id,
+        status=status,
+        decided_by=decided_by,
+        decision_reason=f"Via Discord by {interaction.user.display_name}",
+    )
+    if updated is None:
+        await interaction.response.send_message("Approval vanished after click.", ephemeral=True)
+        return
+
+    verb = "Approved" if status == ApprovalStatus.GRANTED else "Denied"
+    await interaction.response.send_message(f"{verb}.", ephemeral=True)
+    await _edit_approval_message(interaction, updated, decided_by_note=False)
+
+
+async def _edit_approval_message(interaction, approval, *, decided_by_note: bool) -> None:
+    """Edit the original approval message to show the decision + remove buttons."""
+    from gluon.models import ApprovalStatus
+
+    try:
+        embed = format_approval_embed(approval)
+        if approval.status == ApprovalStatus.GRANTED:
+            embed.color = 0x2ECC71  # green
+            embed.title = "✅ Approved"
+        elif approval.status == ApprovalStatus.DENIED:
+            embed.color = 0xE74C3C  # red
+            embed.title = "❌ Denied"
+        elif approval.status == ApprovalStatus.EXPIRED:
+            embed.color = 0x95A5A6  # grey
+            embed.title = "⏱️ Expired"
+
+        footer_text = (
+            f"Decided by {approval.decided_by} at "
+            f"{approval.decided_at.isoformat() if approval.decided_at else '(unknown time)'}"
+        )
+        embed.set_footer(text=footer_text)
+        await interaction.message.edit(embed=embed, view=None)
+    except Exception:
+        logger.debug("Could not edit approval message", exc_info=True)
+
 
 # Model aliases for convenience
 MODEL_ALIASES: dict[str, str] = {
@@ -161,6 +353,7 @@ class DiscordTransport(Transport):
         guild_id: int,
         bot_core: GluonBotCore,
         allowed_users: list[int] | None = None,
+        approval_channel_id: int | None = None,
     ):
         """Initialize Discord transport.
 
@@ -169,6 +362,8 @@ class DiscordTransport(Transport):
             guild_id: Discord guild (server) ID to operate in
             bot_core: Bot core instance for business logic
             allowed_users: List of allowed Discord user IDs
+            approval_channel_id: Channel ID to post approval requests to.
+                Set via GLUON_DISCORD_APPROVAL_CHANNEL env var.
         """
         if not DISCORD_AVAILABLE:
             raise ImportError("discord.py is not installed. Install with: pip install 'gluon-agent[discord]'")
@@ -180,6 +375,9 @@ class DiscordTransport(Transport):
         if allowed_users:
             self._allowed_users = {f"discord:{uid}" for uid in allowed_users}
 
+        # Approval delivery channel (where Approve/Deny buttons are posted)
+        self.approval_channel_id = approval_channel_id
+
         # Discord client setup
         intents = discord.Intents.default()
         intents.message_content = True
@@ -190,6 +388,9 @@ class DiscordTransport(Transport):
 
         # Channel-to-project explicit mappings (loaded from DB)
         self._channel_project_map: dict[int, str] = {}
+
+        # Approval watcher (started on bot ready)
+        self._approval_watcher = None
 
     @property
     def name(self) -> str:
@@ -207,10 +408,26 @@ class DiscordTransport(Transport):
             logger.info(f"Discord bot logged in as {self.bot.user}")
             # Load channel mappings from DB
             self._load_channel_mappings()
+            # Start the approval watcher now that the bot is connected
+            await self._start_approval_watcher()
 
         @self.bot.event
         async def on_message(message: discord.Message):
             await self._handle_message(message)
+
+    async def _start_approval_watcher(self) -> None:
+        """Start the ApprovalWatcher once (idempotent)."""
+        if self._approval_watcher is not None and self._approval_watcher.is_running:
+            return
+
+        from gluon.approval_watcher import ApprovalWatcher
+
+        self._approval_watcher = ApprovalWatcher(
+            store=self.bot_core.store,
+            poster=self,
+            name="discord-approvals",
+        )
+        await self._approval_watcher.start()
 
     def _load_channel_mappings(self) -> None:
         """Load channel-to-project mappings from database."""
@@ -386,9 +603,58 @@ class DiscordTransport(Transport):
 
     async def stop(self) -> None:
         """Stop the Discord bot."""
+        # Stop approval watcher if it was started
+        if self._approval_watcher is not None:
+            try:
+                await self._approval_watcher.stop()
+            except Exception:
+                logger.debug("Approval watcher stop failed", exc_info=True)
+
         await self.bot_core.git_manager.stop_background_sync()
         await self.bot.close()
         logger.info("Discord transport stopped")
+
+    async def post_approval_request(self, approval: PendingApproval) -> bool:
+        """Post an approval request to Discord with Approve/Deny buttons.
+
+        Called by the ApprovalWatcher. Returns True on success, False on
+        retry-worthy failure. If no approval_channel_id is configured, returns
+        True (no-op — don't spam logs, but watcher won't retry).
+        """
+        if self.approval_channel_id is None:
+            logger.warning(
+                "Discord has no approval_channel_id configured; skipping approval %s",
+                approval.id[:8],
+            )
+            return True  # No-op — avoid retry spam
+
+        try:
+            channel = self.bot.get_channel(self.approval_channel_id)
+            if channel is None:
+                try:
+                    channel = await self.bot.fetch_channel(self.approval_channel_id)
+                except Exception as e:
+                    logger.warning("Approval channel %s not found: %s", self.approval_channel_id, e)
+                    return False
+
+            if not isinstance(channel, discord.abc.Messageable):
+                logger.warning(
+                    "Approval channel %s is not messageable (%s)",
+                    self.approval_channel_id,
+                    type(channel),
+                )
+                return False
+
+            embed = format_approval_embed(approval)
+            view = _build_approval_view(approval.id, self.bot_core.store, self.is_authorized)
+            # Register as persistent view so buttons survive bot restart
+            self.bot.add_view(view)
+
+            await channel.send(embed=embed, view=view)
+            return True
+        except Exception as e:
+            logger.warning("Failed to post approval %s to Discord: %s", approval.id[:8], e)
+            return False
 
     async def _handle_message(self, message: discord.Message) -> None:
         """Handle incoming Discord messages."""
