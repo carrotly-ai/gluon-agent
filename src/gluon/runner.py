@@ -104,6 +104,63 @@ def _enforce_agent_budget(store: "GluonStore", agent_id: str) -> None:
         )
 
 
+def _enforce_workspace_budget(store: "GluonStore", workspace_id: str) -> None:
+    """Raise WorkspaceBudgetExceededError if daily or monthly cap is hit.
+
+    No-op when the workspace has no budgets set. Also logs a WARNING at 80%
+    for each scope so operators see headroom before the cap is hit.
+    """
+    from gluon.core import WorkspaceBudgetExceededError
+
+    workspace = store.get_workspace(workspace_id)
+    if workspace is None:
+        return
+    if workspace.daily_budget_usd is None and workspace.monthly_budget_usd is None:
+        return
+
+    now = datetime.now(UTC)
+
+    # Daily scope
+    if workspace.daily_budget_usd is not None:
+        spent_today = store.get_workspace_daily_spend(workspace_id, now)
+        budget = workspace.daily_budget_usd
+        if spent_today >= budget:
+            raise WorkspaceBudgetExceededError(
+                workspace_name=workspace.name,
+                scope="daily",
+                spent=spent_today,
+                budget=budget,
+            )
+        if budget > 0 and (spent_today / budget) >= 0.8:
+            logger.warning(
+                "Workspace '%s' daily spend at %.1f%% of cap ($%.2f / $%.2f)",
+                workspace.name,
+                (spent_today / budget) * 100,
+                spent_today,
+                budget,
+            )
+
+    # Monthly scope
+    if workspace.monthly_budget_usd is not None:
+        spent_month = store.get_workspace_monthly_spend(workspace_id, now)
+        budget = workspace.monthly_budget_usd
+        if spent_month >= budget:
+            raise WorkspaceBudgetExceededError(
+                workspace_name=workspace.name,
+                scope="monthly",
+                spent=spent_month,
+                budget=budget,
+            )
+        if budget > 0 and (spent_month / budget) >= 0.8:
+            logger.warning(
+                "Workspace '%s' monthly spend at %.1f%% of cap ($%.2f / $%.2f)",
+                workspace.name,
+                (spent_month / budget) * 100,
+                spent_month,
+                budget,
+            )
+
+
 def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
     """Update the agent's last_active_at timestamp on run start. Best-effort."""
     try:
@@ -480,6 +537,13 @@ class TaskRunner:
         else:
             operator_default = _resolve_default_run_cost_cap(self.store)
             effective_cost_limit = operator_default if operator_default is not None else task_options["max_budget_usd"]
+
+        # Enforce workspace-scoped rolling budgets (Theme D2) before the agent
+        # budget so both hard-stop ahead of any run row being written. The
+        # project lookup here is cheap and also validates the project exists.
+        project_for_budget = self.store.get_project(project_id)
+        if project_for_budget is not None and project_for_budget.workspace_id:
+            _enforce_workspace_budget(self.store, project_for_budget.workspace_id)
 
         # Enforce per-agent monthly budget before spawning the run
         if agent_id is not None:
