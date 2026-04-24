@@ -520,7 +520,7 @@ function AuthenticatedApp() {
           {viewMode === 'settings' ? (
             <SettingsPage tab={settingsTab} onTabChange={setSettingsTab} />
           ) : viewMode === 'admin-users' ? (
-            <AdminUsersPage />
+            <AdminUsersGuard />
           ) : viewMode === 'usage' ? (
             <UsagePage />
           ) : viewMode === 'activity' ? (
@@ -595,3 +595,24 @@ function AuthenticatedApp() {
 }
 
 export default App
+
+/**
+ * Defense-in-depth wrapper around `AdminUsersPage` — the backend already
+ * enforces admin-only on /api/users, but rendering the page shell to a
+ * non-admin would just show error toasts. Cleaner to refuse up-front.
+ */
+function AdminUsersGuard() {
+  const { user } = useCurrentUser()
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full px-6 text-center gap-2">
+        <p className="text-display text-[var(--color-paper)]">Access denied</p>
+        <p className="text-body text-[var(--color-stone)] max-w-md">
+          User management is only available to admins. Ask an admin to grant you the role if you
+          need access.
+        </p>
+      </div>
+    )
+  }
+  return <AdminUsersPage />
+}
