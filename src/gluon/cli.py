@@ -92,6 +92,9 @@ app.add_typer(heartbeat_app, name="heartbeat")
 approvals_app = typer.Typer(help="Approval gates for risky tool calls (Theme D1)")
 app.add_typer(approvals_app, name="approvals")
 
+user_app = typer.Typer(help="Manage Gluon user accounts (D5 Phase 1)")
+app.add_typer(user_app, name="user")
+
 console = Console()
 
 
@@ -5382,6 +5385,282 @@ def claude_sessions_messages(
         console.print(f"[{style}][bold]{i}. {role}[/bold][/{style}]")
         console.print(body or "[dim](empty)[/dim]")
         console.print()
+
+
+# ========== User Commands (D5 Phase 1 — multi-user auth) ==========
+#
+# These populate the `users` table that's present in every DB (the migration
+# runs unconditionally) but is only consulted when GLUON_AUTH_ENABLED=true.
+# You can create accounts ahead of the flag flip so the team is ready to go.
+
+
+@user_app.command("add")
+def user_add(
+    username: Annotated[str, typer.Argument(help="Unique username (URL-safe)")],
+    display_name: Annotated[
+        str | None,
+        typer.Option("--display-name", help="Human-readable name; defaults to username"),
+    ] = None,
+    email: Annotated[str | None, typer.Option("--email", help="Optional email")] = None,
+    role: Annotated[
+        str,
+        typer.Option("--role", help="admin / operator / viewer"),
+    ] = "operator",
+    password: Annotated[
+        str | None,
+        typer.Option(
+            "--password",
+            help="Password (min 12 chars). Prompts if not given.",
+            hide_input=True,
+            prompt=False,
+        ),
+    ] = None,
+) -> None:
+    """Create a new local-auth user.
+
+    Example:
+        gluon user add alice --role admin --email alice@org.example
+        # Prompts for password interactively.
+    """
+    import getpass
+
+    from gluon.auth import get_auth_provider
+    from gluon.models import UserRole
+
+    try:
+        parsed_role = UserRole(role.lower())
+    except ValueError:
+        valid = ", ".join(r.value for r in UserRole)
+        console.print(f"[red]Unknown role:[/red] {role}. Valid: {valid}")
+        raise typer.Exit(1)
+
+    if password is None:
+        password = getpass.getpass("Password (min 12 chars): ")
+        confirm = getpass.getpass("Password again: ")
+        if password != confirm:
+            console.print("[red]Passwords do not match.[/red]")
+            raise typer.Exit(1)
+
+    store = GluonStore()
+    provider = get_auth_provider(store)
+    # Only LocalAuthProvider has create_user; OIDC users auto-provision on login.
+    if not hasattr(provider, "create_user"):
+        console.print(f"[red]Provider {provider.name} does not support `user add`.[/red]")
+        raise typer.Exit(1)
+
+    try:
+        user = provider.create_user(  # type: ignore[attr-defined]
+            username=username,
+            password=password,
+            display_name=display_name,
+            email=email,
+            role=parsed_role,
+        )
+    except ValueError as e:
+        # Password-too-short errors surface here
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        if "UNIQUE" in str(e):
+            console.print(f"[red]User '{username}' already exists.[/red]")
+        else:
+            console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel.fit(
+            f"[bold]Username:[/bold] {user.username}\n"
+            f"[bold]Display name:[/bold] {user.display_name}\n"
+            f"[bold]Email:[/bold] {user.email or '—'}\n"
+            f"[bold]Role:[/bold] {user.role.value}\n"
+            f"[bold]ID:[/bold] [dim]{user.id}[/dim]",
+            title="Created user",
+        )
+    )
+    console.print(
+        "[dim]Auth enforcement requires GLUON_AUTH_ENABLED=true (currently "
+        f"{'on' if os.environ.get('GLUON_AUTH_ENABLED', '').lower() in ('1', 'true', 'yes', 'on') else 'off'})."
+        "[/dim]"
+    )
+
+
+@user_app.command("list")
+def user_list(
+    include_disabled: Annotated[
+        bool,
+        typer.Option("--all", help="Include disabled users"),
+    ] = False,
+) -> None:
+    """List Gluon users."""
+    store = GluonStore()
+    users = store.list_users(include_disabled=include_disabled)
+
+    if not users:
+        console.print("[dim]No users yet. Create one with `gluon user add <username>`.[/dim]")
+        return
+
+    table = Table(title=f"Users ({len(users)})")
+    table.add_column("Username")
+    table.add_column("Display")
+    table.add_column("Role")
+    table.add_column("Provider")
+    table.add_column("Disabled")
+    table.add_column("Last login")
+    for u in users:
+        table.add_row(
+            u.username,
+            u.display_name,
+            u.role.value,
+            u.auth_provider.value,
+            "yes" if u.disabled else "",
+            u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else "—",
+        )
+    console.print(table)
+
+
+@user_app.command("show")
+def user_show(
+    username: Annotated[str, typer.Argument(help="Username to show")],
+) -> None:
+    """Show detailed info about a user."""
+    store = GluonStore()
+    user = store.get_user_by_username(username)
+    if user is None:
+        console.print(f"[red]User '{username}' not found.[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel.fit(
+            f"[bold]ID:[/bold] [dim]{user.id}[/dim]\n"
+            f"[bold]Username:[/bold] {user.username}\n"
+            f"[bold]Display name:[/bold] {user.display_name}\n"
+            f"[bold]Email:[/bold] {user.email or '—'}\n"
+            f"[bold]Role:[/bold] {user.role.value}\n"
+            f"[bold]Provider:[/bold] {user.auth_provider.value}\n"
+            f"[bold]Disabled:[/bold] {'yes' if user.disabled else 'no'}\n"
+            f"[bold]Telegram link:[/bold] {user.telegram_user_id or '—'}\n"
+            f"[bold]Discord link:[/bold] {user.discord_user_id or '—'}\n"
+            f"[bold]Created:[/bold] {user.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"[bold]Last login:[/bold] "
+            + (user.last_login_at.strftime("%Y-%m-%d %H:%M:%S") if user.last_login_at else "—"),
+            title=f"User: {user.username}",
+        )
+    )
+
+
+@user_app.command("disable")
+def user_disable(
+    username: Annotated[str, typer.Argument(help="Username to disable")],
+) -> None:
+    """Disable a user (prevents login) and invalidate their active sessions."""
+    store = GluonStore()
+    user = store.get_user_by_username(username)
+    if user is None:
+        console.print(f"[red]User '{username}' not found.[/red]")
+        raise typer.Exit(1)
+    if user.disabled:
+        console.print(f"[yellow]User '{username}' is already disabled.[/yellow]")
+        return
+    user.disabled = True
+    store.update_user(user)
+    rotated = store.delete_user_sessions_for_user(user.id)
+    console.print(f"[yellow]Disabled[/yellow] {user.username}. {rotated} active session(s) rotated.")
+
+
+@user_app.command("enable")
+def user_enable(
+    username: Annotated[str, typer.Argument(help="Username to re-enable")],
+) -> None:
+    """Re-enable a previously disabled user."""
+    store = GluonStore()
+    user = store.get_user_by_username(username)
+    if user is None:
+        console.print(f"[red]User '{username}' not found.[/red]")
+        raise typer.Exit(1)
+    if not user.disabled:
+        console.print(f"[yellow]User '{username}' is not disabled.[/yellow]")
+        return
+    user.disabled = False
+    store.update_user(user)
+    console.print(f"[green]Enabled[/green] {user.username}.")
+
+
+@user_app.command("set-role")
+def user_set_role(
+    username: Annotated[str, typer.Argument(help="Username")],
+    role: Annotated[str, typer.Argument(help="admin / operator / viewer")],
+) -> None:
+    """Change a user's role. Invalidates their active sessions."""
+    from gluon.models import UserRole
+
+    try:
+        parsed_role = UserRole(role.lower())
+    except ValueError:
+        valid = ", ".join(r.value for r in UserRole)
+        console.print(f"[red]Unknown role:[/red] {role}. Valid: {valid}")
+        raise typer.Exit(1)
+
+    store = GluonStore()
+    user = store.get_user_by_username(username)
+    if user is None:
+        console.print(f"[red]User '{username}' not found.[/red]")
+        raise typer.Exit(1)
+    old_role = user.role
+    if old_role == parsed_role:
+        console.print(f"[dim]User '{username}' already has role {parsed_role.value}.[/dim]")
+        return
+    user.role = parsed_role
+    store.update_user(user)
+    rotated = store.delete_user_sessions_for_user(user.id)
+    console.print(
+        f"[green]Role updated:[/green] {user.username}: "
+        f"{old_role.value} → {parsed_role.value}. "
+        f"{rotated} active session(s) rotated."
+    )
+
+
+@user_app.command("set-password")
+def user_set_password(
+    username: Annotated[str, typer.Argument(help="Username")],
+    password: Annotated[
+        str | None,
+        typer.Option(
+            "--password",
+            help="New password (prompts if not given)",
+            hide_input=True,
+        ),
+    ] = None,
+) -> None:
+    """Change a user's password. Invalidates their active sessions."""
+    import getpass
+
+    from gluon.auth import get_auth_provider
+
+    store = GluonStore()
+    user = store.get_user_by_username(username)
+    if user is None:
+        console.print(f"[red]User '{username}' not found.[/red]")
+        raise typer.Exit(1)
+
+    provider = get_auth_provider(store)
+    if not hasattr(provider, "set_password"):
+        console.print(f"[red]Provider {provider.name} does not support password change.[/red]")
+        raise typer.Exit(1)
+
+    if password is None:
+        password = getpass.getpass("New password (min 12 chars): ")
+        confirm = getpass.getpass("Password again: ")
+        if password != confirm:
+            console.print("[red]Passwords do not match.[/red]")
+            raise typer.Exit(1)
+
+    try:
+        provider.set_password(user, password)  # type: ignore[attr-defined]
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]Password updated[/green] for {user.username}. All active sessions rotated.")
 
 
 if __name__ == "__main__":
