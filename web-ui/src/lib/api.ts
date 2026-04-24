@@ -3,6 +3,7 @@ import type {
   ActivityEvent,
   BranchListResponse,
   BranchOperationResponse,
+  ChangePasswordRequest,
   CloneResultResponse,
   CommitDetail,
   // Advanced Git Operations types
@@ -10,6 +11,8 @@ import type {
   ConflictDiff,
   CreateProjectRequest,
   CreateRunRequest,
+  // Auth types (D5 Phase 2)
+  CreateUserRequest,
   CreateWorkspaceRequest,
   DailyUsage,
   FileDiff,
@@ -22,7 +25,9 @@ import type {
   // Notification types
   GluonNotification,
   ImageAttachment,
+  LoginResponse,
   LogResponse,
+  MeResponse,
   // Merge Queue types
   MergeQueueEntry,
   NotificationsListResponse,
@@ -60,7 +65,10 @@ import type {
   StopLoopResponse,
   SystemStatus,
   UpdateStatusResponse,
+  UpdateUserRequest,
   UsageSummary,
+  User,
+  UserListResponse,
   // Witness types
   WitnessDecision,
   // Work Queue types
@@ -71,9 +79,26 @@ import type {
 
 const API_BASE = '/api'
 
+/** Error thrown by `fetchJson` when the server returns a non-2xx response. */
+export class ApiError extends Error {
+  status: number
+  detail: string
+  constructor(status: number, detail: string) {
+    super(detail)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+  }
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${url}`, {
     ...options,
+    // Always send the session cookie. Critical for auth — same-origin in
+    // production (FastAPI serves the SPA), and the Vite dev proxy preserves
+    // cookies too. Explicit `include` makes this work even if a future
+    // deployment runs the API on a different origin.
+    credentials: options?.credentials ?? 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
@@ -82,7 +107,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }))
-    throw new Error(error.detail || 'API request failed')
+    throw new ApiError(response.status, error.detail || 'API request failed')
   }
 
   return response.json()
@@ -1006,5 +1031,76 @@ export async function updateWorkspaceEnvVars(
 export async function deleteWorkspaceEnvVar(workspaceId: string, key: string): Promise<void> {
   await fetchJson(`/workspaces/${workspaceId}/env-vars/${encodeURIComponent(key)}`, {
     method: 'DELETE',
+  })
+}
+
+// ===========================================================================
+// Auth API (D5 Phase 2)
+// ===========================================================================
+
+/** Get the current user. Always succeeds — returns SYSTEM_USER if no session. */
+export async function fetchMe(): Promise<MeResponse> {
+  return fetchJson<MeResponse>('/auth/me')
+}
+
+/** Log in with username + password. Sets the session cookie on success. */
+export async function login(username: string, password: string): Promise<LoginResponse> {
+  return fetchJson<LoginResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+/** Log out the current session. Clears the session cookie. */
+export async function logout(): Promise<void> {
+  await fetchJson('/auth/logout', { method: 'POST' })
+}
+
+/** List all users (admin-only). */
+export async function listUsers(includeDisabled = false): Promise<UserListResponse> {
+  const query = includeDisabled ? '?include_disabled=true' : ''
+  return fetchJson<UserListResponse>(`/users${query}`)
+}
+
+/** Create a new user (admin-only). */
+export async function createUser(body: CreateUserRequest): Promise<User> {
+  return fetchJson<User>('/users', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** Update an existing user (admin-only). */
+export async function updateUser(userId: string, body: UpdateUserRequest): Promise<User> {
+  return fetchJson<User>(`/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+/** Disable (soft-delete) a user (admin-only). */
+export async function disableUser(userId: string): Promise<User> {
+  return fetchJson<User>(`/users/${userId}`, { method: 'DELETE' })
+}
+
+/**
+ * Change a user's password.
+ *
+ * - Admins may change anyone's password (omit `currentPassword`).
+ * - A non-admin user may only change their own password and must pass
+ *   `currentPassword` so it can be verified.
+ */
+export async function changePassword(
+  userId: string,
+  newPassword: string,
+  currentPassword?: string
+): Promise<User> {
+  const body: ChangePasswordRequest = {
+    new_password: newPassword,
+    current_password: currentPassword ?? null,
+  }
+  return fetchJson<User>(`/users/${userId}/password`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   })
 }

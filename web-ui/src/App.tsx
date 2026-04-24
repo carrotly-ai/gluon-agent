@@ -5,6 +5,7 @@ import {
   GitMerge,
   LayoutGrid,
   ListTodo,
+  Loader2,
   Menu,
   Moon,
   Plus,
@@ -14,8 +15,10 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityPage } from './components/ActivityPage'
+import { AdminUsersPage } from './components/AdminUsersPage'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
+import { LoginPage } from './components/LoginPage'
 import { MergeQueuePage } from './components/MergeQueuePage'
 import { NotificationBell } from './components/NotificationBell'
 import { OfflineOverlay } from './components/OfflineOverlay'
@@ -26,8 +29,10 @@ import { SessionBrowserPage } from './components/SessionBrowserPage'
 import { SettingsPage } from './components/SettingsPage'
 import { UpdateBanner } from './components/UpdateBanner'
 import { UsagePage } from './components/UsagePage'
+import { UserMenu } from './components/UserMenu'
 import { WorkQueuePage } from './components/WorkQueuePage'
 import { useConnectivity } from './hooks/useConnectivity'
+import { useCurrentUser } from './hooks/useCurrentUser'
 import {
   NotificationCenterContext,
   useNotificationCenterProvider,
@@ -51,7 +56,15 @@ import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
 import { cn } from './lib/utils'
 
-type ViewMode = 'board' | 'activity' | 'queue' | 'merge' | 'sessions' | 'usage' | 'settings'
+type ViewMode =
+  | 'board'
+  | 'activity'
+  | 'queue'
+  | 'merge'
+  | 'sessions'
+  | 'usage'
+  | 'settings'
+  | 'admin-users'
 
 const SECONDARY_NAV_ITEMS: { mode: ViewMode; icon: typeof Activity; label: string }[] = [
   { mode: 'activity', icon: Activity, label: 'Activity' },
@@ -156,6 +169,27 @@ function MobileNavMenu({
 }
 
 function App() {
+  // Auth gate (D5 Phase 2). When auth is enabled and there's no session,
+  // show the login screen instead of the main app shell — this avoids
+  // mounting any of the heavyweight hooks (WebSocket, runs subscription,
+  // etc.) that would 401 anyway.
+  const { loading: authLoading, needsLogin } = useCurrentUser()
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--color-void)]">
+        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-stone)]/60" />
+      </div>
+    )
+  }
+  if (needsLogin) {
+    return <LoginPage />
+  }
+
+  return <AuthenticatedApp />
+}
+
+function AuthenticatedApp() {
   // Notification center
   const notificationCenter = useNotificationCenterProvider()
   const { show: showBrowserNotification, requestPermission: requestNotifPermission } =
@@ -444,6 +478,7 @@ function App() {
               {/* View Toggle - Mobile: Board + Settings + overflow menu */}
               <MobileNavMenu viewMode={viewMode} onViewChange={setViewMode} />
               <NotificationBell onNavigateToRun={(runId) => openRunDetail(runId)} />
+              <UserMenu onOpenAdmin={() => setViewMode('admin-users')} />
               <button
                 className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
                 onClick={toggleTheme}
@@ -484,6 +519,8 @@ function App() {
         <main className="flex-1 flex flex-col overflow-hidden min-h-0">
           {viewMode === 'settings' ? (
             <SettingsPage tab={settingsTab} onTabChange={setSettingsTab} />
+          ) : viewMode === 'admin-users' ? (
+            <AdminUsersPage />
           ) : viewMode === 'usage' ? (
             <UsagePage />
           ) : viewMode === 'activity' ? (
