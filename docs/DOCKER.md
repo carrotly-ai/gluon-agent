@@ -81,8 +81,14 @@ graph TB
 | `$HOME/.claude` | `/home/gluon/.claude` | Claude Code config & auth | `rw` |
 | `$HOME/.gluon` | `/home/gluon/.gluon` | Gluon state, DB, logs | `rw` |
 | `$HOME/workspaces` | `/home/gluon/workspaces` | Project files | `rw` |
-| `$HOME/.aws` | `/home/gluon/.aws` | AWS credentials | `ro` |
+| `$HOME/.aws` | `/home/gluon/.aws` | AWS credentials (Bedrock) | `ro` |
+| `$HOME/.config/gcloud` | `/home/gluon/.config/gcloud` | GCP ADC (Vertex AI) | `ro` |
+| `$HOME/.azure` | `/home/gluon/.azure` | Azure credentials (Foundry / Entra ID) | `ro` |
 | `$HOME/.config/gh` | `/home/gluon/.config/gh` | GitHub CLI auth (for PR ops) | `ro` |
+
+Only the credential mount for your chosen LLM provider is actually used at
+runtime — the others can be absent. See
+[LLM-PROVIDER.md](LLM-PROVIDER.md) for provider setup.
 
 ### Optional Directories
 
@@ -108,7 +114,19 @@ graph TB
 
 ## Environment Variables
 
-### AWS Authentication
+### LLM Provider
+
+Pick one of four backends — Gluon automatically exports the matching
+`CLAUDE_CODE_USE_*` flag and credential envs into the Claude Code subprocess:
+
+```bash
+# Pick one (default: bedrock)
+-e GLUON_LLM_PROVIDER=bedrock    # or: anthropic / vertex / foundry
+```
+
+See [`LLM-PROVIDER.md`](LLM-PROVIDER.md) for the full reference.
+
+### AWS Authentication (Bedrock)
 
 ```bash
 # Profile-based
@@ -119,13 +137,38 @@ graph TB
 -e AWS_ACCESS_KEY_ID
 -e AWS_SECRET_ACCESS_KEY
 -e AWS_SESSION_TOKEN
+-e AWS_BEARER_TOKEN_BEDROCK   # Short-lived bearer token alternative
+```
+
+### GCP Authentication (Vertex AI)
+
+```bash
+-e ANTHROPIC_VERTEX_PROJECT_ID=my-gcp-project
+-e CLOUD_ML_REGION=global    # or us / eu / us-east5 / europe-west1 / ...
+# Auth via ADC: mount ~/.config/gcloud and run
+#   gcloud auth application-default login
+# on the host. For service-account keys:
+-e GOOGLE_APPLICATION_CREDENTIALS=/home/gluon/.config/gcloud/sa-key.json
+```
+
+### Azure Authentication (Microsoft Foundry)
+
+```bash
+-e ANTHROPIC_FOUNDRY_RESOURCE=my-azure-resource
+# Option A: API key
+-e ANTHROPIC_FOUNDRY_API_KEY=...
+# Option B: Entra ID via `az login` on host (~/.azure mounted read-only)
+#   Or service-principal / workload-identity env vars:
+-e AZURE_CLIENT_ID
+-e AZURE_TENANT_ID
+-e AZURE_CLIENT_SECRET
 ```
 
 ### Claude Configuration
 
 ```bash
-# API key (if not using local AWS Bedrock)
--e CLAUDE_API_KEY=sk-...
+# API key for direct Anthropic provider
+-e ANTHROPIC_API_KEY=sk-ant-...
 
 # Logging
 -e CLAUDE_LOG_LEVEL=info

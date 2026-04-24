@@ -56,6 +56,9 @@ class TestAgentModelResolution:
         [
             ("bedrock", "global.anthropic.claude-sonnet-4-6"),
             ("anthropic", "claude-sonnet-4-6"),
+            ("vertex", "claude-sonnet-4-6"),
+            ("vertex", "claude-haiku-4-5@20251001"),
+            ("foundry", "claude-opus-4-7"),
         ],
     )
     @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))

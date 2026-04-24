@@ -39,6 +39,54 @@ import { WorkspaceSettingsDialog } from './WorkspaceSettingsDialog'
 
 type Tab = 'workspaces' | 'projects' | 'preferences' | 'formulas'
 
+type LlmProvider = 'bedrock' | 'anthropic' | 'vertex' | 'foundry'
+
+const LLM_PROVIDERS: readonly LlmProvider[] = ['bedrock', 'anthropic', 'vertex', 'foundry'] as const
+
+const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
+  bedrock: 'AWS Bedrock',
+  anthropic: 'Anthropic (Direct)',
+  vertex: 'Google Vertex AI',
+  foundry: 'Microsoft Foundry',
+}
+
+// Per-provider hint shown under the toggle when that provider is active.
+const LLM_PROVIDER_HINTS: Record<LlmProvider, React.ReactNode> = {
+  bedrock: (
+    <>
+      Uses your AWS credentials and Bedrock billing. Required env:{' '}
+      <code className="text-[var(--color-paper)]/80">AWS_REGION</code> +{' '}
+      <code className="text-[var(--color-paper)]/80">AWS_BEARER_TOKEN_BEDROCK</code> (or access
+      keys).
+    </>
+  ),
+  anthropic: (
+    <>
+      Requires <code className="text-[var(--color-paper)]/80">ANTHROPIC_API_KEY</code> env var or{' '}
+      <code className="text-[var(--color-paper)]/80">claude login</code>. New agent runs will use
+      Anthropic model IDs. Running agents are not affected.
+    </>
+  ),
+  vertex: (
+    <>
+      Requires <code className="text-[var(--color-paper)]/80">ANTHROPIC_VERTEX_PROJECT_ID</code> +{' '}
+      <code className="text-[var(--color-paper)]/80">CLOUD_ML_REGION</code> (global / us / eu /
+      us-east5 / ...). Auth via{' '}
+      <code className="text-[var(--color-paper)]/80">gcloud auth application-default login</code> on
+      the host, or a service account key at{' '}
+      <code className="text-[var(--color-paper)]/80">GOOGLE_APPLICATION_CREDENTIALS</code>.
+    </>
+  ),
+  foundry: (
+    <>
+      Requires <code className="text-[var(--color-paper)]/80">ANTHROPIC_FOUNDRY_RESOURCE</code>{' '}
+      (your Azure resource name) and either{' '}
+      <code className="text-[var(--color-paper)]/80">ANTHROPIC_FOUNDRY_API_KEY</code> or Entra ID
+      via <code className="text-[var(--color-paper)]/80">az login</code> / managed identity.
+    </>
+  ),
+}
+
 interface SettingsPageProps {
   tab?: Tab
   onTabChange?: (tab: Tab) => void
@@ -89,7 +137,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [expandedFormula, setExpandedFormula] = useState<string | null>(null)
 
   // Settings state
-  const [llmProvider, setLlmProvider] = useState<'bedrock' | 'anthropic'>('bedrock')
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>('bedrock')
   const [autoCreatePr, setAutoCreatePr] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [savedKey, setSavedKey] = useState<string | null>(null)
@@ -138,7 +186,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setWorkspaces(ws)
       setProjects(prj)
       setLlmProvider(
-        (settings.llm_provider === 'anthropic' ? 'anthropic' : 'bedrock') as 'bedrock' | 'anthropic'
+        LLM_PROVIDERS.includes(settings.llm_provider as LlmProvider)
+          ? (settings.llm_provider as LlmProvider)
+          : 'bedrock'
       )
       setAutoCreatePr(settings.auto_create_pr !== 'false')
       setGitUserName(settings.git_user_name || '')
@@ -269,7 +319,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
     }
   }
 
-  const handleChangeLlmProvider = async (value: 'bedrock' | 'anthropic') => {
+  const handleChangeLlmProvider = async (value: LlmProvider) => {
     setSavingKey('llm_provider')
     try {
       await updateSetting('llm_provider', value)
@@ -868,39 +918,31 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
               <div>
                 <p className="text-title text-[var(--color-paper)]">Provider</p>
                 <p className="text-caption text-[var(--color-stone)]/70 mt-1">
-                  Choose how Gluon connects to Claude models. AWS Bedrock uses your AWS credentials
-                  and billing. Anthropic (Direct) uses your Anthropic API key or Claude
-                  subscription.
+                  Choose how Gluon connects to Claude models. Switch between AWS Bedrock,
+                  Anthropic's direct API / Claude subscription, Google Vertex AI, and Microsoft
+                  Foundry (Azure) — Gluon transparently routes inference through the selected
+                  backend.
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex rounded-sm border border-[rgba(163,163,163,0.15)] overflow-hidden">
-                  <button
-                    onClick={() => handleChangeLlmProvider('bedrock')}
-                    disabled={savingKey === 'llm_provider'}
-                    className={cn(
-                      'px-4 py-2 text-caption transition-colors',
-                      llmProvider === 'bedrock'
-                        ? 'bg-[var(--color-paper)] text-[var(--color-void)]'
-                        : 'bg-transparent text-[var(--color-stone)]/70 hover:text-[var(--color-stone)]',
-                      savingKey === 'llm_provider' && 'opacity-50 cursor-wait'
-                    )}
-                  >
-                    AWS Bedrock
-                  </button>
-                  <button
-                    onClick={() => handleChangeLlmProvider('anthropic')}
-                    disabled={savingKey === 'llm_provider'}
-                    className={cn(
-                      'px-4 py-2 text-caption transition-colors',
-                      llmProvider === 'anthropic'
-                        ? 'bg-[var(--color-paper)] text-[var(--color-void)]'
-                        : 'bg-transparent text-[var(--color-stone)]/70 hover:text-[var(--color-stone)]',
-                      savingKey === 'llm_provider' && 'opacity-50 cursor-wait'
-                    )}
-                  >
-                    Anthropic (Direct)
-                  </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex rounded-sm border border-[rgba(163,163,163,0.15)] overflow-hidden flex-wrap">
+                  {LLM_PROVIDERS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => handleChangeLlmProvider(p)}
+                      disabled={savingKey === 'llm_provider'}
+                      className={cn(
+                        'px-4 py-2 text-caption transition-colors border-r border-[rgba(163,163,163,0.15)] last:border-r-0',
+                        llmProvider === p
+                          ? 'bg-[var(--color-paper)] text-[var(--color-void)]'
+                          : 'bg-transparent text-[var(--color-stone)]/70 hover:text-[var(--color-stone)]',
+                        savingKey === 'llm_provider' && 'opacity-50 cursor-wait'
+                      )}
+                    >
+                      {LLM_PROVIDER_LABELS[p]}
+                    </button>
+                  ))}
                 </div>
                 {savedKey === 'llm_provider' && (
                   <span className="text-caption text-[var(--color-jade)] flex items-center gap-1">
@@ -908,13 +950,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                   </span>
                 )}
               </div>
-              {llmProvider === 'anthropic' && (
-                <p className="text-caption text-[var(--color-stone)]/60">
-                  Requires <code className="text-[var(--color-paper)]/80">ANTHROPIC_API_KEY</code>{' '}
-                  env var or <code className="text-[var(--color-paper)]/80">claude login</code>. New
-                  agent runs will use Anthropic model IDs. Running agents are not affected.
-                </p>
-              )}
+              <p className="text-caption text-[var(--color-stone)]/60">
+                {LLM_PROVIDER_HINTS[llmProvider]}
+              </p>
             </div>
 
             {/* Git (merged card) */}

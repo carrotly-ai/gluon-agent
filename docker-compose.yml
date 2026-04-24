@@ -20,8 +20,16 @@ services:
       # Projects
       - ${HOME}/workspaces:/home/gluon/workspaces
 
-      # AWS credentials (read-only)
+      # AWS credentials (read-only) — for Bedrock provider
       - ${HOME}/.aws:/home/gluon/.aws:ro
+
+      # GCP credentials (read-only) — for Vertex provider
+      # Host: `gcloud auth application-default login`
+      - ${HOME}/.config/gcloud:/home/gluon/.config/gcloud:ro
+
+      # Azure credentials (read-only) — for Foundry / Entra ID auth
+      # Host: `az login`
+      - ${HOME}/.azure:/home/gluon/.azure:ro
 
       # GitHub CLI config (read-only) - for PR creation
       - ${HOME}/.config/gh:/home/gluon/.config/gh:ro
@@ -61,10 +69,37 @@ services:
       # Limit heap to 6GB to leave room for subprocesses within 12GB container
       - NODE_OPTIONS=--max-old-space-size=6144
 
-      # LLM provider selection: "bedrock" (default) or "anthropic".
-      # When set to "anthropic", also set ANTHROPIC_API_KEY (or use `claude login`).
+      # LLM provider selection: "bedrock" (default), "anthropic", "vertex", or "foundry".
+      #
+      # Gluon automatically exports the matching CLAUDE_CODE_USE_* flag plus any
+      # per-provider config below into the Claude Code subprocess.
       - GLUON_LLM_PROVIDER
+
+      # --- Anthropic (direct API / Claude CLI subscription) ---
       - ANTHROPIC_API_KEY
+      - ANTHROPIC_BASE_URL
+
+      # --- Google Vertex AI ---
+      - ANTHROPIC_VERTEX_PROJECT_ID
+      - CLOUD_ML_REGION
+      - GOOGLE_APPLICATION_CREDENTIALS
+      - GOOGLE_CLOUD_PROJECT
+      - GCLOUD_PROJECT
+      - ANTHROPIC_VERTEX_BASE_URL
+
+      # --- Microsoft Foundry (Azure AI Foundry) ---
+      - ANTHROPIC_FOUNDRY_RESOURCE
+      - ANTHROPIC_FOUNDRY_API_KEY
+      - ANTHROPIC_FOUNDRY_BASE_URL
+      - AZURE_CLIENT_ID
+      - AZURE_TENANT_ID
+      - AZURE_CLIENT_SECRET
+
+      # --- Model pinning (works across all cloud providers) ---
+      - ANTHROPIC_MODEL
+      - ANTHROPIC_DEFAULT_OPUS_MODEL
+      - ANTHROPIC_DEFAULT_SONNET_MODEL
+      - ANTHROPIC_DEFAULT_HAIKU_MODEL
 
       # Gluon configuration (loaded from env_file, only override if needed)
       - GLUON_GIT_ENABLED=true

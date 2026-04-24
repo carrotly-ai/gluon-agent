@@ -3,7 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-**Self-hosted orchestrator for Claude Code on AWS Bedrock.** Run fleets of AI coding agents from your own infrastructure — with session persistence, git worktree isolation, and remote control from CLI, web dashboard, Telegram, or Discord. Agents run in a containerized Docker environment with bubblewrap sandboxing, using your own AWS Bedrock credentials (no Anthropic subscription required).
+**Self-hosted orchestrator for Claude Code.** Run fleets of AI coding agents from your own infrastructure — with session persistence, git worktree isolation, and remote control from CLI, web dashboard, Telegram, or Discord. Agents run in a containerized Docker environment with bubblewrap sandboxing.
+
+**Bring your own backend** — Gluon routes inference through whichever Claude backend your organisation already pays for: **AWS Bedrock**, **Google Vertex AI**, **Microsoft Foundry** (Azure AI Foundry), or the direct **Anthropic API** / Claude CLI subscription. Switch between them with one command (`gluon provider <name>`) or from the Settings page. See [`docs/LLM-PROVIDER.md`](docs/LLM-PROVIDER.md) for the full provider guide.
 
 ![Kanban board](docs/screenshots/gluon_kanban.png)
 
@@ -17,6 +19,7 @@
 - [Docker Quickstart](#docker-quickstart)
 - [Installation (from source)](#installation-from-source)
 - [Quick Start (CLI)](#quick-start-cli-reference)
+- [Choosing Your LLM Backend](#choosing-your-llm-backend-detailed-guide)
 - [Features](#features)
 - [Web Dashboard](#web-dashboard-docs--api)
 - [Chat Bots](#chat-bots-telegram--discord)
@@ -37,10 +40,13 @@ holds the full SQLite database and every run log — nothing leaves your
 infrastructure. Mount `~/.claude` and `~/.aws` from the host and the container
 uses your existing credentials.
 
-**2. Runs on AWS Bedrock.** Gluon uses your own AWS Bedrock access to invoke
-Claude — decoupled from Anthropic's subscription pricing. Pay per-token at
-AWS rates, cap spend per run, and keep running if a subscription plan changes
-underfoot.
+**2. Pluggable LLM backends.** Gluon ships with a provider abstraction that
+speaks AWS Bedrock, Google Vertex AI, Microsoft Foundry, and the direct
+Anthropic API. Use whichever your organisation already bills through —
+Gluon exports the right `CLAUDE_CODE_USE_*` flag, wires in the right
+credentials, and resolves the right model IDs automatically. Pay per-token
+at your cloud's rates, cap spend per run, and keep running if any one
+provider changes plans underfoot.
 
 **3. Control from anywhere.** Kick off a task from your desk via CLI or web,
 approve the PR from your phone via Telegram, review failures in Discord while
@@ -53,14 +59,14 @@ the same runs.
 - Delegating bug fixes to AI agents while you focus on architecture
 - Managing a backlog of AI-assisted tasks across multiple projects
 - Teams that want visibility into AI-assisted development work
-- Operators who need Bedrock-native deployment for compliance or cost reasons
+- Operators who need Bedrock-, Vertex-, or Foundry-native deployment for compliance or cost reasons
 
 ### Gluon vs other Claude Code orchestrators
 
 |  | Gluon | Claude Deck | claudectl | KingCoding |
 | --- | --- | --- | --- | --- |
 | Self-hosted | ✅ | ✅ | ✅ | ❌ |
-| AWS Bedrock-native | ✅ | ❌ | ❌ | ❌ |
+| Multi-cloud LLM backend (Bedrock + Vertex + Foundry + direct) | ✅ | ❌ | ❌ | ❌ |
 | Multi-transport (CLI+TG+Discord+Web) | ✅ | Web only | CLI only | Mobile only |
 | Session resume (fork_session) | ✅ | — | — | — |
 | Git worktree isolation + GC | ✅ | — | Partial | — |
@@ -90,7 +96,12 @@ curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/docker
 curl -fsSL https://raw.githubusercontent.com/carrotly-ai/gluon-agent/main/.env.example -o .env
 
 # 2. Edit .env with your credentials
-#    At minimum set: PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL, AWS_BEARER_TOKEN_BEDROCK
+#    Required (all backends): PUID, PGID, GH_TOKEN, GIT_USER_NAME, GIT_USER_EMAIL
+#    Then pick ONE provider block (Bedrock is the default):
+#      Bedrock  → AWS_REGION + AWS_BEARER_TOKEN_BEDROCK (or AWS access keys)
+#      Anthropic → ANTHROPIC_API_KEY (or `claude login` session at ~/.claude)
+#      Vertex    → ANTHROPIC_VERTEX_PROJECT_ID + CLOUD_ML_REGION + gcloud ADC
+#      Foundry   → ANTHROPIC_FOUNDRY_RESOURCE + (API key or Entra ID via `az login`)
 #    Find your UID/GID with: id -u && id -g
 
 # 3. Start the container
@@ -102,7 +113,14 @@ open http://localhost:45866
 
 The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push to `main`.
 
-> **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and AWS credentials at `~/.aws` for Bedrock access.
+> **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and cloud credentials for your chosen provider:
+>
+> | Provider | Credentials |
+> |---|---|
+> | AWS Bedrock (default) | `~/.aws` (mounted read-only) |
+> | Anthropic Direct | `ANTHROPIC_API_KEY` env var or `~/.claude` login |
+> | Google Vertex AI | `~/.config/gcloud` (run `gcloud auth application-default login`) |
+> | Microsoft Foundry | `~/.azure` (run `az login`) or `ANTHROPIC_FOUNDRY_API_KEY` env var |
 
 **Docker Features:**
 - **PUID/PGID Support** - Container adapts to any host user's UID/GID — no permission issues with bind mounts
@@ -129,7 +147,7 @@ uv pip install -e '.[discord]'       # Discord bot
 uv pip install -e '.[all]'           # All features
 ```
 
-**Requirements:** Python 3.12+, [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated, [uv](https://github.com/astral-sh/uv) package manager, AWS credentials for Bedrock, Git, GitHub CLI (`gh`) optional.
+**Requirements:** Python 3.12+, [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated, [uv](https://github.com/astral-sh/uv) package manager, credentials for your chosen LLM backend (AWS / GCP / Azure / Anthropic API key), Git, GitHub CLI (`gh`) optional.
 
 ## Quick Start ([CLI Reference](docs/CLI-REFERENCE.md))
 
@@ -179,6 +197,34 @@ gluon runs
 gluon logs <run-id>
 gluon logs <run-id> -f  # Follow live
 ```
+
+## Choosing Your LLM Backend ([detailed guide](docs/LLM-PROVIDER.md))
+
+Gluon talks to Claude through a pluggable provider abstraction. Pick whichever backend your organisation already uses — every feature (cost tracking, witness, approvals, budgets, session resume) works identically across all four.
+
+```bash
+# View current provider + model mappings
+gluon provider
+
+# Switch backend (persists to the DB)
+gluon provider bedrock      # AWS Bedrock (default)
+gluon provider anthropic    # Direct Anthropic API / Claude CLI subscription
+gluon provider vertex       # Google Vertex AI
+gluon provider foundry      # Microsoft Foundry (Azure AI Foundry)
+```
+
+Or set `GLUON_LLM_PROVIDER=<name>` in `.env`, or toggle from the dashboard Settings page.
+
+| Backend | Model ID scheme | Credentials |
+|---|---|---|
+| **AWS Bedrock** (default) | `global.anthropic.claude-sonnet-4-6` | AWS env or `~/.aws` |
+| **Anthropic Direct** | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` or `claude login` |
+| **Google Vertex AI** | `claude-sonnet-4-6` / `claude-haiku-4-5@20251001` | GCP ADC (`gcloud auth application-default login`) |
+| **Microsoft Foundry** | `claude-sonnet-4-6` (your Azure deployment name) | `ANTHROPIC_FOUNDRY_API_KEY` or `az login` |
+
+Gluon automatically exports the matching `CLAUDE_CODE_USE_*` flag into the Claude Code subprocess and resolves model IDs to the active provider's scheme, so the same `--model sonnet` works everywhere.
+
+**Resolution order:** explicit argument → `GLUON_LLM_PROVIDER` env var → `llm_provider` setting in the DB → default `bedrock`.
 
 ## Features
 
@@ -556,6 +602,7 @@ gluon run myapp 'Redesign database schema' --model opus
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](docs/CLI-REFERENCE.md) | Complete CLI command reference |
+| [LLM Provider Guide](docs/LLM-PROVIDER.md) | Bedrock / Anthropic / Vertex / Foundry configuration |
 | [Web Dashboard](docs/WEB-DASHBOARD.md) | Dashboard features and API |
 | [Ralph Loop](docs/RALPH-LOOP.md) | Autonomous execution mode and supervision |
 | [Agent Teams](https://code.claude.com/docs/en/agent-teams) | Claude Code multi-agent coordination (external) |
@@ -582,6 +629,26 @@ gluon run myapp 'Redesign database schema' --model opus
 ```
 
 ## Environment Variables
+
+### LLM Provider
+
+| Variable | Description |
+|----------|-------------|
+| `GLUON_LLM_PROVIDER` | Provider name: `bedrock` (default), `anthropic`, `vertex`, or `foundry` |
+| `ANTHROPIC_MODEL` | Override model for all runs |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | Pin a specific Opus version for third-party deployments |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | Pin a specific Sonnet version |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Pin a specific Haiku version |
+
+**Bedrock** — `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK` (or standard AWS creds), `ANTHROPIC_BEDROCK_BASE_URL` (optional gateway).
+
+**Anthropic Direct** — `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` (optional). Or use `claude login` for a CLI session.
+
+**Google Vertex AI** — `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION` (e.g. `global` / `us-east5`), `GOOGLE_APPLICATION_CREDENTIALS` (optional), `ANTHROPIC_VERTEX_BASE_URL` (optional gateway).
+
+**Microsoft Foundry** — `ANTHROPIC_FOUNDRY_RESOURCE` (or `ANTHROPIC_FOUNDRY_BASE_URL`), `ANTHROPIC_FOUNDRY_API_KEY` (or Entra ID via `az login`).
+
+See [`docs/LLM-PROVIDER.md`](docs/LLM-PROVIDER.md) for the full reference.
 
 ### Bot Configuration
 

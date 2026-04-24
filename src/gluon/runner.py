@@ -833,6 +833,17 @@ class TaskRunner:
             ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
             env.update(ws_env_vars)
 
+        # Inject LLM provider-specific backend flags for Claude Code (e.g.,
+        # CLAUDE_CODE_USE_VERTEX=1, ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION).
+        # The active provider decides which backend the spawned subprocess routes
+        # inference through.
+        try:
+            from gluon.llm_provider import get_provider
+
+            env.update(get_provider().runner_env())
+        except Exception:
+            logger.debug("Failed to resolve LLM provider for runner env; using defaults", exc_info=True)
+
         # Browser session isolation per run
         env["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"
 
@@ -884,6 +895,20 @@ class TaskRunner:
             ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
             _saved_env = {k: os.environ.get(k) for k in ws_env_vars}
             os.environ.update(ws_env_vars)
+
+        # Inject LLM provider-specific backend flags (CLAUDE_CODE_USE_VERTEX,
+        # CLAUDE_CODE_USE_FOUNDRY, etc.) so the Claude Code SDK call below
+        # routes inference through the active backend. We stash the prior
+        # values in ``_saved_env`` so the teardown at end-of-run restores them.
+        try:
+            from gluon.llm_provider import get_provider
+
+            provider_env = get_provider().runner_env()
+            for k, v in provider_env.items():
+                _saved_env.setdefault(k, os.environ.get(k))
+                os.environ[k] = v
+        except Exception:
+            logger.debug("Failed to inject LLM provider runner env", exc_info=True)
 
         # Browser session isolation per run
         os.environ["AGENT_BROWSER_SESSION"] = f"gluon-{run.id[:8]}"

@@ -8,16 +8,18 @@ AI orchestrator for managing multiple Claude Code agents across projects. Provid
 
 ## LLM Providers
 
-Gluon supports **two** LLM providers, selectable via `GLUON_LLM_PROVIDER` env var, the `gluon provider` CLI command, or the web dashboard Settings page. Default is `bedrock`. Provider abstraction lives in `src/gluon/llm_provider.py`; see `docs/LLM-PROVIDER.md` for the full design.
+Gluon supports **four** LLM providers — AWS Bedrock, direct Anthropic API, Google Vertex AI, and Microsoft Foundry (Azure AI Foundry). Selectable via `GLUON_LLM_PROVIDER` env var, the `gluon provider` CLI command, or the web dashboard Settings page. Default is `bedrock`. Provider abstraction lives in `src/gluon/llm_provider.py`; see `docs/LLM-PROVIDER.md` for the full design.
 
-| Tier                | Bedrock Model ID                                     | Anthropic Model ID            | Purpose                                           |
-|---------------------|------------------------------------------------------|-------------------------------|---------------------------------------------------|
-| claude-opus-4.6     | global.anthropic.claude-opus-4-6-v1                  | claude-opus-4-6               | Latest, most capable Claude model (default opus)  |
-| claude-opus-4.5     | global.anthropic.claude-opus-4-5-20251101-v1:0       | claude-opus-4-5-20251101      | Previous generation Opus model                    |
-| claude-sonnet-4.6   | global.anthropic.claude-sonnet-4-6                   | claude-sonnet-4-6             | Fast, high-quality Claude model for general use   |
-| claude-haiku-4.5    | global.anthropic.claude-haiku-4-5-20251001-v1:0      | claude-haiku-4-5-20251001     | Lightweight, fast Claude model for low latency    |
+| Tier                | Bedrock Model ID                                     | Anthropic Model ID            | Vertex Model ID                | Foundry Model ID      |
+|---------------------|------------------------------------------------------|-------------------------------|--------------------------------|-----------------------|
+| claude-opus-4.6     | global.anthropic.claude-opus-4-6-v1                  | claude-opus-4-6               | claude-opus-4-6                | claude-opus-4-6       |
+| claude-opus-4.5     | global.anthropic.claude-opus-4-5-20251101-v1:0       | claude-opus-4-5-20251101      | claude-opus-4-5@20251101       | claude-opus-4-5       |
+| claude-sonnet-4.6   | global.anthropic.claude-sonnet-4-6                   | claude-sonnet-4-6             | claude-sonnet-4-6              | claude-sonnet-4-6     |
+| claude-haiku-4.5    | global.anthropic.claude-haiku-4-5-20251001-v1:0      | claude-haiku-4-5-20251001     | claude-haiku-4-5@20251001      | claude-haiku-4-5      |
 
 **IMPORTANT:** We only support the four tiers listed above. Provider resolution order: explicit argument → `GLUON_LLM_PROVIDER` env var → `llm_provider` setting in the DB → default `bedrock`.
+
+**Subprocess env:** Each provider's `runner_env()` method contributes the `CLAUDE_CODE_USE_*` flag and any required credentials to the Claude Code subprocess. Never hardcode `CLAUDE_CODE_USE_BEDROCK=1` in compose or env files — let the provider emit it.
 
 ## Docker Operations
 

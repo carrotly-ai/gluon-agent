@@ -3802,22 +3802,52 @@ def settings_delete(
 # ========== Provider Command ==========
 
 
+# Per-provider config hints shown after a switch — points users at the env vars
+# they'll need to set for that backend.
+_PROVIDER_CONFIG_HINTS: dict[str, str] = {
+    "bedrock": (
+        "Required env: [cyan]AWS_REGION[/cyan] (e.g. us-east-1) + standard AWS credentials "
+        "([cyan]AWS_BEARER_TOKEN_BEDROCK[/cyan] or access keys)."
+    ),
+    "anthropic": ("Required env: [cyan]ANTHROPIC_API_KEY[/cyan], or authenticate via [cyan]claude login[/cyan]."),
+    "vertex": (
+        "Required env: [cyan]ANTHROPIC_VERTEX_PROJECT_ID[/cyan] + [cyan]CLOUD_ML_REGION[/cyan] "
+        "(global / us / eu / us-east5 / europe-west1 / ...)\n"
+        "Auth: run [cyan]gcloud auth application-default login[/cyan] on the host, or set "
+        "[cyan]GOOGLE_APPLICATION_CREDENTIALS[/cyan] to a service-account key."
+    ),
+    "foundry": (
+        "Required env: [cyan]ANTHROPIC_FOUNDRY_RESOURCE[/cyan] (your Azure resource name) "
+        "or [cyan]ANTHROPIC_FOUNDRY_BASE_URL[/cyan]\n"
+        "Auth: set [cyan]ANTHROPIC_FOUNDRY_API_KEY[/cyan], or leave unset and use Entra ID "
+        "via [cyan]az login[/cyan] / managed identity."
+    ),
+}
+
+
 @app.command("provider")
 def provider_cmd(
     provider: Annotated[
         str | None,
-        typer.Argument(help="Provider to set: 'bedrock' or 'anthropic'. Omit to show current."),
+        typer.Argument(help="Provider to set: 'bedrock', 'anthropic', 'vertex', or 'foundry'. Omit to show current."),
     ] = None,
 ) -> None:
     """View or change the LLM provider.
+
+    Gluon supports four backends — Bedrock (default), direct Anthropic API,
+    Google Vertex AI, and Microsoft Foundry (Azure). Each reads a different
+    set of credentials; see `gluon provider <name>` output for which env
+    vars to set.
 
     Without arguments, shows the current provider and model mappings.
     With an argument, sets the provider in the database.
 
     Examples:
-        gluon provider              # Show current
-        gluon provider anthropic    # Switch to Anthropic (direct API / Claude CLI subscription)
+        gluon provider              # Show current provider
         gluon provider bedrock      # Switch to AWS Bedrock
+        gluon provider anthropic    # Switch to direct Anthropic API / Claude CLI subscription
+        gluon provider vertex       # Switch to Google Vertex AI
+        gluon provider foundry      # Switch to Microsoft Foundry (Azure)
     """
     from gluon.llm_provider import LLMProvider, get_provider, get_provider_source
 
@@ -3825,6 +3855,7 @@ def provider_cmd(
         # Show current provider info
         current = get_provider()
         source = get_provider_source()
+        provider_key = current.__class__.__name__.replace("Provider", "").lower()
 
         console.print(
             Panel.fit(
@@ -3841,6 +3872,15 @@ def provider_cmd(
         for tier, model_id in current.MODELS.items():
             table.add_row(tier.value, model_id)
         console.print(table)
+
+        hint = _PROVIDER_CONFIG_HINTS.get(provider_key)
+        if hint:
+            console.print(f"\n[dim]{hint}[/dim]")
+        console.print(
+            "\n[dim]Other providers:[/dim] "
+            + ", ".join(f"[cyan]{p.value}[/cyan]" for p in LLMProvider if p.value != provider_key)
+            + "  [dim](switch with `gluon provider <name>`)[/dim]"
+        )
         return
 
     # Validate the provider value
@@ -3865,6 +3905,10 @@ def provider_cmd(
     for tier, model_id in new_provider.MODELS.items():
         table.add_row(tier.value, model_id)
     console.print(table)
+
+    hint = _PROVIDER_CONFIG_HINTS.get(provider.lower())
+    if hint:
+        console.print(f"\n[yellow]Next steps:[/yellow] {hint}")
 
 
 # ========== Agent Commands (Theme B Phase 1) ==========
