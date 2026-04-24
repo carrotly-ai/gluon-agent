@@ -1097,3 +1097,75 @@ export interface ProjectFilesResponse {
   files: ProjectFile[]
   truncated: boolean
 }
+
+// ===========================================================================
+// Auth (D5 Phase 2)
+// ===========================================================================
+
+export type UserRole = 'admin' | 'operator' | 'viewer'
+export type AuthProvider = 'local' | 'oidc' | 'system'
+
+/** A Gluon user record (no secrets — never includes password hash). */
+export interface User {
+  id: string
+  username: string
+  display_name: string
+  email: string | null
+  role: UserRole
+  auth_provider: AuthProvider
+  disabled: boolean
+  telegram_user_id: number | null
+  discord_user_id: number | null
+  created_at: string
+  last_login_at: string | null
+}
+
+/** Response from GET /api/auth/me — always succeeds (returns SYSTEM_USER if no session). */
+export interface MeResponse {
+  user: User
+  /** When false, login UI should be hidden — single-user mode. */
+  auth_enabled: boolean
+}
+
+/** Response from POST /api/auth/login. */
+export interface LoginResponse {
+  user: User
+}
+
+/** Body for POST /api/users (admin-only). */
+export interface CreateUserRequest {
+  username: string
+  password: string
+  display_name?: string | null
+  email?: string | null
+  role?: UserRole
+}
+
+/** Body for PATCH /api/users/{id} — any subset is allowed. */
+export interface UpdateUserRequest {
+  display_name?: string | null
+  email?: string | null
+  role?: UserRole
+  disabled?: boolean
+}
+
+/** Body for POST /api/users/{id}/password. */
+export interface ChangePasswordRequest {
+  new_password: string
+  /** Required when a non-admin changes their own password. Ignored for admins. */
+  current_password?: string | null
+}
+
+/** Response from GET /api/users (admin-only). */
+export interface UserListResponse {
+  users: User[]
+  total: number
+}
+
+/** SYSTEM_USER's deterministic ID — used as a sentinel for "no real user". */
+export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
+
+/** Returns true if the given user is the SYSTEM_USER (single-user fallback). */
+export function isSystemUser(user: User | null | undefined): boolean {
+  return user?.id === SYSTEM_USER_ID
+}
