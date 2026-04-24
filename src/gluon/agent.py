@@ -573,6 +573,24 @@ class GluonAgent:
                 )
             ]
 
+        # Build optional hard-cap hook (Theme D3). Only wire when the run
+        # has max_tool_calls configured — the hook itself is a no-op when
+        # the field is None, but skipping the list allocation keeps the
+        # fast path untouched for runs without hard caps.
+        if self.store is not None and self.run_id is not None:
+            try:
+                _run = self.store.get_run(self.run_id)
+            except Exception:
+                _run = None
+            if _run is not None and _run.max_tool_calls is not None:
+                from gluon.hard_caps import _make_hard_caps_hook
+
+                hard_caps_hook = _make_hard_caps_hook(store=self.store, run_id=self.run_id)
+                if extra_pre_tool_hooks is None:
+                    extra_pre_tool_hooks = [hard_caps_hook]
+                else:
+                    extra_pre_tool_hooks.append(hard_caps_hook)
+
         # Wire SDK hooks for structured tool-use logging (and team tracking when enabled)
         options.hooks = build_hooks(
             tracker=subagent_tracker,

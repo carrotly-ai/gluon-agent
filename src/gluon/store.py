@@ -730,6 +730,10 @@ MIGRATIONS = [
     # NULL = needs delivery; non-NULL = already posted at that time.
     "ALTER TABLE pending_approvals ADD COLUMN notified_at TEXT;",
     "CREATE INDEX IF NOT EXISTS idx_approvals_notified ON pending_approvals(notified_at, status);",
+    # Hard per-run caps (Theme D3). Both limits default NULL = no enforcement.
+    "ALTER TABLE execution_runs ADD COLUMN max_tool_calls INTEGER;",
+    "ALTER TABLE execution_runs ADD COLUMN max_duration_minutes INTEGER;",
+    "ALTER TABLE execution_runs ADD COLUMN tool_call_count INTEGER DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2309,6 +2313,8 @@ class GluonStore:
         max_cost_usd: float | None = None,
         agent_id: str | None = None,
         approval_policy: ApprovalPolicy = ApprovalPolicy.PERMISSIVE,
+        max_tool_calls: int | None = None,
+        max_duration_minutes: int | None = None,
     ) -> ExecutionRun:
         """Create a new execution run."""
         run = ExecutionRun(
@@ -2325,6 +2331,8 @@ class GluonStore:
             max_cost_usd=max_cost_usd,
             agent_id=agent_id,
             approval_policy=approval_policy,
+            max_tool_calls=max_tool_calls,
+            max_duration_minutes=max_duration_minutes,
         )
         with self._get_conn() as conn:
             conn.execute(
@@ -2332,8 +2340,9 @@ class GluonStore:
                 INSERT INTO execution_runs
                 (id, session_id, project_id, pid, status, prompt, original_prompt, initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message, model,
-                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy,
+                 max_tool_calls, max_duration_minutes, tool_call_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -2357,6 +2366,9 @@ class GluonStore:
                     run.max_cost_usd,
                     run.agent_id,
                     run.approval_policy.value,
+                    run.max_tool_calls,
+                    run.max_duration_minutes,
+                    run.tool_call_count,
                 ),
             )
         return run
@@ -2456,7 +2468,8 @@ class GluonStore:
                     queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?,
                     metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?,
                     agent_id = ?,
-                    approval_policy = ?
+                    approval_policy = ?,
+                    max_tool_calls = ?, max_duration_minutes = ?, tool_call_count = ?
                 WHERE id = ?
                 """,
                 (
@@ -2535,6 +2548,10 @@ class GluonStore:
                     run.agent_id,
                     # Approval gates (Theme D1)
                     run.approval_policy.value,
+                    # Hard caps (Theme D3)
+                    run.max_tool_calls,
+                    run.max_duration_minutes,
+                    run.tool_call_count,
                     run.id,
                 ),
             )
@@ -2701,6 +2718,12 @@ class GluonStore:
                 ApprovalPolicy(row["approval_policy"])
                 if "approval_policy" in keys and row["approval_policy"]
                 else ApprovalPolicy.PERMISSIVE
+            ),
+            # Hard caps (Theme D3)
+            max_tool_calls=row["max_tool_calls"] if "max_tool_calls" in keys else None,
+            max_duration_minutes=row["max_duration_minutes"] if "max_duration_minutes" in keys else None,
+            tool_call_count=(
+                row["tool_call_count"] if "tool_call_count" in keys and row["tool_call_count"] is not None else 0
             ),
             # Supervision fields
             supervision_config=SupervisionConfig(**json.loads(row["supervision_config"]))

@@ -116,6 +116,47 @@ def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
         logger.debug("Failed to update agent last_active_at", exc_info=True)
 
 
+# ========== Hard-cap watchdog (Theme D3) ==========
+
+
+async def _duration_watchdog(
+    runner: "TaskRunner",
+    run_id: str,
+    max_duration_minutes: int,
+) -> None:
+    """Sleep for ``max_duration_minutes``, then cancel the run.
+
+    Runs as an asyncio task alongside ``_run_task``. If the run completes
+    normally, its caller cancels this coroutine in a finally block. If
+    the duration elapses first, this calls ``runner.cancel(run_id)`` and
+    records the cap breach in the run's error_message.
+    """
+    try:
+        await asyncio.sleep(max_duration_minutes * 60)
+    except asyncio.CancelledError:
+        # Run completed before the cap fired — clean exit.
+        raise
+
+    logger.info(
+        "hard_cap_duration_exceeded",
+        extra={"run_id": run_id[:8], "max_duration_minutes": max_duration_minutes},
+    )
+
+    # Mark the error message before cancelling so we know why the run ended.
+    try:
+        run = runner.store.get_run(run_id)
+        if run is not None and run.status in (RunStatus.PENDING, RunStatus.RUNNING, RunStatus.REVIEW):
+            run.error_message = f"Hard cap: max_duration_minutes ({max_duration_minutes}) exceeded"
+            runner.store.update_run(run)
+    except Exception:
+        logger.debug("Failed to persist duration cap error_message", exc_info=True)
+
+    try:
+        await runner.cancel(run_id)
+    except Exception:
+        logger.debug("Duration watchdog cancel raised", exc_info=True)
+
+
 # ========== Run Health Assessment ==========
 
 
@@ -431,6 +472,8 @@ class TaskRunner:
         blueprint_enabled: bool = True,
         agent_id: str | None = None,
         approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
+        max_tool_calls: int | None = None,
+        max_duration_minutes: int | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -503,6 +546,8 @@ class TaskRunner:
             max_cost_usd=effective_cost_limit,
             agent_id=agent_id,
             approval_policy=resolved_approval,
+            max_tool_calls=max_tool_calls,
+            max_duration_minutes=max_duration_minutes,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 
@@ -856,9 +901,22 @@ class TaskRunner:
         run.mark_running(pid=os.getpid(), log_path=log_dir)
         self.store.update_run(run)
 
+        # Hard cap: spawn duration watchdog (Theme D3). Cancelled in `finally`.
+        duration_watchdog: asyncio.Task[None] | None = None
+        if run.max_duration_minutes is not None and run.max_duration_minutes > 0:
+            duration_watchdog = asyncio.create_task(_duration_watchdog(self, run.id, run.max_duration_minutes))
+
         # Ralph mode: use RalphManager for autonomous loop execution
         if run.ralph_enabled:
-            await self._run_ralph_loop(run, working_dir, worktree_manager)
+            try:
+                await self._run_ralph_loop(run, working_dir, worktree_manager)
+            finally:
+                if duration_watchdog is not None:
+                    duration_watchdog.cancel()
+                    try:
+                        await duration_watchdog
+                    except (asyncio.CancelledError, Exception):
+                        pass
             return
 
         # Get image paths for multimodal prompt (base64 encoded, not file copies)
@@ -1452,6 +1510,15 @@ but explicit commits with good messages are preferred.
         except Exception as e:
             run.mark_failed(str(e), exit_code=1)
         finally:
+            # Cancel the hard-cap duration watchdog if the run finished before
+            # the cap fired. Safe to call even if already cancelled.
+            if duration_watchdog is not None and not duration_watchdog.done():
+                duration_watchdog.cancel()
+                try:
+                    await duration_watchdog
+                except (asyncio.CancelledError, Exception):
+                    pass
+
             # Kill any dev server left on GLUON_DEV_PORT to prevent orphaned processes
             dev_port = os.environ.get("GLUON_DEV_PORT")
             if dev_port:
