@@ -627,3 +627,91 @@ class TestRunnerEnv:
         """Direct Anthropic API is Claude Code's default — no USE_* flag needed."""
         env = AnthropicProvider().runner_env()
         assert not any(k.startswith("CLAUDE_CODE_USE_") for k in env)
+
+
+# ---------------------------------------------------------------------------
+# Integration smoke — real `anthropic` SDK, no mocks
+#
+# The provider-unit tests above all mock the SDK clients to avoid network
+# dependencies. That keeps them fast but also means a future `anthropic`
+# release that renames, moves, or removes one of the client classes (or
+# changes the `__init__` signature we pass through) would slip past CI and
+# break at runtime on a real run.
+#
+# These tests import the real classes and actually call `create_api_client()`
+# with dummy credentials. They don't make any network calls — they just
+# construct the client object — but that's enough to catch the kind of break
+# that mocks hide: missing exports, renamed ctor params, incompatible SDK
+# versions.
+# ---------------------------------------------------------------------------
+
+
+class TestProviderRealSdkIntegration:
+    """Exercise `create_api_client()` against the real `anthropic` package."""
+
+    def test_bedrock_instantiates_real_client(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        from anthropic import AsyncAnthropicBedrock
+
+        client = BedrockProvider().create_api_client()
+        assert isinstance(client, AsyncAnthropicBedrock)
+
+    def test_anthropic_instantiates_real_client(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-dummy")
+        from anthropic import AsyncAnthropic
+
+        client = AnthropicProvider().create_api_client()
+        assert isinstance(client, AsyncAnthropic)
+
+    def test_vertex_instantiates_real_client(self, monkeypatch):
+        """Requires the `anthropic[vertex]` extra — verifies google-cloud-aiplatform ships."""
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+        monkeypatch.setenv("CLOUD_ML_REGION", "global")
+        from anthropic import AsyncAnthropicVertex
+
+        client = VertexProvider().create_api_client()
+        assert isinstance(client, AsyncAnthropicVertex)
+
+    def test_foundry_instantiates_real_client_with_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "test-resource")
+        monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "test-key")
+        from anthropic import AsyncAnthropicFoundry
+
+        client = FoundryProvider().create_api_client()
+        assert isinstance(client, AsyncAnthropicFoundry)
+
+    def test_runner_env_propagates_via_subprocess(self, monkeypatch):
+        """Sanity: env vars emitted by runner_env() actually reach a spawned subprocess.
+
+        `runner.py` merges `provider.runner_env()` into the subprocess env when
+        it detaches the run worker. If that plumbing ever regresses (e.g. the
+        returned dict gets accidentally filtered somewhere), the Claude Code
+        subprocess would route inference through the wrong backend without any
+        CI signal. This test runs a subprocess with the merged env and asserts
+        it observes the expected flag.
+        """
+        import subprocess
+        import sys
+
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "smoke-project")
+        monkeypatch.setenv("CLOUD_ML_REGION", "europe-west1")
+
+        merged_env = {**__import__("os").environ, **VertexProvider().runner_env()}
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os; "
+                    "print(os.environ.get('CLAUDE_CODE_USE_VERTEX'), "
+                    "os.environ.get('ANTHROPIC_VERTEX_PROJECT_ID'), "
+                    "os.environ.get('CLOUD_ML_REGION'))"
+                ),
+            ],
+            env=merged_env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"subprocess failed: {result.stderr}"
+        assert result.stdout.strip() == "1 smoke-project europe-west1"
