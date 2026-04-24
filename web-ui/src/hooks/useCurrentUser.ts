@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 import { ApiError, fetchMe, login as loginApi, logout as logoutApi } from '@/lib/api'
-import type { User } from '@/lib/types'
+import { SYSTEM_USER_ID, type User } from '@/lib/types'
 
 /**
  * Auth state shared across the app.
@@ -45,8 +45,6 @@ const defaultState: CurrentUserState = {
   refresh: async () => {},
   updateLocalUser: () => {},
 }
-
-const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
 const CurrentUserContext = createContext<CurrentUserState>(defaultState)
 
