@@ -1877,7 +1877,10 @@ def serve(
             protocol = "HTTPS" if ssl_enabled else "HTTP"
             console.print(f"[green]✓[/green] Web dashboard configured ({protocol}, port {web_port})")
         except ImportError as exc:
-            console.print(f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{exc.name or exc}[/yellow]).")
+            missing = exc.name or exc
+            console.print(
+                f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{missing}[/yellow])."
+            )
             console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
             raise typer.Exit(1)
 
@@ -2123,7 +2126,10 @@ def web(
 
         from gluon.web import create_app
     except ImportError as exc:
-        console.print(f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{exc.name or exc}[/yellow]).")
+        missing = exc.name or exc
+        console.print(
+            f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{missing}[/yellow])."
+        )
         console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
         raise typer.Exit(1)
 
