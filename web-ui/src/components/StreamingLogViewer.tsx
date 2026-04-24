@@ -217,6 +217,8 @@ interface AgentMessage {
     image_id?: string
     original_name?: string
     size_bytes?: number
+    /** Assistant reasoning that preceded this tool call (Theme C2 — "Why did the agent do X?"). */
+    reasoning?: string
   }
 }
 
@@ -545,6 +547,11 @@ function ToolCallMessage({
   const primaryParam = getToolPrimaryParam(msg.metadata?.input)
   const fullParams = formatToolInputFull(msg.metadata?.input)
   const hasMultipleParams = fullParams.length > 1
+  const reasoning = msg.metadata?.reasoning?.trim() || null
+  const hasReasoning = Boolean(reasoning)
+  // Expand affordance shows if params have detail OR if reasoning is available
+  // (so users can open the card to see "why did the agent do X").
+  const hasExpandable = hasMultipleParams || hasReasoning
   const time = formatMessageTime(msg.timestamp)
 
   return (
@@ -557,7 +564,7 @@ function ToolCallMessage({
         )}
         onClick={onToggle}
       >
-        {hasMultipleParams ? (
+        {hasExpandable ? (
           <ChevronRight
             className={cn(
               'w-3 h-3 text-[var(--color-stone)]/30 transition-transform',
@@ -571,6 +578,12 @@ function ToolCallMessage({
         <span className="text-body font-medium text-[var(--color-stone)]/80 font-mono">
           {toolName}
         </span>
+        {hasReasoning && (
+          <Lightbulb
+            className="w-2.5 h-2.5 text-[var(--color-harvest)]/60 shrink-0"
+            aria-label="Agent reasoning available"
+          />
+        )}
         {primaryParam && (
           <span className="text-body text-[var(--color-paper)]/60 font-mono truncate flex-1 min-w-0">
             <span className="text-[var(--color-stone)]/50">{primaryParam.key}=</span>
@@ -587,20 +600,35 @@ function ToolCallMessage({
         </span>
       </div>
 
-      {isExpanded && fullParams.length > 0 && (
+      {isExpanded && (hasReasoning || fullParams.length > 0) && (
         <div className="border-l-2 border-l-[var(--color-stone)]/40 ml-0 pl-6 py-1.5 bg-[var(--color-paper)]/[0.02]">
-          <div className="space-y-1">
-            {fullParams.map((param) => (
-              <div key={param.key} className="flex gap-2 text-body font-mono">
-                <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">
-                  {param.key}
-                </span>
-                <span className="text-[var(--color-paper)]/70 whitespace-pre-wrap break-all">
-                  {param.value}
+          {hasReasoning && (
+            <div className="mb-3 pb-3 border-b border-[rgba(163,163,163,0.08)]">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Lightbulb className="w-3 h-3 text-[var(--color-harvest)]/70" />
+                <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/60">
+                  Reasoning
                 </span>
               </div>
-            ))}
-          </div>
+              <p className="text-body text-[var(--color-paper)]/70 whitespace-pre-wrap">
+                {reasoning}
+              </p>
+            </div>
+          )}
+          {fullParams.length > 0 && (
+            <div className="space-y-1">
+              {fullParams.map((param) => (
+                <div key={param.key} className="flex gap-2 text-body font-mono">
+                  <span className="text-[var(--color-stone)]/50 shrink-0 min-w-[70px]">
+                    {param.key}
+                  </span>
+                  <span className="text-[var(--color-paper)]/70 whitespace-pre-wrap break-all">
+                    {param.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1117,7 +1145,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
         })
       ),
     ]
-    return combined.filter((msg) => {
+    const deduped = combined.filter((msg) => {
       // Filter out task_progress heartbeats (low signal, high volume)
       // Handles both new format (type="task_progress") and old format (type="system", content="task_progress")
       if (msg.type === 'task_progress') return false
@@ -1129,6 +1157,30 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       if (seen.has(key)) return false
       seen.add(key)
       return true
+    })
+
+    // Theme C2 — attach preceding assistant reasoning to each tool_use so the
+    // tool card can show "why did the agent do X?". We walk forward once and
+    // track the most recent reasoning/text block; each tool_use adopts it.
+    // A new user message resets the rolling reasoning (new turn starts fresh).
+    let currentReasoning: string | null = null
+    return deduped.map((msg) => {
+      if (msg.type === 'user') {
+        currentReasoning = null
+        return msg
+      }
+      if (msg.type === 'thinking' || msg.type === 'text') {
+        const text = (msg.content || '').trim()
+        if (text) currentReasoning = text
+        return msg
+      }
+      if (msg.type === 'tool_use' && currentReasoning && !msg.metadata?.reasoning) {
+        return {
+          ...msg,
+          metadata: { ...(msg.metadata ?? {}), reasoning: currentReasoning },
+        }
+      }
+      return msg
     })
   }, [initialMessages, streamedMessages])
 
