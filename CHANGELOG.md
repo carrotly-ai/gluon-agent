@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.10.0] - 2026-04-25
+
+Headline: **Multi-cloud LLM backend abstraction** (Bedrock / Anthropic / Vertex / Foundry) +
+**Theme C observability** (Timeline, Tool usage, Reasoning threading, Session explorer,
+Session cleanup). Plus 31 Dependabot alerts cleared, SDK bump to 0.1.66, and a non-mocked
+SDK integration safety net.
+
 ### Added — LLM provider abstraction
 
 Gluon now runs against **four** Claude backends, selectable via the
