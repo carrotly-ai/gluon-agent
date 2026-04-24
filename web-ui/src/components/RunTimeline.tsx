@@ -171,6 +171,52 @@ export function RunTimeline({ messages }: RunTimelineProps) {
     focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [selected])
 
+  // Keyboard replay controls. This effect is only mounted when the Timeline
+  // tab is active (the tab conditionally renders RunTimeline), so we can
+  // listen globally — we just need to avoid stealing keys while the user is
+  // typing in an input/textarea elsewhere in the dialog.
+  //
+  //   ← / h     Previous tool call
+  //   → / l     Next tool call
+  //   Home      First tool call
+  //   End       Last tool call
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
+        return
+      }
+      if (entries.length === 0) return
+      const last = entries.length - 1
+      let next: number | null = null
+      switch (e.key) {
+        case 'ArrowLeft':
+        case 'h':
+          next = Math.max(0, (selected ?? entries.length) - 1)
+          break
+        case 'ArrowRight':
+        case 'l':
+          next = Math.min(last, (selected ?? -1) + 1)
+          break
+        case 'Home':
+          next = 0
+          break
+        case 'End':
+          next = last
+          break
+      }
+      if (next != null) {
+        e.preventDefault()
+        setSelected(next)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [entries.length, selected])
+
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-[var(--color-stone)]/60">
@@ -200,6 +246,9 @@ export function RunTimeline({ messages }: RunTimelineProps) {
           <p className="text-caption text-[var(--color-stone)]/60 mt-1">
             {entries.length} tool call{entries.length === 1 ? '' : 's'} ·{' '}
             {formatTime(entries[0].timestamp)} → {formatTime(entries[entries.length - 1].timestamp)}
+            <span className="hidden md:inline text-[var(--color-stone)]/40 ml-2">
+              · click or ←/→ to step
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-1">
