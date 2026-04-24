@@ -228,6 +228,16 @@ class VersionResponse(BaseModel):
     environment: str  # "development" or "production"
 
 
+class ProviderResponse(BaseModel):
+    """Response model for LLM provider information."""
+
+    provider: str  # "bedrock" or "anthropic"
+    name: str  # Human-readable provider name (e.g., "AWS Bedrock")
+    supports_cost_tracking: bool
+    source: str  # "environment variable" | "database setting" | "default"
+    models: dict[str, str]  # tier name → provider-specific model ID
+
+
 # WebSocket message types
 
 

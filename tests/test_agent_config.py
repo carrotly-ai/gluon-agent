@@ -51,11 +51,18 @@ class TestAgentModelResolution:
         agent = GluonAgent(model="haiku")
         assert agent.model == MODEL_IDS[ModelTier.HAIKU]
 
+    @pytest.mark.parametrize(
+        "provider_name,full_id",
+        [
+            ("bedrock", "global.anthropic.claude-sonnet-4-6"),
+            ("anthropic", "claude-sonnet-4-6"),
+        ],
+    )
     @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))
-    def test_full_bedrock_id_passthrough(self, _mock_cli):
-        bedrock_id = "global.anthropic.claude-sonnet-4-6"
-        agent = GluonAgent(model=bedrock_id)
-        assert agent.model == bedrock_id
+    def test_full_model_id_passthrough(self, _mock_cli, provider_name, full_id, monkeypatch):
+        monkeypatch.setenv("GLUON_LLM_PROVIDER", provider_name)
+        agent = GluonAgent(model=full_id)
+        assert agent.model == full_id
 
     @patch("gluon.agent.find_claude_cli", return_value=Path("/usr/bin/claude"))
     def test_invalid_model_used_as_is(self, _mock_cli):

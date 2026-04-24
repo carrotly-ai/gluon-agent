@@ -79,6 +79,7 @@ from gluon.web.models import (
     ProjectFilesResponse,
     ProjectResponse,
     ProjectUsageResponse,
+    ProviderResponse,
     QueuedMessageResponse,
     QueueFollowupRequest,
     QueueFollowupResponse,
@@ -1675,6 +1676,22 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             total_runs=len(all_runs),
         )
 
+    # ========== LLM Provider ==========
+
+    @app.get("/api/provider", response_model=ProviderResponse)
+    async def get_provider_info() -> ProviderResponse:
+        """Get current LLM provider configuration and model mappings."""
+        from gluon.llm_provider import get_provider, get_provider_source
+
+        provider = get_provider()
+        return ProviderResponse(
+            provider=provider.__class__.__name__.replace("Provider", "").lower(),
+            name=provider.name,
+            supports_cost_tracking=provider.supports_cost_tracking,
+            source=get_provider_source(),
+            models={tier.value: model_id for tier, model_id in provider.MODELS.items()},
+        )
+
     # ========== Version Info ==========
 
     # Cache version info at startup (computed once)
@@ -2470,9 +2487,16 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.get("/api/settings")
     async def get_all_settings() -> dict[str, str]:
         """Get all settings as key-value pairs."""
+        from gluon.llm_provider import get_provider
+
         settings = store.get_all_settings()
         # Expose whether VERCEL_TOKEN is available from environment (without leaking the value)
         settings["_vercel_token_from_env"] = "true" if os.environ.get("VERCEL_TOKEN") else "false"
+
+        # Expose resolved provider info (the actual provider may come from env var, not DB)
+        provider = get_provider()
+        settings["_llm_provider_name"] = provider.name
+        settings["_llm_provider_supports_cost_tracking"] = str(provider.supports_cost_tracking).lower()
         return settings
 
     @app.put("/api/settings/{key}")

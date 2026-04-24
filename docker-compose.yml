@@ -49,7 +49,8 @@ services:
       # Claude configuration
       - CLAUDE_API_KEY
       - CLAUDE_LOG_LEVEL=info
-      - CLAUDE_CODE_USE_BEDROCK=1
+      # Pass through from .env — set to "1" for Bedrock, unset for direct Anthropic
+      - CLAUDE_CODE_USE_BEDROCK
 
       # Note: These are loaded from .env via env_file directive above:
       # - GH_TOKEN (GitHub personal access token for PR operations)
@@ -59,6 +60,11 @@ services:
       # Node.js memory tuning for Claude Code CLI
       # Limit heap to 6GB to leave room for subprocesses within 12GB container
       - NODE_OPTIONS=--max-old-space-size=6144
+
+      # LLM provider selection: "bedrock" (default) or "anthropic".
+      # When set to "anthropic", also set ANTHROPIC_API_KEY (or use `claude login`).
+      - GLUON_LLM_PROVIDER
+      - ANTHROPIC_API_KEY
 
       # Gluon configuration (loaded from env_file, only override if needed)
       - GLUON_GIT_ENABLED=true

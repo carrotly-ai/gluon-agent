@@ -11,6 +11,13 @@ from gluon.models import Workspace
 from gluon.store import GluonStore
 
 
+@pytest.fixture(params=["bedrock", "anthropic"])
+def llm_provider(request, monkeypatch):
+    """Parametrize tests across all LLM providers."""
+    monkeypatch.setenv("GLUON_LLM_PROVIDER", request.param)
+    return request.param
+
+
 @pytest.fixture
 def temp_store(tmp_path: Path) -> GluonStore:
     """Create a temporary store backed by a SQLite DB in tmp_path."""

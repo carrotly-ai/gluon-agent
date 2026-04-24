@@ -89,6 +89,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [expandedFormula, setExpandedFormula] = useState<string | null>(null)
 
   // Settings state
+  const [llmProvider, setLlmProvider] = useState<'bedrock' | 'anthropic'>('bedrock')
   const [autoCreatePr, setAutoCreatePr] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [savedKey, setSavedKey] = useState<string | null>(null)
@@ -136,6 +137,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       ])
       setWorkspaces(ws)
       setProjects(prj)
+      setLlmProvider(
+        (settings.llm_provider === 'anthropic' ? 'anthropic' : 'bedrock') as 'bedrock' | 'anthropic'
+      )
       setAutoCreatePr(settings.auto_create_pr !== 'false')
       setGitUserName(settings.git_user_name || '')
       setGitUserEmail(settings.git_user_email || '')
@@ -262,6 +266,20 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setDeleteConfirm(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete project')
+    }
+  }
+
+  const handleChangeLlmProvider = async (value: 'bedrock' | 'anthropic') => {
+    setSavingKey('llm_provider')
+    try {
+      await updateSetting('llm_provider', value)
+      setLlmProvider(value)
+      setSavedKey('llm_provider')
+      setTimeout(() => setSavedKey(null), 2000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update provider')
+    } finally {
+      setSavingKey(null)
     }
   }
 
@@ -842,6 +860,63 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
         {/* Preferences Tab */}
         {tab === 'preferences' && (
           <div className="space-y-6">
+            {/* LLM Provider */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                LLM Provider
+              </h3>
+              <div>
+                <p className="text-title text-[var(--color-paper)]">Provider</p>
+                <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                  Choose how Gluon connects to Claude models. AWS Bedrock uses your AWS credentials
+                  and billing. Anthropic (Direct) uses your Anthropic API key or Claude
+                  subscription.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex rounded-sm border border-[rgba(163,163,163,0.15)] overflow-hidden">
+                  <button
+                    onClick={() => handleChangeLlmProvider('bedrock')}
+                    disabled={savingKey === 'llm_provider'}
+                    className={cn(
+                      'px-4 py-2 text-caption transition-colors',
+                      llmProvider === 'bedrock'
+                        ? 'bg-[var(--color-paper)] text-[var(--color-void)]'
+                        : 'bg-transparent text-[var(--color-stone)]/70 hover:text-[var(--color-stone)]',
+                      savingKey === 'llm_provider' && 'opacity-50 cursor-wait'
+                    )}
+                  >
+                    AWS Bedrock
+                  </button>
+                  <button
+                    onClick={() => handleChangeLlmProvider('anthropic')}
+                    disabled={savingKey === 'llm_provider'}
+                    className={cn(
+                      'px-4 py-2 text-caption transition-colors',
+                      llmProvider === 'anthropic'
+                        ? 'bg-[var(--color-paper)] text-[var(--color-void)]'
+                        : 'bg-transparent text-[var(--color-stone)]/70 hover:text-[var(--color-stone)]',
+                      savingKey === 'llm_provider' && 'opacity-50 cursor-wait'
+                    )}
+                  >
+                    Anthropic (Direct)
+                  </button>
+                </div>
+                {savedKey === 'llm_provider' && (
+                  <span className="text-caption text-[var(--color-jade)] flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Saved
+                  </span>
+                )}
+              </div>
+              {llmProvider === 'anthropic' && (
+                <p className="text-caption text-[var(--color-stone)]/60">
+                  Requires <code className="text-[var(--color-paper)]/80">ANTHROPIC_API_KEY</code>{' '}
+                  env var or <code className="text-[var(--color-paper)]/80">claude login</code>. New
+                  agent runs will use Anthropic model IDs. Running agents are not affected.
+                </p>
+              )}
+            </div>
+
             {/* Git (merged card) */}
             <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">

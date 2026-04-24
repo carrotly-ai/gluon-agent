@@ -1547,13 +1547,17 @@ def session_show(
 @app.command("status")
 def status():
     """Show overall status."""
+    from gluon.llm_provider import get_provider, get_provider_source
+
     orchestrator = get_orchestrator()
     status_info = orchestrator.status()
+    provider = get_provider()
 
     console.print(
         Panel.fit(
             f"[bold]Projects:[/bold] {status_info['total_projects']}\n"
-            f"[bold]Active Sessions:[/bold] {status_info['active_sessions']}",
+            f"[bold]Active Sessions:[/bold] {status_info['active_sessions']}\n"
+            f"[bold]LLM Provider:[/bold] {provider.name} [dim]({get_provider_source()})[/dim]",
             title="Gluon Status",
         )
     )
@@ -3793,6 +3797,74 @@ def settings_delete(
     with store._get_conn() as conn:
         conn.execute("DELETE FROM settings WHERE key = ?", (key,))
     console.print(f"[yellow]Deleted[/yellow] setting [cyan]{key}[/cyan]")
+
+
+# ========== Provider Command ==========
+
+
+@app.command("provider")
+def provider_cmd(
+    provider: Annotated[
+        str | None,
+        typer.Argument(help="Provider to set: 'bedrock' or 'anthropic'. Omit to show current."),
+    ] = None,
+) -> None:
+    """View or change the LLM provider.
+
+    Without arguments, shows the current provider and model mappings.
+    With an argument, sets the provider in the database.
+
+    Examples:
+        gluon provider              # Show current
+        gluon provider anthropic    # Switch to Anthropic (direct API / Claude CLI subscription)
+        gluon provider bedrock      # Switch to AWS Bedrock
+    """
+    from gluon.llm_provider import LLMProvider, get_provider, get_provider_source
+
+    if provider is None:
+        # Show current provider info
+        current = get_provider()
+        source = get_provider_source()
+
+        console.print(
+            Panel.fit(
+                f"[bold]Provider:[/bold] {current.name}\n"
+                f"[bold]Source:[/bold] {source}\n"
+                f"[bold]Cost Tracking:[/bold] {'yes' if current.supports_cost_tracking else 'no'}",
+                title="LLM Provider",
+            )
+        )
+
+        table = Table(title="Model Mappings")
+        table.add_column("Tier")
+        table.add_column("Model ID")
+        for tier, model_id in current.MODELS.items():
+            table.add_row(tier.value, model_id)
+        console.print(table)
+        return
+
+    # Validate the provider value
+    try:
+        LLMProvider(provider.lower())
+    except ValueError:
+        available = ", ".join(p.value for p in LLMProvider)
+        console.print(f"[red]Unknown provider:[/red] {provider}. Available: {available}")
+        raise typer.Exit(1)
+
+    # Save to database
+    store = GluonStore()
+    store.set_setting("llm_provider", provider.lower())
+
+    # Show confirmation
+    new_provider = get_provider(provider)
+    console.print(f"[green]LLM provider set to:[/green] {new_provider.name}")
+
+    table = Table(title="Model Mappings")
+    table.add_column("Tier")
+    table.add_column("Model ID")
+    for tier, model_id in new_provider.MODELS.items():
+        table.add_row(tier.value, model_id)
+    console.print(table)
 
 
 # ========== Agent Commands (Theme B Phase 1) ==========

@@ -141,17 +141,22 @@ class WitnessClassifier:
             return "(failed to read output)"
 
     async def _invoke_haiku(self, prompt: str) -> dict:
-        """Call Haiku for classification. Returns parsed JSON dict."""
-        import os
+        """Call Haiku for classification. Returns parsed JSON dict.
 
+        Uses the active LLM provider (Bedrock or Anthropic) via
+        ``gluon.llm_provider.get_provider()`` so the witness works against
+        either an AWS Bedrock account or a direct Anthropic subscription.
+        """
         try:
-            import anthropic
+            from gluon.llm_provider import get_provider
+            from gluon.models_config import ModelTier
 
-            client = anthropic.AsyncAnthropicBedrock(
-                aws_region=os.getenv("AWS_REGION", "us-east-1"),
-            )
+            provider = get_provider()
+            client = provider.create_api_client()
+            model_id = provider.get_model_id(ModelTier.HAIKU)
+
             response = await client.messages.create(
-                model="anthropic.claude-haiku-4-5-20251001-v1:0",
+                model=model_id,
                 max_tokens=256,
                 messages=[{"role": "user", "content": prompt}],
             )
