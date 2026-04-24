@@ -6,11 +6,11 @@ from gluon.transport.discord import parse_channel_topic
 class TestParseChannelTopic:
     def test_none_topic(self):
         result = parse_channel_topic(None)
-        assert result == {"project": None, "model": None}
+        assert result == {"project": None, "model": None, "agent": None}
 
     def test_empty_string(self):
         result = parse_channel_topic("")
-        assert result == {"project": None, "model": None}
+        assert result == {"project": None, "model": None, "agent": None}
 
     def test_project_long_flag(self):
         result = parse_channel_topic("--project myproject")
@@ -70,4 +70,4 @@ class TestParseChannelTopic:
 
     def test_regular_topic_no_flags(self):
         result = parse_channel_topic("This is a regular channel topic")
-        assert result == {"project": None, "model": None}
+        assert result == {"project": None, "model": None, "agent": None}
