@@ -9,6 +9,7 @@ from typing import Any
 from gluon.models import (
     CHAT_HISTORY_TTL_HOURS,
     MESSAGE_RUN_MAP_TTL_DAYS,
+    TASK_LOCK_TTL_SECS,
     ActivityEvent,
     Agent,
     ChainStatus,
@@ -30,6 +31,7 @@ from gluon.models import (
     Notification,
     NotificationSeverity,
     NotificationType,
+    OrchestratorTask,
     PendingQuestion,
     Project,
     QuestionStatus,
@@ -44,7 +46,9 @@ from gluon.models import (
     SupervisionDecision,
     SupervisionPolicy,
     TaskChain,
+    TaskComment,
     TaskProfile,
+    TaskStatus,
     TaskStep,
     TodoSnapshot,
     WebhookConfig,
@@ -620,6 +624,42 @@ MIGRATIONS = [
     # Link ExecutionRun to Agent (nullable — pre-existing runs remain unlinked)
     "ALTER TABLE execution_runs ADD COLUMN agent_id TEXT;",
     "CREATE INDEX IF NOT EXISTS idx_runs_agent ON execution_runs(agent_id);",
+    # OrchestratorTask: tracked unit of work above the run layer (Theme B Phase 3)
+    """
+    CREATE TABLE IF NOT EXISTS orchestrator_tasks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'backlog',
+        priority INTEGER DEFAULT 5,
+        assigned_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by TEXT DEFAULT 'cli',
+        assigned_files TEXT,  -- JSON array of file globs this task touches
+        parent_task_id TEXT REFERENCES orchestrator_tasks(id) ON DELETE SET NULL,
+        execution_locked_at TEXT,
+        execution_run_id TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_tasks_project ON orchestrator_tasks(project_id);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON orchestrator_tasks(assigned_agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_status ON orchestrator_tasks(status);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_priority ON orchestrator_tasks(priority DESC, created_at ASC);",
+    # TaskComment: agent-to-agent / human coordination messages on a task
+    """
+    CREATE TABLE IF NOT EXISTS task_comments (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES orchestrator_tasks(id) ON DELETE CASCADE,
+        author_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        author_label TEXT,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1335,6 +1375,351 @@ class GluonStore:
             last_active_at=_parse_datetime(row["last_active_at"]),
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== Task CRUD (Theme B Phase 3) ==========
+
+    def create_task(
+        self,
+        project_id: str,
+        title: str,
+        *,
+        description: str | None = None,
+        priority: int = 5,
+        assigned_agent_id: str | None = None,
+        created_by: str = "cli",
+        assigned_files: list[str] | None = None,
+        parent_task_id: str | None = None,
+    ) -> OrchestratorTask:
+        """Create a new orchestrator task."""
+        status = TaskStatus.ASSIGNED if assigned_agent_id else TaskStatus.BACKLOG
+        task = OrchestratorTask(
+            project_id=project_id,
+            title=title,
+            description=description,
+            status=status,
+            priority=priority,
+            assigned_agent_id=assigned_agent_id,
+            created_by=created_by,
+            assigned_files=assigned_files or [],
+            parent_task_id=parent_task_id,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO orchestrator_tasks
+                (id, project_id, title, description, status, priority,
+                 assigned_agent_id, created_by, assigned_files, parent_task_id,
+                 execution_locked_at, execution_run_id,
+                 created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.id,
+                    task.project_id,
+                    task.title,
+                    task.description,
+                    task.status.value,
+                    task.priority,
+                    task.assigned_agent_id,
+                    task.created_by,
+                    json.dumps(task.assigned_files) if task.assigned_files else None,
+                    task.parent_task_id,
+                    None,
+                    None,
+                    task.created_at.isoformat(),
+                    task.updated_at.isoformat(),
+                    None,
+                ),
+            )
+        return task
+
+    def get_task(self, task_id: str) -> OrchestratorTask | None:
+        """Get a task by ID. Also accepts 8-char prefixes when unique."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM orchestrator_tasks WHERE id = ?", (task_id,)).fetchone()
+            if row:
+                return self._row_to_task(row)
+            # Try prefix match if ID didn't resolve exactly
+            rows = conn.execute(
+                "SELECT * FROM orchestrator_tasks WHERE id LIKE ? LIMIT 2",
+                (task_id + "%",),
+            ).fetchall()
+            if len(rows) == 1:
+                return self._row_to_task(rows[0])
+        return None
+
+    def list_tasks(
+        self,
+        *,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        status: str | TaskStatus | None = None,
+        limit: int = 100,
+    ) -> list[OrchestratorTask]:
+        """List tasks with optional filters. Ordered by priority DESC, created_at ASC."""
+        query = "SELECT * FROM orchestrator_tasks"
+        params: list[Any] = []
+        conditions: list[str] = []
+        if project_id is not None:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if agent_id is not None:
+            conditions.append("assigned_agent_id = ?")
+            params.append(agent_id)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status.value if isinstance(status, TaskStatus) else status)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY priority DESC, created_at ASC LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_task(row) for row in rows]
+
+    def update_task(self, task: OrchestratorTask) -> None:
+        """Persist modifications to a task. Does NOT modify execution lock fields —
+        use checkout_task / release_task for those.
+        """
+        task.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE orchestrator_tasks SET
+                    title = ?, description = ?, status = ?, priority = ?,
+                    assigned_agent_id = ?, assigned_files = ?, parent_task_id = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    task.title,
+                    task.description,
+                    task.status.value,
+                    task.priority,
+                    task.assigned_agent_id,
+                    json.dumps(task.assigned_files) if task.assigned_files else None,
+                    task.parent_task_id,
+                    task.updated_at.isoformat(),
+                    task.completed_at.isoformat() if task.completed_at else None,
+                    task.id,
+                ),
+            )
+
+    def checkout_task(
+        self,
+        task_id: str,
+        agent_id: str | None,
+        run_id: str,
+    ) -> OrchestratorTask:
+        """Atomically lock a task for execution.
+
+        Uses a transaction + explicit state check to prevent two concurrent
+        checkouts from claiming the same task. If the task is already locked
+        and the lock is younger than TASK_LOCK_TTL_SECS, raises TaskLockedError.
+        Stale locks (older than TTL) are overridden silently.
+
+        Side effects:
+          - Sets execution_locked_at = now
+          - Sets execution_run_id = run_id
+          - Sets assigned_agent_id = agent_id (if provided)
+          - Sets status = IN_PROGRESS
+          - Bumps updated_at
+        """
+        from gluon.core import TaskLockedError, TaskNotFoundError
+
+        with self._get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")  # Acquire write lock for the transaction
+            try:
+                row = conn.execute("SELECT * FROM orchestrator_tasks WHERE id = ?", (task_id,)).fetchone()
+                if not row:
+                    raise TaskNotFoundError(f"Task not found: {task_id}")
+
+                existing_lock_at = _parse_datetime(row["execution_locked_at"])
+                if existing_lock_at is not None:
+                    age = (utc_now() - existing_lock_at).total_seconds()
+                    if age < TASK_LOCK_TTL_SECS:
+                        raise TaskLockedError(
+                            task_id=row["id"],
+                            locked_by_run_id=row["execution_run_id"],
+                            age_seconds=age,
+                        )
+                    # Lock is stale — we're allowed to take it
+
+                now_iso = utc_now().isoformat()
+                conn.execute(
+                    """
+                    UPDATE orchestrator_tasks
+                    SET execution_locked_at = ?,
+                        execution_run_id = ?,
+                        assigned_agent_id = COALESCE(?, assigned_agent_id),
+                        status = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        now_iso,
+                        run_id,
+                        agent_id,
+                        TaskStatus.IN_PROGRESS.value,
+                        now_iso,
+                        row["id"],
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+        result = self.get_task(task_id)
+        if result is None:
+            # Should never happen — we just verified existence
+            raise TaskNotFoundError(f"Task vanished after checkout: {task_id}")
+        return result
+
+    def release_task(self, task_id: str, new_status: str | TaskStatus) -> OrchestratorTask:
+        """Release a task's execution lock and update its status.
+
+        Sets execution_locked_at/execution_run_id to NULL. If new_status is DONE,
+        stamps completed_at.
+        """
+        from gluon.core import TaskNotFoundError
+
+        status_value = new_status.value if isinstance(new_status, TaskStatus) else new_status
+        completed_at = utc_now().isoformat() if status_value == TaskStatus.DONE.value else None
+
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE orchestrator_tasks SET
+                    status = ?,
+                    execution_locked_at = NULL,
+                    execution_run_id = NULL,
+                    completed_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (status_value, completed_at, utc_now().isoformat(), task_id),
+            )
+            if cursor.rowcount == 0:
+                raise TaskNotFoundError(f"Task not found: {task_id}")
+
+        result = self.get_task(task_id)
+        if result is None:
+            raise TaskNotFoundError(f"Task vanished after release: {task_id}")
+        return result
+
+    def get_agent_inbox(self, agent_id: str, limit: int = 20) -> list[OrchestratorTask]:
+        """Return tasks assigned to this agent, ordered for inbox display.
+
+        Only returns ASSIGNED and IN_PROGRESS tasks — not BACKLOG (unclaimed),
+        REVIEW (waiting on review), DONE, or CANCELLED.
+        """
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM orchestrator_tasks
+                WHERE assigned_agent_id = ?
+                  AND status IN (?, ?)
+                ORDER BY priority DESC, created_at ASC
+                LIMIT ?
+                """,
+                (
+                    agent_id,
+                    TaskStatus.ASSIGNED.value,
+                    TaskStatus.IN_PROGRESS.value,
+                    limit,
+                ),
+            ).fetchall()
+            return [self._row_to_task(row) for row in rows]
+
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a task and all its comments. Returns True if deleted."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM orchestrator_tasks WHERE id = ?", (task_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_task(self, row: sqlite3.Row) -> OrchestratorTask:
+        """Convert database row to OrchestratorTask model."""
+        assigned_files = []
+        try:
+            if row["assigned_files"]:
+                assigned_files = json.loads(row["assigned_files"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        return OrchestratorTask(
+            id=row["id"],
+            project_id=row["project_id"],
+            title=row["title"],
+            description=row["description"],
+            status=TaskStatus(row["status"]),
+            priority=row["priority"] or 5,
+            assigned_agent_id=row["assigned_agent_id"],
+            created_by=row["created_by"] or "cli",
+            assigned_files=assigned_files,
+            parent_task_id=row["parent_task_id"],
+            execution_locked_at=_parse_datetime(row["execution_locked_at"]),
+            execution_run_id=row["execution_run_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+            completed_at=_parse_datetime(row["completed_at"]),
+        )
+
+    # ========== Task Comments CRUD ==========
+
+    def add_task_comment(
+        self,
+        task_id: str,
+        content: str,
+        *,
+        author_agent_id: str | None = None,
+        author_label: str | None = None,
+    ) -> TaskComment:
+        """Append a comment to a task."""
+        comment = TaskComment(
+            task_id=task_id,
+            author_agent_id=author_agent_id,
+            author_label=author_label,
+            content=content,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO task_comments
+                (id, task_id, author_agent_id, author_label, content, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    comment.id,
+                    comment.task_id,
+                    comment.author_agent_id,
+                    comment.author_label,
+                    comment.content,
+                    comment.created_at.isoformat(),
+                ),
+            )
+        return comment
+
+    def list_task_comments(self, task_id: str) -> list[TaskComment]:
+        """List all comments on a task, oldest first."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC",
+                (task_id,),
+            ).fetchall()
+            return [self._row_to_task_comment(row) for row in rows]
+
+    def _row_to_task_comment(self, row: sqlite3.Row) -> TaskComment:
+        """Convert database row to TaskComment model."""
+        return TaskComment(
+            id=row["id"],
+            task_id=row["task_id"],
+            author_agent_id=row["author_agent_id"],
+            author_label=row["author_label"],
+            content=row["content"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
         )
 
     # ========== Utility Methods ==========

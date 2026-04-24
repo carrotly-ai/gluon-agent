@@ -79,6 +79,9 @@ app.add_typer(settings_app, name="settings")
 agent_app = typer.Typer(help="Manage persistent agent identities (Theme B Phase 1)")
 app.add_typer(agent_app, name="agent")
 
+task_app = typer.Typer(help="Orchestrator-layer task tracking (Theme B Phase 3)")
+app.add_typer(task_app, name="task")
+
 console = Console()
 
 
@@ -3765,6 +3768,356 @@ def agent_delete(
 
     orchestrator.store.delete_agent(agent.id)
     console.print(f"[yellow]Deleted[/yellow] agent [cyan]{agent.name}[/cyan]")
+
+
+# ========== Task Commands (Theme B Phase 3) ==========
+
+
+def _resolve_task_or_exit(store: GluonStore, task_ref: str):
+    """Resolve a task by ID or 8-char prefix; exit 1 with a friendly error if not found."""
+    task = store.get_task(task_ref)
+    if task is None:
+        console.print(f"[red]Task not found:[/red] {task_ref}")
+        raise typer.Exit(code=1)
+    return task
+
+
+def _resolve_agent_or_exit(orchestrator: Orchestrator, workspace_id: str | None, name_or_id: str):
+    """Resolve an agent reference; exit 1 with a friendly error if not found."""
+    from gluon.core import AgentAmbiguousError, AgentNotFoundError
+
+    try:
+        agent_id = orchestrator.resolve_agent(name_or_id, workspace_id)
+    except (AgentNotFoundError, AgentAmbiguousError) as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from None
+    if agent_id is None:
+        console.print(f"[red]Could not resolve agent:[/red] {name_or_id}")
+        raise typer.Exit(code=1)
+    return agent_id
+
+
+def _render_task_row(task, project_name: str, agent_name: str | None) -> list[str]:
+    """Format a task as a table row."""
+    status_color = {
+        "backlog": "dim",
+        "assigned": "cyan",
+        "in_progress": "blue",
+        "review": "magenta",
+        "done": "green",
+        "cancelled": "dim",
+    }.get(task.status.value, "white")
+
+    title_preview = (task.title[:50] + "…") if len(task.title) > 50 else task.title
+
+    return [
+        task.id[:8],
+        project_name,
+        str(task.priority),
+        f"[{status_color}]{task.status.value}[/{status_color}]",
+        agent_name or "[dim]—[/dim]",
+        title_preview,
+        task.created_at.strftime("%Y-%m-%d %H:%M"),
+    ]
+
+
+@task_app.command("create")
+def task_create(
+    project: Annotated[str, typer.Argument(help="Project name or ID")],
+    title: Annotated[str, typer.Argument(help="Task title")],
+    description: Annotated[str | None, typer.Option("--description", "-d", help="Task description (optional)")] = None,
+    priority: Annotated[int, typer.Option("--priority", "-P", help="Priority 1-10, higher runs first")] = 5,
+    assign: Annotated[str | None, typer.Option("--assign", "-a", help="Assign to agent name or ID")] = None,
+    files: Annotated[
+        str | None,
+        typer.Option("--files", help="Comma-separated files/globs this task touches (advisory)"),
+    ] = None,
+) -> None:
+    """Create a new task on a project."""
+    orchestrator = get_orchestrator()
+    try:
+        proj = orchestrator.get_project(project)
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from None
+
+    assigned_agent_id: str | None = None
+    if assign:
+        assigned_agent_id = _resolve_agent_or_exit(orchestrator, proj.workspace_id, assign)
+
+    assigned_files = [f.strip() for f in files.split(",")] if files else []
+
+    task = orchestrator.store.create_task(
+        project_id=proj.id,
+        title=title,
+        description=description,
+        priority=priority,
+        assigned_agent_id=assigned_agent_id,
+        created_by="cli",
+        assigned_files=assigned_files,
+    )
+
+    console.print(f"[green]Created[/green] task [cyan]{task.id[:8]}[/cyan] on [bold]{proj.name}[/bold]")
+    console.print(f"  Title: {task.title}")
+    console.print(f"  Priority: {task.priority}")
+    console.print(f"  Status: {task.status.value}")
+    if assigned_agent_id:
+        agent = orchestrator.store.get_agent(assigned_agent_id)
+        console.print(f"  Assigned to: [cyan]{agent.name if agent else assigned_agent_id[:8]}[/cyan]")
+    if assigned_files:
+        console.print(f"  Files: {', '.join(assigned_files)}")
+
+
+@task_app.command("list")
+def task_list(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Filter by project name")] = None,
+    agent: Annotated[str | None, typer.Option("--agent", "-a", help="Filter by assigned agent name")] = None,
+    status: Annotated[
+        str | None,
+        typer.Option(
+            "--status",
+            "-s",
+            help="Filter by status (backlog/assigned/in_progress/review/done/cancelled)",
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max tasks to show")] = 50,
+) -> None:
+    """List tasks with optional filters."""
+    orchestrator = get_orchestrator()
+
+    project_id: str | None = None
+    workspace_id: str | None = None
+    if project:
+        proj = orchestrator.get_project(project)
+        project_id = proj.id
+        workspace_id = proj.workspace_id
+
+    agent_id: str | None = None
+    if agent:
+        agent_id = _resolve_agent_or_exit(orchestrator, workspace_id, agent)
+
+    tasks = orchestrator.store.list_tasks(
+        project_id=project_id,
+        agent_id=agent_id,
+        status=status,
+        limit=limit,
+    )
+
+    if not tasks:
+        console.print("[dim]No tasks found.[/dim]")
+        return
+
+    # Pre-fetch projects and agents for display
+    project_cache: dict[str, str] = {}
+    agent_cache: dict[str, str] = {}
+    for t in tasks:
+        if t.project_id not in project_cache:
+            p = orchestrator.store.get_project(t.project_id)
+            project_cache[t.project_id] = p.name if p else t.project_id[:8]
+        if t.assigned_agent_id and t.assigned_agent_id not in agent_cache:
+            a = orchestrator.store.get_agent(t.assigned_agent_id)
+            agent_cache[t.assigned_agent_id] = a.name if a else t.assigned_agent_id[:8]
+
+    table = Table(title="Tasks")
+    table.add_column("ID", style="dim")
+    table.add_column("Project")
+    table.add_column("Pri", justify="right")
+    table.add_column("Status")
+    table.add_column("Agent", style="cyan")
+    table.add_column("Title")
+    table.add_column("Created", style="dim")
+
+    for t in tasks:
+        table.add_row(
+            *_render_task_row(
+                t,
+                project_cache[t.project_id],
+                agent_cache.get(t.assigned_agent_id) if t.assigned_agent_id else None,
+            )
+        )
+
+    console.print(table)
+
+
+@task_app.command("show")
+def task_show(
+    task_ref: Annotated[str, typer.Argument(help="Task ID or 8-char prefix")],
+) -> None:
+    """Show detail for a task including its comments."""
+    orchestrator = get_orchestrator()
+    task = _resolve_task_or_exit(orchestrator.store, task_ref)
+
+    project = orchestrator.store.get_project(task.project_id)
+    project_name = project.name if project else task.project_id[:8]
+
+    agent_name = None
+    if task.assigned_agent_id:
+        agent = orchestrator.store.get_agent(task.assigned_agent_id)
+        agent_name = agent.name if agent else task.assigned_agent_id[:8]
+
+    console.print(f"[bold cyan]{task.title}[/bold cyan] (id [dim]{task.id}[/dim])")
+    console.print(f"  Project: {project_name}")
+    console.print(f"  Priority: {task.priority}")
+    console.print(f"  Status: [bold]{task.status.value}[/bold]")
+    console.print(f"  Assigned to: {agent_name or '[dim]unassigned[/dim]'}")
+    console.print(f"  Created by: {task.created_by}")
+    console.print(f"  Created: {task.created_at.isoformat()}")
+    if task.completed_at:
+        console.print(f"  Completed: {task.completed_at.isoformat()}")
+    if task.assigned_files:
+        console.print(f"  Files: {', '.join(task.assigned_files)}")
+    if task.execution_run_id:
+        console.print(f"  Locked by run: [dim]{task.execution_run_id[:8]}[/dim]")
+    if task.description:
+        console.print()
+        console.print("[bold]Description[/bold]")
+        console.print(task.description)
+
+    comments = orchestrator.store.list_task_comments(task.id)
+    if comments:
+        console.print()
+        console.print(f"[bold]Comments[/bold] ({len(comments)})")
+        for c in comments:
+            author = c.author_label or (c.author_agent_id[:8] if c.author_agent_id else "system")
+            ts = c.created_at.strftime("%Y-%m-%d %H:%M")
+            console.print(f"  [dim]{ts}[/dim] [cyan]{author}[/cyan]: {c.content}")
+
+
+@task_app.command("assign")
+def task_assign(
+    task_ref: Annotated[str, typer.Argument(help="Task ID or prefix")],
+    agent_ref: Annotated[str, typer.Argument(help="Agent name or ID")],
+) -> None:
+    """Assign a task to an agent (also sets status to ASSIGNED if currently BACKLOG)."""
+    from gluon.models import TaskStatus
+
+    orchestrator = get_orchestrator()
+    task = _resolve_task_or_exit(orchestrator.store, task_ref)
+    project = orchestrator.store.get_project(task.project_id)
+    workspace_id = project.workspace_id if project else None
+
+    agent_id = _resolve_agent_or_exit(orchestrator, workspace_id, agent_ref)
+
+    task.assigned_agent_id = agent_id
+    if task.status == TaskStatus.BACKLOG:
+        task.status = TaskStatus.ASSIGNED
+    orchestrator.store.update_task(task)
+
+    agent = orchestrator.store.get_agent(agent_id)
+    console.print(
+        f"[green]Assigned[/green] task [cyan]{task.id[:8]}[/cyan] to "
+        f"[bold]{agent.name if agent else agent_id[:8]}[/bold]"
+    )
+
+
+@task_app.command("done")
+def task_done(
+    task_ref: Annotated[str, typer.Argument(help="Task ID or prefix")],
+) -> None:
+    """Mark a task as DONE and release any execution lock."""
+    from gluon.models import TaskStatus
+
+    orchestrator = get_orchestrator()
+    task = _resolve_task_or_exit(orchestrator.store, task_ref)
+    released = orchestrator.store.release_task(task.id, TaskStatus.DONE)
+    console.print(f"[green]✓ Done[/green] task [cyan]{released.id[:8]}[/cyan]: {released.title}")
+
+
+@task_app.command("cancel")
+def task_cancel(
+    task_ref: Annotated[str, typer.Argument(help="Task ID or prefix")],
+) -> None:
+    """Cancel a task and release any execution lock."""
+    from gluon.models import TaskStatus
+
+    orchestrator = get_orchestrator()
+    task = _resolve_task_or_exit(orchestrator.store, task_ref)
+    released = orchestrator.store.release_task(task.id, TaskStatus.CANCELLED)
+    console.print(f"[yellow]Cancelled[/yellow] task [cyan]{released.id[:8]}[/cyan]: {released.title}")
+
+
+@task_app.command("inbox")
+def task_inbox(
+    workspace: Annotated[str, typer.Argument(help="Workspace name")],
+    agent: Annotated[str, typer.Argument(help="Agent name or ID")],
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max tasks to show")] = 20,
+) -> None:
+    """Show an agent's task inbox (ASSIGNED + IN_PROGRESS, priority-ordered)."""
+    orchestrator = get_orchestrator()
+    ws = orchestrator.store.get_workspace_by_name(workspace)
+    if ws is None:
+        console.print(f"[red]Workspace not found:[/red] {workspace}")
+        raise typer.Exit(code=1)
+
+    agent_id = _resolve_agent_or_exit(orchestrator, ws.id, agent)
+    agent_obj = orchestrator.store.get_agent(agent_id)
+    agent_name = agent_obj.name if agent_obj else agent_id[:8]
+
+    tasks = orchestrator.store.get_agent_inbox(agent_id, limit=limit)
+    if not tasks:
+        console.print(f"[dim]Inbox for {agent_name} is empty.[/dim]")
+        return
+
+    project_cache: dict[str, str] = {}
+    for t in tasks:
+        if t.project_id not in project_cache:
+            p = orchestrator.store.get_project(t.project_id)
+            project_cache[t.project_id] = p.name if p else t.project_id[:8]
+
+    table = Table(title=f"Inbox — {agent_name}")
+    table.add_column("ID", style="dim")
+    table.add_column("Project")
+    table.add_column("Pri", justify="right")
+    table.add_column("Status")
+    table.add_column("Title")
+    table.add_column("Created", style="dim")
+
+    for t in tasks:
+        row = _render_task_row(t, project_cache[t.project_id], agent_name)
+        # Drop the agent column (we know it's this agent) to keep the inbox compact
+        table.add_row(row[0], row[1], row[2], row[3], row[5], row[6])
+
+    console.print(table)
+
+
+@task_app.command("comment")
+def task_comment(
+    task_ref: Annotated[str, typer.Argument(help="Task ID or prefix")],
+    message: Annotated[str, typer.Argument(help="Comment text")],
+    author: Annotated[
+        str | None,
+        typer.Option("--author", help="Author label for the comment (default: 'cli')"),
+    ] = None,
+) -> None:
+    """Add a comment to a task."""
+    orchestrator = get_orchestrator()
+    task = _resolve_task_or_exit(orchestrator.store, task_ref)
+
+    comment = orchestrator.store.add_task_comment(
+        task.id,
+        content=message,
+        author_label=author or "cli",
+    )
+    console.print(f"[green]Comment added[/green] to [cyan]{task.id[:8]}[/cyan] (comment [dim]{comment.id[:8]}[/dim])")
+
+
+@task_app.command("delete")
+def task_delete(
+    task_ref: Annotated[str, typer.Argument(help="Task ID or prefix")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
+) -> None:
+    """Delete a task and all its comments. Permanent."""
+    orchestrator = get_orchestrator()
+    task = _resolve_task_or_exit(orchestrator.store, task_ref)
+
+    if not force:
+        confirm = typer.confirm(f"Delete task '{task.title}' and its comments?")
+        if not confirm:
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    orchestrator.store.delete_task(task.id)
+    console.print(f"[yellow]Deleted[/yellow] task [cyan]{task.id[:8]}[/cyan]")
 
 
 @queue_app.command("release")

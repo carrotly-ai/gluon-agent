@@ -135,6 +135,28 @@ class BudgetExceededError(Exception):
         super().__init__(f"Agent '{agent_name}' monthly budget exceeded: spent ${spent:.2f} of ${budget:.2f} cap")
 
 
+class TaskLockedError(Exception):
+    """Raised when an OrchestratorTask checkout is attempted but the task is already locked.
+
+    Lock TTL applies: after the TTL expires the task becomes re-checkoutable,
+    but until then concurrent checkouts fail fast rather than silently
+    overwriting the owner.
+    """
+
+    def __init__(self, task_id: str, locked_by_run_id: str | None, age_seconds: float):
+        self.task_id = task_id
+        self.locked_by_run_id = locked_by_run_id
+        self.age_seconds = age_seconds
+        owner = locked_by_run_id[:8] if locked_by_run_id else "unknown"
+        super().__init__(f"Task {task_id[:8]} is locked by run {owner} ({age_seconds:.0f}s ago)")
+
+
+class TaskNotFoundError(Exception):
+    """Raised when a task ID/prefix doesn't resolve."""
+
+    pass
+
+
 # ========== Advanced Git Operation Exceptions ==========
 
 
