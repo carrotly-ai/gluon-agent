@@ -1080,6 +1080,14 @@ but explicit commits with good messages are preferred.
                             if item.type == "system" and item.metadata:
                                 new_sid = item.metadata.get("session_id")
                                 if new_sid and new_sid != run.claude_session_id:
+                                    # Track the old session ID as a cleanup candidate
+                                    # before we overwrite it (Theme C5)
+                                    try:
+                                        from gluon.session_cleanup import track_previous_session_id
+
+                                        track_previous_session_id(run, new_sid)
+                                    except Exception:
+                                        logger.debug("Session ID tracking failed", exc_info=True)
                                     run.claude_session_id = new_sid
                                     self.store.update_run(run)
 
@@ -1097,6 +1105,13 @@ but explicit commits with good messages are preferred.
                             # Update run with Claude session ID for future resume
                             # Don't overwrite a good session ID with None from a failed resume
                             if item.claude_session_id:
+                                # Track prior session as a cleanup candidate (Theme C5)
+                                try:
+                                    from gluon.session_cleanup import track_previous_session_id
+
+                                    track_previous_session_id(run, item.claude_session_id)
+                                except Exception:
+                                    logger.debug("Session ID tracking failed", exc_info=True)
                                 run.claude_session_id = item.claude_session_id
                             # Store cost tracking data (accumulate for resumed runs)
                             if is_resumed and run.cost_usd is not None:
@@ -1489,6 +1504,35 @@ but explicit commits with good messages are preferred.
                 )
             except Exception:
                 pass
+
+            # Session cleanup (Theme C5): delete previous (pre-fork) session
+            # JSONL files for fully-completed runs. Gated on the
+            # `session_cleanup_enabled` setting — default off, so this is
+            # opt-in. Never touches the run's current session, only prior
+            # forked-from ancestors tracked in metadata.
+            if run.status == RunStatus.COMPLETED:
+                try:
+                    from gluon.session_cleanup import (
+                        cleanup_run_sessions,
+                        is_cleanup_enabled,
+                    )
+
+                    if is_cleanup_enabled(self.store):
+                        project = self.store.get_project(run.project_id)
+                        cleanup_directory = str(project.expanded_path) if project is not None else None
+                        result = cleanup_run_sessions(run, directory=cleanup_directory)
+                        if result.deleted or result.failed:
+                            logger.info(
+                                "Session cleanup for run %s: deleted=%d failed=%d bytes=%d",
+                                run.id[:8],
+                                result.deleted,
+                                result.failed,
+                                result.bytes_freed,
+                            )
+                            # Persist the metadata change (previous_session_ids cleared)
+                            self.store.update_run(run)
+                except Exception:
+                    logger.debug("Session cleanup failed", exc_info=True)
 
             # Self-propelling queue: dispatch next queued work item
             if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:

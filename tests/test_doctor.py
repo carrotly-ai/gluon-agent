@@ -214,7 +214,8 @@ class TestCheckStalePendingQuestions:
 class TestRunDiagnostics:
     def test_returns_all_checks(self, store: GluonStore, tmp_path: Path):
         results = run_diagnostics(store, tmp_path / "logs")
-        assert len(results) == 7
+        # 7 pre-existing + 1 new (check_claude_session_disk_usage, Theme C5)
+        assert len(results) == 8
         assert all(isinstance(r, DiagnosticResult) for r in results)
 
     def test_all_ok_for_clean_store(self, store: GluonStore, tmp_path: Path):
