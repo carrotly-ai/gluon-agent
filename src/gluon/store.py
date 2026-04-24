@@ -12,6 +12,7 @@ from gluon.models import (
     TASK_LOCK_TTL_SECS,
     ActivityEvent,
     Agent,
+    AgentSchedule,
     ChainStatus,
     ChannelMapping,
     ChatHistoryEntry,
@@ -22,6 +23,8 @@ from gluon.models import (
     FileChangeSnapshot,
     GitStatus,
     HealthClassification,
+    HeartbeatRun,
+    HeartbeatStatus,
     ImageAttachment,
     Job,
     JobStatus,
@@ -660,6 +663,45 @@ MIGRATIONS = [
     );
     """,
     "CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at);",
+    # AgentSchedule: cron-based wakeup rules (Theme B Phase 2)
+    """
+    CREATE TABLE IF NOT EXISTS agent_schedules (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        prompt_template TEXT NOT NULL,
+        schedule_cron TEXT NOT NULL,
+        is_enabled INTEGER DEFAULT 1,
+        coalesce_ttl_seconds INTEGER DEFAULT 300,
+        task_profile TEXT DEFAULT 'quick',
+        consecutive_failures INTEGER DEFAULT 0,
+        last_fired_at TEXT,
+        next_fire_at TEXT,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_schedules_agent ON agent_schedules(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON agent_schedules(is_enabled);",
+    "CREATE INDEX IF NOT EXISTS idx_schedules_next_fire ON agent_schedules(next_fire_at);",
+    # HeartbeatRun: record of each scheduled firing (Theme B Phase 2)
+    """
+    CREATE TABLE IF NOT EXISTS heartbeat_runs (
+        id TEXT PRIMARY KEY,
+        schedule_id TEXT NOT NULL REFERENCES agent_schedules(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        execution_run_id TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        fired_at TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        result_summary TEXT,
+        error_message TEXT,
+        completed_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_heartbeats_agent ON heartbeat_runs(agent_id, fired_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_heartbeats_schedule ON heartbeat_runs(schedule_id, fired_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_heartbeats_run ON heartbeat_runs(execution_run_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -1720,6 +1762,284 @@ class GluonStore:
             author_label=row["author_label"],
             content=row["content"],
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== AgentSchedule CRUD (Theme B Phase 2) ==========
+
+    def create_schedule(
+        self,
+        agent_id: str,
+        prompt_template: str,
+        schedule_cron: str,
+        *,
+        project_id: str | None = None,
+        coalesce_ttl_seconds: int = 300,
+        task_profile: str = "quick",
+        description: str | None = None,
+        next_fire_at: datetime | None = None,
+    ) -> AgentSchedule:
+        """Create a new schedule for an agent."""
+        schedule = AgentSchedule(
+            agent_id=agent_id,
+            project_id=project_id,
+            prompt_template=prompt_template,
+            schedule_cron=schedule_cron,
+            coalesce_ttl_seconds=coalesce_ttl_seconds,
+            task_profile=task_profile,
+            description=description,
+            next_fire_at=next_fire_at,
+        )
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_schedules
+                (id, agent_id, project_id, prompt_template, schedule_cron,
+                 is_enabled, coalesce_ttl_seconds, task_profile, consecutive_failures,
+                 last_fired_at, next_fire_at, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    schedule.id,
+                    schedule.agent_id,
+                    schedule.project_id,
+                    schedule.prompt_template,
+                    schedule.schedule_cron,
+                    1 if schedule.is_enabled else 0,
+                    schedule.coalesce_ttl_seconds,
+                    schedule.task_profile,
+                    schedule.consecutive_failures,
+                    schedule.last_fired_at.isoformat() if schedule.last_fired_at else None,
+                    schedule.next_fire_at.isoformat() if schedule.next_fire_at else None,
+                    schedule.description,
+                    schedule.created_at.isoformat(),
+                    schedule.updated_at.isoformat(),
+                ),
+            )
+        return schedule
+
+    def get_schedule(self, schedule_id: str) -> AgentSchedule | None:
+        """Get a schedule by ID. Supports 8-char prefix when unique."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM agent_schedules WHERE id = ?", (schedule_id,)).fetchone()
+            if row:
+                return self._row_to_schedule(row)
+            rows = conn.execute(
+                "SELECT * FROM agent_schedules WHERE id LIKE ? LIMIT 2",
+                (schedule_id + "%",),
+            ).fetchall()
+            if len(rows) == 1:
+                return self._row_to_schedule(rows[0])
+        return None
+
+    def list_schedules(
+        self,
+        *,
+        agent_id: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[AgentSchedule]:
+        """List schedules with optional filters."""
+        query = "SELECT * FROM agent_schedules"
+        params: list[Any] = []
+        conditions: list[str] = []
+        if agent_id is not None:
+            conditions.append("agent_id = ?")
+            params.append(agent_id)
+        if enabled_only:
+            conditions.append("is_enabled = 1")
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY created_at ASC"
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_schedule(row) for row in rows]
+
+    def list_due_schedules(self, now: datetime | None = None) -> list[AgentSchedule]:
+        """List enabled schedules whose next_fire_at is <= now (or null).
+
+        A schedule with null next_fire_at has never been fired yet; it should
+        be considered due so the scheduler can compute its first fire time.
+        """
+        now = now or utc_now()
+        now_iso = now.isoformat()
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM agent_schedules
+                WHERE is_enabled = 1
+                  AND (next_fire_at IS NULL OR next_fire_at <= ?)
+                ORDER BY next_fire_at ASC NULLS FIRST
+                """,
+                (now_iso,),
+            ).fetchall()
+            return [self._row_to_schedule(row) for row in rows]
+
+    def update_schedule(self, schedule: AgentSchedule) -> None:
+        """Persist modifications to a schedule."""
+        schedule.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE agent_schedules SET
+                    project_id = ?, prompt_template = ?, schedule_cron = ?,
+                    is_enabled = ?, coalesce_ttl_seconds = ?, task_profile = ?,
+                    consecutive_failures = ?, last_fired_at = ?, next_fire_at = ?,
+                    description = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    schedule.project_id,
+                    schedule.prompt_template,
+                    schedule.schedule_cron,
+                    1 if schedule.is_enabled else 0,
+                    schedule.coalesce_ttl_seconds,
+                    schedule.task_profile,
+                    schedule.consecutive_failures,
+                    schedule.last_fired_at.isoformat() if schedule.last_fired_at else None,
+                    schedule.next_fire_at.isoformat() if schedule.next_fire_at else None,
+                    schedule.description,
+                    schedule.updated_at.isoformat(),
+                    schedule.id,
+                ),
+            )
+
+    def delete_schedule(self, schedule_id: str) -> bool:
+        """Delete a schedule (cascades to its heartbeat_runs). Returns True if deleted."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM agent_schedules WHERE id = ?", (schedule_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_schedule(self, row: sqlite3.Row) -> AgentSchedule:
+        """Convert database row to AgentSchedule model."""
+        return AgentSchedule(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            project_id=row["project_id"],
+            prompt_template=row["prompt_template"],
+            schedule_cron=row["schedule_cron"],
+            is_enabled=bool(row["is_enabled"]),
+            coalesce_ttl_seconds=row["coalesce_ttl_seconds"] or 300,
+            task_profile=row["task_profile"] or "quick",
+            consecutive_failures=row["consecutive_failures"] or 0,
+            last_fired_at=_parse_datetime(row["last_fired_at"]),
+            next_fire_at=_parse_datetime(row["next_fire_at"]),
+            description=row["description"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
+    # ========== HeartbeatRun CRUD (Theme B Phase 2) ==========
+
+    def record_heartbeat(self, heartbeat: HeartbeatRun) -> HeartbeatRun:
+        """Insert a new heartbeat run record."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO heartbeat_runs
+                (id, schedule_id, agent_id, execution_run_id, fired_at, status,
+                 result_summary, error_message, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    heartbeat.id,
+                    heartbeat.schedule_id,
+                    heartbeat.agent_id,
+                    heartbeat.execution_run_id,
+                    heartbeat.fired_at.isoformat(),
+                    heartbeat.status.value,
+                    heartbeat.result_summary,
+                    heartbeat.error_message,
+                    heartbeat.completed_at.isoformat() if heartbeat.completed_at else None,
+                ),
+            )
+        return heartbeat
+
+    def update_heartbeat(self, heartbeat: HeartbeatRun) -> None:
+        """Update an existing heartbeat record."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE heartbeat_runs SET
+                    execution_run_id = ?, status = ?,
+                    result_summary = ?, error_message = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    heartbeat.execution_run_id,
+                    heartbeat.status.value,
+                    heartbeat.result_summary,
+                    heartbeat.error_message,
+                    heartbeat.completed_at.isoformat() if heartbeat.completed_at else None,
+                    heartbeat.id,
+                ),
+            )
+
+    def list_heartbeats(
+        self,
+        *,
+        schedule_id: str | None = None,
+        agent_id: str | None = None,
+        limit: int = 50,
+    ) -> list[HeartbeatRun]:
+        """List heartbeat runs, newest first."""
+        query = "SELECT * FROM heartbeat_runs"
+        params: list[Any] = []
+        conditions: list[str] = []
+        if schedule_id is not None:
+            conditions.append("schedule_id = ?")
+            params.append(schedule_id)
+        if agent_id is not None:
+            conditions.append("agent_id = ?")
+            params.append(agent_id)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY fired_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_heartbeat(row) for row in rows]
+
+    def get_last_active_heartbeat(self, schedule_id: str, within_seconds: int) -> HeartbeatRun | None:
+        """Return the most recent RUNNING or PENDING heartbeat within the window.
+
+        Used by the coalescer — if a heartbeat is still live from a recent
+        firing, a new fire is suppressed.
+        """
+        from datetime import timedelta
+
+        cutoff = utc_now() - timedelta(seconds=within_seconds)
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM heartbeat_runs
+                WHERE schedule_id = ?
+                  AND status IN (?, ?)
+                  AND fired_at >= ?
+                ORDER BY fired_at DESC
+                LIMIT 1
+                """,
+                (
+                    schedule_id,
+                    HeartbeatStatus.PENDING.value,
+                    HeartbeatStatus.RUNNING.value,
+                    cutoff.isoformat(),
+                ),
+            ).fetchone()
+            return self._row_to_heartbeat(row) if row else None
+
+    def _row_to_heartbeat(self, row: sqlite3.Row) -> HeartbeatRun:
+        """Convert database row to HeartbeatRun model."""
+        return HeartbeatRun(
+            id=row["id"],
+            schedule_id=row["schedule_id"],
+            agent_id=row["agent_id"],
+            execution_run_id=row["execution_run_id"],
+            fired_at=_parse_datetime(row["fired_at"]),  # type: ignore[arg-type]
+            status=HeartbeatStatus(row["status"]),
+            result_summary=row["result_summary"],
+            error_message=row["error_message"],
+            completed_at=_parse_datetime(row["completed_at"]),
         )
 
     # ========== Utility Methods ==========

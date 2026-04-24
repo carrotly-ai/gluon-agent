@@ -82,6 +82,12 @@ app.add_typer(agent_app, name="agent")
 task_app = typer.Typer(help="Orchestrator-layer task tracking (Theme B Phase 3)")
 app.add_typer(task_app, name="task")
 
+schedule_app = typer.Typer(help="Agent schedules — cron-based wakeups (Theme B Phase 2)")
+app.add_typer(schedule_app, name="schedule")
+
+heartbeat_app = typer.Typer(help="Heartbeat runs — history of scheduled agent firings")
+app.add_typer(heartbeat_app, name="heartbeat")
+
 console = Console()
 
 
@@ -4118,6 +4124,360 @@ def task_delete(
 
     orchestrator.store.delete_task(task.id)
     console.print(f"[yellow]Deleted[/yellow] task [cyan]{task.id[:8]}[/cyan]")
+
+
+# ========== Schedule Commands (Theme B Phase 2) ==========
+
+
+def _resolve_workspace_or_exit(store: GluonStore, name: str):
+    ws = store.get_workspace_by_name(name)
+    if ws is None:
+        console.print(f"[red]Workspace not found:[/red] {name}")
+        raise typer.Exit(code=1)
+    return ws
+
+
+@schedule_app.command("create")
+def schedule_create(
+    workspace: Annotated[str, typer.Argument(help="Workspace name")],
+    agent: Annotated[str, typer.Argument(help="Agent name or ID")],
+    cron: Annotated[
+        str,
+        typer.Option(
+            "--cron",
+            help='Cron expression (5 fields, UTC). Examples: "*/30 * * * *", "0 9 * * *"',
+        ),
+    ],
+    prompt: Annotated[
+        str | None,
+        typer.Option("--prompt", help="Prompt template (use {inbox_summary}, {inbox_count}, etc.)"),
+    ] = None,
+    project: Annotated[
+        str | None,
+        typer.Option("--project", "-p", help="Pin to a specific project (default: workspace-wide)"),
+    ] = None,
+    profile: Annotated[
+        str,
+        typer.Option("--profile", help="Task profile for heartbeat runs (default: quick)"),
+    ] = "quick",
+    coalesce: Annotated[
+        int, typer.Option("--coalesce-ttl", help="Coalesce window in seconds (skip if heartbeat still live)")
+    ] = 300,
+    description: Annotated[str | None, typer.Option("--description", "-d", help="Human-readable description")] = None,
+) -> None:
+    """Create a cron-scheduled wakeup for an agent.
+
+    Example: gluon schedule create ml-research researcher \\
+             --cron "0 */6 * * *" --prompt "Review open PRs and pick the next task"
+    """
+    from gluon.scheduler import DEFAULT_PROMPT_TEMPLATE, compute_next_fire, validate_cron
+
+    orchestrator = get_orchestrator()
+    ws = _resolve_workspace_or_exit(orchestrator.store, workspace)
+    agent_id = _resolve_agent_or_exit(orchestrator, ws.id, agent)
+
+    if not validate_cron(cron):
+        console.print(f"[red]Invalid cron expression:[/red] {cron}")
+        raise typer.Exit(code=1)
+
+    project_id = None
+    if project:
+        try:
+            proj = orchestrator.get_project(project)
+            project_id = proj.id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1) from None
+
+    next_fire = compute_next_fire(cron)
+
+    schedule = orchestrator.store.create_schedule(
+        agent_id=agent_id,
+        project_id=project_id,
+        prompt_template=prompt or DEFAULT_PROMPT_TEMPLATE,
+        schedule_cron=cron,
+        coalesce_ttl_seconds=coalesce,
+        task_profile=profile,
+        description=description,
+        next_fire_at=next_fire,
+    )
+
+    agent_obj = orchestrator.store.get_agent(agent_id)
+    console.print(
+        f"[green]Created[/green] schedule [cyan]{schedule.id[:8]}[/cyan] for agent "
+        f"[bold]{agent_obj.name if agent_obj else agent_id[:8]}[/bold]"
+    )
+    console.print(f"  Cron: {cron}")
+    console.print(f"  Profile: {schedule.task_profile}")
+    console.print(f"  Coalesce TTL: {schedule.coalesce_ttl_seconds}s")
+    console.print(f"  Next fire: {next_fire.isoformat()}")
+
+
+@schedule_app.command("list")
+def schedule_list(
+    agent: Annotated[
+        str | None, typer.Option("--agent", "-a", help="Filter by agent name (requires --workspace)")
+    ] = None,
+    workspace: Annotated[str | None, typer.Option("--workspace", "-w", help="Workspace for agent lookup")] = None,
+    enabled_only: Annotated[bool, typer.Option("--enabled-only", help="Only show enabled schedules")] = False,
+) -> None:
+    """List scheduled wakeups."""
+    orchestrator = get_orchestrator()
+
+    agent_id: str | None = None
+    if agent:
+        if workspace is None:
+            console.print("[red]--agent requires --workspace[/red]")
+            raise typer.Exit(code=1)
+        ws = _resolve_workspace_or_exit(orchestrator.store, workspace)
+        agent_id = _resolve_agent_or_exit(orchestrator, ws.id, agent)
+
+    schedules = orchestrator.store.list_schedules(agent_id=agent_id, enabled_only=enabled_only)
+    if not schedules:
+        console.print("[dim]No schedules configured.[/dim]")
+        return
+
+    # Build agent name cache
+    agent_names: dict[str, str] = {}
+    for s in schedules:
+        if s.agent_id not in agent_names:
+            a = orchestrator.store.get_agent(s.agent_id)
+            agent_names[s.agent_id] = a.name if a else s.agent_id[:8]
+
+    table = Table(title="Schedules")
+    table.add_column("ID", style="dim")
+    table.add_column("Agent", style="cyan")
+    table.add_column("Cron")
+    table.add_column("Profile")
+    table.add_column("Enabled")
+    table.add_column("Failures", justify="right")
+    table.add_column("Next fire", style="dim")
+
+    for s in schedules:
+        next_str = s.next_fire_at.strftime("%Y-%m-%d %H:%M") if s.next_fire_at else "—"
+        enabled_str = "[green]yes[/green]" if s.is_enabled else "[dim]no[/dim]"
+        fail_str = f"[red]{s.consecutive_failures}[/red]" if s.consecutive_failures else "0"
+        table.add_row(
+            s.id[:8],
+            agent_names[s.agent_id],
+            s.schedule_cron,
+            s.task_profile,
+            enabled_str,
+            fail_str,
+            next_str,
+        )
+    console.print(table)
+
+
+@schedule_app.command("show")
+def schedule_show(
+    schedule_id: Annotated[str, typer.Argument(help="Schedule ID or prefix")],
+) -> None:
+    """Show detail for a schedule."""
+    orchestrator = get_orchestrator()
+    sched = orchestrator.store.get_schedule(schedule_id)
+    if sched is None:
+        console.print(f"[red]Schedule not found:[/red] {schedule_id}")
+        raise typer.Exit(code=1)
+
+    agent = orchestrator.store.get_agent(sched.agent_id)
+    agent_name = agent.name if agent else sched.agent_id[:8]
+
+    console.print(f"[bold cyan]Schedule {sched.id[:8]}[/bold cyan] (id [dim]{sched.id}[/dim])")
+    console.print(f"  Agent: {agent_name}")
+    console.print(f"  Cron: {sched.schedule_cron}")
+    console.print(f"  Enabled: {'yes' if sched.is_enabled else 'no'}")
+    console.print(f"  Profile: {sched.task_profile}")
+    console.print(f"  Coalesce TTL: {sched.coalesce_ttl_seconds}s")
+    console.print(f"  Consecutive failures: {sched.consecutive_failures}")
+    if sched.description:
+        console.print(f"  Description: {sched.description}")
+    if sched.project_id:
+        p = orchestrator.store.get_project(sched.project_id)
+        console.print(f"  Project: {p.name if p else sched.project_id[:8]}")
+    last_fire = sched.last_fired_at.isoformat() if sched.last_fired_at else "never"
+    console.print(f"  Last fire: {last_fire}")
+    next_fire = sched.next_fire_at.isoformat() if sched.next_fire_at else "pending"
+    console.print(f"  Next fire: {next_fire}")
+    console.print()
+    console.print("[bold]Prompt template[/bold]")
+    console.print(sched.prompt_template)
+
+
+@schedule_app.command("enable")
+def schedule_enable(
+    schedule_id: Annotated[str, typer.Argument(help="Schedule ID or prefix")],
+) -> None:
+    """Enable a schedule (also resets consecutive_failures)."""
+    orchestrator = get_orchestrator()
+    sched = orchestrator.store.get_schedule(schedule_id)
+    if sched is None:
+        console.print(f"[red]Schedule not found:[/red] {schedule_id}")
+        raise typer.Exit(code=1)
+
+    sched.is_enabled = True
+    sched.consecutive_failures = 0
+    orchestrator.store.update_schedule(sched)
+    console.print(f"[green]Enabled[/green] schedule [cyan]{sched.id[:8]}[/cyan]")
+
+
+@schedule_app.command("disable")
+def schedule_disable(
+    schedule_id: Annotated[str, typer.Argument(help="Schedule ID or prefix")],
+) -> None:
+    """Disable a schedule (stops firing until re-enabled)."""
+    orchestrator = get_orchestrator()
+    sched = orchestrator.store.get_schedule(schedule_id)
+    if sched is None:
+        console.print(f"[red]Schedule not found:[/red] {schedule_id}")
+        raise typer.Exit(code=1)
+
+    sched.is_enabled = False
+    orchestrator.store.update_schedule(sched)
+    console.print(f"[yellow]Disabled[/yellow] schedule [cyan]{sched.id[:8]}[/cyan]")
+
+
+@schedule_app.command("delete")
+def schedule_delete(
+    schedule_id: Annotated[str, typer.Argument(help="Schedule ID or prefix")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
+) -> None:
+    """Delete a schedule and all its heartbeat history."""
+    orchestrator = get_orchestrator()
+    sched = orchestrator.store.get_schedule(schedule_id)
+    if sched is None:
+        console.print(f"[red]Schedule not found:[/red] {schedule_id}")
+        raise typer.Exit(code=1)
+
+    if not force:
+        confirm = typer.confirm(f"Delete schedule {sched.id[:8]} ({sched.schedule_cron})?")
+        if not confirm:
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    orchestrator.store.delete_schedule(sched.id)
+    console.print(f"[yellow]Deleted[/yellow] schedule [cyan]{sched.id[:8]}[/cyan]")
+
+
+@schedule_app.command("fire")
+def schedule_fire(
+    schedule_id: Annotated[str, typer.Argument(help="Schedule ID or prefix")],
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Skip coalesce check — fire even if a heartbeat is still live"),
+    ] = False,
+) -> None:
+    """Manually fire a schedule for testing. Spawns a heartbeat run right now."""
+    from gluon.runner import TaskRunner
+    from gluon.scheduler import HeartbeatScheduler
+
+    orchestrator = get_orchestrator()
+    sched = orchestrator.store.get_schedule(schedule_id)
+    if sched is None:
+        console.print(f"[red]Schedule not found:[/red] {schedule_id}")
+        raise typer.Exit(code=1)
+
+    async def _fire():
+        runner = TaskRunner(store=orchestrator.store)
+        scheduler = HeartbeatScheduler(orchestrator.store, runner)
+        heartbeat = await scheduler.fire_heartbeat(sched, force=force)
+        status_color = {
+            "pending": "yellow",
+            "running": "green",
+            "completed": "green",
+            "failed": "red",
+            "coalesced": "dim",
+            "skipped": "dim",
+        }.get(heartbeat.status.value, "white")
+        console.print(
+            f"[{status_color}]{heartbeat.status.value}[/{status_color}] heartbeat [cyan]{heartbeat.id[:8]}[/cyan]"
+        )
+        if heartbeat.execution_run_id:
+            console.print(f"  Run: [dim]{heartbeat.execution_run_id[:8]}[/dim]")
+        if heartbeat.result_summary:
+            console.print(f"  Summary: {heartbeat.result_summary}")
+        if heartbeat.error_message:
+            console.print(f"  [red]Error:[/red] {heartbeat.error_message}")
+
+    anyio.run(_fire)
+
+
+# ========== Heartbeat Commands ==========
+
+
+@heartbeat_app.command("list")
+def heartbeat_list(
+    schedule_id: Annotated[str | None, typer.Option("--schedule", "-s", help="Filter by schedule ID")] = None,
+    agent: Annotated[
+        str | None, typer.Option("--agent", "-a", help="Filter by agent name (requires --workspace)")
+    ] = None,
+    workspace: Annotated[str | None, typer.Option("--workspace", "-w", help="Workspace for agent lookup")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max heartbeats to show")] = 20,
+) -> None:
+    """List recent heartbeat firings."""
+    orchestrator = get_orchestrator()
+
+    resolved_schedule_id: str | None = None
+    if schedule_id:
+        sched = orchestrator.store.get_schedule(schedule_id)
+        if sched is None:
+            console.print(f"[red]Schedule not found:[/red] {schedule_id}")
+            raise typer.Exit(code=1)
+        resolved_schedule_id = sched.id
+
+    agent_id: str | None = None
+    if agent:
+        if workspace is None:
+            console.print("[red]--agent requires --workspace[/red]")
+            raise typer.Exit(code=1)
+        ws = _resolve_workspace_or_exit(orchestrator.store, workspace)
+        agent_id = _resolve_agent_or_exit(orchestrator, ws.id, agent)
+
+    heartbeats = orchestrator.store.list_heartbeats(schedule_id=resolved_schedule_id, agent_id=agent_id, limit=limit)
+
+    if not heartbeats:
+        console.print("[dim]No heartbeats recorded.[/dim]")
+        return
+
+    # Cache agent + schedule names
+    agent_names: dict[str, str] = {}
+    for h in heartbeats:
+        if h.agent_id not in agent_names:
+            a = orchestrator.store.get_agent(h.agent_id)
+            agent_names[h.agent_id] = a.name if a else h.agent_id[:8]
+
+    table = Table(title="Heartbeats")
+    table.add_column("ID", style="dim")
+    table.add_column("Agent", style="cyan")
+    table.add_column("Schedule", style="dim")
+    table.add_column("Status")
+    table.add_column("Run", style="dim")
+    table.add_column("Fired", style="dim")
+    table.add_column("Summary")
+
+    status_colors = {
+        "pending": "yellow",
+        "running": "blue",
+        "completed": "green",
+        "failed": "red",
+        "coalesced": "dim",
+        "skipped": "dim",
+    }
+
+    for h in heartbeats:
+        status_color = status_colors.get(h.status.value, "white")
+        run_str = h.execution_run_id[:8] if h.execution_run_id else "—"
+        summary = (h.result_summary or "")[:40]
+        table.add_row(
+            h.id[:8],
+            agent_names[h.agent_id],
+            h.schedule_id[:8],
+            f"[{status_color}]{h.status.value}[/{status_color}]",
+            run_str,
+            h.fired_at.strftime("%Y-%m-%d %H:%M"),
+            summary,
+        )
+    console.print(table)
 
 
 @queue_app.command("release")

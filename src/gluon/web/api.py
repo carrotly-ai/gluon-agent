@@ -4345,6 +4345,21 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         queue_drain_secs = int(os.environ.get("GLUON_QUEUE_DRAIN_INTERVAL_SECS", "60"))
         await runner.start_queue_drain(interval_secs=queue_drain_secs)
 
+        # Start heartbeat scheduler (Theme B Phase 2)
+        # Opt-in via GLUON_HEARTBEAT_ENABLED; default off so fresh installs don't
+        # start firing cron-scheduled runs without explicit configuration.
+        if os.environ.get("GLUON_HEARTBEAT_ENABLED", "").lower() in ("1", "true", "yes"):
+            from gluon.scheduler import HeartbeatScheduler
+
+            heartbeat_poll_secs = int(os.environ.get("GLUON_HEARTBEAT_POLL_SECS", "60"))
+            app.state.heartbeat_scheduler = HeartbeatScheduler(
+                store=store,
+                runner=runner,
+                poll_interval_secs=heartbeat_poll_secs,
+            )
+            await app.state.heartbeat_scheduler.start()
+            logger.info("Heartbeat scheduler enabled (poll=%ds)", heartbeat_poll_secs)
+
         # Start witness health monitor if enabled
         if os.environ.get("GLUON_WITNESS_ENABLED", "").lower() in ("1", "true", "yes"):
             from gluon.health_monitor import HealthMonitor
@@ -4385,6 +4400,14 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Stop queue drain
         await runner.stop_queue_drain()
+
+        # Stop heartbeat scheduler if it was started
+        heartbeat_scheduler = getattr(app.state, "heartbeat_scheduler", None)
+        if heartbeat_scheduler is not None:
+            try:
+                await heartbeat_scheduler.stop()
+            except Exception:
+                logger.debug("Heartbeat scheduler stop failed", exc_info=True)
 
         tasks_to_cancel = []
         if _polling_task:
