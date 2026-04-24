@@ -151,6 +151,15 @@ class CreateRunRequest(BaseModel):
     # Blueprint orchestration options (on by default)
     enable_prehydration: bool = Field(default=True, description="Pre-hydrate project context into prompt")
     blueprint_enabled: bool = Field(default=True, description="Run lint+test validation after completion")
+    # Agent linkage (Theme B Phase 1+4)
+    agent: str | None = Field(
+        default=None,
+        description=(
+            "Agent name or ID prefix to link this run to. If unset and the "
+            "project's workspace has exactly one active agent, that agent is "
+            "auto-selected."
+        ),
+    )
 
 
 class LogResponse(BaseModel):

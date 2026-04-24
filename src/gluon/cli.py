@@ -15,6 +15,7 @@ from gluon import __version__
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.cleanup import LogCleanupService, WorktreeCleanupService
 from gluon.core import (
+    BudgetExceededError,
     Orchestrator,
     ProjectExistsError,
     ProjectNotFoundError,
@@ -865,6 +866,14 @@ def run(
     no_validate: Annotated[
         bool, typer.Option("--no-validate", help="Disable lint+test validation after completion")
     ] = False,
+    agent: Annotated[
+        str | None,
+        typer.Option(
+            "--agent",
+            help="Agent name (or ID prefix) to link this run to. "
+            "Auto-selects if the project's workspace has exactly one active agent.",
+        ),
+    ] = None,
 ):
     """Execute a task on a project.
 
@@ -877,6 +886,8 @@ def run(
       deep     - Opus, 32k thinking, $15 budget
       planning - Opus, plan before executing
     """
+    from gluon.core import AgentAmbiguousError, AgentNotFoundError
+
     orchestrator = get_orchestrator()
 
     try:
@@ -884,6 +895,19 @@ def run(
     except ProjectNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
+
+    # Resolve the agent (explicit or auto-selected)
+    resolved_agent_id: str | None = None
+    try:
+        resolved_agent_id = orchestrator.resolve_agent(agent, proj.workspace_id)
+    except (AgentNotFoundError, AgentAmbiguousError) as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from None
+
+    if resolved_agent_id is not None:
+        resolved = orchestrator.store.get_agent(resolved_agent_id)
+        if resolved is not None:
+            console.print(f"[dim]Agent:[/dim] [cyan]{resolved.name}[/cyan]")
 
     # Validate model if provided
     model_tier: ModelTier | None = None
@@ -921,6 +945,7 @@ def run(
                 task_budget=task_budget,
                 enable_prehydration=not no_hydrate,
                 blueprint_enabled=not no_validate,
+                agent_id=resolved_agent_id,
             )
             console.print(f"[green]✓[/green] Task submitted: [cyan]{run_obj.id[:8]}[/cyan]")
             console.print(f"  Project: {project}")
@@ -941,7 +966,11 @@ def run(
             if ralph:
                 console.print(f"[dim]Use 'gluon ralph status {run_obj.id[:8]}' for loop details[/dim]")
 
-        anyio.run(_submit)
+        try:
+            anyio.run(_submit)
+        except BudgetExceededError as e:
+            console.print(f"[red]Budget exceeded:[/red] {e}")
+            raise typer.Exit(1) from None
         return
 
     # Foreground execution (existing behavior)
@@ -976,6 +1005,7 @@ def run(
             force_planning=planning if planning else None,
             effort=effort,
             task_budget=task_budget,
+            agent_id=resolved_agent_id,
         ):
             if isinstance(item, AgentMessage):
                 if not quiet:
@@ -987,7 +1017,11 @@ def run(
             console.print()
             _print_result(result)
 
-    anyio.run(_run)
+    try:
+        anyio.run(_run)
+    except BudgetExceededError as e:
+        console.print(f"[red]Budget exceeded:[/red] {e}")
+        raise typer.Exit(1) from None
 
 
 @app.command("resume")
@@ -3630,14 +3664,31 @@ def agent_show(
         console.print(f"[red]Agent not found: {workspace}/{name}[/red]")
         raise typer.Exit(code=1)
 
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    spent_this_month = orchestrator.store.get_agent_monthly_spend(agent.id, month_start)
+    active_runs = orchestrator.store.count_agent_active_runs(agent.id)
+
     console.print(f"[bold cyan]{agent.name}[/bold cyan] (id [dim]{agent.id}[/dim])")
     console.print(f"  Workspace: {ws.name}")
     console.print(f"  Role: {agent.role}")
     console.print(f"  Description: {agent.description or '[dim]—[/dim]'}")
     console.print(f"  Active: {'yes' if agent.is_active else 'no'}")
-    budget = f"${agent.monthly_budget_usd:.2f}" if agent.monthly_budget_usd else "unlimited"
-    console.print(f"  Monthly budget: {budget}")
+
+    if agent.monthly_budget_usd:
+        pct = (spent_this_month / agent.monthly_budget_usd) * 100
+        color = "green" if pct < 80 else ("yellow" if pct < 100 else "red")
+        console.print(
+            f"  Spend this month: [{color}]${spent_this_month:.2f}[/{color}] / "
+            f"${agent.monthly_budget_usd:.2f} ({pct:.1f}%)"
+        )
+    else:
+        console.print(f"  Spend this month: ${spent_this_month:.2f} (no cap)")
+
     console.print(f"  Max concurrent runs: {agent.max_concurrent_runs}")
+    console.print(f"  Active runs: {active_runs}")
     console.print(f"  Created: {agent.created_at.isoformat()}")
     last_active = agent.last_active_at.isoformat() if agent.last_active_at else "never"
     console.print(f"  Last active: {last_active}")

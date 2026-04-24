@@ -479,35 +479,53 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.post("/api/runs", response_model=RunResponse)
     async def create_run(body: CreateRunRequest) -> RunResponse:
         """Create and start a new execution run."""
+        from gluon.core import (
+            AgentAmbiguousError,
+            AgentNotFoundError,
+            BudgetExceededError,
+        )
+
         try:
             project = orchestrator.get_project(body.project_name)
         except ProjectNotFoundError:
             raise HTTPException(status_code=404, detail=f"Project not found: {body.project_name}")
 
-        # Create the run
-        run = await runner.submit(
-            project_id=project.id,
-            prompt=body.prompt,
-            wait=False,
-            use_worktree=body.use_worktree,
-            initiator="web:dashboard",
-            model=body.model_override or body.model,  # Override takes precedence
-            # Task profile options
-            profile=body.profile,
-            thinking_budget=body.thinking_override,
-            force_planning=body.force_planning,
-            effort=body.effort_override,
-            task_budget=body.task_budget_override,
-            # Ralph Loop options
-            ralph_enabled=body.ralph_enabled,
-            max_loops=body.max_loops,
-            max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
-            # Per-task overrides
-            agent_teams=body.agent_teams,
-            model_transition=body.model_transition,
-            enable_prehydration=body.enable_prehydration,
-            blueprint_enabled=body.blueprint_enabled,
-        )
+        # Resolve agent — explicit reference or auto-select
+        try:
+            resolved_agent_id = orchestrator.resolve_agent(body.agent, project.workspace_id)
+        except AgentNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
+        except AgentAmbiguousError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        # Create the run (budget enforcement happens inside runner.submit)
+        try:
+            run = await runner.submit(
+                project_id=project.id,
+                prompt=body.prompt,
+                wait=False,
+                use_worktree=body.use_worktree,
+                initiator="web:dashboard",
+                model=body.model_override or body.model,  # Override takes precedence
+                # Task profile options
+                profile=body.profile,
+                thinking_budget=body.thinking_override,
+                force_planning=body.force_planning,
+                effort=body.effort_override,
+                task_budget=body.task_budget_override,
+                # Ralph Loop options
+                ralph_enabled=body.ralph_enabled,
+                max_loops=body.max_loops,
+                max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
+                # Per-task overrides
+                agent_teams=body.agent_teams,
+                model_transition=body.model_transition,
+                enable_prehydration=body.enable_prehydration,
+                blueprint_enabled=body.blueprint_enabled,
+                agent_id=resolved_agent_id,
+            )
+        except BudgetExceededError as e:
+            raise HTTPException(status_code=402, detail=str(e)) from None
 
         # Store dev_port in metadata if provided
         if body.dev_port is not None:
