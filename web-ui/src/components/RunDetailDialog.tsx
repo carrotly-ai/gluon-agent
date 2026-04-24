@@ -274,6 +274,7 @@ function MobileActionMenu({
 
 import { LoopProgressTab } from './LoopProgressTab'
 import { QuestionModal } from './QuestionModal'
+import { RunTimeline } from './RunTimeline'
 import { StreamingLogViewer } from './StreamingLogViewer'
 import { TodoTab } from './TodoTab'
 import { ToolBreakdown } from './ToolBreakdown'
@@ -290,6 +291,7 @@ type TabType =
   | 'todos'
   | 'health'
   | 'tools'
+  | 'timeline'
 
 interface RunDetailDialogProps {
   run: Run | null
@@ -1842,22 +1844,36 @@ Focus on preserving the functionality from both sides where possible.`
                     const toolCount = parseMessages(logs.messages).filter(
                       (m) => m.type === 'tool_use'
                     ).length
-                    return toolCount > 0 ? (
-                      <button
-                        className={cn(
-                          'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
-                          activeTab === 'tools'
-                            ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                            : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                        )}
-                        onClick={() => setActiveTab('tools')}
-                      >
-                        Tools
-                        <span className="text-body text-[var(--color-stone)]/50">
-                          ({toolCount})
-                        </span>
-                      </button>
-                    ) : null
+                    if (toolCount === 0) return null
+                    return (
+                      <>
+                        <button
+                          className={cn(
+                            'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
+                            activeTab === 'tools'
+                              ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                          )}
+                          onClick={() => setActiveTab('tools')}
+                        >
+                          Tools
+                          <span className="text-body text-[var(--color-stone)]/50">
+                            ({toolCount})
+                          </span>
+                        </button>
+                        <button
+                          className={cn(
+                            'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0',
+                            activeTab === 'timeline'
+                              ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                          )}
+                          onClick={() => setActiveTab('timeline')}
+                        >
+                          Timeline
+                        </button>
+                      </>
+                    )
                   })()}
                   <button
                     className={cn(
@@ -2566,6 +2582,11 @@ Focus on preserving the functionality from both sides where possible.`
                       messages={logs.messages}
                       totalCostUsd={detail?.cost_usd ?? null}
                     />
+                  </div>
+                )}
+                {activeTab === 'timeline' && (
+                  <div className="flex-1 overflow-auto">
+                    <RunTimeline messages={logs.messages} />
                   </div>
                 )}
                 {activeTab === 'health' && (
