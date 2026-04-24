@@ -8,7 +8,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
@@ -571,6 +571,7 @@ class Orchestrator:
         effort: str | None = None,
         task_budget: int | None = None,
         agent_id: str | None = None,
+        approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
     ) -> AsyncIterator[AgentMessage | AgentResult]:
         """
         Execute a prompt against a project.
@@ -628,12 +629,15 @@ class Orchestrator:
                 raise ValueError(f"Run not found: {run_id}")
         else:
             # Create new ExecutionRun (for CLI foreground, etc.)
+            from gluon.models import ApprovalPolicy as _ApprovalPolicy
+
             run = self.store.create_run(
                 project_id=project.id,
                 prompt=prompt,
                 initiator=initiator or "orchestrator",
                 use_worktree=use_worktree,
                 agent_id=resolved_agent_id,
+                approval_policy=approval_policy or _ApprovalPolicy.PERMISSIVE,
             )
             # Broadcast new run to dashboard (only for newly created runs)
             await _broadcast_run_event("created", run, project.name)
