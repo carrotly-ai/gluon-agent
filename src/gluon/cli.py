@@ -5032,5 +5032,235 @@ def queue_release_stale(
         console.print(f"[yellow]Released {released} stale claim(s) back to pending[/yellow]")
 
 
+# ========== Claude Session Explorer Commands (C4) ==========
+
+claude_sessions_app = typer.Typer(help="Browse Claude Code sessions for a project (read-only)")
+app.add_typer(claude_sessions_app, name="claude-sessions")
+
+
+def _resolve_project_or_exit(name: str):
+    """Resolve a project by name/id, printing an error and exiting on failure."""
+    orchestrator = get_orchestrator()
+    try:
+        return orchestrator.get_project(name)
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+
+def _format_ms_to_human(ms: int | None) -> str:
+    """Format an epoch-milliseconds value as a local-time string."""
+    if ms is None:
+        return "-"
+    try:
+        from datetime import datetime as _dt
+
+        return _dt.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M")
+    except (OSError, ValueError, OverflowError):
+        return "-"
+
+
+def _format_bytes_compact(size: int | None) -> str:
+    """Compact byte-size formatter used by the claude-sessions table."""
+    if size is None:
+        return "-"
+    if size < 1024:
+        return f"{size}B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f}K"
+    if size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f}M"
+    return f"{size / (1024 * 1024 * 1024):.1f}G"
+
+
+def _flatten_claude_cli_message(raw: object) -> str:
+    """Best-effort flattening of a SessionMessage.message payload to text."""
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        content = raw.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    tval = block.get("text")
+                    if isinstance(tval, str):
+                        parts.append(tval)
+                elif btype == "tool_use":
+                    parts.append(f"[tool_use: {block.get('name') or 'tool'}]")
+                elif btype == "tool_result":
+                    parts.append("[tool_result]")
+            return "\n".join(p for p in parts if p)
+    return str(raw)
+
+
+@claude_sessions_app.command("list")
+def claude_sessions_list(
+    project: Annotated[str, typer.Argument(help="Project name or ID")],
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Max sessions to list")] = 20,
+    tag: Annotated[str | None, typer.Option("--tag", help="Filter by session tag")] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON")] = False,
+) -> None:
+    """List Claude Code sessions stored for a project."""
+    proj = _resolve_project_or_exit(project)
+
+    try:
+        from claude_agent_sdk import list_sessions
+    except ImportError:
+        console.print("[red]Error:[/red] claude_agent_sdk is not installed.")
+        raise typer.Exit(code=2)
+
+    try:
+        sessions = list_sessions(
+            directory=str(proj.expanded_path),
+            limit=limit,
+            include_worktrees=True,
+        )
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Failed to list sessions: {e}")
+        raise typer.Exit(code=1)
+
+    if tag:
+        sessions = [s for s in sessions if getattr(s, "tag", None) == tag]
+
+    if json_out:
+        import json as _json
+
+        payload = [
+            {
+                "session_id": s.session_id,
+                "summary": s.summary,
+                "last_modified_ms": s.last_modified,
+                "file_size": s.file_size,
+                "tag": getattr(s, "tag", None),
+                "created_at_ms": getattr(s, "created_at", None),
+                "git_branch": s.git_branch,
+                "cwd": s.cwd,
+                "first_prompt": s.first_prompt,
+                "custom_title": s.custom_title,
+            }
+            for s in sessions
+        ]
+        console.print_json(_json.dumps(payload))
+        return
+
+    if not sessions:
+        console.print(f"[dim]No Claude sessions found for {proj.name}.[/dim]")
+        return
+
+    table = Table(title=f"Claude sessions for {proj.name}")
+    table.add_column("ID", style="cyan", width=10)
+    table.add_column("Git Branch", width=22)
+    table.add_column("Summary", max_width=42)
+    table.add_column("Size", justify="right", width=7)
+    table.add_column("Last Modified", style="dim", width=16)
+
+    for s in sessions:
+        summary = (s.custom_title or s.summary or s.first_prompt or "-").strip().replace("\n", " ")
+        if len(summary) > 40:
+            summary = summary[:39] + "…"
+        table.add_row(
+            (s.session_id or "")[:8],
+            (s.git_branch or "-")[:22],
+            summary,
+            _format_bytes_compact(s.file_size),
+            _format_ms_to_human(s.last_modified),
+        )
+
+    console.print(table)
+
+
+@claude_sessions_app.command("show")
+def claude_sessions_show(
+    project: Annotated[str, typer.Argument(help="Project name or ID")],
+    session_id: Annotated[str, typer.Argument(help="Session UUID")],
+) -> None:
+    """Show detailed metadata for a single Claude Code session."""
+    proj = _resolve_project_or_exit(project)
+
+    try:
+        from claude_agent_sdk import get_session_info
+    except ImportError:
+        console.print("[red]Error:[/red] claude_agent_sdk is not installed.")
+        raise typer.Exit(code=2)
+
+    try:
+        info = get_session_info(session_id=session_id, directory=str(proj.expanded_path))
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Failed to read session: {e}")
+        raise typer.Exit(code=1)
+
+    if info is None:
+        console.print(f"[red]Error:[/red] Session not found: {session_id}")
+        raise typer.Exit(code=1)
+
+    lines = [
+        f"[bold]Session:[/bold] {info.session_id}",
+        f"[bold]Project:[/bold] {proj.name} ({proj.expanded_path})",
+        f"[bold]Git Branch:[/bold] {info.git_branch or '-'}",
+        f"[bold]CWD:[/bold] {info.cwd or '-'}",
+        f"[bold]Size:[/bold] {_format_bytes_compact(info.file_size)}",
+        f"[bold]Tag:[/bold] {getattr(info, 'tag', None) or '-'}",
+        f"[bold]Created:[/bold] {_format_ms_to_human(getattr(info, 'created_at', None))}",
+        f"[bold]Last modified:[/bold] {_format_ms_to_human(info.last_modified)}",
+        "",
+        f"[bold]Custom title:[/bold] {info.custom_title or '-'}",
+        f"[bold]Summary:[/bold] {info.summary or '-'}",
+        "",
+        "[bold]First prompt:[/bold]",
+        (info.first_prompt or "-"),
+    ]
+    console.print(Panel("\n".join(lines), title=f"Claude Session {info.session_id[:8]}"))
+
+
+@claude_sessions_app.command("messages")
+def claude_sessions_messages(
+    project: Annotated[str, typer.Argument(help="Project name or ID")],
+    session_id: Annotated[str, typer.Argument(help="Session UUID")],
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Max messages")] = 20,
+    offset: Annotated[int, typer.Option("--offset", help="Messages to skip")] = 0,
+) -> None:
+    """Print conversation messages for a Claude Code session."""
+    proj = _resolve_project_or_exit(project)
+
+    try:
+        from claude_agent_sdk import get_session_messages
+    except ImportError:
+        console.print("[red]Error:[/red] claude_agent_sdk is not installed.")
+        raise typer.Exit(code=2)
+
+    try:
+        messages = get_session_messages(
+            session_id=session_id,
+            directory=str(proj.expanded_path),
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Failed to read messages: {e}")
+        raise typer.Exit(code=1)
+
+    if not messages:
+        console.print(f"[dim]No messages for session {session_id[:8]}.[/dim]")
+        return
+
+    for i, m in enumerate(messages, start=offset + 1):
+        role = m.type.upper()
+        style = "blue" if m.type == "user" else "green"
+        body = _flatten_claude_cli_message(m.message)
+        if len(body) > 500:
+            body = body[:500] + "…"
+        console.print(f"[{style}][bold]{i}. {role}[/bold][/{style}]")
+        console.print(body or "[dim](empty)[/dim]")
+        console.print()
+
+
 if __name__ == "__main__":
     app()
