@@ -75,6 +75,9 @@ app.add_typer(worktree_app, name="worktree")
 settings_app = typer.Typer(help="Gluon global settings (stored in gluon.db)")
 app.add_typer(settings_app, name="settings")
 
+agent_app = typer.Typer(help="Manage persistent agent identities (Theme B Phase 1)")
+app.add_typer(agent_app, name="agent")
+
 console = Console()
 
 
@@ -3509,6 +3512,208 @@ def settings_delete(
     with store._get_conn() as conn:
         conn.execute("DELETE FROM settings WHERE key = ?", (key,))
     console.print(f"[yellow]Deleted[/yellow] setting [cyan]{key}[/cyan]")
+
+
+# ========== Agent Commands (Theme B Phase 1) ==========
+
+
+@agent_app.command("list")
+def agent_list(
+    workspace: Annotated[
+        str | None,
+        typer.Option("--workspace", "-w", help="Filter by workspace name"),
+    ] = None,
+    active_only: Annotated[
+        bool,
+        typer.Option("--active-only", help="Only show active agents"),
+    ] = False,
+) -> None:
+    """List persistent agent identities."""
+    orchestrator = get_orchestrator()
+    workspace_id: str | None = None
+    if workspace:
+        ws = orchestrator.store.get_workspace_by_name(workspace)
+        if ws is None:
+            console.print(f"[red]Workspace not found: {workspace}[/red]")
+            raise typer.Exit(code=1)
+        workspace_id = ws.id
+
+    agents = orchestrator.store.list_agents(
+        workspace_id=workspace_id,
+        is_active=True if active_only else None,
+    )
+    if not agents:
+        console.print("[dim]No agents registered.[/dim]")
+        return
+
+    # Pre-fetch workspace names
+    ws_names: dict[str, str] = {}
+    for a in agents:
+        if a.workspace_id not in ws_names:
+            w = orchestrator.store.get_workspace(a.workspace_id)
+            ws_names[a.workspace_id] = w.name if w else a.workspace_id[:8]
+
+    table = Table(title="Agents")
+    table.add_column("Name", style="cyan")
+    table.add_column("Workspace")
+    table.add_column("Role")
+    table.add_column("Active")
+    table.add_column("Budget", justify="right")
+    table.add_column("Max concurrent", justify="right")
+    table.add_column("ID", style="dim")
+
+    for a in agents:
+        budget = f"${a.monthly_budget_usd:.2f}" if a.monthly_budget_usd else "[dim]—[/dim]"
+        active = "[green]yes[/green]" if a.is_active else "[dim]no[/dim]"
+        table.add_row(
+            a.name,
+            ws_names[a.workspace_id],
+            a.role,
+            active,
+            budget,
+            str(a.max_concurrent_runs),
+            a.id[:8],
+        )
+    console.print(table)
+
+
+@agent_app.command("create")
+def agent_create(
+    workspace: Annotated[str, typer.Argument(help="Workspace name to attach to")],
+    name: Annotated[str, typer.Argument(help="Agent name (unique within workspace)")],
+    role: Annotated[str, typer.Option("--role", help="Role label (e.g. researcher, engineer)")] = "worker",
+    description: Annotated[str | None, typer.Option("--description", help="Optional description")] = None,
+    budget: Annotated[float | None, typer.Option("--budget", help="Monthly budget in USD")] = None,
+    max_concurrent: Annotated[int, typer.Option("--max-concurrent", help="Max concurrent runs for this agent")] = 1,
+) -> None:
+    """Create a new persistent agent within a workspace."""
+    orchestrator = get_orchestrator()
+    ws = orchestrator.store.get_workspace_by_name(workspace)
+    if ws is None:
+        console.print(f"[red]Workspace not found: {workspace}[/red]")
+        raise typer.Exit(code=1)
+
+    import sqlite3
+
+    try:
+        agent = orchestrator.store.create_agent(
+            ws.id,
+            name,
+            description=description,
+            role=role,
+            monthly_budget_usd=budget,
+            max_concurrent_runs=max_concurrent,
+        )
+    except sqlite3.IntegrityError:
+        console.print(f"[red]Agent '{name}' already exists in workspace '{workspace}'[/red]")
+        raise typer.Exit(code=1) from None
+
+    console.print(
+        f"[green]Created[/green] agent [cyan]{agent.name}[/cyan] "
+        f"in workspace [bold]{ws.name}[/bold] (id {agent.id[:8]})"
+    )
+
+
+@agent_app.command("show")
+def agent_show(
+    workspace: Annotated[str, typer.Argument(help="Workspace name")],
+    name: Annotated[str, typer.Argument(help="Agent name")],
+) -> None:
+    """Show detail for a single agent."""
+    orchestrator = get_orchestrator()
+    ws = orchestrator.store.get_workspace_by_name(workspace)
+    if ws is None:
+        console.print(f"[red]Workspace not found: {workspace}[/red]")
+        raise typer.Exit(code=1)
+    agent = orchestrator.store.get_agent_by_name(ws.id, name)
+    if agent is None:
+        console.print(f"[red]Agent not found: {workspace}/{name}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold cyan]{agent.name}[/bold cyan] (id [dim]{agent.id}[/dim])")
+    console.print(f"  Workspace: {ws.name}")
+    console.print(f"  Role: {agent.role}")
+    console.print(f"  Description: {agent.description or '[dim]—[/dim]'}")
+    console.print(f"  Active: {'yes' if agent.is_active else 'no'}")
+    budget = f"${agent.monthly_budget_usd:.2f}" if agent.monthly_budget_usd else "unlimited"
+    console.print(f"  Monthly budget: {budget}")
+    console.print(f"  Max concurrent runs: {agent.max_concurrent_runs}")
+    console.print(f"  Created: {agent.created_at.isoformat()}")
+    last_active = agent.last_active_at.isoformat() if agent.last_active_at else "never"
+    console.print(f"  Last active: {last_active}")
+
+
+@agent_app.command("update")
+def agent_update(
+    workspace: Annotated[str, typer.Argument(help="Workspace name")],
+    name: Annotated[str, typer.Argument(help="Agent name")],
+    role: Annotated[str | None, typer.Option("--role", help="New role")] = None,
+    description: Annotated[str | None, typer.Option("--description", help="New description")] = None,
+    budget: Annotated[float | None, typer.Option("--budget", help="New monthly budget in USD")] = None,
+    max_concurrent: Annotated[int | None, typer.Option("--max-concurrent", help="New max concurrent runs")] = None,
+    active: Annotated[bool | None, typer.Option("--active/--inactive", help="Toggle active status")] = None,
+) -> None:
+    """Update an existing agent."""
+    orchestrator = get_orchestrator()
+    ws = orchestrator.store.get_workspace_by_name(workspace)
+    if ws is None:
+        console.print(f"[red]Workspace not found: {workspace}[/red]")
+        raise typer.Exit(code=1)
+    agent = orchestrator.store.get_agent_by_name(ws.id, name)
+    if agent is None:
+        console.print(f"[red]Agent not found: {workspace}/{name}[/red]")
+        raise typer.Exit(code=1)
+
+    changes: list[str] = []
+    if role is not None:
+        agent.role = role
+        changes.append(f"role={role}")
+    if description is not None:
+        agent.description = description
+        changes.append("description")
+    if budget is not None:
+        agent.monthly_budget_usd = budget
+        changes.append(f"budget=${budget:.2f}")
+    if max_concurrent is not None:
+        agent.max_concurrent_runs = max_concurrent
+        changes.append(f"max_concurrent={max_concurrent}")
+    if active is not None:
+        agent.is_active = active
+        changes.append(f"active={active}")
+
+    if not changes:
+        console.print("[yellow]No changes specified[/yellow]")
+        return
+
+    orchestrator.store.update_agent(agent)
+    console.print(f"[green]Updated[/green] agent [cyan]{agent.name}[/cyan]: {', '.join(changes)}")
+
+
+@agent_app.command("delete")
+def agent_delete(
+    workspace: Annotated[str, typer.Argument(help="Workspace name")],
+    name: Annotated[str, typer.Argument(help="Agent name")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
+) -> None:
+    """Delete an agent. Historical runs are preserved (agent_id becomes NULL)."""
+    orchestrator = get_orchestrator()
+    ws = orchestrator.store.get_workspace_by_name(workspace)
+    if ws is None:
+        console.print(f"[red]Workspace not found: {workspace}[/red]")
+        raise typer.Exit(code=1)
+    agent = orchestrator.store.get_agent_by_name(ws.id, name)
+    if agent is None:
+        console.print(f"[red]Agent not found: {workspace}/{name}[/red]")
+        raise typer.Exit(code=1)
+
+    if not force:
+        confirm = typer.confirm(f"Delete agent '{workspace}/{name}'?")
+        if not confirm:
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    orchestrator.store.delete_agent(agent.id)
+    console.print(f"[yellow]Deleted[/yellow] agent [cyan]{agent.name}[/cyan]")
 
 
 @queue_app.command("release")
