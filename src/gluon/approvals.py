@@ -195,14 +195,24 @@ def _make_approval_hook(
         tool_use_id: str | None,
         context: HookContext,
     ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
-        tool_name = input_data.get("tool_name", "unknown")
-        tool_input = input_data.get("tool_input", {}) or {}
-        if not isinstance(tool_input, dict):
-            tool_input = {"_raw": str(tool_input)}
+        raw_tool_name = input_data.get("tool_name", "unknown")
+        tool_name = raw_tool_name if isinstance(raw_tool_name, str) else str(raw_tool_name)
+        tool_input_raw = input_data.get("tool_input", {}) or {}
+        tool_input: dict[str, Any] = (
+            tool_input_raw if isinstance(tool_input_raw, dict) else {"_raw": str(tool_input_raw)}
+        )
 
         decision = classify_tool_call(policy, tool_name, tool_input)
         if not decision.needs_approval:
             return {}
+
+        # Resolve tool_use_id: prefer the arg passed in, fall back to input_data
+        resolved_tool_use_id: str | None
+        if tool_use_id is not None:
+            resolved_tool_use_id = tool_use_id
+        else:
+            candidate = input_data.get("tool_use_id")
+            resolved_tool_use_id = candidate if isinstance(candidate, str) else None
 
         # Create a pending approval
         try:
@@ -211,7 +221,7 @@ def _make_approval_hook(
                 tool_name=tool_name,
                 classification_reason=decision.reason,
                 tool_input=tool_input,
-                tool_use_id=tool_use_id or input_data.get("tool_use_id"),
+                tool_use_id=resolved_tool_use_id,
                 timeout_at=utc_now() + timedelta(seconds=timeout_secs),
             )
         except Exception:

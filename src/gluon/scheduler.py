@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 
 from gluon.models import (
     AgentSchedule,
@@ -371,7 +371,8 @@ def compute_next_fire(cron_expr: str, base: datetime | None = None) -> datetime:
     base = base or utc_now()
     try:
         itr = croniter(cron_expr, base)
-        return itr.get_next(datetime)
+        result: datetime = itr.get_next(datetime)
+        return result
     except Exception as e:
         raise ValueError(f"Invalid cron expression {cron_expr!r}: {e}") from e
 

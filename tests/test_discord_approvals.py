@@ -142,10 +142,13 @@ def test_format_approval_embed_has_orange_pending_color(tmp_path):
 # ========== ApprovalView ==========
 
 
-def test_build_approval_view_has_two_persistent_buttons(tmp_path):
+@pytest.mark.anyio
+async def test_build_approval_view_has_two_persistent_buttons(tmp_path):
     from gluon.transport.discord import _build_approval_view
 
     store = _make_store(tmp_path)
+    # discord.ui.View's __init__ touches the running event loop; the `@pytest.mark.anyio`
+    # decorator guarantees we're inside one (CI order can otherwise leave the loop closed).
     view = _build_approval_view("abc-123", store, lambda uid: True)
 
     # Persistent view requires timeout=None
