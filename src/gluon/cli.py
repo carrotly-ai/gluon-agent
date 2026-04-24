@@ -1552,7 +1552,16 @@ def discord_bot(
         async def _run_discord():
             from gluon.transport.discord import DiscordTransport
 
-            transport = DiscordTransport(bot_token, guild_id, bot_core, allowed_users)
+            approval_channel_env = os.environ.get("GLUON_DISCORD_APPROVAL_CHANNEL")
+            approval_channel_id = int(approval_channel_env) if approval_channel_env else None
+
+            transport = DiscordTransport(
+                bot_token,
+                guild_id,
+                bot_core,
+                allowed_users,
+                approval_channel_id=approval_channel_id,
+            )
             bot_core.notifier.transports[transport.name] = transport
             await transport.start()
 
@@ -1644,7 +1653,18 @@ def serve(
 
                 from gluon.transport.discord import DiscordTransport
 
-                dc_transport = DiscordTransport(discord_token, discord_guild, bot_core, discord_users)
+                discord_approval_channel_env = os.environ.get("GLUON_DISCORD_APPROVAL_CHANNEL")
+                discord_approval_channel_id = (
+                    int(discord_approval_channel_env) if discord_approval_channel_env else None
+                )
+
+                dc_transport = DiscordTransport(
+                    discord_token,
+                    discord_guild,
+                    bot_core,
+                    discord_users,
+                    approval_channel_id=discord_approval_channel_id,
+                )
                 transports_to_run.append(("Discord", dc_transport))
                 console.print("[green]✓[/green] Discord transport configured")
 
