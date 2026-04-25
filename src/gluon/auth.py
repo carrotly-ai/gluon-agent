@@ -93,6 +93,20 @@ class UserDisabledError(AuthError):
     """
 
 
+class LinkCodeError(AuthError):
+    """Raised when ``GluonStore.consume_link_code`` rejects a redemption.
+
+    The caller (a chat command handler, typically) inspects ``reason`` to
+    pick the right user-facing message. The reason strings are part of the
+    public contract — see :meth:`GluonStore.consume_link_code` for the
+    full enumeration.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class AuthBackend(StrEnum):
     """Which `AuthProviderConfig` implementation to use."""
 

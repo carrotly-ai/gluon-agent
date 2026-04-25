@@ -492,6 +492,9 @@ class TelegramTransport(Transport):
         self.app.add_handler(CommandHandler("runs", self._handle_runs))
         self.app.add_handler(CommandHandler("cancel", self._handle_cancel))
         self.app.add_handler(CommandHandler("clear", self._handle_clear))
+        # D5 Phase 4 self-serve linking
+        self.app.add_handler(CommandHandler("link", self._handle_link))
+        self.app.add_handler(CommandHandler("unlink", self._handle_unlink))
 
         # Approval inline keyboard callbacks (Approve/Deny buttons)
         self.app.add_handler(
@@ -922,6 +925,89 @@ class TelegramTransport(Transport):
 
         self.bot_core.clear_history(ctx.user_id)
         await update.message.reply_text("Chat history cleared.")
+
+    # ========== D5 Phase 4 — self-serve account linking ==========
+
+    async def _handle_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle ``/link <code>`` — bind this Telegram account to the
+        Gluon user that generated the code.
+
+        Without an argument, replies with instructions on how to obtain
+        a code from the dashboard.
+        """
+        from gluon.auth import LinkCodeError
+
+        if not update.effective_user or not update.message:
+            return
+
+        ctx = self._make_context(update)
+        if not self.is_authorized(ctx.user_id):
+            await update.message.reply_text("Not authorized.")
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "*Link your Telegram to Gluon*\n\n"
+                "1. Open the Gluon dashboard and sign in.\n"
+                "2. Click your avatar → *Connected accounts* → *Link Telegram*.\n"
+                "3. Send `/link <code>` here with the code shown.\n\n"
+                "_The code expires in 10 minutes._",
+                parse_mode="Markdown",
+            )
+            return
+
+        code = context.args[0]
+        chat_user_id = update.effective_user.id
+        try:
+            user = self.bot_core.store.consume_link_code(code=code, transport="telegram", chat_id=chat_user_id)
+        except LinkCodeError as e:
+            messages = {
+                "unknown": "❌ That code doesn't exist.",
+                "expired": "⏰ That code has expired. Generate a fresh one.",
+                "consumed": "♻️ That code has already been used.",
+                "transport_mismatch": (
+                    "❌ That code was generated for a different platform. "
+                    "Generate a *Telegram* code from the dashboard."
+                ),
+                "chat_taken": (
+                    "❌ This Telegram account is already linked to a different "
+                    "Gluon user. Sign in as that user to /unlink first."
+                ),
+            }
+            msg = messages.get(e.reason, "❌ Could not link this account.")
+            await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+        await update.message.reply_text(
+            f"✅ Linked as *{user.display_name or user.username}* (`{user.role.value}`).",
+            parse_mode="Markdown",
+        )
+
+    async def _handle_unlink(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle ``/unlink`` — remove the Telegram binding from the
+        currently linked Gluon user (if any)."""
+        if not update.effective_user or not update.message:
+            return
+
+        ctx = self._make_context(update)
+        if not self.is_authorized(ctx.user_id):
+            await update.message.reply_text("Not authorized.")
+            return
+
+        chat_user_id = update.effective_user.id
+        linked = self.bot_core.store.get_user_by_telegram_id(chat_user_id)
+        if linked is None:
+            await update.message.reply_text(
+                "ℹ️ This Telegram account isn't linked to any Gluon user.",
+            )
+            return
+
+        self.bot_core.store.unlink_chat(user_id=linked.id, transport="telegram")
+        await update.message.reply_text(
+            f"✅ Unlinked from *{linked.display_name or linked.username}*. "
+            "Your future approvals here won't be attributed to a Gluon user.",
+            parse_mode="Markdown",
+        )
 
     async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle natural language messages."""

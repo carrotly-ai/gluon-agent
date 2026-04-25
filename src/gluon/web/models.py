@@ -322,6 +322,32 @@ class ChangePasswordRequest(BaseModel):
     current_password: str | None = None
 
 
+class CreateLinkCodeRequest(BaseModel):
+    """Request body for POST /api/auth/link-codes.
+
+    Generates a one-time code the calling user can redeem from a chat client
+    via ``/link <code>`` to bind that chat identity to their Gluon account
+    (D5 Phase 4).
+    """
+
+    transport: str  # "telegram" | "discord"
+
+
+class LinkCodeResponse(BaseModel):
+    """Response body for POST /api/auth/link-codes."""
+
+    code: str
+    transport: str
+    expires_at: str  # ISO 8601
+
+
+class LinkStatusResponse(BaseModel):
+    """Response body for GET /api/auth/links — what's bound to *me*."""
+
+    telegram_user_id: int | None = None
+    discord_user_id: int | None = None
+
+
 class ProviderResponse(BaseModel):
     """Response model for LLM provider information."""
 
