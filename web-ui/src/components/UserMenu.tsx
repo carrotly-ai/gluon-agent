@@ -4,6 +4,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { ApiError, changePassword } from '@/lib/api'
 import type { User, UserRole } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { ConnectedAccountsSection } from './ConnectedAccountsSection'
 
 const ROLE_BADGE: Record<UserRole, string> = {
   admin: 'bg-[var(--color-harvest)]/15 text-[var(--color-harvest)]',
@@ -175,7 +176,7 @@ export function UserMenu({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={handleClose} />
-          <div className="absolute right-0 top-full mt-1 w-72 z-50 bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-lg overflow-hidden">
+          <div className="absolute right-0 top-full mt-1 w-80 z-50 bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-lg overflow-hidden">
             {/* Identity card */}
             <div className="px-3 py-3 border-b border-[rgba(163,163,163,0.1)]">
               <div className="flex items-center gap-2.5">
@@ -234,6 +235,9 @@ export function UserMenu({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
                     Manage users
                   </button>
                 )}
+
+                {/* D5 Phase 4 — self-serve chat linking */}
+                <ConnectedAccountsSection />
 
                 <div className="my-1 mx-3 border-t border-[rgba(163,163,163,0.08)]" />
 

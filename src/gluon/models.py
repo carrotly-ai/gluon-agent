@@ -624,6 +624,30 @@ class UserSession(BaseModel):
     user_agent: str | None = None
 
 
+class LinkCode(BaseModel):
+    """A short-lived code a logged-in user generates to bind a chat identity
+    to their Gluon ``User`` (D5 Phase 4 self-serve).
+
+    Flow: user clicks "Link Telegram" in the dashboard → server creates a
+    ``LinkCode`` with their ``user_id`` and ``transport="telegram"`` → user
+    sends ``/link <code>`` to the bot → bot calls
+    :meth:`GluonStore.consume_link_code`, which sets the user's
+    ``telegram_user_id`` (or ``discord_user_id``) atomically and marks the
+    code consumed.
+
+    ``code`` is the only thing that travels to the bot; the user_id is
+    looked up server-side, so a leaked code can only bind the original
+    requester's Gluon account — not someone else's.
+    """
+
+    code: str  # URL-safe random token (PK in DB)
+    user_id: str
+    transport: str  # "telegram" | "discord"
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime
+    consumed_at: datetime | None = None
+
+
 class TaskStatus(StrEnum):
     """Workflow status for an OrchestratorTask."""
 

@@ -742,6 +742,17 @@ class DiscordTransport(Transport):
             return
 
         # Handle special commands
+        if text.lower().startswith("link-account"):
+            # D5 Phase 4 — self-serve account linking. Distinct keyword from
+            # the existing `link <project>` channel binding so users can't
+            # collide a project name with a link code.
+            await self._handle_account_link_command(message, text[len("link-account") :].strip())
+            return
+
+        if text.lower() == "unlink-account":
+            await self._handle_account_unlink_command(message)
+            return
+
         if text.lower().startswith("link "):
             await self._handle_link_command(message, text[5:].strip())
             return
@@ -897,6 +908,8 @@ class DiscordTransport(Transport):
             "`models` - List available models\n"
             "`cancel [run_id]` - Cancel a run\n"
             "`link <project>` - Link channel to project\n"
+            "`link-account <code>` - Bind this Discord user to a Gluon account\n"
+            "`unlink-account` - Remove the Gluon account binding\n"
             "`help` - Show this help\n\n"
             "**Channel Topic Config:**\n"
             "Set defaults in channel topic:\n"
@@ -907,6 +920,62 @@ class DiscordTransport(Transport):
             "- `project:myapp fix the bug` to run a task"
         )
         await message.reply(text)
+
+    # ========== D5 Phase 4 — self-serve account linking ==========
+
+    async def _handle_account_link_command(self, message: discord.Message, code: str) -> None:
+        """Bind this Discord user to the Gluon user that generated the code.
+
+        Triggered by ``link-account <code>`` (server mention or DM). The
+        keyword is intentionally distinct from the existing
+        ``link <project>`` channel-binding command.
+        """
+        from gluon.auth import LinkCodeError
+
+        if not code:
+            bot_name = self.bot.user.name if self.bot.user else "gluon"
+            await message.reply(
+                "**Link your Discord to Gluon**\n\n"
+                "1. Open the Gluon dashboard and sign in.\n"
+                "2. Click your avatar → *Connected accounts* → *Link Discord*.\n"
+                f"3. Send `@{bot_name} link-account <code>` (or DM `link-account <code>`).\n\n"
+                "_The code expires in 10 minutes._"
+            )
+            return
+
+        chat_user_id = int(message.author.id)
+        try:
+            user = self.bot_core.store.consume_link_code(code=code, transport="discord", chat_id=chat_user_id)
+        except LinkCodeError as e:
+            messages = {
+                "unknown": "❌ That code doesn't exist.",
+                "expired": "⏰ That code has expired. Generate a fresh one.",
+                "consumed": "♻️ That code has already been used.",
+                "transport_mismatch": (
+                    "❌ That code was generated for a different platform. Generate a *Discord* code from the dashboard."
+                ),
+                "chat_taken": (
+                    "❌ This Discord account is already linked to a different "
+                    "Gluon user. Run `unlink-account` from that user's session first."
+                ),
+            }
+            await message.reply(messages.get(e.reason, "❌ Could not link this account."))
+            return
+
+        await message.reply(f"✅ Linked as **{user.display_name or user.username}** (`{user.role.value}`).")
+
+    async def _handle_account_unlink_command(self, message: discord.Message) -> None:
+        """Remove the Discord binding from the currently-linked Gluon user."""
+        chat_user_id = int(message.author.id)
+        linked = self.bot_core.store.get_user_by_discord_id(chat_user_id)
+        if linked is None:
+            await message.reply("ℹ️ This Discord account isn't linked to any Gluon user.")
+            return
+        self.bot_core.store.unlink_chat(user_id=linked.id, transport="discord")
+        await message.reply(
+            f"✅ Unlinked from **{linked.display_name or linked.username}**. "
+            "Your future approvals here won't be attributed to a Gluon user."
+        )
 
     async def _handle_dm_message(self, message: discord.Message) -> None:
         """Handle direct messages to the bot.
@@ -934,6 +1003,15 @@ class DiscordTransport(Transport):
 
         # Handle DM-specific commands (no @mention needed)
         text_lower = text.lower()
+
+        if text_lower.startswith("link-account"):
+            # D5 Phase 4 self-serve linking
+            await self._handle_account_link_command(message, text[len("link-account") :].strip())
+            return
+
+        if text_lower == "unlink-account":
+            await self._handle_account_unlink_command(message)
+            return
 
         if text_lower == "projects":
             await self._handle_projects_command(message)

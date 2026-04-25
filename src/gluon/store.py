@@ -30,6 +30,7 @@ from gluon.models import (
     ImageAttachment,
     Job,
     JobStatus,
+    LinkCode,
     MergeQueueEntry,
     MergeQueueStatus,
     MessageRunMapping,
@@ -787,6 +788,28 @@ MIGRATIONS = [
     (
         "CREATE INDEX IF NOT EXISTS idx_tasks_creator ON orchestrator_tasks(created_by_user_id) "
         "WHERE created_by_user_id IS NOT NULL;"
+    ),
+    # D5 Phase 4 self-serve linking — short-lived one-time codes a logged-in
+    # user generates in the dashboard, then redeems by sending `/link <code>`
+    # to the bot. ``code`` is the URL-safe random token (PRIMARY KEY for
+    # constant-time uniqueness checks); ``transport`` is "telegram" /
+    # "discord". A row is consumed by setting ``consumed_at`` (so we keep
+    # an audit trail of past links) — once consumed, the same code can't
+    # be reused.
+    """
+    CREATE TABLE IF NOT EXISTS link_codes (
+        code TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        transport TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_link_codes_user ON link_codes(user_id);",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_link_codes_active "
+        "ON link_codes(transport, expires_at) WHERE consumed_at IS NULL;"
     ),
 ]
 
@@ -1819,6 +1842,219 @@ class GluonStore:
             last_seen_at=_parse_datetime(row["last_seen_at"]),  # type: ignore[arg-type]
             ip=row["ip"],
             user_agent=row["user_agent"],
+        )
+
+    # ========== LinkCode CRUD (D5 Phase 4 self-serve) ==========
+
+    def create_link_code(
+        self,
+        *,
+        user_id: str,
+        transport: str,
+        ttl_minutes: int = 10,
+    ) -> LinkCode:
+        """Create a one-time code that binds a chat identity to ``user_id``
+        when consumed by the bot. Default TTL is 10 minutes.
+
+        The code is short and case-insensitive at consumption time so users
+        can re-type it on a phone without fighting autocorrect — but it has
+        ~50 bits of entropy, well past brute-force range for a 10-minute
+        window. We also tear down any prior unconsumed codes for the same
+        ``(user_id, transport)`` so an active "Link Telegram" panel
+        always shows the most recent code.
+        """
+        from datetime import timedelta
+        from secrets import choice
+
+        # 10 chars from a 32-char alphabet (no 0/1/I/O for readability)
+        # → ~50 bits, plenty for short-lived single-use tokens.
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        code = "".join(choice(alphabet) for _ in range(10))
+
+        now = utc_now()
+        expires = now + timedelta(minutes=ttl_minutes)
+        link_code = LinkCode(
+            code=code,
+            user_id=user_id,
+            transport=transport,
+            created_at=now,
+            expires_at=expires,
+            consumed_at=None,
+        )
+        with self._get_conn() as conn:
+            # Clear any previous unconsumed codes for this user+transport.
+            conn.execute(
+                """
+                DELETE FROM link_codes
+                WHERE user_id = ? AND transport = ? AND consumed_at IS NULL
+                """,
+                (user_id, transport),
+            )
+            conn.execute(
+                """
+                INSERT INTO link_codes
+                    (code, user_id, transport, created_at, expires_at, consumed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    link_code.code,
+                    link_code.user_id,
+                    link_code.transport,
+                    link_code.created_at.isoformat(),
+                    link_code.expires_at.isoformat(),
+                    None,
+                ),
+            )
+        return link_code
+
+    def get_link_code(self, code: str) -> LinkCode | None:
+        """Look up a link code (consumed or not). Used by tests + admins."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM link_codes WHERE code = ?",
+                (code.upper(),),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_link_code(row)
+
+    def consume_link_code(
+        self,
+        *,
+        code: str,
+        transport: str,
+        chat_id: int,
+    ) -> User:
+        """Atomically redeem a link code: bind ``chat_id`` to the code's user.
+
+        On success, the user's ``telegram_user_id`` (or ``discord_user_id``)
+        is updated and the code's ``consumed_at`` is stamped. Returns the
+        updated User.
+
+        Raises ``LinkCodeError`` (subclass of ValueError) with a stable
+        ``reason`` attribute the bot can branch on:
+
+        - ``"unknown"`` — code doesn't exist
+        - ``"expired"`` — code is past its TTL
+        - ``"consumed"`` — code was already used
+        - ``"transport_mismatch"`` — user generated a Telegram code but
+          tried to redeem it from Discord (or vice versa)
+        - ``"chat_taken"`` — another Gluon user already has this chat ID
+          bound. We refuse to silently take it over.
+        """
+        from gluon.auth import LinkCodeError  # local import to avoid cycle
+
+        norm_code = code.upper().strip()
+        now = utc_now()
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM link_codes WHERE code = ?",
+                (norm_code,),
+            ).fetchone()
+            if row is None:
+                raise LinkCodeError("unknown")
+            link = self._row_to_link_code(row)
+            if link.transport != transport:
+                raise LinkCodeError("transport_mismatch")
+            if link.consumed_at is not None:
+                raise LinkCodeError("consumed")
+            if link.expires_at < now:
+                raise LinkCodeError("expired")
+
+            # Refuse if the chat ID is already bound to a different user —
+            # we never silently take over another account's chat binding.
+            existing_owner = None
+            if transport == "telegram":
+                existing_owner = self.get_user_by_telegram_id(chat_id)
+            elif transport == "discord":
+                existing_owner = self.get_user_by_discord_id(chat_id)
+            if existing_owner is not None and existing_owner.id != link.user_id:
+                raise LinkCodeError("chat_taken")
+
+            # Bind the chat ID and stamp the code consumed in one transaction.
+            target = self.get_user(link.user_id)
+            if target is None:
+                # Code refers to a deleted user — treat as unknown.
+                raise LinkCodeError("unknown")
+            if transport == "telegram":
+                target.telegram_user_id = chat_id
+            elif transport == "discord":
+                target.discord_user_id = chat_id
+            else:
+                raise LinkCodeError("unknown")
+            target.updated_at = now
+            conn.execute(
+                """
+                UPDATE users
+                SET telegram_user_id = ?, discord_user_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    target.telegram_user_id,
+                    target.discord_user_id,
+                    now.isoformat(),
+                    target.id,
+                ),
+            )
+            conn.execute(
+                "UPDATE link_codes SET consumed_at = ? WHERE code = ?",
+                (now.isoformat(), norm_code),
+            )
+        return target
+
+    def unlink_chat(self, *, user_id: str, transport: str) -> User | None:
+        """Clear the user's binding for ``transport``. Returns the updated
+        User, or ``None`` if no such user exists. No-op if already unbound.
+        """
+        user = self.get_user(user_id)
+        if user is None:
+            return None
+        if transport == "telegram":
+            user.telegram_user_id = None
+        elif transport == "discord":
+            user.discord_user_id = None
+        else:
+            return user  # unknown transport → no-op
+        user.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET telegram_user_id = ?, discord_user_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    user.telegram_user_id,
+                    user.discord_user_id,
+                    user.updated_at.isoformat(),
+                    user.id,
+                ),
+            )
+        return user
+
+    def delete_expired_link_codes(self) -> int:
+        """Sweep codes whose TTL has passed AND haven't been consumed.
+
+        Consumed codes are kept as an audit trail — they're cheap (one row
+        per successful link) and let an admin investigate "who linked what,
+        when".
+        """
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM link_codes WHERE consumed_at IS NULL AND expires_at < ?",
+                (now,),
+            )
+            return cur.rowcount
+
+    def _row_to_link_code(self, row: sqlite3.Row) -> LinkCode:
+        return LinkCode(
+            code=row["code"],
+            user_id=row["user_id"],
+            transport=row["transport"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            expires_at=_parse_datetime(row["expires_at"]),  # type: ignore[arg-type]
+            consumed_at=_parse_datetime(row["consumed_at"]) if row["consumed_at"] else None,
         )
 
     # ========== Task CRUD (Theme B Phase 3) ==========

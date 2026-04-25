@@ -56,6 +56,7 @@ from gluon.web.models import (
     ConflictDetectionResponse,
     ConflictDiffResponse,
     ConflictFileResponse,
+    CreateLinkCodeRequest,
     CreateProjectRequest,
     CreateRunRequest,
     CreateUserRequest,
@@ -78,6 +79,8 @@ from gluon.web.models import (
     GitSyncRequest,
     GitSyncResponse,
     ImageResponse,
+    LinkCodeResponse,
+    LinkStatusResponse,
     LoginRequest,
     LoginResponse,
     LogResponse,
@@ -1869,6 +1872,80 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=True)
         user, _ = result
         return MeResponse(user=_user_to_response(user), auth_enabled=True)
+
+    # ========== Self-serve chat linking (D5 Phase 4) ==========
+
+    _valid_link_transports = ("telegram", "discord")
+
+    @app.post("/api/auth/link-codes", response_model=LinkCodeResponse)
+    async def create_link_code_endpoint(
+        body: CreateLinkCodeRequest,
+        user: UserModel = Depends(current_user_dep),
+    ) -> LinkCodeResponse:
+        """Generate a one-time code that binds a chat identity to the
+        calling user's Gluon account.
+
+        The user redeems it by sending ``/link <code>`` to the bot. The
+        code is short (~50 bits of entropy), case-insensitive on
+        consumption, and expires after 10 minutes. Generating a new code
+        for the same (user, transport) tears down any prior unconsumed
+        codes — there's only one active code at a time.
+
+        Refuses for SYSTEM_USER (single-user mode / no real user).
+        """
+        if user.id == SYSTEM_USER.id:
+            raise HTTPException(
+                status_code=400,
+                detail="cannot generate a link code without a real user — sign in first",
+            )
+        transport = body.transport.lower().strip()
+        if transport not in _valid_link_transports:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"unknown transport '{body.transport}'; valid: {list(_valid_link_transports)}"),
+            )
+        link_code = store.create_link_code(user_id=user.id, transport=transport)
+        return LinkCodeResponse(
+            code=link_code.code,
+            transport=link_code.transport,
+            expires_at=link_code.expires_at.isoformat(),
+        )
+
+    @app.get("/api/auth/links", response_model=LinkStatusResponse)
+    async def get_my_links_endpoint(
+        user: UserModel = Depends(current_user_dep),
+    ) -> LinkStatusResponse:
+        """Show which chat accounts are bound to the current user.
+
+        Always succeeds — returns ``{telegram_user_id: null, discord_user_id: null}``
+        for SYSTEM_USER / unlinked users.
+        """
+        return LinkStatusResponse(
+            telegram_user_id=user.telegram_user_id,
+            discord_user_id=user.discord_user_id,
+        )
+
+    @app.delete("/api/auth/links/{transport}", response_model=LinkStatusResponse)
+    async def unlink_my_chat_endpoint(
+        transport: str,
+        user: UserModel = Depends(current_user_dep),
+    ) -> LinkStatusResponse:
+        """Unbind the calling user's chat account on ``transport``."""
+        if user.id == SYSTEM_USER.id:
+            raise HTTPException(status_code=400, detail="no real user to unlink")
+        transport = transport.lower().strip()
+        if transport not in _valid_link_transports:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown transport '{transport}'",
+            )
+        updated = store.unlink_chat(user_id=user.id, transport=transport)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        return LinkStatusResponse(
+            telegram_user_id=updated.telegram_user_id,
+            discord_user_id=updated.discord_user_id,
+        )
 
     # ========== User management (D5 Phase 2 — admin-only) ==========
 

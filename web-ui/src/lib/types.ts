@@ -1176,3 +1176,19 @@ export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 export function isSystemUser(user: User | null | undefined): boolean {
   return user?.id === SYSTEM_USER_ID
 }
+
+/** Transport platforms that support self-serve account linking (D5 Phase 4). */
+export type LinkTransport = 'telegram' | 'discord'
+
+/** Response from POST /api/auth/link-codes. */
+export interface LinkCodeResponse {
+  code: string
+  transport: LinkTransport
+  expires_at: string // ISO 8601
+}
+
+/** Response from GET /api/auth/links — what's bound to *me*. */
+export interface LinkStatusResponse {
+  telegram_user_id: number | null
+  discord_user_id: number | null
+}

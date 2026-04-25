@@ -25,6 +25,9 @@ import type {
   // Notification types
   GluonNotification,
   ImageAttachment,
+  LinkCodeResponse,
+  LinkStatusResponse,
+  LinkTransport,
   LoginResponse,
   LogResponse,
   MeResponse,
@@ -1102,5 +1105,35 @@ export async function changePassword(
   return fetchJson<User>(`/users/${userId}/password`, {
     method: 'POST',
     body: JSON.stringify(body),
+  })
+}
+
+// ===========================================================================
+// Self-serve account linking (D5 Phase 4)
+// ===========================================================================
+
+/**
+ * Generate a one-time code that the calling user redeems by sending
+ * `link-account <code>` (Discord) or `/link <code>` (Telegram) to the bot.
+ *
+ * Codes expire after 10 minutes. Generating a new code for the same
+ * (user, transport) pair invalidates any prior unconsumed code.
+ */
+export async function createLinkCode(transport: LinkTransport): Promise<LinkCodeResponse> {
+  return fetchJson<LinkCodeResponse>('/auth/link-codes', {
+    method: 'POST',
+    body: JSON.stringify({ transport }),
+  })
+}
+
+/** Show which chat accounts are bound to the current user. */
+export async function fetchMyLinks(): Promise<LinkStatusResponse> {
+  return fetchJson<LinkStatusResponse>('/auth/links')
+}
+
+/** Remove the current user's binding for the given transport. */
+export async function unlinkMyChat(transport: LinkTransport): Promise<LinkStatusResponse> {
+  return fetchJson<LinkStatusResponse>(`/auth/links/${transport}`, {
+    method: 'DELETE',
   })
 }
