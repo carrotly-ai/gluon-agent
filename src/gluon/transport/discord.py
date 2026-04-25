@@ -171,12 +171,25 @@ async def _handle_approval_decision(
         await _edit_approval_message(interaction, approval, decided_by_note=True)
         return
 
-    decided_by = f"discord:{interaction.user.id}"
+    discord_user_id_int = int(interaction.user.id)
+    decided_by = f"discord:{discord_user_id_int}"
+
+    # D5 Phase 4 — if the Discord user is bound to a Gluon User, record
+    # the attribution. Falls back to None for unlinked chats, mirroring
+    # how the web layer treats the SYSTEM_USER.
+    decided_by_user_id: str | None = None
+    decision_attribution = interaction.user.display_name
+    linked = store.get_user_by_discord_id(discord_user_id_int)
+    if linked is not None:
+        decided_by_user_id = linked.id
+        decision_attribution = f"{interaction.user.display_name} (@{linked.username})"
+
     updated = store.decide_approval(
         approval_id,
         status=status,
         decided_by=decided_by,
-        decision_reason=f"Via Discord by {interaction.user.display_name}",
+        decided_by_user_id=decided_by_user_id,
+        decision_reason=f"Via Discord by {decision_attribution}",
     )
     if updated is None:
         await interaction.response.send_message("Approval vanished after click.", ephemeral=True)
@@ -1077,13 +1090,14 @@ class DiscordTransport(Transport):
                 await message.reply(f"❌ {e}")
                 return
 
-        # Create run record
+        # Create run record (D5 Phase 4: attribute to linked Gluon user if any)
         run = self.bot_core.store.create_run(
             project.id,
             cleaned_prompt,
             initiator=user_id,
             model=model,
             agent_id=resolved_agent_id,
+            user_id=self.bot_core.resolve_user_id_by_chat_id("discord", int(message.author.id)),
         )
 
         # Format model name for display
@@ -1184,11 +1198,12 @@ class DiscordTransport(Transport):
             )
             return
 
-        # Create new run for the resume
+        # Create new run for the resume (attribute to linked Gluon user)
         new_run = self.bot_core.store.create_run(
             project.id,
             prompt,
             initiator=user_id,
+            user_id=self.bot_core.resolve_user_id_by_chat_id("discord", int(message.author.id)),
         )
 
         # Send acknowledgment
@@ -1304,13 +1319,14 @@ class DiscordTransport(Transport):
                 await message.reply(f"❌ {e}")
                 return
 
-        # Create run record with model + resolved agent
+        # Create run record with model + resolved agent (attribute to linked Gluon user)
         run = self.bot_core.store.create_run(
             project.id,
             cleaned_prompt,
             initiator=user_id,
             model=model,
             agent_id=resolved_agent_id,
+            user_id=self.bot_core.resolve_user_id_by_chat_id("discord", int(message.author.id)),
         )
 
         # Format model name for display (opus/sonnet/haiku)

@@ -368,12 +368,39 @@ function EditUserForm({
   const [email, setEmail] = useState(user.email ?? '')
   const [role, setRole] = useState<UserRole>(user.role)
   const [disabled, setDisabled] = useState(user.disabled)
+  // D5 Phase 4 — chat ID inputs are stored as strings to allow the empty
+  // string to mean "clear the link". On submit we coerce to int / null.
+  const [telegramId, setTelegramId] = useState(
+    user.telegram_user_id !== null ? String(user.telegram_user_id) : ''
+  )
+  const [discordId, setDiscordId] = useState(
+    user.discord_user_id !== null ? String(user.discord_user_id) : ''
+  )
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  const parseChatId = (raw: string, label: string): number | null | string => {
+    const trimmed = raw.trim()
+    if (trimmed === '') return 0 // 0 = clear (server treats falsy as null)
+    if (!/^\d+$/.test(trimmed)) return `${label} must be a positive integer`
+    const n = Number(trimmed)
+    if (n <= 0) return `${label} must be a positive integer`
+    return n
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    const tg = parseChatId(telegramId, 'Telegram user ID')
+    if (typeof tg === 'string') {
+      setError(tg)
+      return
+    }
+    const dc = parseChatId(discordId, 'Discord user ID')
+    if (typeof dc === 'string') {
+      setError(dc)
+      return
+    }
     setSubmitting(true)
     try {
       await updateUser(user.id, {
@@ -381,6 +408,8 @@ function EditUserForm({
         email: email.trim() || null,
         role,
         disabled,
+        telegram_user_id: tg,
+        discord_user_id: dc,
       })
       await onSaved()
     } catch (err) {
@@ -442,6 +471,49 @@ function EditUserForm({
           ))}
         </div>
         <p className="text-caption text-[var(--color-stone)]/60 mt-1.5">{ROLE_DESCRIPTION[role]}</p>
+      </div>
+
+      {/* D5 Phase 4 — chat-account binding (admin pre-registration). */}
+      <div>
+        <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
+          Connected chat accounts
+        </span>
+        <p className="text-caption text-[var(--color-stone)]/60 mt-0.5 mb-2">
+          Bind this user's Telegram / Discord numeric ID so approvals and runs from chat are
+          attributed correctly. Leave blank to clear.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/80">
+              Telegram user ID
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={telegramId}
+              onChange={(e) => setTelegramId(e.target.value)}
+              disabled={submitting}
+              placeholder="e.g. 123456789"
+              className="px-3 py-1.5 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30 disabled:opacity-50"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/80">
+              Discord user ID
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={discordId}
+              onChange={(e) => setDiscordId(e.target.value)}
+              disabled={submitting}
+              placeholder="e.g. 234567890123456789"
+              className="px-3 py-1.5 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30 disabled:opacity-50"
+            />
+          </label>
+        </div>
       </div>
 
       <label className="flex items-center gap-2 text-body text-[var(--color-paper)]/90 cursor-pointer">
