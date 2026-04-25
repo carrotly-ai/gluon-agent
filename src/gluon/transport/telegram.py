@@ -366,11 +366,24 @@ class TelegramTransport(Transport):
             return
 
         new_status = ApprovalStatus.GRANTED if decision == "grant" else ApprovalStatus.DENIED
+
+        # D5 Phase 4 — if the Telegram user is bound to a Gluon User, record
+        # the attribution. Falls back to None for unlinked / pre-D5 chats,
+        # which mirrors how the web layer treats SYSTEM_USER.
+        decided_by_user_id: str | None = None
+        decision_attribution = f"Telegram user {user_id_int}"
+        if user_id_int:
+            linked = self.bot_core.store.get_user_by_telegram_id(user_id_int)
+            if linked is not None:
+                decided_by_user_id = linked.id
+                decision_attribution = f"Telegram user {user_id_int} (@{linked.username})"
+
         updated = self.bot_core.store.decide_approval(
             approval.id,
             status=new_status,
             decided_by=f"telegram:{user_id_int}",
-            decision_reason=f"Via Telegram by user {user_id_int}",
+            decided_by_user_id=decided_by_user_id,
+            decision_reason=f"Via Telegram by {decision_attribution}",
         )
         if updated is None:
             await query.answer("Approval vanished after click.", show_alert=True)
@@ -687,8 +700,14 @@ class TelegramTransport(Transport):
                 await update.message.reply_text(f"❌ {e}")
                 return
 
-        # Create run record
-        run = self.bot_core.store.create_run(project.id, prompt, initiator=user_id, agent_id=resolved_agent_id)
+        # Create run record (D5 Phase 4: attribute to linked Gluon user if any)
+        run = self.bot_core.store.create_run(
+            project.id,
+            prompt,
+            initiator=user_id,
+            agent_id=resolved_agent_id,
+            user_id=self.bot_core.resolve_user_attribution(ctx),
+        )
 
         # Send initial message (agent line only shown when one is linked)
         agent_line = f"Agent: `{agent_display_name}`\n" if agent_display_name else ""
@@ -799,7 +818,12 @@ class TelegramTransport(Transport):
             )
             return
 
-        run = self.bot_core.store.create_run(project.id, prompt, initiator=user_id)
+        run = self.bot_core.store.create_run(
+            project.id,
+            prompt,
+            initiator=user_id,
+            user_id=self.bot_core.resolve_user_attribution(ctx),
+        )
 
         start_msg = await update.message.reply_text(
             f"🔄 Resuming session: `{session.id[:8]}`\n"
@@ -941,7 +965,12 @@ class TelegramTransport(Transport):
                                 )
                                 return
 
-                            new_run = self.bot_core.store.create_run(project.id, message_text, initiator=ctx.user_id)
+                            new_run = self.bot_core.store.create_run(
+                                project.id,
+                                message_text,
+                                initiator=ctx.user_id,
+                                user_id=self.bot_core.resolve_user_attribution(ctx),
+                            )
 
                             start_msg = await update.message.reply_text(
                                 f"🔄 Resuming from run `{run_id}`\n"
@@ -998,7 +1027,12 @@ class TelegramTransport(Transport):
                 except ProjectNotFoundError:
                     return
 
-                run = self.bot_core.store.create_run(project.id, prompt, initiator=ctx.user_id)
+                run = self.bot_core.store.create_run(
+                    project.id,
+                    prompt,
+                    initiator=ctx.user_id,
+                    user_id=self.bot_core.resolve_user_attribution(ctx),
+                )
 
                 task = asyncio.create_task(
                     self.bot_core.execute_task(

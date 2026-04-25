@@ -296,12 +296,19 @@ class UpdateUserRequest(BaseModel):
     """Request body for PATCH /api/users/{id} (admin-only).
 
     Any subset of fields may be provided — only non-None fields are applied.
+
+    Chat-account fields (`telegram_user_id`, `discord_user_id`) accept either
+    an integer to set the link, or `0` to clear it. We use 0-as-unset rather
+    than null because Pydantic can't disambiguate "field absent" from "field
+    explicitly null" in PATCH semantics with the optional pattern below.
     """
 
     display_name: str | None = None
     email: str | None = None
     role: str | None = None
     disabled: bool | None = None
+    telegram_user_id: int | None = None
+    discord_user_id: int | None = None
 
 
 class ChangePasswordRequest(BaseModel):

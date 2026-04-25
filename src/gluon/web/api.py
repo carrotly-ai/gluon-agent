@@ -1927,12 +1927,18 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     async def update_user_endpoint(
         user_id: str,
         body: UpdateUserRequest,
-        admin: UserModel = Depends(require_admin),
+        admin: UserModel = Depends(require_admin),  # noqa: ARG001
     ) -> UserResponse:
-        """Update a user's display_name / email / role / disabled. Admin-only.
+        """Update a user's profile fields. Admin-only.
 
-        Any field left `None` is unchanged. Role changes and `disabled=True`
-        rotate the target user's active sessions.
+        Any field left `None` in the request is unchanged. Role changes and
+        `disabled=True` rotate the target user's active sessions.
+
+        Chat-account binding (D5 Phase 4): `telegram_user_id` /
+        `discord_user_id` accept either a positive integer to set the link,
+        or `0` to clear it. We refuse to set a chat ID that is already
+        bound to a different user (returns 409) — chat IDs must be unique
+        per platform so the bot can resolve them unambiguously.
         """
         user = store.get_user(user_id)
         if user is None:
@@ -1956,6 +1962,29 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             user.disabled = body.disabled
             if body.disabled:
                 needs_session_rotation = True
+
+        # D5 Phase 4 — chat-account binding (admin pre-registration).
+        # 0 is the "clear" sentinel; positive integers set the link.
+        if body.telegram_user_id is not None:
+            new_tg: int | None = body.telegram_user_id or None
+            if new_tg is not None and new_tg != user.telegram_user_id:
+                conflict = store.get_user_by_telegram_id(new_tg)
+                if conflict is not None and conflict.id != user.id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(f"telegram user {new_tg} is already bound to @{conflict.username}"),
+                    )
+            user.telegram_user_id = new_tg
+        if body.discord_user_id is not None:
+            new_dc: int | None = body.discord_user_id or None
+            if new_dc is not None and new_dc != user.discord_user_id:
+                conflict = store.get_user_by_discord_id(new_dc)
+                if conflict is not None and conflict.id != user.id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(f"discord user {new_dc} is already bound to @{conflict.username}"),
+                    )
+            user.discord_user_id = new_dc
 
         store.update_user(user)
         if needs_session_rotation:

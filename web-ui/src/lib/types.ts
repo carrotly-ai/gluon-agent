@@ -1141,12 +1141,19 @@ export interface CreateUserRequest {
   role?: UserRole
 }
 
-/** Body for PATCH /api/users/{id} — any subset is allowed. */
+/** Body for PATCH /api/users/{id} — any subset is allowed.
+ *
+ * For chat-account binding (D5 Phase 4) pass `0` to clear the link or a
+ * positive integer to set it. Returning the field as `undefined` leaves
+ * it unchanged.
+ */
 export interface UpdateUserRequest {
   display_name?: string | null
   email?: string | null
   role?: UserRole
   disabled?: boolean
+  telegram_user_id?: number | null
+  discord_user_id?: number | null
 }
 
 /** Body for POST /api/users/{id}/password. */

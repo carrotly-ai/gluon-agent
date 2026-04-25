@@ -229,6 +229,43 @@ class GluonBotCore:
 
         return None
 
+    # ========== Identity resolution (D5 Phase 4) ==========
+
+    def resolve_user_id_by_chat_id(self, transport: str, chat_id: int) -> str | None:
+        """Map a (transport, chat_id) pair to a Gluon ``User.id``.
+
+        Returns the Gluon ``User.id`` string when the chat user has been
+        bound (admin sets ``telegram_user_id`` / ``discord_user_id`` on the
+        user record, or — once Phase 4 self-serve linking lands — the user
+        does it themselves via ``/link``).
+
+        Returns ``None`` for unlinked chats. ``None`` is also what the
+        web layer writes when there's no real user — it means "no
+        attribution available", the correct semantic for the approval /
+        run / task FK columns.
+        """
+        if not chat_id:
+            return None
+        user = None
+        if transport == "telegram":
+            user = self.store.get_user_by_telegram_id(chat_id)
+        elif transport == "discord":
+            user = self.store.get_user_by_discord_id(chat_id)
+        return user.id if user else None
+
+    def resolve_user_attribution(self, ctx: TransportContext) -> str | None:
+        """Convenience: parse ``ctx.user_id`` (e.g. ``"telegram:12345"``)
+        and resolve to a Gluon ``User.id`` via :meth:`resolve_user_id_by_chat_id`.
+        """
+        if not ctx.user_id or ":" not in ctx.user_id:
+            return None
+        transport, chat_id_str = ctx.user_id.split(":", 1)
+        try:
+            chat_id_int = int(chat_id_str)
+        except ValueError:
+            return None
+        return self.resolve_user_id_by_chat_id(transport, chat_id_int)
+
     # ========== Task Execution ==========
 
     async def execute_task(
