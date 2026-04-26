@@ -322,6 +322,34 @@ class ChangePasswordRequest(BaseModel):
     current_password: str | None = None
 
 
+class OIDCProviderInfo(BaseModel):
+    """Information about an enabled OIDC provider, returned to the login page.
+
+    Drives which "Sign in with X" buttons render. Only sent when OIDC is
+    actually configured at the server (D5 Phase 3); ``None`` otherwise so
+    the button stays hidden.
+    """
+
+    name: str  # display name, e.g. "Google" or "Auth0"
+    login_url: str  # absolute URL to start the OIDC flow
+
+
+class AuthProvidersResponse(BaseModel):
+    """Response body for GET /api/auth/providers.
+
+    Lets the login page feature-detect which auth methods are available
+    without baking it into client code:
+      - ``local=true`` → render the username/password form
+      - ``oidc != null`` → render the "Sign in with {name}" button
+    Both can be true at once (admins use OIDC, service accounts use local).
+    Both can be false in single-user mode (auth disabled entirely).
+    """
+
+    auth_enabled: bool
+    local: bool
+    oidc: OIDCProviderInfo | None = None
+
+
 class CreateLinkCodeRequest(BaseModel):
     """Request body for POST /api/auth/link-codes.
 

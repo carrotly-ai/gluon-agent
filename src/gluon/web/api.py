@@ -8,7 +8,7 @@ import logging
 import os
 import subprocess
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -23,7 +23,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from gluon.cleanup import LogCleanupService, WorktreeCleanupService
@@ -40,6 +40,7 @@ from gluon.web.models import (
     ActivityListResponse,
     AnswerQuestionRequest,
     AttachImageRequest,
+    AuthProvidersResponse,
     BranchListResponse,
     BranchOperationResponse,
     BranchResponse,
@@ -89,6 +90,7 @@ from gluon.web.models import (
     MergeQueueListResponse,
     NotificationResponse,
     NotificationsListResponse,
+    OIDCProviderInfo,
     PendingQuestionResponse,
     PendingQuestionsResponse,
     ProjectDetailResponse,
@@ -246,6 +248,27 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    # Starlette SessionMiddleware — needed by Authlib's OIDC client to carry
+    # state + nonce between the redirect and callback. Mounted unconditionally
+    # because the cost is tiny (a single signed cookie) and it's harmless
+    # when OIDC isn't configured. Secret is read from env so multi-replica
+    # deployments share state; falls back to a per-process random secret in
+    # dev (sessions don't survive restarts but that's fine for dev).
+    from secrets import token_urlsafe
+
+    from starlette.middleware.sessions import SessionMiddleware  # type: ignore[import-untyped]
+
+    _oidc_session_secret = os.environ.get("GLUON_OIDC_SESSION_SECRET") or token_urlsafe(32)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=_oidc_session_secret,
+        # Short max_age — this cookie only carries OAuth state during the
+        # 10-second hop to the IdP and back. Login session uses its own cookie.
+        max_age=600,
+        same_site="lax",
+        https_only=False,  # auto-elevated to true on https requests by Starlette
     )
 
     # Shared instances
@@ -1759,6 +1782,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         UserDisabledError,
         create_session_for_user,
         get_auth_provider,
+        get_local_provider,
+        get_oidc_provider,
         is_auth_enabled,
     )
 
@@ -1872,6 +1897,164 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=True)
         user, _ = result
         return MeResponse(user=_user_to_response(user), auth_enabled=True)
+
+    # ========== Auth provider feature-detection (D5 Phase 3) ==========
+
+    def _get_oauth_client(provider):  # type: ignore[no-untyped-def]
+        """Build (and cache on app.state) the Authlib OAuth client for OIDC.
+
+        Authlib registers each provider once; subsequent calls hit the cache.
+        Discovery hits ``{issuer}/.well-known/openid-configuration`` lazily on
+        first request.
+
+        Stashed on ``app.state`` so multiple endpoints share one instance and
+        we don't re-register on every request.
+        """
+        from authlib.integrations.starlette_client import OAuth  # type: ignore[import-untyped]
+
+        oauth = getattr(app.state, "oauth", None)
+        if oauth is None:
+            oauth = OAuth()
+            app.state.oauth = oauth
+        if not hasattr(oauth, "gluon_oidc"):
+            oauth.register(
+                name="gluon_oidc",
+                client_id=provider.config.client_id,
+                client_secret=provider.config.client_secret,
+                server_metadata_url=(f"{provider.config.issuer}/.well-known/openid-configuration"),
+                client_kwargs={"scope": provider.config.scopes},
+            )
+        return oauth
+
+    @app.get("/api/auth/providers", response_model=AuthProvidersResponse)
+    async def auth_providers_endpoint(request: Request) -> AuthProvidersResponse:
+        """Tell the login page which auth methods are available.
+
+        - ``auth_enabled=false`` → caller is in single-user mode; no login UI.
+        - ``local=true`` → render the username/password form.
+        - ``oidc != null`` → render a "Sign in with {oidc.name}" button
+          that POSTs to ``oidc.login_url`` (which 302s to the IdP).
+
+        Local + OIDC can both be enabled simultaneously (typical pattern:
+        OIDC for humans, a few service-account local users for automation).
+        """
+        if not is_auth_enabled():
+            return AuthProvidersResponse(auth_enabled=False, local=False, oidc=None)
+
+        local_enabled = get_local_provider(store) is not None
+        oidc_provider = get_oidc_provider(store)
+        oidc_info: OIDCProviderInfo | None = None
+        if oidc_provider is not None:
+            # Build a same-origin URL the browser can navigate to.
+            login_url = str(request.url_for("oidc_login_endpoint"))
+            oidc_info = OIDCProviderInfo(
+                name=oidc_provider.config.provider_name,
+                login_url=login_url,
+            )
+        return AuthProvidersResponse(
+            auth_enabled=True,
+            local=local_enabled,
+            oidc=oidc_info,
+        )
+
+    # ========== OIDC flow (D5 Phase 3) ==========
+    #
+    # The redirect/callback dance uses Authlib + Starlette's SessionMiddleware
+    # to carry state+nonce between the two requests. SessionMiddleware is
+    # registered conditionally (only when OIDC is configured) — see the
+    # bottom of this function. Without it, the OIDC endpoints 503.
+
+    @app.get("/api/auth/oidc/login", name="oidc_login_endpoint")
+    async def oidc_login_endpoint(request: Request) -> Response:
+        """Kick off the OIDC authorization-code flow.
+
+        302s the browser to the provider's authorize URL. Authlib stores the
+        state + nonce in ``request.session`` (cookie-backed) so the callback
+        can verify them. Any next-page hint (``?next=/board``) is preserved
+        through the same session for post-login redirect.
+        """
+        provider = get_oidc_provider(store)
+        if provider is None:
+            raise HTTPException(
+                status_code=503,
+                detail="OIDC is not configured on this server",
+            )
+        oauth = _get_oauth_client(provider)
+        next_url = request.query_params.get("next", "/")
+        request.session["oidc_next_url"] = next_url
+        return await oauth.gluon_oidc.authorize_redirect(  # type: ignore[no-any-return]
+            request, provider.config.redirect_uri
+        )
+
+    @app.get("/api/auth/oidc/callback", name="oidc_callback_endpoint")
+    async def oidc_callback_endpoint(request: Request) -> Response:
+        """Handle the redirect back from the OIDC provider.
+
+        Exchanges the auth code for an ID token, validates it (signature
+        via JWKS + issuer + audience + nonce), and either resolves the
+        user via :meth:`OIDCAuthProvider.resolve_or_provision` or refuses.
+
+        On success: mints a Gluon ``UserSession``, drops the session cookie,
+        and 302s back to ``next`` (or ``/`` if absent).
+
+        On failure: redirects back to ``/`` with a query string
+        (``?oidc_error=…``) so the SPA can render a friendly message
+        without leaking provider-side detail.
+        """
+        from authlib.integrations.base_client.errors import OAuthError  # type: ignore[import-untyped]
+
+        provider = get_oidc_provider(store)
+        if provider is None:
+            raise HTTPException(status_code=503, detail="OIDC is not configured")
+        oauth = _get_oauth_client(provider)
+        try:
+            token = await oauth.gluon_oidc.authorize_access_token(request)
+        except OAuthError as e:
+            logger.warning("OIDC token exchange failed: %s", e)
+            return RedirectResponse(url="/?oidc_error=token_exchange", status_code=302)
+        # Authlib parses the id_token and exposes claims under `userinfo`
+        # (or `id_token` claims if userinfo is not in the response).
+        userinfo = token.get("userinfo") or {}
+        sub = userinfo.get("sub")
+        if not sub:
+            logger.warning("OIDC callback returned no `sub` claim — userinfo=%r", userinfo)
+            return RedirectResponse(url="/?oidc_error=missing_sub", status_code=302)
+        email = userinfo.get("email")
+        display_name = userinfo.get("name") or email
+
+        try:
+            user = provider.resolve_or_provision(sub=sub, email=email, display_name=display_name)
+        except UserDisabledError:
+            return RedirectResponse(url="/?oidc_error=disabled", status_code=302)
+        except InvalidCredentialsError as e:
+            logger.info("OIDC user rejected: %s", e)
+            return RedirectResponse(url="/?oidc_error=not_authorized", status_code=302)
+
+        # Mint a Gluon session — same DB-backed cookie used by the local
+        # password endpoint, so the rest of the app doesn't have to know
+        # how the user logged in.
+        session = create_session_for_user(
+            store,
+            user,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        next_url = request.session.pop("oidc_next_url", "/")
+        # Defense-in-depth: refuse open-redirects.
+        if not next_url.startswith("/"):
+            next_url = "/"
+
+        resp = RedirectResponse(url=next_url, status_code=302)
+        resp.set_cookie(
+            SESSION_COOKIE_NAME,
+            session.id,
+            max_age=int(timedelta(days=DEFAULT_SESSION_TTL_DAYS).total_seconds()),
+            httponly=True,
+            samesite="lax",
+            # `secure` only matters under HTTPS — auto-detect via scheme.
+            secure=request.url.scheme == "https",
+        )
+        return resp
 
     # ========== Self-serve chat linking (D5 Phase 4) ==========
 

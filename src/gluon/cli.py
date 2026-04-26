@@ -5410,22 +5410,48 @@ def user_add(
         str | None,
         typer.Option(
             "--password",
-            help="Password (min 12 chars). Prompts if not given.",
+            help="Password (min 12 chars). Prompts if not given. Ignored for OIDC users.",
             hide_input=True,
             prompt=False,
         ),
     ] = None,
+    auth_provider: Annotated[
+        str,
+        typer.Option(
+            "--auth-provider",
+            help="Auth backend for this user: local (password) or oidc (D5 Phase 3).",
+        ),
+    ] = "local",
+    auth_subject: Annotated[
+        str | None,
+        typer.Option(
+            "--auth-subject",
+            help=(
+                "OIDC `sub` claim. If unknown, omit and we'll use --email as a "
+                "placeholder; the real sub gets pinned on the user's first OIDC login."
+            ),
+        ),
+    ] = None,
 ) -> None:
-    """Create a new local-auth user.
+    """Create a new user.
 
-    Example:
+    Examples:
+
+        # Local password user (default)
         gluon user add alice --role admin --email alice@org.example
-        # Prompts for password interactively.
+
+        # Pre-register an OIDC user — admin doesn't need to know the
+        # `sub` yet; the real sub is pinned on first login by email match.
+        gluon user add alice --auth-provider oidc --email alice@org.example --role admin
+
+        # Pre-register an OIDC user when you DO know the sub (e.g. from
+        # the IdP's directory export):
+        gluon user add alice --auth-provider oidc --auth-subject 'auth0|abc123' --email alice@org.example
     """
     import getpass
 
-    from gluon.auth import get_auth_provider
-    from gluon.models import UserRole
+    from gluon.auth import LocalAuthProvider
+    from gluon.models import AuthProvider, UserRole
 
     try:
         parsed_role = UserRole(role.lower())
@@ -5434,37 +5460,67 @@ def user_add(
         console.print(f"[red]Unknown role:[/red] {role}. Valid: {valid}")
         raise typer.Exit(1)
 
-    if password is None:
-        password = getpass.getpass("Password (min 12 chars): ")
-        confirm = getpass.getpass("Password again: ")
-        if password != confirm:
-            console.print("[red]Passwords do not match.[/red]")
-            raise typer.Exit(1)
+    try:
+        parsed_provider = AuthProvider(auth_provider.lower())
+    except ValueError:
+        valid = ", ".join(p.value for p in AuthProvider if p.value != "system")
+        console.print(f"[red]Unknown auth provider:[/red] {auth_provider}. Valid: {valid}")
+        raise typer.Exit(1)
 
     store = GluonStore()
-    provider = get_auth_provider(store)
-    # Only LocalAuthProvider has create_user; OIDC users auto-provision on login.
-    if not hasattr(provider, "create_user"):
-        console.print(f"[red]Provider {provider.name} does not support `user add`.[/red]")
-        raise typer.Exit(1)
 
-    try:
-        user = provider.create_user(  # type: ignore[attr-defined]
-            username=username,
-            password=password,
-            display_name=display_name,
-            email=email,
-            role=parsed_role,
-        )
-    except ValueError as e:
-        # Password-too-short errors surface here
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
-    except Exception as e:
-        if "UNIQUE" in str(e):
-            console.print(f"[red]User '{username}' already exists.[/red]")
-        else:
+    if parsed_provider == AuthProvider.LOCAL:
+        # Local: password required, hashed via argon2id.
+        if password is None:
+            password = getpass.getpass("Password (min 12 chars): ")
+            confirm = getpass.getpass("Password again: ")
+            if password != confirm:
+                console.print("[red]Passwords do not match.[/red]")
+                raise typer.Exit(1)
+        provider = LocalAuthProvider(store)
+        try:
+            user = provider.create_user(
+                username=username,
+                password=password,
+                display_name=display_name,
+                email=email,
+                role=parsed_role,
+            )
+        except ValueError as e:
             console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                console.print(f"[red]User '{username}' already exists.[/red]")
+            else:
+                console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+    elif parsed_provider == AuthProvider.OIDC:
+        # OIDC: no password, but we need an auth_subject. Use email as the
+        # placeholder if --auth-subject isn't given; OIDCAuthProvider swaps
+        # it for the real `sub` on first login.
+        if auth_subject is None:
+            if not email:
+                console.print("[red]OIDC users need either --auth-subject or --email to bind by on first login.[/red]")
+                raise typer.Exit(1)
+            auth_subject = email
+        try:
+            user = store.create_user(
+                username=username,
+                display_name=display_name or username,
+                email=email,
+                auth_subject=auth_subject,
+                auth_provider=parsed_provider.value,
+                role=parsed_role,
+            )
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                console.print(f"[red]A user with this username or (oidc, {auth_subject!r}) already exists.[/red]")
+            else:
+                console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+    else:
+        console.print(f"[red]auth-provider {auth_provider} not supported by `user add`.[/red]")
         raise typer.Exit(1)
 
     console.print(
@@ -5473,6 +5529,7 @@ def user_add(
             f"[bold]Display name:[/bold] {user.display_name}\n"
             f"[bold]Email:[/bold] {user.email or '—'}\n"
             f"[bold]Role:[/bold] {user.role.value}\n"
+            f"[bold]Provider:[/bold] {user.auth_provider.value}\n"
             f"[bold]ID:[/bold] [dim]{user.id}[/dim]",
             title="Created user",
         )

@@ -13,6 +13,13 @@ dependencies = [
     # Password hashing for the local auth backend (D5 Phase 1).
     # Used only when GLUON_AUTH_ENABLED=true + GLUON_AUTH_BACKEND=local.
     "argon2-cffi>=23.1.0",
+    # OIDC client (D5 Phase 3). Used only when GLUON_AUTH_ENABLED=true and
+    # GLUON_OIDC_ISSUER is set. Authlib wraps OAuth/OIDC discovery, JWKS-
+    # backed ID-token validation, and PKCE/state/nonce handling. itsdangerous
+    # is the dep behind Starlette's SessionMiddleware which Authlib uses to
+    # carry state+nonce between the redirect and callback.
+    "authlib>=1.3.0",
+    "itsdangerous>=2.2.0",
     "typer>=0.12.0",
     "rich>=13.0.0",
     "pydantic>=2.0.0",

@@ -251,12 +251,13 @@ Gluon automatically exports the matching `CLAUDE_CODE_USE_*` flag into the Claud
 ### Multi-User Authentication (Optional)
 Self-hosted Gluon defaults to **single-user mode** — no login screen, every action runs as the implicit `SYSTEM_USER`. Flip `GLUON_AUTH_ENABLED=true` and Gluon becomes a true multi-user system:
 
-- **Local password auth** - argon2id-hashed credentials in SQLite, DB-backed sessions (not JWT) with rolling TTL and httpOnly cookies. Pluggable provider interface ready for OIDC.
+- **Local password auth** - argon2id-hashed credentials in SQLite, DB-backed sessions (not JWT) with rolling TTL and httpOnly cookies.
+- **OIDC / SSO** ([detailed setup](docs/AUTH-OIDC.md)) - Plug in Auth0, Google Workspace, AWS Cognito, Microsoft Entra ID, Okta, or any spec-compliant IdP. Auto-provision is opt-in with a required email-domain allowlist. Coexists with local — typical setup is OIDC for humans + a few local accounts for automation.
 - **Three roles** - `admin` (full control), `operator` (create runs, decide approvals), `viewer` (read-only).
 - **Per-row attribution** - every `ExecutionRun`, `OrchestratorTask`, and `PendingApproval` records *who* created or decided it, surfaced in the dashboard and the audit trail.
-- **Web dashboard** - login page, header user-menu with avatar + role badge + change-password, admin-only `/admin/users` screen (list / create / edit role / disable / reset password).
+- **Web dashboard** - login page (auto-detects available providers and shows password form, "Sign in with X" button, or both), header user-menu with avatar + role badge + change-password, admin-only `/admin/users` screen (list / create / edit role / disable / reset password).
 - **Self-serve chat linking** - users bind their Telegram or Discord identity to their Gluon account from the dashboard. Generate a one-time code, send `/link <code>` (Telegram) or `link-account <code>` (Discord) to the bot, done. Approvals from chat are then attributed to the right user.
-- **CLI bootstrap** - seed the first admin without a chicken-and-egg login: `gluon user add alice --role admin`. Other commands: `gluon user list / show / disable / enable / set-role / set-password`.
+- **CLI bootstrap** - seed the first admin without a chicken-and-egg login: `gluon user add alice --role admin` (local) or `gluon user add alice --auth-provider oidc --email alice@org.example --role admin` (OIDC). Other commands: `gluon user list / show / disable / enable / set-role / set-password`.
 - **Backwards-compatible** - when `GLUON_AUTH_ENABLED=false`, no login UI, no role checks, attribution columns stay NULL. Existing single-user installs see zero behaviour change.
 
 ### Web Dashboard ([docs](docs/WEB-DASHBOARD.md) · [screenshots](docs/SCREENSHOTS.md))
