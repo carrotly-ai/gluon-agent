@@ -248,17 +248,20 @@ Gluon automatically exports the matching `CLAUDE_CODE_USE_*` flag into the Claud
 - **Sandbox-Aware Tool Approval** - When sandboxed, bash commands are auto-approved (the sandbox enforces boundaries), while git is excluded from the sandbox to allow commits and pushes
 - **Resource Limits** - Docker Compose enforces CPU and memory caps (default 8 CPU / 12 GB) to prevent runaway agents from starving the host
 
-### Multi-User Authentication (Optional)
+### Multi-User Authentication (Optional · [full guide](docs/AUTH.md) · [OIDC setup](docs/AUTH-OIDC.md))
+
 Self-hosted Gluon defaults to **single-user mode** — no login screen, every action runs as the implicit `SYSTEM_USER`. Flip `GLUON_AUTH_ENABLED=true` and Gluon becomes a true multi-user system:
 
 - **Local password auth** - argon2id-hashed credentials in SQLite, DB-backed sessions (not JWT) with rolling TTL and httpOnly cookies.
-- **OIDC / SSO** ([detailed setup](docs/AUTH-OIDC.md)) - Plug in Auth0, Google Workspace, AWS Cognito, Microsoft Entra ID, Okta, or any spec-compliant IdP. Auto-provision is opt-in with a required email-domain allowlist. Coexists with local — typical setup is OIDC for humans + a few local accounts for automation.
+- **OIDC / SSO** - Plug in Auth0, Google Workspace, AWS Cognito, Microsoft Entra ID, Okta, or any spec-compliant IdP. Auto-provision is opt-in with a required email-domain allowlist. Coexists with local — typical setup is OIDC for humans + a few local accounts for automation.
 - **Three roles** - `admin` (full control), `operator` (create runs, decide approvals), `viewer` (read-only).
 - **Per-row attribution** - every `ExecutionRun`, `OrchestratorTask`, and `PendingApproval` records *who* created or decided it, surfaced in the dashboard and the audit trail.
 - **Web dashboard** - login page (auto-detects available providers and shows password form, "Sign in with X" button, or both), header user-menu with avatar + role badge + change-password, admin-only `/admin/users` screen (list / create / edit role / disable / reset password).
 - **Self-serve chat linking** - users bind their Telegram or Discord identity to their Gluon account from the dashboard. Generate a one-time code, send `/link <code>` (Telegram) or `link-account <code>` (Discord) to the bot, done. Approvals from chat are then attributed to the right user.
 - **CLI bootstrap** - seed the first admin without a chicken-and-egg login: `gluon user add alice --role admin` (local) or `gluon user add alice --auth-provider oidc --email alice@org.example --role admin` (OIDC). Other commands: `gluon user list / show / disable / enable / set-role / set-password`.
 - **Backwards-compatible** - when `GLUON_AUTH_ENABLED=false`, no login UI, no role checks, attribution columns stay NULL. Existing single-user installs see zero behaviour change.
+
+> See **[`docs/AUTH.md`](docs/AUTH.md)** for the full architecture, login flow diagrams, RBAC model, attribution data model, transport linking flow, security properties, and migration story. **[`docs/AUTH-OIDC.md`](docs/AUTH-OIDC.md)** covers OIDC-specific setup with provider-by-provider recipes.
 
 ### Web Dashboard ([docs](docs/WEB-DASHBOARD.md) · [screenshots](docs/SCREENSHOTS.md))
 - **Kanban Board** - Drag-and-drop task management with Queue, Running, Review, and Done columns
@@ -615,6 +618,8 @@ gluon run myapp 'Redesign database schema' --model opus
 |----------|-------------|
 | [Changelog](CHANGELOG.md) | Release history and notable changes |
 | [CLI Reference](docs/CLI-REFERENCE.md) | Complete CLI command reference |
+| [Authentication](docs/AUTH.md) | Multi-user auth model — local + OIDC + RBAC + attribution + transport linking |
+| [OIDC Setup](docs/AUTH-OIDC.md) | Provider-specific recipes (Auth0, Google, Cognito, Entra) |
 | [LLM Provider Guide](docs/LLM-PROVIDER.md) | Bedrock / Anthropic / Vertex / Foundry configuration |
 | [Web Dashboard](docs/WEB-DASHBOARD.md) | Dashboard features and API |
 | [Ralph Loop](docs/RALPH-LOOP.md) | Autonomous execution mode and supervision |
@@ -672,6 +677,24 @@ See [`docs/LLM-PROVIDER.md`](docs/LLM-PROVIDER.md) for the full reference.
 | `GLUON_DISCORD_TOKEN` | Discord bot token |
 | `GLUON_DISCORD_GUILD` | Discord guild (server) ID |
 | `GLUON_DISCORD_USERS` | Allowed Discord user IDs (comma-separated) |
+
+### Multi-User Auth (Optional · default off · [full guide](docs/AUTH.md))
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GLUON_AUTH_ENABLED` | `false` | Master switch. When false, no login UI and no role checks — single-user install. |
+| `GLUON_LOCAL_AUTH_ENABLED` | `true` | Set `false` to disable the password endpoint (OIDC-only mode). |
+| `GLUON_AUTH_SWEEP_INTERVAL_SECS` | `3600` | How often the periodic task sweeps expired sessions and unconsumed link codes. |
+| `GLUON_OIDC_ISSUER` | (unset) | OIDC discovery URL, e.g. `https://accounts.google.com`. Setting this + the next 3 vars enables OIDC. |
+| `GLUON_OIDC_CLIENT_ID` | (unset) | Client ID from your IdP's app registration. |
+| `GLUON_OIDC_CLIENT_SECRET` | (unset) | Client secret. Never commit. |
+| `GLUON_OIDC_REDIRECT_URI` | (unset) | Must match what's registered with the IdP, e.g. `https://gluon.example.com/api/auth/oidc/callback`. |
+| `GLUON_OIDC_PROVIDER_NAME` | `OIDC` | Display name on the login button. |
+| `GLUON_OIDC_AUTO_PROVISION` | `false` | Auto-create new users on first login. **Requires** `GLUON_OIDC_DOMAIN_ALLOWLIST`. |
+| `GLUON_OIDC_DOMAIN_ALLOWLIST` | (unset) | Comma-separated email-domain allowlist. Required when auto-provision is on. |
+| `GLUON_OIDC_DEFAULT_ROLE` | `viewer` | Role assigned to auto-provisioned users. |
+
+See [`docs/AUTH-OIDC.md`](docs/AUTH-OIDC.md) for provider-specific recipes (Auth0, Google Workspace, AWS Cognito, Microsoft Entra ID).
 
 ### Docker-Specific
 

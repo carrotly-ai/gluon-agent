@@ -281,6 +281,63 @@ gluon git sync myapp
 gluon git push myapp
 ```
 
+## User Management
+
+Multi-user authentication is opt-in via `GLUON_AUTH_ENABLED=true`. The `gluon user *` commands work **regardless of that flag** so you can seed users before flipping it. See [AUTH.md](AUTH.md) for the full auth model.
+
+```bash
+# Create a local password user
+gluon user add alice                                    # prompts for password
+gluon user add alice --role admin --email alice@org.example
+gluon user add alice --display-name "Alice Cooper"
+
+# Create an OIDC pre-registered user (D5 Phase 3)
+# Use --email when you don't yet know the IdP's `sub` claim — Gluon swaps
+# the email-as-placeholder for the real sub on first OIDC login.
+gluon user add alice --auth-provider oidc --email alice@org.example --role admin
+
+# Use --auth-subject when you DO know the sub (e.g. from an IdP directory export)
+gluon user add alice --auth-provider oidc --auth-subject 'auth0|abc123' --email alice@org.example
+
+# Inspect users
+gluon user list                       # active users only
+gluon user list --include-disabled    # include soft-deleted accounts
+gluon user show alice                 # detailed view of one user
+
+# Modify users
+gluon user set-role alice operator    # change role: admin / operator / viewer
+gluon user set-password alice         # reset password (admins can change anyone's)
+gluon user disable alice              # soft-delete + invalidate sessions
+gluon user enable alice               # restore a disabled user
+```
+
+### Roles
+
+| Role | Permissions |
+|---|---|
+| `admin` | Manage users, edit roles, reset passwords, + everything below |
+| `operator` | Create runs, decide approvals, use the dashboard, + everything below |
+| `viewer` | Read-only on runs, projects, attribution |
+
+### Examples
+
+```bash
+# Bootstrap the first admin (still in single-user mode is fine — flag flip later)
+gluon user add me --role admin
+
+# Pre-register your team for OIDC SSO before turning on the flag
+for user in alice bob carol; do
+  gluon user add "$user" --auth-provider oidc --email "${user}@org.example" --role operator
+done
+
+# Promote a user
+gluon user set-role bob admin
+
+# Off-board: disable preserves attribution links (don't hard-delete users
+# who have created runs, decided approvals, etc.)
+gluon user disable carol
+```
+
 ## Bot Interfaces
 
 ```bash

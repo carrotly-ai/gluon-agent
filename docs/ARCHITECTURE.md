@@ -137,6 +137,9 @@ graph TB
 | **PRMonitorService** | `pr_monitor.py` | PR comment/CI failure event monitoring |
 | **TaskRunner** | `runner.py` (enhanced) | Question handling and worktree lifecycle |
 | **ModelConfig** | `models_config.py` | Model tier configuration and mapping |
+| **AuthProviderConfig** | `auth.py` | D5 multi-user auth — Local + OIDC providers, sessions, RBAC |
+| **OIDCAuthProvider** | `auth.py` | D5 Phase 3 — Authlib-driven OpenID Connect SSO |
+| **GluonStore (link_codes)** | `store.py` | D5 Phase 4 — One-time codes for self-serve chat-account binding |
 
 ### Ralph Loop Architecture
 The **Ralph Loop** enables autonomous multi-iteration task execution with safety controls. Key components:
@@ -206,6 +209,50 @@ The **Ralph Loop** enables autonomous multi-iteration task execution with safety
   - Archived runs: deleted 30 days after completion
   - Failed runs: deleted 7 days after completion
   - Completed runs: deleted 30 days after completion
+
+- **`_sweep_auth_state` background task** (`web/api.py`) - Hourly sweep of:
+  - Expired `user_sessions` rows
+  - Unconsumed-but-expired `link_codes` rows (consumed codes are kept as audit)
+  - Tunable via `GLUON_AUTH_SWEEP_INTERVAL_SECS` (default `3600`)
+
+### Multi-User Authentication (D5)
+
+Optional multi-user auth gated by `GLUON_AUTH_ENABLED` (default off — single-user installs see no behaviour change). See [AUTH.md](AUTH.md) for the full model.
+
+```mermaid
+graph LR
+    REQ[Request<br/>w/ session cookie] --> DEP[current_user_dep]
+    DEP --> GATE{is_auth_enabled?}
+    GATE -->|false| SYS[SYSTEM_USER<br/>placeholder]
+    GATE -->|true + cookie| RES[resolve_session]
+    GATE -->|true, no cookie| FAIL[401]
+    RES --> USR[User row]
+    USR --> RBAC[require_role check]
+    RBAC --> EP[Endpoint handler]
+
+    SYS --> EP
+
+    EP --> ATTR[Write user_id<br/>on action row]
+
+    style SYS fill:#e8f4f8
+    style USR fill:#fff4e6
+```
+
+- **AuthProviderConfig** (`auth.py`) - Strategy interface for auth backends.
+  - **LocalAuthProvider** - argon2id passwords (Phase 1)
+  - **OIDCAuthProvider** - Authlib-driven OpenID Connect (Phase 3)
+- **Session helpers** (`auth.py`) - DB-backed sessions (not JWT) with rolling TTL:
+  - `create_session_for_user`, `resolve_session`, `delete_user_sessions_for_user`
+- **FastAPI integration** (`auth.py`):
+  - `make_current_user_dependency(store)` — closure factory returning a `Depends()` injector
+  - `make_require_role(store, role)` — admin/operator/viewer gate via numeric `_role_rank`
+- **Per-row attribution** (`models.py`, `store.py`) - Nullable FKs to `users(id)` on:
+  - `execution_runs.user_id`
+  - `orchestrator_tasks.created_by_user_id`
+  - `pending_approvals.decided_by_user_id`
+- **Self-serve transport linking** (Phase 4):
+  - `link_codes` table + `create_link_code` / `consume_link_code` / `unlink_chat`
+  - Bot transports call `bot_core.resolve_user_id_by_chat_id(transport, chat_id)` to attribute approvals/runs to a Gluon user
 
 ### Monitoring & Event Handling
 
@@ -1199,6 +1246,55 @@ CREATE TABLE channel_mappings (
     created_at TEXT NOT NULL,
     UNIQUE(transport, channel_id)
 );
+
+-- ============================================================================
+-- Multi-User Authentication (D5)
+-- These tables only contain rows when GLUON_AUTH_ENABLED=true. Single-user
+-- installs ignore them entirely. See docs/AUTH.md for the full model.
+-- ============================================================================
+
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    display_name TEXT NOT NULL,
+    email TEXT,
+    auth_provider TEXT NOT NULL,        -- 'local' / 'oidc' / 'system'
+    auth_subject TEXT NOT NULL,         -- argon2 hash for local; OIDC sub for oidc
+    role TEXT NOT NULL DEFAULT 'operator',  -- admin / operator / viewer
+    disabled INTEGER NOT NULL DEFAULT 0,
+    telegram_user_id INTEGER,           -- bound chat ID, set via /link or admin UI
+    discord_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_login_at TEXT,
+    UNIQUE(auth_provider, auth_subject)
+);
+
+CREATE TABLE user_sessions (
+    id TEXT PRIMARY KEY,                -- UUID4, server-issued opaque session ID
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,           -- 7-day TTL, rolled forward when past half-life
+    last_seen_at TEXT NOT NULL,
+    ip TEXT,
+    user_agent TEXT
+);
+
+CREATE TABLE link_codes (               -- D5 Phase 4 self-serve transport linking
+    code TEXT PRIMARY KEY,              -- 10-char URL-safe token (no 0/1/I/O)
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    transport TEXT NOT NULL,            -- 'telegram' / 'discord'
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,           -- 10-min TTL
+    consumed_at TEXT                    -- NULL until redeemed; kept as audit trail after
+);
+
+-- Per-row attribution columns added to existing tables (D5 Phase 2):
+-- ALTER TABLE execution_runs       ADD COLUMN user_id TEXT;
+-- ALTER TABLE orchestrator_tasks   ADD COLUMN created_by_user_id TEXT;
+-- ALTER TABLE pending_approvals    ADD COLUMN decided_by_user_id TEXT;
+--
+-- Nullable, no FK constraint — NULL means SYSTEM_USER / pre-auth-era / unlinked chat.
 
 CREATE TABLE ralph_loop_iterations (
     id TEXT PRIMARY KEY,
