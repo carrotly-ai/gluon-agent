@@ -1,19 +1,62 @@
 import { AlertCircle, Loader2, LogIn } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { ApiError } from '@/lib/api'
+import { ApiError, fetchAuthProviders } from '@/lib/api'
+import type { AuthProvidersResponse } from '@/lib/types'
 
 /**
  * Full-screen login page rendered when `auth_enabled=true` and no session
- * is present. Submits to /api/auth/login and lets `useCurrentUser` re-fetch
- * /auth/me on success.
+ * is present. Shows whichever auth methods the server has enabled:
+ *
+ * - Local provider (`local: true`) → username + password form
+ * - OIDC provider (`oidc: {…}` set) → "Sign in with {name}" button
+ * - Both → both, separated visually
+ *
+ * If the OIDC callback fails for any reason, the server redirects back
+ * here with `?oidc_error=…`. We surface a friendly message keyed by
+ * the error code (so the underlying provider message stays server-side).
  */
 export function LoginPage() {
   const { login } = useCurrentUser()
+  const [providers, setProviders] = useState<AuthProvidersResponse | null>(null)
+  const [providersError, setProvidersError] = useState<string | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Pull the failed-OIDC banner from the URL once, then strip the param
+  // so a refresh doesn't keep showing it.
+  const oidcError = useMemo(() => {
+    if (typeof window === 'undefined') return null
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('oidc_error')
+    if (!code) return null
+    params.delete('oidc_error')
+    const cleaned = params.toString()
+    const newUrl = window.location.pathname + (cleaned ? `?${cleaned}` : '')
+    window.history.replaceState({}, '', newUrl)
+    switch (code) {
+      case 'token_exchange':
+        return 'OIDC sign-in failed during the token exchange. Please try again.'
+      case 'missing_sub':
+        return 'OIDC provider returned an unexpected response (no subject claim).'
+      case 'disabled':
+        return 'Your account has been disabled.'
+      case 'not_authorized':
+        return "You don't have access to this Gluon instance. Ask an admin to register you."
+      default:
+        return 'OIDC sign-in failed.'
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAuthProviders()
+      .then(setProviders)
+      .catch((err) => {
+        setProvidersError(err instanceof Error ? err.message : 'Failed to load auth providers.')
+      })
+  }, [])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -25,8 +68,6 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       await login(username.trim(), password)
-      // useCurrentUser.refresh() flips needsLogin to false; the App shell
-      // will swap us out automatically.
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError('Invalid username or password.')
@@ -42,6 +83,20 @@ export function LoginPage() {
     }
   }
 
+  // Show a brief loading state while we discover providers — the layout
+  // depends on which ones are enabled, so jumping in with an assumed
+  // password form would be jarring if the only option turned out to be OIDC.
+  if (!providers && !providersError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--color-void)]">
+        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-stone)]/60" />
+      </div>
+    )
+  }
+
+  const localEnabled = providers?.local ?? true // fail open to local if discovery failed
+  const oidcInfo = providers?.oidc ?? null
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--color-void)] px-6">
       <div className="w-full max-w-sm">
@@ -56,70 +111,106 @@ export function LoginPage() {
           </p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="flex flex-col gap-4 p-6 rounded-sm border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)]"
-          aria-label="Login form"
-        >
-          <label className="flex flex-col gap-1.5">
-            <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
-              Username
-            </span>
-            <input
-              type="text"
-              autoComplete="username"
-              // biome-ignore lint/a11y/noAutofocus: dedicated full-screen login route; the first field is the natural focus target.
-              autoFocus
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={submitting}
-              className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30 disabled:opacity-50"
-            />
-          </label>
+        {oidcError && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start gap-2 p-3 bg-[var(--color-vermillion)]/10 border border-[var(--color-vermillion)]/20 rounded-sm"
+          >
+            <AlertCircle className="w-4 h-4 text-[var(--color-vermillion)] shrink-0 mt-0.5" />
+            <span className="text-body text-[var(--color-vermillion)]">{oidcError}</span>
+          </div>
+        )}
 
-          <label className="flex flex-col gap-1.5">
-            <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
-              Password
-            </span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={submitting}
-              className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30 disabled:opacity-50"
-            />
-          </label>
-
-          {error && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 p-3 bg-[var(--color-vermillion)]/10 border border-[var(--color-vermillion)]/20 rounded-sm"
+        <div className="flex flex-col gap-4 p-6 rounded-sm border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)]">
+          {oidcInfo && (
+            <a
+              href={oidcInfo.login_url}
+              className="w-full px-3 py-2.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 no-underline"
             >
-              <AlertCircle className="w-4 h-4 text-[var(--color-vermillion)] shrink-0 mt-0.5" />
-              <span className="text-body text-[var(--color-vermillion)]">{error}</span>
+              <LogIn className="w-3.5 h-3.5" />
+              Sign in with {oidcInfo.name}
+            </a>
+          )}
+
+          {oidcInfo && localEnabled && (
+            <div className="flex items-center gap-2 text-caption text-[var(--color-stone)]/40 uppercase tracking-widest">
+              <span className="flex-1 h-px bg-[rgba(163,163,163,0.15)]" />
+              or
+              <span className="flex-1 h-px bg-[rgba(163,163,163,0.15)]" />
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full mt-2 px-3 py-2.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              'Sign in'
-            )}
-          </button>
-        </form>
+          {localEnabled && (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4" aria-label="Login form">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
+                  Username
+                </span>
+                <input
+                  type="text"
+                  autoComplete="username"
+                  // biome-ignore lint/a11y/noAutofocus: dedicated full-screen login route; the first field is the natural focus target.
+                  autoFocus
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  disabled={submitting}
+                  className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30 disabled:opacity-50"
+                />
+              </label>
 
-        <p className="text-caption text-[var(--color-stone)]/60 text-center mt-6">
-          Forgot your password? Ask an admin to reset it for you.
-        </p>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]">
+                  Password
+                </span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={submitting}
+                  className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30 disabled:opacity-50"
+                />
+              </label>
+
+              {error && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 p-3 bg-[var(--color-vermillion)]/10 border border-[var(--color-vermillion)]/20 rounded-sm"
+                >
+                  <AlertCircle className="w-4 h-4 text-[var(--color-vermillion)] shrink-0 mt-0.5" />
+                  <span className="text-body text-[var(--color-vermillion)]">{error}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full mt-2 px-3 py-2.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  'Sign in'
+                )}
+              </button>
+            </form>
+          )}
+
+          {!localEnabled && !oidcInfo && (
+            <p className="text-body text-[var(--color-stone)]">
+              No auth methods are configured. Check your server's GLUON_* environment.
+            </p>
+          )}
+        </div>
+
+        {localEnabled && (
+          <p className="text-caption text-[var(--color-stone)]/60 text-center mt-6">
+            Forgot your password? Ask an admin to reset it for you.
+          </p>
+        )}
       </div>
     </div>
   )

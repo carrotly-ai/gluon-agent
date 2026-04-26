@@ -1127,6 +1127,23 @@ export interface MeResponse {
   auth_enabled: boolean
 }
 
+/** OIDC provider info exposed by GET /api/auth/providers (D5 Phase 3). */
+export interface OIDCProviderInfo {
+  /** Display name shown on the button, e.g. "Google" or "Auth0". */
+  name: string
+  /** Absolute URL to begin the OIDC flow (server 302s to the IdP). */
+  login_url: string
+}
+
+/** Response from GET /api/auth/providers — drives login-page feature detection. */
+export interface AuthProvidersResponse {
+  auth_enabled: boolean
+  /** Username/password endpoint enabled? */
+  local: boolean
+  /** Configured OIDC provider, or null if not configured. */
+  oidc: OIDCProviderInfo | null
+}
+
 /** Response from POST /api/auth/login. */
 export interface LoginResponse {
   user: User

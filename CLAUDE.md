@@ -275,13 +275,28 @@ from gluon.core import ProjectNotFoundError, ProjectExistsError, WorkspaceNotFou
 - Both must be set to enable HTTPS; if unset, serves HTTP
 
 **Multi-user auth (D5 — optional, default off):**
-- `GLUON_AUTH_ENABLED` - Set to `true` to require login. When unset/false, Gluon runs in single-user mode and the SYSTEM_USER placeholder is used for all actions.
+- `GLUON_AUTH_ENABLED` - Set to `true` to require login. When unset/false, Gluon runs in single-user mode and the SYSTEM_USER placeholder is used for all actions. **Single feature flag for both local and OIDC.**
 - `GLUON_AUTH_SWEEP_INTERVAL_SECS` - How often to sweep expired sessions and unconsumed link codes. Default `3600` (1 hour).
+- `GLUON_LOCAL_AUTH_ENABLED` - Default `true`. Set `false` to disable the password endpoint entirely (OIDC-only mode). The CLI still works, so first-admin bootstrap remains available.
+
+**OIDC / SSO** (D5 Phase 3 — opt-in; see `docs/AUTH-OIDC.md` for full setup):
+- `GLUON_OIDC_ISSUER` - Discovery URL, e.g. `https://accounts.google.com`
+- `GLUON_OIDC_CLIENT_ID` / `GLUON_OIDC_CLIENT_SECRET`
+- `GLUON_OIDC_REDIRECT_URI` - Must match what's registered with the IdP, e.g. `https://gluon.example.com/api/auth/oidc/callback`
+- `GLUON_OIDC_PROVIDER_NAME` - Display name on the login button (default "OIDC")
+- `GLUON_OIDC_AUTO_PROVISION` - Default `false`. When `true`, **requires** `GLUON_OIDC_DOMAIN_ALLOWLIST` (comma-separated email domains) — the safety guardrail that prevents random Google/Auth0 users from creating accounts.
+- `GLUON_OIDC_DEFAULT_ROLE` - Role for auto-provisioned users (default `viewer`)
+- `GLUON_OIDC_SESSION_SECRET` - Signs the OAuth state cookie. Set in multi-replica deployments.
 
 **Bootstrap the first admin** (CLI works regardless of `GLUON_AUTH_ENABLED`):
 ```bash
+# Local (password) user
 uv run gluon user add alice --role admin
 # prompts for password (12+ chars)
+
+# OIDC user — admin doesn't need to know the IdP's `sub` claim;
+# Gluon uses the email as a placeholder until first login.
+uv run gluon user add alice --auth-provider oidc --email alice@org.example --role admin
 ```
 Other user-management commands: `gluon user list / show / disable / enable / set-role / set-password`. Web dashboard's admin user-management screen requires logging in as an existing admin.
 

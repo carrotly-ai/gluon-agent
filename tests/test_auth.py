@@ -244,9 +244,30 @@ class TestGetAuthProvider:
         provider = get_auth_provider(store, AuthBackend.LOCAL)
         assert isinstance(provider, LocalAuthProvider)
 
-    def test_oidc_raises_not_implemented(self, store):
-        with pytest.raises(NotImplementedError, match="Phase 3"):
+    def test_oidc_raises_when_env_unset(self, store, monkeypatch):
+        """Phase 3: requesting OIDC explicitly raises a clear error if the
+        env vars aren't set. (Phase 1 used to NotImplementedError here;
+        OIDC is now implemented and this path validates env presence.)"""
+        for v in (
+            "GLUON_OIDC_ISSUER",
+            "GLUON_OIDC_CLIENT_ID",
+            "GLUON_OIDC_CLIENT_SECRET",
+            "GLUON_OIDC_REDIRECT_URI",
+        ):
+            monkeypatch.delenv(v, raising=False)
+        with pytest.raises(ValueError, match="OIDC env vars are unset"):
             get_auth_provider(store, "oidc")
+
+    def test_oidc_returns_provider_when_env_set(self, store, monkeypatch):
+        from gluon.auth import OIDCAuthProvider
+
+        monkeypatch.setenv("GLUON_AUTH_ENABLED", "true")
+        monkeypatch.setenv("GLUON_OIDC_ISSUER", "https://example.com")
+        monkeypatch.setenv("GLUON_OIDC_CLIENT_ID", "x")
+        monkeypatch.setenv("GLUON_OIDC_CLIENT_SECRET", "y")
+        monkeypatch.setenv("GLUON_OIDC_REDIRECT_URI", "https://x/cb")
+        provider = get_auth_provider(store, "oidc")
+        assert isinstance(provider, OIDCAuthProvider)
 
     def test_unknown_backend_raises(self, store):
         with pytest.raises(ValueError, match="Unknown auth backend"):

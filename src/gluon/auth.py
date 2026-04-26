@@ -362,12 +362,17 @@ def get_auth_provider(
     store: GluonStore,
     backend: AuthBackend | str | None = None,
 ) -> AuthProviderConfig:
-    """Resolve the active auth backend.
+    """Resolve the active auth backend (legacy single-provider helper).
 
     Resolution order:
       1. Explicit ``backend`` argument
       2. ``GLUON_AUTH_BACKEND`` env var
       3. Default: ``local``
+
+    For Phase 3, prefer :func:`get_local_provider` and :func:`get_oidc_provider`
+    directly — they let local + OIDC coexist (each user is bound to one
+    provider via their ``auth_provider`` column). This function still works
+    and is used by the CLI and password-only endpoints.
     """
     if backend is None:
         backend = os.environ.get("GLUON_AUTH_BACKEND", "local")
@@ -383,10 +388,251 @@ def get_auth_provider(
     if backend == AuthBackend.LOCAL:
         return LocalAuthProvider(store)
     if backend == AuthBackend.OIDC:
-        raise NotImplementedError("OIDC auth arrives in D5 Phase 3. Use LOCAL in the meantime.")
+        provider = get_oidc_provider(store)
+        if provider is None:
+            raise ValueError(
+                "GLUON_AUTH_BACKEND=oidc but OIDC env vars are unset. "
+                "Configure GLUON_OIDC_ISSUER, GLUON_OIDC_CLIENT_ID, "
+                "GLUON_OIDC_CLIENT_SECRET, GLUON_OIDC_REDIRECT_URI."
+            )
+        return provider
 
     # Unreachable but explicit for mypy and future backends.
     raise ValueError(f"Unhandled auth backend: {backend}")
+
+
+def get_local_provider(store: GluonStore) -> LocalAuthProvider | None:
+    """Return the local (password) provider iff local auth is enabled.
+
+    Local is enabled by default (single-user installs use it; the CLI
+    ``gluon user add`` always works regardless). Set
+    ``GLUON_LOCAL_AUTH_ENABLED=false`` to turn the password endpoint off
+    entirely — useful when you want OIDC-only mode and don't want a
+    fallback password login.
+    """
+    if os.environ.get("GLUON_LOCAL_AUTH_ENABLED", "true").lower() in ("0", "false", "no"):
+        return None
+    return LocalAuthProvider(store)
+
+
+# ---------------------------------------------------------------------------
+# OIDC provider (D5 Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class OIDCConfig:
+    """Snapshot of OIDC env vars resolved at startup.
+
+    Keeping this on a separate object makes the intent explicit and lets
+    tests construct one without mutating ``os.environ``. None of the values
+    here are secret in the Pydantic-model sense — the secret stays as an
+    attribute, never serialized.
+    """
+
+    def __init__(
+        self,
+        *,
+        issuer: str,
+        client_id: str,
+        client_secret: str,
+        redirect_uri: str,
+        provider_name: str = "OIDC",
+        scopes: str = "openid profile email",
+        auto_provision: bool = False,
+        domain_allowlist: tuple[str, ...] = (),
+        default_role: UserRole = UserRole.VIEWER,
+    ) -> None:
+        if auto_provision and not domain_allowlist:
+            raise ValueError(
+                "GLUON_OIDC_AUTO_PROVISION=true requires GLUON_OIDC_DOMAIN_ALLOWLIST "
+                "to be set — auto-provisioning without an email-domain guard would let "
+                "any Google/Auth0/etc. user create a Gluon account."
+            )
+        self.issuer = issuer.rstrip("/")
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_uri
+        self.provider_name = provider_name
+        self.scopes = scopes
+        self.auto_provision = auto_provision
+        self.domain_allowlist = domain_allowlist
+        self.default_role = default_role
+
+    @classmethod
+    def from_env(cls) -> OIDCConfig | None:
+        """Build a config from env vars, returning ``None`` if not configured.
+
+        Required env vars: ``GLUON_OIDC_ISSUER``, ``GLUON_OIDC_CLIENT_ID``,
+        ``GLUON_OIDC_CLIENT_SECRET``, ``GLUON_OIDC_REDIRECT_URI``. If any
+        is missing, OIDC is treated as not-configured (graceful degradation).
+        """
+        issuer = os.environ.get("GLUON_OIDC_ISSUER")
+        client_id = os.environ.get("GLUON_OIDC_CLIENT_ID")
+        client_secret = os.environ.get("GLUON_OIDC_CLIENT_SECRET")
+        redirect_uri = os.environ.get("GLUON_OIDC_REDIRECT_URI")
+        if not (issuer and client_id and client_secret and redirect_uri):
+            return None
+
+        provider_name = os.environ.get("GLUON_OIDC_PROVIDER_NAME", "OIDC")
+        scopes = os.environ.get("GLUON_OIDC_SCOPES", "openid profile email")
+        auto_provision = os.environ.get("GLUON_OIDC_AUTO_PROVISION", "false").lower() in ("1", "true", "yes")
+        raw_allowlist = os.environ.get("GLUON_OIDC_DOMAIN_ALLOWLIST", "")
+        domain_allowlist = tuple(d.strip().lower() for d in raw_allowlist.split(",") if d.strip())
+        default_role_str = os.environ.get("GLUON_OIDC_DEFAULT_ROLE", "viewer")
+        try:
+            default_role = UserRole(default_role_str.lower())
+        except ValueError:
+            raise ValueError(
+                f"GLUON_OIDC_DEFAULT_ROLE={default_role_str!r} not a valid role; "
+                f"use one of {[r.value for r in UserRole]}"
+            ) from None
+
+        return cls(
+            issuer=issuer,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            provider_name=provider_name,
+            scopes=scopes,
+            auto_provision=auto_provision,
+            domain_allowlist=domain_allowlist,
+            default_role=default_role,
+        )
+
+
+class OIDCAuthProvider(AuthProviderConfig):
+    """OpenID Connect authentication via Authlib.
+
+    Wraps Authlib's discovery-driven OAuth client. The provider's metadata
+    is fetched lazily from ``{issuer}/.well-known/openid-configuration`` on
+    first use; ID tokens are validated against the provider's JWKS.
+
+    The actual redirect/callback flow lives in the web layer (api.py) — this
+    class is just a thin holder that exposes ``resolve_or_provision(claims)``,
+    keeping the user-lookup-or-create policy in one place so the endpoint
+    code stays small.
+    """
+
+    def __init__(self, store: GluonStore, config: OIDCConfig) -> None:
+        self.store = store
+        self.config = config
+
+    @property
+    def name(self) -> str:
+        return f"OIDC ({self.config.provider_name})"
+
+    @property
+    def provider(self) -> AuthProviderEnum:
+        return AuthProviderEnum.OIDC
+
+    def email_in_allowlist(self, email: str | None) -> bool:
+        """Apply the domain allowlist if one is configured.
+
+        Returns True when allowlist is empty (i.e. no restriction).
+        Returns False when ``email`` is None — we never auto-provision
+        without an email claim.
+        """
+        if not self.config.domain_allowlist:
+            return True
+        if not email or "@" not in email:
+            return False
+        domain = email.rsplit("@", 1)[-1].lower()
+        return domain in self.config.domain_allowlist
+
+    def resolve_or_provision(
+        self,
+        *,
+        sub: str,
+        email: str | None,
+        display_name: str | None,
+    ) -> User:
+        """Map an OIDC ID-token to a Gluon ``User``.
+
+        Lookup order:
+          1. ``(provider=oidc, auth_subject=sub)`` — exact match by the
+             issuer-stable subject claim. Most stable since ``sub`` never
+             changes for a given user even if their email does.
+          2. ``(provider=oidc, auth_subject=email)`` — convention used for
+             pre-registered users created by
+             ``gluon user add --auth-provider oidc --email alice@…``. The
+             admin doesn't know the sub at registration time, so we use
+             email as a placeholder. On first login we swap it for the
+             real ``sub`` so step 1 wins next time.
+          3. Auto-provision (only when ``config.auto_provision`` AND the
+             email passes ``email_in_allowlist``). Creates a new User with
+             ``config.default_role``.
+
+        Raises:
+            InvalidCredentialsError: no match and auto-provision disabled
+                or domain blocked. Message is generic — never discloses
+                whether the email exists in the allowlist.
+            UserDisabledError: matched user is disabled.
+        """
+        # Step 1: exact sub match
+        user = self.store.get_user_by_auth_subject(AuthProviderEnum.OIDC.value, sub)
+
+        # Step 2: pre-registration by email-as-placeholder-subject
+        if user is None and email:
+            candidate = self.store.get_user_by_auth_subject(AuthProviderEnum.OIDC.value, email)
+            if candidate is not None:
+                # Swap the placeholder email for the real sub. From now on
+                # step 1 hits directly. UNIQUE(auth_provider, auth_subject)
+                # is preserved because we're updating the only existing row.
+                candidate.auth_subject = sub
+                self.store.update_user(candidate)
+                user = candidate
+
+        # Step 3: auto-provision (opt-in + allowlist required)
+        if user is None:
+            if not self.config.auto_provision:
+                raise InvalidCredentialsError(
+                    "no Gluon user matches this OIDC identity. Ask an admin to register you with `gluon user add`."
+                )
+            if not self.email_in_allowlist(email):
+                raise InvalidCredentialsError("your email domain is not on the auto-provision allowlist.")
+            assert email is not None  # email_in_allowlist enforces this
+            username = email.split("@", 1)[0]
+            # Username must be unique — append a digit suffix on collision.
+            base_username = username
+            n = 1
+            while self.store.get_user_by_username(username) is not None:
+                n += 1
+                username = f"{base_username}{n}"
+            user = self.store.create_user(
+                username=username,
+                display_name=display_name or email,
+                email=email,
+                auth_provider=AuthProviderEnum.OIDC.value,
+                auth_subject=sub,
+                role=self.config.default_role,
+            )
+
+        if user.disabled:
+            raise UserDisabledError("user account is disabled")
+
+        # Touch last_login_at — same as LocalAuthProvider does on success.
+        user.last_login_at = utc_now()
+        self.store.update_user(user)
+        return user
+
+
+def get_oidc_provider(store: GluonStore) -> OIDCAuthProvider | None:
+    """Return an OIDC provider iff env vars are configured AND auth is enabled.
+
+    Returns ``None`` for any of:
+      - ``GLUON_AUTH_ENABLED=false`` (no auth at all)
+      - One of the four required OIDC env vars is missing
+      - Config validation failed (e.g. auto-provision without allowlist)
+
+    Callers can use the ``None`` return to feature-detect: web layer renders
+    or omits the "Sign in with X" button accordingly.
+    """
+    if not is_auth_enabled():
+        return None
+    config = OIDCConfig.from_env()
+    if config is None:
+        return None
+    return OIDCAuthProvider(store, config)
 
 
 # ---------------------------------------------------------------------------

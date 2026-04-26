@@ -1,6 +1,7 @@
 import type {
   // Activity Log types
   ActivityEvent,
+  AuthProvidersResponse,
   BranchListResponse,
   BranchOperationResponse,
   ChangePasswordRequest,
@@ -1044,6 +1045,15 @@ export async function deleteWorkspaceEnvVar(workspaceId: string, key: string): P
 /** Get the current user. Always succeeds — returns SYSTEM_USER if no session. */
 export async function fetchMe(): Promise<MeResponse> {
   return fetchJson<MeResponse>('/auth/me')
+}
+
+/**
+ * List the auth methods available on this server (D5 Phase 3 feature
+ * detection). Always succeeds — returns `{auth_enabled: false}` for
+ * single-user installs, or the union of local + OIDC for multi-user ones.
+ */
+export async function fetchAuthProviders(): Promise<AuthProvidersResponse> {
+  return fetchJson<AuthProvidersResponse>('/auth/providers')
 }
 
 /** Log in with username + password. Sets the session cookie on success. */
