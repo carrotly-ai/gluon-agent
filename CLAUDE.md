@@ -274,6 +274,17 @@ from gluon.core import ProjectNotFoundError, ProjectExistsError, WorkspaceNotFou
 - `GLUON_SSL_KEYFILE` - Path to SSL private key file (e.g., `/home/gluon/.gluon/ssl/key.key`)
 - Both must be set to enable HTTPS; if unset, serves HTTP
 
+**Multi-user auth (D5 — optional, default off):**
+- `GLUON_AUTH_ENABLED` - Set to `true` to require login. When unset/false, Gluon runs in single-user mode and the SYSTEM_USER placeholder is used for all actions.
+- `GLUON_AUTH_SWEEP_INTERVAL_SECS` - How often to sweep expired sessions and unconsumed link codes. Default `3600` (1 hour).
+
+**Bootstrap the first admin** (CLI works regardless of `GLUON_AUTH_ENABLED`):
+```bash
+uv run gluon user add alice --role admin
+# prompts for password (12+ chars)
+```
+Other user-management commands: `gluon user list / show / disable / enable / set-role / set-password`. Web dashboard's admin user-management screen requires logging in as an existing admin.
+
 Data stored at `~/.gluon/gluon.db`
 
 ## Adding a New Transport

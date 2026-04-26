@@ -1169,13 +1169,12 @@ export interface UserListResponse {
   total: number
 }
 
-/** SYSTEM_USER's deterministic ID — used as a sentinel for "no real user". */
+/** SYSTEM_USER's deterministic ID — used as a sentinel for "no real user".
+ * Imported by `useCurrentUser` to detect the auth-on/no-session fallback
+ * (server returns SYSTEM_USER as a placeholder so the response shape stays
+ * uniform; the client then knows to gate the login screen).
+ */
 export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
-
-/** Returns true if the given user is the SYSTEM_USER (single-user fallback). */
-export function isSystemUser(user: User | null | undefined): boolean {
-  return user?.id === SYSTEM_USER_ID
-}
 
 /** Transport platforms that support self-serve account linking (D5 Phase 4). */
 export type LinkTransport = 'telegram' | 'discord'

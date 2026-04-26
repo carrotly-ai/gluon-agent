@@ -2075,9 +2075,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     ) -> UserResponse:
         """Disable a user (soft delete). Admin-only. Rotates their sessions.
 
-        We don't hard-delete users because all the attribution links
-        (``runs.user_id`` etc. — added in a follow-up) would lose their
-        target. Disable-and-preserve is the right semantics here.
+        We don't hard-delete users because all the D5 Phase 2 attribution
+        links (``execution_runs.user_id``, ``orchestrator_tasks.created_by_user_id``,
+        ``pending_approvals.decided_by_user_id``) would lose their target.
+        Disable-and-preserve keeps the audit trail intact.
         """
         user = store.get_user(user_id)
         if user is None:
@@ -4979,6 +4980,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     _log_polling_task: asyncio.Task | None = None
     _pr_polling_task: asyncio.Task | None = None
     _worktree_cleanup_task: asyncio.Task | None = None
+    _auth_sweep_task: asyncio.Task | None = None
     _health_monitor: object | None = None  # HealthMonitor, optional
 
     # Track file positions for incremental log reading
@@ -5296,11 +5298,41 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
             await asyncio.sleep(cleanup_interval_seconds)
 
+    async def _sweep_auth_state() -> None:
+        """Sweep expired auth artifacts (D5).
+
+        Two store-level helpers were added in Phases 1 and 4 but had no
+        scheduler — without this task, expired ``user_sessions`` rows and
+        unconsumed-but-expired ``link_codes`` rows accumulate forever.
+        Both sweeps are cheap (single DELETE each), so we run them on a
+        single shared cadence.
+
+        Tunable via ``GLUON_AUTH_SWEEP_INTERVAL_SECS`` (default 1 hour).
+        First pass runs after a short delay so we don't spike at startup
+        alongside other heavy tasks.
+        """
+        sweep_interval = int(os.environ.get("GLUON_AUTH_SWEEP_INTERVAL_SECS", str(60 * 60)))
+        await asyncio.sleep(60)  # short startup delay
+        logger.info(f"Auth state sweep scheduled every {sweep_interval}s")
+        while True:
+            try:
+                expired_sessions = store.delete_expired_user_sessions()
+                expired_codes = store.delete_expired_link_codes()
+                if expired_sessions or expired_codes:
+                    logger.info(
+                        "Auth sweep: %d expired sessions, %d expired link codes deleted",
+                        expired_sessions,
+                        expired_codes,
+                    )
+            except Exception as e:
+                logger.error(f"Error in auth state sweep: {e}")
+            await asyncio.sleep(sweep_interval)
+
     @app.on_event("startup")
     async def start_background_tasks() -> None:
         """Start background tasks on app startup."""
         nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task
-        nonlocal _worktree_cleanup_task, _health_monitor
+        nonlocal _worktree_cleanup_task, _auth_sweep_task, _health_monitor
 
         # Start event bus
         from gluon.events import event_bus
@@ -5324,6 +5356,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         _log_polling_task = asyncio.create_task(_poll_log_updates())
         _pr_polling_task = asyncio.create_task(_poll_pr_status_changes())
         _worktree_cleanup_task = asyncio.create_task(_cleanup_old_worktrees())
+        _auth_sweep_task = asyncio.create_task(_sweep_auth_state())
 
         # Start supervisor for ralph mode auto-resume
         await runner.start_supervisor(poll_interval=30)
@@ -5408,6 +5441,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             tasks_to_cancel.append(("PR status polling", _pr_polling_task))
         if _worktree_cleanup_task:
             tasks_to_cancel.append(("worktree cleanup", _worktree_cleanup_task))
+        if _auth_sweep_task:
+            tasks_to_cancel.append(("auth state sweep", _auth_sweep_task))
 
         for name, task in tasks_to_cancel:
             task.cancel()
