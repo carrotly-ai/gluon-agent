@@ -150,6 +150,44 @@ WebSocket: `ws://localhost:45866/api/ws` (real-time run updates, log streaming)
 | `GET` | `/projects/{id}/commands` | Project-specific slash commands |
 | `GET` | `/sandbox/status` | Sandbox environment status |
 
+### Authentication & Users (D5 — opt-in via `GLUON_AUTH_ENABLED=true`)
+
+When auth is disabled, every endpoint accepts unauthenticated requests and the auth endpoints below either no-op or return placeholders. See [AUTH.md](AUTH.md) for the full model.
+
+#### Sessions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/auth/me` | Current user (returns `SYSTEM_USER` placeholder when no session). Always 200. |
+| `GET` | `/auth/providers` | Feature-detection: `{auth_enabled, local: bool, oidc: {name, login_url} \| null}`. Drives the LoginPage UI. |
+| `POST` | `/auth/login` | Local password login. Body: `{username, password}`. Sets `gluon_session` cookie. |
+| `POST` | `/auth/logout` | Invalidate the current session and clear the cookie. |
+
+#### OIDC flow (D5 Phase 3 — see [`AUTH-OIDC.md`](AUTH-OIDC.md))
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/auth/oidc/login` | 302 to the IdP authorize URL. Stashes state+nonce in a signed cookie. |
+| `GET` | `/auth/oidc/callback` | Handles the redirect back, validates the ID token (signature/iss/aud/nonce), creates session. On error redirects to `/?oidc_error=…`. |
+
+#### User management (admin-only — `require_admin` dependency)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/users` | List users. `?include_disabled=true` includes soft-deleted accounts. |
+| `POST` | `/users` | Create a user. Body: `{username, password, display_name?, email?, role}`. |
+| `PATCH` | `/users/{user_id}` | Update display_name / email / role / disabled / telegram_user_id / discord_user_id. Pass `0` for chat IDs to clear. Returns 409 if a chat ID is already bound to another user. |
+| `DELETE` | `/users/{user_id}` | Soft-delete (preserves attribution links + invalidates sessions). |
+| `POST` | `/users/{user_id}/password` | Reset password. Body: `{new_password, current_password?}`. Admins may omit `current_password` to reset others'; non-admins must provide it for self-service. |
+
+#### Self-serve transport linking (D5 Phase 4)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/link-codes` | Generate a 10-min one-time code for the calling user. Body: `{transport: "telegram" \| "discord"}`. Refused (400) in single-user mode. |
+| `GET` | `/auth/links` | Show the current user's bound chat IDs: `{telegram_user_id, discord_user_id}`. |
+| `DELETE` | `/auth/links/{transport}` | Unbind the calling user's chat account on `transport`. |
+
 ### WebSocket
 
 Connect to `ws://localhost:45866/api/ws` for real-time updates:

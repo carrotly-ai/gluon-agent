@@ -50,7 +50,9 @@ Mention the bot (`@GluonBot`) in channels:
 
 | Command | Description |
 |---------|-------------|
-| `@GluonBot link <project>` | Link this channel to a project |
+| `@GluonBot link <project>` | Link this **channel** to a project |
+| `@GluonBot link-account <code>` | Bind your Discord **user account** to a Gluon user (D5 Phase 4 — see [Account linking](#account-linking)) |
+| `@GluonBot unlink-account` | Remove the Gluon-account binding from your Discord user |
 | `@GluonBot projects` | List registered projects |
 | `@GluonBot runs` | List your runs |
 | `@GluonBot status` | Show overall status |
@@ -58,6 +60,8 @@ Mention the bot (`@GluonBot`) in channels:
 | `@GluonBot cancel [run_id]` | Cancel a run (or last active if not specified) |
 | `@GluonBot help` | Show command help |
 | `@GluonBot <any task>` | Execute task on the linked project |
+
+> **Naming note:** `link <project>` binds a *channel* to a *project* (existing). `link-account <code>` binds a *Discord user* to a *Gluon user* (new in D5 Phase 4). The keywords are distinct so a project name can't collide with a link code.
 
 ### Direct Message (DM) Commands
 Send commands directly to the bot (no @mention required):
@@ -72,6 +76,8 @@ Send commands directly to the bot (no @mention required):
 | `models` | List available models |
 | `cancel [run_id]` | Cancel a run |
 | `clear` | Clear conversation history |
+| `link-account <code>` | Bind this Discord account to a Gluon user |
+| `unlink-account` | Remove the Gluon binding |
 | `help` | Show DM-specific help |
 
 ## Direct Messages (DM Support)
@@ -289,6 +295,53 @@ Common tool displays:
 - `🔧 Write(filepath)` - File writing
 
 Updates are sent approximately every 2 seconds to keep you informed of agent progress without overwhelming the chat.
+
+## Account linking
+
+When Gluon is running with `GLUON_AUTH_ENABLED=true` (multi-user mode), you can bind your Discord account to your Gluon user so approvals you grant from chat get attributed to you in the audit trail.
+
+### Self-serve flow (recommended)
+
+```mermaid
+sequenceDiagram
+    participant You as You (web)
+    participant Web as Gluon Dashboard
+    participant Bot as Discord Bot
+
+    You->>Web: Sign in
+    You->>Web: Click avatar → Connected accounts → Link Discord
+    Web-->>You: Show 10-char code (e.g. K7N3PXJWQ4) + 10-min countdown
+    You->>Bot: @GluonBot link-account K7N3PXJWQ4
+    Bot-->>You: ✅ Linked as Bob (operator)
+    Note over Web: Auto-detects within 3 sec → flips to "Linked ✓"
+```
+
+**Usage:**
+
+```
+@GluonBot link-account K7N3PXJWQ4    ← in any channel where the bot can read
+@GluonBot unlink-account             ← remove the binding
+
+# Or in DMs (no @mention needed):
+link-account K7N3PXJWQ4
+unlink-account
+```
+
+**Error messages and what to do:**
+
+| Bot reply | Cause | Fix |
+|---|---|---|
+| ❌ That code doesn't exist | Typo or expired & swept | Generate a fresh code from the dashboard |
+| ⏰ That code has expired | Past 10-min TTL | Generate a fresh code |
+| ♻️ That code has already been used | Code already consumed | Generate a fresh one if you need to rebind |
+| ❌ That code was generated for a different platform | Mixed up Telegram and Discord codes | Click "Link Discord" specifically |
+| ❌ This Discord account is already linked to a different Gluon user | Discord ID already bound | Use that user's session to `unlink-account` first |
+
+### Admin pre-registration (alternative)
+
+An admin with dashboard access can bind your Discord numeric ID to your user record directly via `/admin/users` → Edit → Discord user ID. No code-passing needed; useful when bootstrapping a new team.
+
+See [AUTH.md](AUTH.md#self-serve-transport-linking) for the full security model.
 
 ## Multi-Transport Mode
 

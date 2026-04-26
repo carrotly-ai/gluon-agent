@@ -28,6 +28,7 @@ Open http://localhost:45866 to access the dashboard.
 - **PR Management** - Create PRs, view merge status
 - **Usage Analytics** - Track costs and token usage by project/day
 - **Settings Management** - Manage workspaces, projects, preferences, git config, and sandbox status
+- **Multi-User Auth (Optional)** - Login page, header user-menu with role badge, admin user-management screen, self-serve chat-account linking. See [Multi-user auth UI](#multi-user-auth-ui) below and [AUTH.md](AUTH.md) for the complete model.
 - **PWA Features** - Offline overlay, pull-to-refresh, update banner, service worker support
 - **Theme Toggle** - Light/dark mode support
 - **Responsive Design** - Works on desktop and mobile
@@ -601,3 +602,63 @@ Drag-and-drop task management with real-time status updates:
   - Status changes trigger card movement
   - Cost updates live
   - WebSocket-powered push updates
+
+## Multi-user auth UI
+
+When `GLUON_AUTH_ENABLED=true`, the dashboard wraps the SPA in a `CurrentUserProvider` and gates rendering behind a login screen. When `false` (default), none of this UI mounts — the dashboard is identical to the single-user experience.
+
+For the full model (providers, sessions, attribution, RBAC, transport linking) see [AUTH.md](AUTH.md).
+
+### LoginPage
+
+Auto-detects available auth methods via `GET /api/auth/providers` and adapts:
+
+```mermaid
+graph LR
+    A[LoginPage mount] --> B[GET /auth/providers]
+    B --> C{What's enabled?}
+    C -->|Local only| D[Username/password form]
+    C -->|OIDC only| E[Sign in with X button]
+    C -->|Both| F[OIDC button + divider + password form]
+    C -->|Neither| G[Empty state]
+    D --> H[POST /auth/login]
+    E --> I[GET /auth/oidc/login]
+    H --> J[Set session cookie + redirect to /]
+    I --> K[302 to IdP]
+    K --> L[Callback validates ID token + sets cookie]
+```
+
+If the OIDC callback fails, the server redirects back with `?oidc_error=…` and the LoginPage renders a typed friendly message (not the raw provider error).
+
+### Header user menu
+
+Click the avatar in the top-right (`UserMenu` component) to get:
+
+- Avatar with computed initials + display name + role badge
+- **Change password** — inline form for local users; non-admins must enter current password
+- **Connected accounts** — D5 Phase 4 self-serve linking. Per-transport row showing **Linked ✓** with unlink button or a **Link** button that opens a code card (copy button + 10-min countdown + the exact chat command to paste)
+- **Manage users** (admins only) — opens `/admin/users`
+- **Sign out** — clears the server-side session
+
+The Connected Accounts panel polls `GET /api/auth/me` every 3 seconds while a code is active so the UI auto-flips to "Linked ✓" the moment the bot consumes the code.
+
+### Admin user management (`/admin/users`)
+
+Wrapped in `AdminUsersGuard` — non-admins see a graceful **Access denied** screen instead of API errors.
+
+| Feature | Notes |
+|---|---|
+| **List** | All active users; toggle "Show disabled" to include soft-deleted accounts. Role badge per row, last-seen timestamp. |
+| **Create** | Inline form: username + 12+ char password + role. OIDC pre-registration via the CLI (`gluon user add --auth-provider oidc`). |
+| **Edit** | Inline edit row: display name, email, role, disabled toggle, **Telegram/Discord chat IDs** (admin alternative to self-serve linking), confirm-on-disable. |
+| **Reset password** | Admin-side reset (no current-password prompt). Rotates the user's sessions. |
+| **Soft-delete** | "Disabled" preserves attribution links; you can re-enable later. |
+
+### Behaviour matrix
+
+| Mode | Login screen | UserMenu | Admin screen | Effect on attribution |
+|---|---|---|---|---|
+| `GLUON_AUTH_ENABLED=false` | Hidden | Hidden | Hidden | All actions land on `SYSTEM_USER`; `user_id` columns stay NULL |
+| `auth=true` + local only | Password form | Visible | Admin-only | New rows get the local user's ID |
+| `auth=true` + OIDC only | "Sign in with X" button | Visible (no change-password) | Admin-only | New rows get the OIDC user's ID |
+| `auth=true` + both | Both | Visible | Admin-only | Same — each user is bound to one provider |
