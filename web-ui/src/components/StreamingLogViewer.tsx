@@ -882,6 +882,15 @@ function SystemMessage({
   const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
   const Icon = config.icon
   const isResult = msg.type === 'result'
+  const isLong = isResult && msg.content.length > 200
+  const [isExpanded, setIsExpanded] = useState(true)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(msg.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <div
@@ -895,9 +904,29 @@ function SystemMessage({
       <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
       {isResult ? (
         <div className={cn('text-body flex-1 min-w-0 leading-relaxed', config.color)}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {msg.content}
-          </ReactMarkdown>
+          <div className={cn(!isExpanded && 'line-clamp-3')}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {msg.content}
+            </ReactMarkdown>
+          </div>
+          <div className="flex items-center gap-3 mt-1">
+            {isLong && (
+              <button
+                className="text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+                onClick={() => setIsExpanded(!isExpanded)}
+              >
+                {isExpanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
+            <button
+              className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+              onClick={handleCopy}
+              title="Copy markdown to clipboard"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
         </div>
       ) : (
         <span className={cn('text-body flex-1', config.color)}>{msg.content}</span>
