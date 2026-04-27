@@ -811,6 +811,7 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_link_codes_active "
         "ON link_codes(transport, expires_at) WHERE consumed_at IS NULL;"
     ),
+    "ALTER TABLE execution_runs ADD COLUMN ci_status TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -3096,7 +3097,7 @@ class GluonStore:
                     started_at = ?, completed_at = ?, exit_code = ?, log_path = ?, error_message = ?,
                     thread_id = ?, cost_usd = ?, input_tokens = ?, output_tokens = ?, model_used = ?,
                     branch_name = ?, source_branch = ?, worktree_path = ?, use_worktree = ?,
-                    git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?, pr_mergeable = ?,
+                    git_commit_sha = ?, pr_number = ?, pr_url = ?, pr_status = ?, pr_mergeable = ?, ci_status = ?,
                     archived = ?, archived_at = ?, resume_count = ?, last_resumed_at = ?,
                     recovery_count = ?, last_recovery_at = ?, recovery_from_run_id = ?,
                     is_recovering = ?, recovery_item_count = ?,
@@ -3141,6 +3142,7 @@ class GluonStore:
                     run.pr_url,
                     run.pr_status,
                     run.pr_mergeable,
+                    run.ci_status,
                     1 if run.archived else 0,
                     run.archived_at.isoformat() if run.archived_at else None,
                     run.resume_count,
@@ -3287,6 +3289,7 @@ class GluonStore:
             pr_url=row["pr_url"] if "pr_url" in keys else None,
             pr_status=row["pr_status"] if "pr_status" in keys else None,
             pr_mergeable=row["pr_mergeable"] if "pr_mergeable" in keys else None,
+            ci_status=row["ci_status"] if "ci_status" in keys else None,
             # Archive tracking
             archived=bool(row["archived"]) if "archived" in keys and row["archived"] is not None else False,
             archived_at=_parse_datetime(row["archived_at"]) if "archived_at" in keys else None,

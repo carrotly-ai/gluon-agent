@@ -38,6 +38,7 @@ class RunResponse(BaseModel):
     pr_url: str | None = Field(default=None, description="GitHub PR URL")
     pr_status: str | None = Field(default=None, description="PR status: open, merged, closed, draft")
     pr_mergeable: str | None = Field(default=None, description="PR mergeable status: MERGEABLE, CONFLICTING, UNKNOWN")
+    ci_status: str | None = Field(default=None, description="CI check status: pending, success, failure")
     # Archive tracking
     archived: bool = Field(default=False, description="Whether run is archived")
     # Recovery progress UI

@@ -356,8 +356,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             use_worktree=run.use_worktree,
             branch_name=run.branch_name,
             pr_number=run.pr_number,
+            pr_url=run.pr_url,
             pr_status=run.pr_status,
             pr_mergeable=run.pr_mergeable,
+            ci_status=run.ci_status,
             # Archive tracking
             archived=run.archived,
             # Recovery progress UI
@@ -3417,6 +3419,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 run.pr_number = pr_result.get("pr_number")
                 run.pr_url = pr_result.get("pr_url")
                 run.pr_status = pr_result.get("pr_status")
+                run.ci_status = "pending"
                 store.update_run(run)
 
                 # Broadcast update
@@ -5366,14 +5369,30 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                                 await ws_manager.broadcast_run_update(updated_run, project_name)
                             continue
 
-                        # 2. Check for CI failures (Vercel, build, etc.)
+                        # 2. Poll CI check status and persist it
+                        if run.git_commit_sha:
+                            all_checks = await pr_git_manager.get_check_runs(project.expanded_path, run.git_commit_sha)
+                            if all_checks:
+                                has_pending = any(c.get("status") != "completed" for c in all_checks)
+                                has_failure = any(
+                                    c.get("status") == "completed" and c.get("conclusion") in ("failure", "timed_out")
+                                    for c in all_checks
+                                )
+                                new_ci = "failure" if has_failure else ("pending" if has_pending else "success")
+                            else:
+                                new_ci = None
+                            if new_ci != run.ci_status:
+                                run.ci_status = new_ci
+                                store.update_run(run)
+                                await ws_manager.broadcast_run_update(run, project_name)
+
+                        # 2b. Auto-resume on CI failures (existing behavior)
                         ci_failures = await pr_monitor.check_ci_failures(run)
                         if ci_failures:
                             failure_names = ", ".join(f.get("name", "unknown") for f in ci_failures[:3])
                             await pr_monitor.post_pr_comment(
                                 run, f"Detected CI failures ({failure_names}). Investigating..."
                             )
-                            # Auto-resume to fix CI failures
                             updated_run = await pr_monitor.auto_resume_for_ci_failure(run, ci_failures)
                             if updated_run:
                                 await ws_manager.broadcast_run_update(updated_run, project_name)

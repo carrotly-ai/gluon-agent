@@ -35,6 +35,7 @@ export interface Run {
   pr_url?: string | null
   pr_status?: 'open' | 'merged' | 'closed' | 'draft' | null
   pr_mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
+  ci_status?: 'pending' | 'success' | 'failure' | null
   // Archive tracking
   archived?: boolean
   // Recovery progress UI
@@ -81,6 +82,7 @@ export interface RunDetail extends Run {
   pr_url: string | null
   pr_status: 'open' | 'merged' | 'closed' | 'draft' | null
   pr_mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null
+  ci_status: 'pending' | 'success' | 'failure' | null
   has_remote: boolean // Whether the project has a git remote configured
   // Resume tracking
   resume_count: number

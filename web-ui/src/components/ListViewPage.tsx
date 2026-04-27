@@ -1,7 +1,9 @@
 import {
   Archive,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Circle,
   Clock,
   ExternalLink,
   GitBranch,
@@ -13,6 +15,7 @@ import {
   RefreshCw,
   Sparkles,
   X,
+  XCircle,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -440,10 +443,52 @@ Focus on preserving the functionality from both sides where possible.`
                                 <GitBranch className="w-2.5 h-2.5" />
                               </span>
                             )}
-                            {run.pr_number && (
-                              <span className="text-caption text-green-400/70">
-                                #{run.pr_number}
-                              </span>
+                            {run.pr_number && run.pr_url && (
+                              <a
+                                href={run.pr_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={cn(
+                                  'flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[0.5625rem] transition-colors',
+                                  run.pr_status === 'merged' &&
+                                    'bg-[rgba(168,85,247,0.15)] text-purple-400',
+                                  run.pr_status === 'closed' &&
+                                    'bg-[rgba(239,68,68,0.15)] text-red-400',
+                                  run.pr_status === 'open' &&
+                                    run.ci_status === 'success' &&
+                                    'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+                                  run.pr_status === 'open' &&
+                                    run.ci_status === 'failure' &&
+                                    'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
+                                  run.pr_status === 'open' &&
+                                    run.ci_status === 'pending' &&
+                                    'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
+                                  run.pr_status === 'open' &&
+                                    !run.ci_status &&
+                                    'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                                )}
+                                onClick={(e) => e.stopPropagation()}
+                                title={`PR #${run.pr_number}${run.ci_status ? ` · CI: ${run.ci_status}` : ''}`}
+                              >
+                                {run.pr_status === 'merged' && (
+                                  <GitPullRequest className="w-2.5 h-2.5" />
+                                )}
+                                {run.pr_status === 'closed' && <XCircle className="w-2.5 h-2.5" />}
+                                {run.pr_status === 'open' && run.ci_status === 'success' && (
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                )}
+                                {run.pr_status === 'open' && run.ci_status === 'failure' && (
+                                  <XCircle className="w-2.5 h-2.5" />
+                                )}
+                                {run.pr_status === 'open' && run.ci_status === 'pending' && (
+                                  <Circle className="w-2.5 h-2.5 animate-pulse" />
+                                )}
+                                {run.pr_status === 'open' && !run.ci_status && (
+                                  <GitPullRequest className="w-2.5 h-2.5" />
+                                )}
+                                {!run.pr_status && <GitPullRequest className="w-2.5 h-2.5" />}
+                                <span>#{run.pr_number}</span>
+                              </a>
                             )}
                           </div>
                         </div>

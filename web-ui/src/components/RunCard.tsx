@@ -1,17 +1,29 @@
 import {
   Archive,
-  ExternalLink,
+  CheckCircle2,
+  Circle,
   GitBranch,
+  GitPullRequest,
   MessageCircleQuestion,
   RefreshCw,
   Square,
   X,
+  XCircle,
   Zap,
 } from 'lucide-react'
 import { useNotificationCenter } from '@/hooks/useNotificationCenter'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { CircuitState, HealthClassification, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+function CiIcon({ ci, prStatus }: { ci?: string | null; prStatus?: string | null }) {
+  if (prStatus === 'merged') return <GitPullRequest className="w-2.5 h-2.5" />
+  if (prStatus === 'closed') return <XCircle className="w-2.5 h-2.5" />
+  if (ci === 'success') return <CheckCircle2 className="w-2.5 h-2.5" />
+  if (ci === 'failure') return <XCircle className="w-2.5 h-2.5" />
+  if (ci === 'pending') return <Circle className="w-2.5 h-2.5 animate-pulse" />
+  return <GitPullRequest className="w-2.5 h-2.5" />
+}
 
 // Circuit state color mapping
 function getCircuitStateColor(state: CircuitState): string {
@@ -217,20 +229,28 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
               target="_blank"
               rel="noopener noreferrer"
               className={cn(
-                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase transition-colors',
-                run.pr_status === 'open' &&
-                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] transition-colors',
                 run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
                 run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
-                run.pr_status === 'draft' &&
-                  'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]',
-                !run.pr_status && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
+                run.pr_status === 'open' &&
+                  run.ci_status === 'success' &&
+                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+                run.pr_status === 'open' &&
+                  run.ci_status === 'failure' &&
+                  'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
+                run.pr_status === 'open' &&
+                  run.ci_status === 'pending' &&
+                  'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
+                run.pr_status === 'open' &&
+                  !run.ci_status &&
+                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+                run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
               )}
               onClick={(e) => e.stopPropagation()}
-              title={`Open PR #${run.pr_number}`}
+              title={`PR #${run.pr_number}${run.ci_status ? ` · CI: ${run.ci_status}` : ''}`}
             >
-              <span>PR #{run.pr_number}</span>
-              <ExternalLink className="w-2.5 h-2.5" />
+              <CiIcon ci={run.ci_status} prStatus={run.pr_status} />
+              <span>#{run.pr_number}</span>
             </a>
           )}
           <span
