@@ -842,7 +842,7 @@ class Orchestrator:
 
             # Read experimental feature settings
             agent_teams_enabled = self.store.get_setting("agent_teams_enabled", "false") == "true"
-            skills_enabled = self.store.get_setting("skills_enabled", "false") == "true"
+            skills_enabled = self.store.get_setting("skills_enabled", "true") == "true"
 
             # Create agent with resolved options
             agent = GluonAgent(

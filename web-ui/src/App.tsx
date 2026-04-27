@@ -34,6 +34,7 @@ import { UserMenu } from './components/UserMenu'
 import { WorkQueuePage } from './components/WorkQueuePage'
 import { useConnectivity } from './hooks/useConnectivity'
 import { useCurrentUser } from './hooks/useCurrentUser'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import {
   NotificationCenterContext,
   useNotificationCenterProvider,
@@ -321,6 +322,23 @@ function AuthenticatedApp() {
     setSettingsTab,
   } = useRouteSync()
 
+  // Keyboard shortcuts
+  useKeyboardShortcuts(
+    useMemo(
+      () => ({
+        onNewTask: () => setCreateDialogOpen(true),
+        onNavigateBoard: () => setViewMode('board'),
+        onNavigateList: () => setViewMode('list'),
+        onNavigateUsage: () => setViewMode('usage'),
+        onNavigateSettings: () => setViewMode('settings'),
+        onRefresh: () => {
+          refresh()
+        },
+      }),
+      [setViewMode, refresh]
+    )
+  )
+
   // Selected run state (loaded from API when URL has runId)
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
   const [loadingRun, setLoadingRun] = useState(false)
@@ -543,24 +561,24 @@ function AuthenticatedApp() {
               <div className="hidden md:flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
                 {(
                   [
-                    { mode: 'board', icon: LayoutGrid, title: 'Board view' },
-                    { mode: 'list', icon: List, title: 'List view' },
-                    { mode: 'usage', icon: BarChart3, title: 'Usage view' },
-                    { mode: 'settings', icon: Settings, title: 'Settings' },
+                    { mode: 'board', icon: LayoutGrid, label: 'Board' },
+                    { mode: 'list', icon: List, label: 'List' },
+                    { mode: 'usage', icon: BarChart3, label: 'Usage' },
+                    { mode: 'settings', icon: Settings, label: 'Settings' },
                   ] as const
-                ).map(({ mode, icon: Icon, title }) => (
+                ).map(({ mode, icon: Icon, label }) => (
                   <button
                     key={mode}
                     className={cn(
-                      'p-1.5 rounded-sm transition-colors',
+                      'flex items-center gap-1.5 px-2 py-1.5 rounded-sm transition-colors text-caption uppercase tracking-widest',
                       viewMode === mode
                         ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
                         : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
                     )}
                     onClick={() => setViewMode(mode)}
-                    title={title}
                   >
                     <Icon className="w-3.5 h-3.5" />
+                    <span>{label}</span>
                   </button>
                 ))}
                 <DesktopMoreMenu viewMode={viewMode} onViewChange={setViewMode} />

@@ -225,10 +225,17 @@ body {
   background: rgba(250, 250, 249, 0.03);
 }
 
-/* Typography scale - standardized 3-tier: 10px / 12px / 14px */
+/* Typography scale - 4-tier: 10px / 12px / 14px / 16px */
+.text-display {
+  font-size: 1rem; /* 16px - page headings */
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
 .text-title {
-  font-size: 0.875rem; /* 14px - headings, prominent text */
-  font-weight: 400;
+  font-size: 0.875rem; /* 14px - section headings, prominent text */
+  font-weight: 500;
   letter-spacing: 0.02em;
   line-height: 1.5;
 }

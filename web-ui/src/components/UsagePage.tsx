@@ -71,8 +71,8 @@ export function UsagePage() {
 
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      {/* Primary Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <SummaryCard
           label="Today"
           value={formatCost(summary?.today_cost_usd ?? 0)}
@@ -91,24 +91,25 @@ export function UsagePage() {
           subValue={`${summary?.month_runs ?? 0} runs`}
           accent="jade"
         />
-        <SummaryCard
-          label="Avg/Run"
-          value={formatCost((summary?.total_cost_usd ?? 0) / Math.max(summary?.total_runs ?? 1, 1))}
-          subValue="average cost"
-          accent="stone"
-        />
-        <SummaryCard
-          label="Avg/Day"
-          value={formatCost((summary?.week_cost_usd ?? 0) / 7)}
-          subValue="past 7 days"
-          accent="stone"
-        />
-        <SummaryCard
-          label="Projects"
-          value={String(projectUsage.length)}
-          subValue="active"
-          accent="stone"
-        />
+      </div>
+      {/* Secondary Metrics - compact row */}
+      <div className="flex items-center gap-6 mb-6 px-1 text-caption text-[var(--color-stone)]/70">
+        <span>
+          Avg/Run:{' '}
+          <span className="text-mono text-[var(--color-paper)]/70">
+            {formatCost((summary?.total_cost_usd ?? 0) / Math.max(summary?.total_runs ?? 1, 1))}
+          </span>
+        </span>
+        <span>
+          Avg/Day:{' '}
+          <span className="text-mono text-[var(--color-paper)]/70">
+            {formatCost((summary?.week_cost_usd ?? 0) / 7)}
+          </span>
+        </span>
+        <span>
+          Projects:{' '}
+          <span className="text-mono text-[var(--color-paper)]/70">{projectUsage.length}</span>
+        </span>
       </div>
 
       {/* Two Column Layout */}

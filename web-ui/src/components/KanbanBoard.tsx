@@ -138,9 +138,27 @@ function DroppableColumn({
       <ScrollArea className="flex-1">
         <div className="p-2 sm:p-3 space-y-2">
           {runs.length === 0 ? (
-            <p className="text-caption text-center py-8 opacity-40">
-              {status === 'review' ? 'No tasks awaiting review' : 'Empty'}
-            </p>
+            <div className="text-caption text-center py-8 opacity-40 space-y-1">
+              {status === 'running' && (
+                <>
+                  <p>No active runs</p>
+                  <p className="text-[0.5625rem]">Create a task with +New to start</p>
+                </>
+              )}
+              {status === 'review' && (
+                <>
+                  <p>No tasks awaiting review</p>
+                  <p className="text-[0.5625rem]">Completed worktree runs appear here</p>
+                </>
+              )}
+              {status === 'completed' && (
+                <>
+                  <p>No completed runs</p>
+                  <p className="text-[0.5625rem]">Finished tasks will show here</p>
+                </>
+              )}
+              {!['running', 'review', 'completed'].includes(status) && <p>Empty</p>}
+            </div>
           ) : (
             runs.map((run) => (
               <DraggableRunCard

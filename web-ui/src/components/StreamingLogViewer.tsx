@@ -89,9 +89,9 @@ const MESSAGE_CONFIG: Record<
   },
   user: {
     icon: MessageSquare,
-    color: 'text-[var(--color-indigo)]',
-    bg: 'bg-[var(--color-indigo)]/5',
-    border: 'border-l-2 border-l-[var(--color-indigo)]/50',
+    color: 'text-[var(--color-sky)]',
+    bg: 'bg-[var(--color-sky)]/10',
+    border: 'border-l-2 border-l-[var(--color-sky)]/60',
     label: 'You',
   },
   screenshot: {
@@ -840,24 +840,24 @@ function UserMessage({
         >
           {msg.content}
         </div>
-        {isLong && (
-          <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-center gap-3 mt-1">
+          {isLong && (
             <button
               className="text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
               onClick={() => setIsExpanded(!isExpanded)}
             >
               {isExpanded ? 'Show less' : 'Show more'}
             </button>
-            <button
-              className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
-              onClick={handleCopy}
-              title="Copy to clipboard"
-            >
-              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              <span>{copied ? 'Copied' : 'Copy'}</span>
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+            onClick={handleCopy}
+            title="Copy to clipboard"
+          >
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+        </div>
       </div>
       <span
         className={cn(

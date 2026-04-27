@@ -1026,6 +1026,16 @@ class TaskRunner:
                 open(stderr_path, log_mode) as stderr_file,
                 open(messages_path, log_mode) as messages_file,
             ):
+                # Write the user's prompt as the first message (new runs only)
+                if not is_resumed:
+                    user_msg = {
+                        "timestamp": run.created_at.isoformat() if run.created_at else datetime.now(UTC).isoformat(),
+                        "type": "user",
+                        "content": run.prompt,
+                    }
+                    messages_file.write(json.dumps(user_msg) + "\n")
+                    messages_file.flush()
+
                 # Log any attached images
                 if image_paths:
                     stdout_file.write(f"Attached {len(image_paths)} image(s) to prompt:\n")
@@ -1106,7 +1116,7 @@ but explicit commits with good messages are preferred.
                 # Vercel CLI integration (optional)
                 vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
                 vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
-                skills_enabled = _resolve("skills_enabled", "false", workspace_id) == "true"
+                skills_enabled = _resolve("skills_enabled", "true", workspace_id) == "true"
 
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
@@ -1189,6 +1199,18 @@ but explicit commits with good messages are preferred.
                             }
                             messages_file.write(json.dumps(msg_dict) + "\n")
                             messages_file.flush()
+
+                            # Emit a visible user message for in-session follow-ups
+                            if item.type == "system" and item.content == "follow_up" and item.metadata:
+                                followup_prompt = item.metadata.get("prompt", "")
+                                if followup_prompt:
+                                    user_msg = {
+                                        "timestamp": datetime.now(UTC).isoformat(),
+                                        "type": "user",
+                                        "content": followup_prompt,
+                                    }
+                                    messages_file.write(json.dumps(user_msg) + "\n")
+                                    messages_file.flush()
 
                             # Also write text to stdout
                             if item.type == "text":
@@ -2452,7 +2474,7 @@ but explicit commits with good messages are preferred.
             # Vercel CLI integration (optional)
             vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
             vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
-            skills_enabled = _resolve("skills_enabled", "false", workspace_id) == "true"
+            skills_enabled = _resolve("skills_enabled", "true", workspace_id) == "true"
 
             agent = GluonAgent(
                 model=run.model or self.agent.model,
