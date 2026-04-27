@@ -45,6 +45,7 @@ export function useRouteSync() {
     if (path.startsWith('/merge')) return 'merge' as const
     if (path.startsWith('/cost')) return 'usage' as const
     if (path.startsWith('/sessions')) return 'sessions' as const
+    if (path.startsWith('/list')) return 'list' as const
     if (path.startsWith('/admin/users')) return 'admin-users' as const
     if (path.startsWith('/settings')) return 'settings' as const
     return 'board' as const
@@ -81,6 +82,7 @@ export function useRouteSync() {
     (
       view:
         | 'board'
+        | 'list'
         | 'activity'
         | 'queue'
         | 'merge'
@@ -92,6 +94,9 @@ export function useRouteSync() {
       switch (view) {
         case 'board':
           navigate(`/board${location.search}`)
+          break
+        case 'list':
+          navigate(`/list${location.search}`)
           break
         case 'activity':
           navigate('/activity')

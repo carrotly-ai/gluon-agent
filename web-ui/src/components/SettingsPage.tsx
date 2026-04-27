@@ -8,15 +8,18 @@ import {
   FolderOpen,
   GitBranch,
   Loader2,
+  Moon,
   Plus,
   RefreshCw,
   Settings,
   Settings2,
+  Sun,
   Trash2,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTheme } from '@/hooks/useTheme'
 import {
   cloneRepository,
   createWorkspace,
@@ -95,6 +98,7 @@ interface SettingsPageProps {
 
 export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPageProps) {
   const navigate = useNavigate()
+  const { theme, toggleTheme } = useTheme()
   // Use controlled tab if provided, otherwise manage internally
   const tab = controlledTab ?? 'workspaces'
   const setTab = onTabChange ?? (() => {})
@@ -672,7 +676,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           )}
                           onClick={() => handleScanWorkspace(ws.id)}
                           disabled={scanningId === ws.id}
-                          title="Rescan for new projects"
+                          title="Rescan projects and refresh git status"
                         >
                           <RefreshCw
                             className={cn('w-3.5 h-3.5', scanningId === ws.id && 'animate-spin')}
@@ -1403,6 +1407,42 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                     className={cn(
                       'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
                       skillsEnabled && 'translate-x-5'
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Appearance */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Appearance
+              </h3>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  {theme === 'dark' ? (
+                    <Moon className="w-4 h-4 text-[var(--color-stone)]/80" />
+                  ) : (
+                    <Sun className="w-4 h-4 text-[var(--color-stone)]/80" />
+                  )}
+                  <div>
+                    <p className="text-title text-[var(--color-paper)]">Theme</p>
+                    <p className="text-caption text-[var(--color-stone)]/70 mt-1">
+                      {theme === 'dark' ? 'Dark' : 'Light'} mode is active. Toggle to switch.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={toggleTheme}
+                  className={cn(
+                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
+                    theme === 'light' ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
+                      theme === 'light' && 'translate-x-5'
                     )}
                   />
                 </button>

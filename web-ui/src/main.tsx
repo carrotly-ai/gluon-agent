@@ -34,6 +34,9 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/runs/:runId" element={<RunDetailPage />} />
           <Route path="/runs/:runId/:tab" element={<RunDetailPage />} />
 
+          {/* List view (sidebar + messages) */}
+          <Route path="/list" element={<App />} />
+
           {/* Activity log */}
           <Route path="/activity" element={<App />} />
 

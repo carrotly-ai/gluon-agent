@@ -4,13 +4,13 @@ import {
   Database,
   GitMerge,
   LayoutGrid,
+  List,
   ListTodo,
   Loader2,
   Menu,
-  Moon,
+  MoreVertical,
   Plus,
   Settings,
-  Sun,
   WifiOff,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -18,6 +18,7 @@ import { ActivityPage } from './components/ActivityPage'
 import { AdminUsersPage } from './components/AdminUsersPage'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
+import { ListViewPage } from './components/ListViewPage'
 import { LoginPage } from './components/LoginPage'
 import { MergeQueuePage } from './components/MergeQueuePage'
 import { NotificationBell } from './components/NotificationBell'
@@ -59,6 +60,7 @@ import { fetchServerVersion } from './lib/version'
 
 type ViewMode =
   | 'board'
+  | 'list'
   | 'activity'
   | 'queue'
   | 'merge'
@@ -118,6 +120,21 @@ function MobileNavMenu({
         <button
           className={cn(
             'p-1.5 rounded-sm transition-colors',
+            viewMode === 'list'
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+          )}
+          onClick={() => {
+            onViewChange('list')
+            setOpen(false)
+          }}
+          title="List view"
+        >
+          <List className="w-3.5 h-3.5" />
+        </button>
+        <button
+          className={cn(
+            'p-1.5 rounded-sm transition-colors',
             viewMode === 'settings'
               ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
               : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
@@ -146,6 +163,69 @@ function MobileNavMenu({
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
           {SECONDARY_NAV_ITEMS.map(({ mode, icon: Icon, label }) => (
+            <button
+              key={mode}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3 py-2 text-body transition-colors',
+                viewMode === mode
+                  ? 'text-[var(--color-paper)] bg-[var(--color-paper)]/8'
+                  : 'text-[var(--color-stone)] hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5'
+              )}
+              onClick={() => {
+                onViewChange(mode)
+                setOpen(false)
+              }}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span className="uppercase tracking-widest">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DesktopMoreMenu({
+  viewMode,
+  onViewChange,
+}: {
+  viewMode: string
+  onViewChange: (mode: ViewMode) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const DESKTOP_PRIMARY_MODES = new Set<ViewMode>(['board', 'list', 'usage', 'settings'])
+  const desktopItems = SECONDARY_NAV_ITEMS.filter((item) => !DESKTOP_PRIMARY_MODES.has(item.mode))
+  const isSecondaryActive = desktopItems.some((item) => item.mode === viewMode)
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        className={cn(
+          'p-1.5 rounded-sm transition-colors',
+          open || isSecondaryActive
+            ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+            : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+        )}
+        onClick={() => setOpen((prev) => !prev)}
+        title="More views"
+      >
+        <MoreVertical className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
+          {desktopItems.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
               className={cn(
@@ -210,7 +290,7 @@ function AuthenticatedApp() {
   })
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
-  const { theme, toggleTheme } = useTheme()
+  useTheme()
   const online = useOnline()
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
@@ -459,15 +539,12 @@ function AuthenticatedApp() {
 
             {/* Right - view toggle + theme + connection pulse */}
             <div className="flex items-center gap-3 sm:gap-4">
-              {/* View Toggle - Desktop: all buttons visible */}
+              {/* View Toggle - Desktop: primary buttons + overflow dropdown */}
               <div className="hidden md:flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
                 {(
                   [
                     { mode: 'board', icon: LayoutGrid, title: 'Board view' },
-                    { mode: 'activity', icon: Activity, title: 'Activity log' },
-                    { mode: 'queue', icon: ListTodo, title: 'Work queue' },
-                    { mode: 'merge', icon: GitMerge, title: 'Merge queue' },
-                    { mode: 'sessions', icon: Database, title: 'SDK Sessions' },
+                    { mode: 'list', icon: List, title: 'List view' },
                     { mode: 'usage', icon: BarChart3, title: 'Usage view' },
                     { mode: 'settings', icon: Settings, title: 'Settings' },
                   ] as const
@@ -486,22 +563,12 @@ function AuthenticatedApp() {
                     <Icon className="w-3.5 h-3.5" />
                   </button>
                 ))}
+                <DesktopMoreMenu viewMode={viewMode} onViewChange={setViewMode} />
               </div>
               {/* View Toggle - Mobile: Board + Settings + overflow menu */}
               <MobileNavMenu viewMode={viewMode} onViewChange={setViewMode} />
               <NotificationBell onNavigateToRun={(runId) => openRunDetail(runId)} />
               <UserMenu onOpenAdmin={() => setViewMode('admin-users')} />
-              <button
-                className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
-                onClick={toggleTheme}
-                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              >
-                {theme === 'dark' ? (
-                  <Sun className="w-4 h-4 text-[var(--color-stone)]" />
-                ) : (
-                  <Moon className="w-4 h-4 text-[var(--color-stone)]" />
-                )}
-              </button>
               {/* Sonar-style connection indicator */}
               <div
                 className={cn(
@@ -543,6 +610,8 @@ function AuthenticatedApp() {
             <MergeQueuePage />
           ) : viewMode === 'sessions' ? (
             <SessionBrowserPage />
+          ) : viewMode === 'list' ? (
+            <ListViewPage runs={filteredRuns} onRunUpdate={handleRunUpdated} onRefresh={refresh} />
           ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
             <div className="flex items-center justify-center h-full">
               <div className="mark mark-running w-2 h-2" />
