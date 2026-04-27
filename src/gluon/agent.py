@@ -499,7 +499,8 @@ class GluonAgent:
         # When MCP servers are configured, don't restrict allowed_tools
         # This lets the agent use MCP tools like mcp__scraper__perplexity
         # Without MCP, use the configured allowed_tools list
-        effective_tools = None if mcp_config else self.allowed_tools
+        # NOTE: Must use [] not None — SDK's _apply_skills_defaults crashes on None
+        effective_tools = [] if mcp_config else self.allowed_tools
 
         # Build thinking config from max_thinking_tokens
         # -1 = adaptive (let CLI decide), 0 = disabled, >0 = fixed budget
