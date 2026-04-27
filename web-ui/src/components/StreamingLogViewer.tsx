@@ -1358,7 +1358,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       <div className="relative flex-1">
         <div
           ref={containerRef}
-          className="absolute inset-0 overflow-y-auto px-2"
+          className="absolute inset-0 overflow-y-auto px-2 pb-4"
           onScroll={handleScroll}
         >
           {filteredMessages.length === 0 ? (
