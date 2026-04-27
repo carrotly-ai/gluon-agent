@@ -10,6 +10,7 @@ export interface VersionInfo {
   full_version: string // Full git commit SHA
   build_time: string // ISO timestamp of build
   environment: string // "development" or "production"
+  semver: string // Semantic version (e.g. "0.11.0")
 }
 
 /**
@@ -22,6 +23,7 @@ export function getBuildVersion(): VersionInfo {
     full_version: import.meta.env.VITE_APP_FULL_VERSION || 'development',
     build_time: import.meta.env.VITE_APP_BUILD_TIME || new Date().toISOString(),
     environment: import.meta.env.VITE_APP_VERSION ? 'production' : 'development',
+    semver: import.meta.env.VITE_APP_SEMVER || '',
   }
 }
 

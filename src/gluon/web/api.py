@@ -2360,11 +2360,14 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         environment = "production" if os.environ.get("GLUON_VERSION") else "development"
 
+        from gluon import __version__ as semver
+
         _version_info = {
             "version": version,
             "full_version": full_version,
             "build_time": build_time,
             "environment": environment,
+            "semver": semver,
         }
         return _version_info
 

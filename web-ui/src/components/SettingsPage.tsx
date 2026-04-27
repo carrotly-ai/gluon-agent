@@ -34,6 +34,7 @@ import {
 } from '@/lib/api'
 import type { FormulaTemplate, Project, ScanResultResponse, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { fetchServerVersion, type VersionInfo } from '@/lib/version'
 import { GitSyncButton } from './GitSyncButton'
 import { WorkspaceSettingsDialog } from './WorkspaceSettingsDialog'
 
@@ -161,6 +162,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [disallowedTools, setDisallowedTools] = useState<string[]>([])
 
+  // Version info
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
+
   // Vercel CLI integration
   const [vercelCliEnabled, setVercelCliEnabled] = useState(false)
   const [vercelToken, setVercelToken] = useState('')
@@ -212,6 +216,9 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
       setVercelToken(settings.vercel_token || '')
       setInitialVercelToken(settings.vercel_token || '')
       setVercelTokenFromEnv(settings._vercel_token_from_env === 'true')
+      fetchServerVersion()
+        .then(setVersionInfo)
+        .catch(() => {})
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -1401,6 +1408,27 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                 </button>
               </div>
             </div>
+
+            {/* Version Info */}
+            {versionInfo && (
+              <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-2">
+                <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                  About
+                </h3>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-title text-[var(--color-paper)]">
+                    Gluon v{versionInfo.semver}
+                  </span>
+                  <span className="text-caption text-[var(--color-stone)]/50 font-mono">
+                    {versionInfo.version}
+                  </span>
+                </div>
+                <div className="text-caption text-[var(--color-stone)]/50">
+                  {versionInfo.environment === 'production' ? 'Production' : 'Development'} · Built{' '}
+                  {new Date(versionInfo.build_time).toLocaleDateString()}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

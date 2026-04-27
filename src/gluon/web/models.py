@@ -230,6 +230,7 @@ class VersionResponse(BaseModel):
     full_version: str  # Git commit SHA (full)
     build_time: str  # ISO timestamp of build
     environment: str  # "development" or "production"
+    semver: str  # Semantic version from pyproject.toml (e.g. "0.11.0")
 
 
 class UserResponse(BaseModel):

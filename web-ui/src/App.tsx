@@ -55,6 +55,7 @@ import {
 import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
 import { cn } from './lib/utils'
+import { fetchServerVersion } from './lib/version'
 
 type ViewMode =
   | 'board'
@@ -214,6 +215,13 @@ function AuthenticatedApp() {
   const [archivedRuns, setArchivedRuns] = useState<Run[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+  const [semver, setSemver] = useState('')
+
+  useEffect(() => {
+    fetchServerVersion()
+      .then((v) => setSemver(v.semver))
+      .catch(() => {})
+  }, [])
 
   // Enhanced connectivity detection for offline overlay
   const { status: connectivityStatus, retryIn, lastChecked, checkNow } = useConnectivity()
@@ -422,9 +430,13 @@ function AuthenticatedApp() {
           <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
             {/* Left - wordmark + filter + new + stats */}
             <div className="flex items-center gap-3 sm:gap-5">
-              <span className="text-body sm:text-title font-normal tracking-[0.1em] text-[var(--color-paper)]">
+              <button
+                className="text-body sm:text-title font-normal tracking-[0.1em] text-[var(--color-paper)] hover:opacity-80 transition-opacity"
+                title={semver ? `Gluon v${semver}` : undefined}
+                onClick={() => setViewMode('board')}
+              >
                 GLUON
-              </span>
+              </button>
               <ProjectFilter filter={filter} onFilterChange={setFilter} />
               <button
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-caption uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 transition-colors rounded-sm"
