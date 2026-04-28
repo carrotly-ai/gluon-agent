@@ -19,6 +19,10 @@ export interface RunTokens {
   input_tokens: number
   output_tokens: number
   estimated_cost_usd: number
+  cache_read: number
+  cache_create: number
+  context_window: number | null
+  model: string | null
 }
 
 interface WebSocketState {
@@ -107,6 +111,10 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
               input_tokens: tok.input_tokens,
               output_tokens: tok.output_tokens,
               estimated_cost_usd: tok.estimated_cost_usd,
+              cache_read: tok.cache_read ?? 0,
+              cache_create: tok.cache_create ?? 0,
+              context_window: tok.context_window ?? null,
+              model: tok.model ?? null,
             })
             break
           }

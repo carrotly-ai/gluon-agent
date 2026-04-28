@@ -1212,6 +1212,20 @@ but explicit commits with good messages are preferred.
                                     messages_file.write(json.dumps(user_msg) + "\n")
                                     messages_file.flush()
 
+                            # Update tokens.json on each usage event for live streaming
+                            if item.type == "usage" and item.metadata:
+                                um = item.metadata
+                                tokens_data = {
+                                    "input_tokens": um.get("input_tokens", 0),
+                                    "output_tokens": um.get("output_tokens", 0),
+                                    "cache_read": um.get("cache_read", 0),
+                                    "cache_create": um.get("cache_create", 0),
+                                    "context_window": um.get("context_window"),
+                                    "model": um.get("model"),
+                                    "estimated_cost_usd": run.cost_usd or 0,
+                                }
+                                tokens_path.write_text(json.dumps(tokens_data))
+
                             # Also write text to stdout
                             if item.type == "text":
                                 stdout_file.write(item.content + "\n")

@@ -795,6 +795,14 @@ class GluonAgent:
         success = True
         error_msg: str | None = None
 
+        # Per-turn token accumulation for live context usage
+        _acc_input_tokens: int = 0
+        _acc_output_tokens: int = 0
+        _acc_cache_read: int = 0
+        _acc_cache_create: int = 0
+        _seen_msg_ids: set[str] = set()
+        _context_window: int | None = None
+
         try:
             # Validate CLI path exists
             if not self.cli_path:
@@ -994,6 +1002,29 @@ class GluonAgent:
                                         },
                                     )
 
+                            # Emit per-turn usage (deduplicate by message_id)
+                            turn_usage = getattr(msg, "usage", None) or {}
+                            mid = getattr(msg, "message_id", None)
+                            if turn_usage and (mid is None or mid not in _seen_msg_ids):
+                                if mid:
+                                    _seen_msg_ids.add(mid)
+                                _acc_input_tokens += turn_usage.get("input_tokens", 0)
+                                _acc_output_tokens += turn_usage.get("output_tokens", 0)
+                                _acc_cache_read += turn_usage.get("cache_read_input_tokens", 0)
+                                _acc_cache_create += turn_usage.get("cache_creation_input_tokens", 0)
+                                yield AgentMessage(
+                                    type="usage",
+                                    content="",
+                                    metadata={
+                                        "input_tokens": _acc_input_tokens,
+                                        "output_tokens": _acc_output_tokens,
+                                        "cache_read": _acc_cache_read,
+                                        "cache_create": _acc_cache_create,
+                                        "context_window": _context_window,
+                                        "model": model_used,
+                                    },
+                                )
+
                         elif isinstance(msg, ResultMessage):
                             total_cost_usd = msg.total_cost_usd or 0.0
                             total_turns = msg.num_turns or total_turns
@@ -1003,6 +1034,30 @@ class GluonAgent:
                             output_tokens = usage.get("output_tokens")
                             if msg.session_id:
                                 claude_session_id = msg.session_id
+                            # Extract context window from model_usage
+                            model_usage = msg.model_usage or {}
+                            for _mn, _ms in model_usage.items():
+                                cw = _ms.get("contextWindow")
+                                if cw:
+                                    _context_window = cw
+                                break
+                            # Emit final usage with confirmed context_window
+                            yield AgentMessage(
+                                type="usage",
+                                content="",
+                                metadata={
+                                    "input_tokens": input_tokens or _acc_input_tokens,
+                                    "output_tokens": output_tokens or _acc_output_tokens,
+                                    "cache_read": _acc_cache_read,
+                                    "cache_create": _acc_cache_create,
+                                    "context_window": _context_window,
+                                    "model": model_used,
+                                    "model_usage": {k: dict(v) for k, v in model_usage.items()}
+                                    if model_usage
+                                    else None,
+                                    "final": True,
+                                },
+                            )
                             yield AgentMessage(
                                 type="result",
                                 content=msg.result or "Execution complete",

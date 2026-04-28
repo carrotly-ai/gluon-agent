@@ -5306,6 +5306,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                                     input_tokens=tokens.get("input_tokens", 0),
                                     output_tokens=tokens.get("output_tokens", 0),
                                     estimated_cost_usd=tokens.get("estimated_cost_usd", 0),
+                                    context_window=tokens.get("context_window"),
+                                    cache_read=tokens.get("cache_read", 0),
+                                    cache_create=tokens.get("cache_create", 0),
+                                    model=tokens.get("model"),
                                 )
                                 _tokens_file_mtimes[run_id] = current_mtime
                         except Exception as e:
