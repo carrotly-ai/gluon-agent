@@ -1028,7 +1028,48 @@ function ScreenshotMessage({
   )
 }
 
-// Progress indicator component
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+function ContextProgressBar({ tokens }: { tokens: RunTokens }) {
+  const totalUsed = tokens.input_tokens + tokens.output_tokens
+  const contextWindow = tokens.context_window
+  if (!contextWindow || contextWindow <= 0) return null
+
+  const pct = Math.min((totalUsed / contextWindow) * 100, 100)
+  const barColor =
+    pct >= 90
+      ? 'bg-[var(--color-vermillion)]'
+      : pct >= 70
+        ? 'bg-[var(--color-harvest)]'
+        : 'bg-[var(--color-sky)]'
+
+  const shortModel =
+    tokens.model?.replace(/^(global\.)?anthropic\./, '').replace(/-v\d+.*$/, '') ?? null
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      {shortModel && (
+        <span className="text-[var(--color-stone)]/50 shrink-0 hidden sm:inline">{shortModel}</span>
+      )}
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <div className="h-1.5 flex-1 min-w-[60px] max-w-[120px] rounded-full bg-[var(--color-stone)]/15 overflow-hidden">
+          <div
+            className={cn('h-full rounded-full transition-all duration-500', barColor)}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="text-[var(--color-stone)]/60 shrink-0 tabular-nums">
+          {formatTokenCount(totalUsed)} / {formatTokenCount(contextWindow)} ({Math.round(pct)}%)
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function ProgressIndicator({
   progress,
   tokens,
@@ -1039,31 +1080,38 @@ function ProgressIndicator({
   if (!progress && !tokens) return null
 
   return (
-    <div className="flex items-center gap-4 px-3 py-2 border-b border-[rgba(163,163,163,0.08)] bg-[var(--color-void)] text-body">
-      {progress && (
-        <>
-          <div className="flex items-center gap-1.5 text-[var(--color-paper)]/70">
-            <MessageSquare className="w-3 h-3 text-[var(--color-sky)]/70" />
-            <span>{progress.turns} turns</span>
+    <div className="flex flex-col border-b border-[rgba(163,163,163,0.08)] bg-[var(--color-void)] text-body">
+      <div className="flex items-center gap-4 px-3 py-2">
+        {progress && (
+          <>
+            <div className="flex items-center gap-1.5 text-[var(--color-paper)]/70">
+              <MessageSquare className="w-3 h-3 text-[var(--color-sky)]/70" />
+              <span>{progress.turns} turns</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[var(--color-paper)]/70">
+              <Wrench className="w-3 h-3 text-[var(--color-stone)]/70" />
+              <span>{progress.tool_calls} tools</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60">
+              <Clock className="w-3 h-3" />
+              <span>{Math.round(progress.elapsed_seconds)}s</span>
+            </div>
+          </>
+        )}
+        {tokens && (
+          <div className="flex items-center gap-1.5 text-[var(--color-harvest)]/80 ml-auto">
+            <DollarSign className="w-3 h-3" />
+            <span>${tokens.estimated_cost_usd.toFixed(4)}</span>
+            <span className="text-[var(--color-stone)]/50">
+              ({Math.round(tokens.input_tokens / 1000)}k in /{' '}
+              {Math.round(tokens.output_tokens / 1000)}k out)
+            </span>
           </div>
-          <div className="flex items-center gap-1.5 text-[var(--color-paper)]/70">
-            <Wrench className="w-3 h-3 text-[var(--color-stone)]/70" />
-            <span>{progress.tool_calls} tools</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60">
-            <Clock className="w-3 h-3" />
-            <span>{Math.round(progress.elapsed_seconds)}s</span>
-          </div>
-        </>
-      )}
-      {tokens && (
-        <div className="flex items-center gap-1.5 text-[var(--color-harvest)]/80 ml-auto">
-          <DollarSign className="w-3 h-3" />
-          <span>${tokens.estimated_cost_usd.toFixed(4)}</span>
-          <span className="text-[var(--color-stone)]/50">
-            ({Math.round(tokens.input_tokens / 1000)}k in /{' '}
-            {Math.round(tokens.output_tokens / 1000)}k out)
-          </span>
+        )}
+      </div>
+      {tokens?.context_window && (
+        <div className="px-3 pb-2">
+          <ContextProgressBar tokens={tokens} />
         </div>
       )}
     </div>

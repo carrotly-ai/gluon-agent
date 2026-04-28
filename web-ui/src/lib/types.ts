@@ -546,6 +546,10 @@ export interface TokenUpdateMessage extends WebSocketMessage {
   input_tokens: number
   output_tokens: number
   estimated_cost_usd: number
+  cache_read?: number
+  cache_create?: number
+  context_window?: number | null
+  model?: string | null
 }
 
 /** Loop progress update for ralph-enabled runs */
