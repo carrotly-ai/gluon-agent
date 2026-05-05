@@ -5,7 +5,7 @@ description = "AI orchestrator for managing multiple Claude Code agents across p
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.1.66",
+    "claude-agent-sdk>=0.1.73",
     # Direct Anthropic SDK — used by the witness health classifier and the
     # LLM provider abstraction (Bedrock / Vertex / Foundry / direct API).
     # The [vertex] extra pulls in google-cloud-aiplatform so VertexProvider works.
