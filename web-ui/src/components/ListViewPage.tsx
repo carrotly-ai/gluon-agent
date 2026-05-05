@@ -110,7 +110,6 @@ export function ListViewPage({ runs, onRunUpdate, onRefresh }: ListViewPageProps
   const { pendingQuestions } = useNotificationCenter()
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [detail, setDetail] = useState<RunDetail | null>(null)
-  const [messages, setMessages] = useState<string>('')
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [filesData, setFilesData] = useState<RunFilesResponse | null>(null)
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
@@ -122,6 +121,11 @@ export function ListViewPage({ runs, onRunUpdate, onRefresh }: ListViewPageProps
       return new Set()
     }
   })
+
+  // Per-instance viewer state: track which runs have been opened (lazily instantiated)
+  const [openedRunIds, setOpenedRunIds] = useState<Set<string>>(new Set())
+  // Cache parsed messages per run so each viewer keeps its initial data
+  const messagesCache = useRef<Map<string, AgentMessage[]>>(new Map())
 
   // Action states
   const [resumePrompt, setResumePrompt] = useState('')
@@ -182,10 +186,16 @@ export function ListViewPage({ runs, onRunUpdate, onRefresh }: ListViewPageProps
   useEffect(() => {
     if (!selectedRunId) {
       setDetail(null)
-      setMessages('')
       setFilesData(null)
       return
     }
+    // Add to opened set (lazily instantiate the viewer)
+    setOpenedRunIds((prev) => {
+      if (prev.has(selectedRunId)) return prev
+      const next = new Set(prev)
+      next.add(selectedRunId)
+      return next
+    })
     let cancelled = false
     setLoadingDetail(true)
     Promise.all([
@@ -196,7 +206,9 @@ export function ListViewPage({ runs, onRunUpdate, onRefresh }: ListViewPageProps
       .then(([runDetail, messagesLog, files]) => {
         if (cancelled) return
         setDetail(runDetail)
-        setMessages(messagesLog.content || '')
+        // Cache parsed messages per run for its dedicated viewer instance
+        const parsed = parseMessages(messagesLog.content || '')
+        messagesCache.current.set(selectedRunId, parsed)
         setFilesData(files)
         setLoadingDetail(false)
       })
@@ -220,7 +232,7 @@ export function ListViewPage({ runs, onRunUpdate, onRefresh }: ListViewPageProps
           fetchLogs(selectedRunId, 'messages').catch(() => ({ content: '' })),
         ])
         setDetail(runDetail)
-        setMessages(messagesLog.content || '')
+        messagesCache.current.set(selectedRunId, parseMessages(messagesLog.content || ''))
         onRunUpdate(runDetail)
       } catch {
         // ignore
@@ -368,7 +380,19 @@ Focus on preserving the functionality from both sides where possible.`
     setTimeout(() => resumeTextareaRef.current?.focus(), 100)
   }, [detail])
 
-  const parsedMessages = useMemo(() => parseMessages(messages), [messages])
+  // Evict opened viewers for runs that have been archived (no longer in the run list)
+  useEffect(() => {
+    const runIds = new Set(runs.map((r) => r.id))
+    setOpenedRunIds((prev) => {
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (runIds.has(id)) next.add(id)
+        else messagesCache.current.delete(id)
+      }
+      if (next.size === prev.size) return prev
+      return next
+    })
+  }, [runs])
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -559,13 +583,26 @@ Focus on preserving the functionality from both sides where possible.`
           </div>
         ) : (
           <>
-            {/* Messages area */}
-            <div className="flex-1 overflow-hidden">
-              <StreamingLogViewer
-                runId={selectedRunId}
-                runStatus={(selectedRun.status ?? 'pending') as RunStatus}
-                initialMessages={parsedMessages}
-              />
+            {/* Messages area — one StreamingLogViewer per opened run, show/hide via CSS */}
+            <div className="flex-1 overflow-hidden relative">
+              {[...openedRunIds].map((openedId) => {
+                const run = runs.find((r) => r.id === openedId)
+                if (!run) return null
+                const isVisible = openedId === selectedRunId
+                return (
+                  <div
+                    key={openedId}
+                    className="absolute inset-0"
+                    style={{ display: isVisible ? 'block' : 'none' }}
+                  >
+                    <StreamingLogViewer
+                      runId={openedId}
+                      runStatus={(run.status ?? 'pending') as RunStatus}
+                      initialMessages={messagesCache.current.get(openedId) || []}
+                    />
+                  </div>
+                )
+              })}
             </div>
 
             {/* Action bar — chat input + git info + buttons */}
