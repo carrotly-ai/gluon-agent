@@ -366,7 +366,7 @@ def resolve_task_options(
         max_turns: Override profile's max turns
         max_budget_usd: Override profile's cost budget
         force_planning: Override profile's planning mode
-        effort: Override reasoning effort (low/medium/high/max)
+        effort: Override reasoning effort (low/medium/high/xhigh/max)
         task_budget: Override task token budget (model paces itself)
 
     Returns:

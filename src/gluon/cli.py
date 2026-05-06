@@ -1008,7 +1008,7 @@ def run(
     ] = None,
     effort: Annotated[
         str | None,
-        typer.Option("--effort", help="Reasoning effort: low/medium/high/max"),
+        typer.Option("--effort", help="Reasoning effort: low/medium/high/xhigh/max"),
     ] = None,
     planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,
     task_budget: Annotated[

@@ -395,7 +395,7 @@ class GluonAgent:
         self.max_turns = max_turns if max_turns is not None else 5000
         self.max_budget_usd = max_budget_usd
         self.force_planning = force_planning
-        # Reasoning effort level (low/medium/high/max) — native SDK field
+        # Reasoning effort level (low/medium/high/xhigh/max) — native SDK field
         self.effort = effort
         # Security sandbox (OS-level isolation via bubblewrap/sandbox-exec)
         self.sandbox_enabled = sandbox_enabled
@@ -518,6 +518,7 @@ class GluonAgent:
             permission_mode=self.permission_mode,
             model=self.model,
             mcp_servers=mcp_config if mcp_config else {},
+            strict_mcp_config=True,
             thinking=thinking_config,
         )
 

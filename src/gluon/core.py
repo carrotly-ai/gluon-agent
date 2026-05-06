@@ -669,7 +669,7 @@ class Orchestrator:
             max_turns: Override max conversation turns.
             max_budget_usd: Override max cost budget.
             force_planning: Override planning mode (True = plan before executing).
-            effort: Override reasoning effort (low/medium/high).
+            effort: Override reasoning effort (low/medium/high/xhigh/max).
             task_budget: Override task token budget (model paces itself).
 
         Yields:
