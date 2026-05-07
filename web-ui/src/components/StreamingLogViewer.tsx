@@ -1345,24 +1345,50 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     // tool card can show "why did the agent do X?". We walk forward once and
     // track the most recent reasoning/text block; each tool_use adopts it.
     // A new user message resets the rolling reasoning (new turn starts fresh).
+    // Thinking messages consumed by a tool_use are marked for removal to avoid
+    // duplicate display (reasoning shows inside the tool card instead).
     let currentReasoning: string | null = null
-    return withChecklist.map((msg) => {
+    let currentReasoningIdx: number | null = null
+    const consumedIndices = new Set<number>()
+    const withReasoning = withChecklist.map((msg, idx) => {
       if (msg.type === 'user') {
         currentReasoning = null
+        currentReasoningIdx = null
         return msg
       }
-      if (msg.type === 'thinking' || msg.type === 'text') {
+      if (msg.type === 'thinking') {
         const text = (msg.content || '').trim()
-        if (text) currentReasoning = text
+        if (text) {
+          currentReasoning = text
+          currentReasoningIdx = idx
+        }
+        return msg
+      }
+      if (msg.type === 'text') {
+        const text = (msg.content || '').trim()
+        if (text) {
+          currentReasoning = text
+          currentReasoningIdx = null
+        }
         return msg
       }
       if (msg.type === 'tool_use' && currentReasoning && !msg.metadata?.reasoning) {
+        if (currentReasoningIdx != null) consumedIndices.add(currentReasoningIdx)
+        const reasoning = currentReasoning
+        currentReasoning = null
+        currentReasoningIdx = null
         return {
           ...msg,
-          metadata: { ...(msg.metadata ?? {}), reasoning: currentReasoning },
+          metadata: { ...(msg.metadata ?? {}), reasoning },
         }
       }
       return msg
+    })
+    // Remove consumed thinking messages and empty thinking/system lines
+    return withReasoning.filter((msg, idx) => {
+      if (consumedIndices.has(idx)) return false
+      if (msg.type === 'thinking' && !(msg.content || '').trim()) return false
+      return true
     })
   }, [initialMessages, streamedMessages])
 
