@@ -1104,132 +1104,53 @@ interface ContextUsageData {
   output_tokens: number
   cache_read: number
   cache_create: number
-  context_window: number
   model: string | null
 }
 
-function ContextUsageFooter({ data }: { data: ContextUsageData }) {
-  const { input_tokens, output_tokens, cache_read, cache_create, context_window, model } = data
+function SessionTokensFooter({ data }: { data: ContextUsageData }) {
+  const { input_tokens, output_tokens, cache_read, cache_create, model } = data
 
-  const totalUsed = input_tokens + output_tokens
-  const pct = Math.min((totalUsed / context_window) * 100, 100)
-
-  // Segment percentages within the bar
-  const cacheReadPct = (cache_read / context_window) * 100
-  const cacheCreatePct = (cache_create / context_window) * 100
-  // "Fresh" input = input minus what came from cache
-  const freshInputPct =
-    Math.max(0, (input_tokens - cache_read - cache_create) / context_window) * 100
-  const outputPct = (output_tokens / context_window) * 100
-
-  // Cache efficiency: how much of input came from cache vs fresh generation
+  const totalTokens = input_tokens + output_tokens
+  const freshInput = Math.max(0, input_tokens - cache_read - cache_create)
   const cacheHitRate = input_tokens > 0 ? (cache_read / input_tokens) * 100 : 0
-
-  const severity = pct >= 90 ? 'critical' : pct >= 70 ? 'warning' : 'normal'
-
   const shortModel = model?.replace(/^(global\.)?anthropic\./, '').replace(/-v\d+.*$/, '') ?? null
 
   return (
-    <div className="shrink-0 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-void)]/80 px-3 py-2">
-      {/* Segmented progress bar */}
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className="h-2 flex-1 rounded-full bg-[var(--color-stone)]/10 overflow-hidden flex">
-          {cacheReadPct > 0 && (
-            <div
-              className="h-full bg-[var(--color-jade)]/60 transition-all duration-500"
-              style={{ width: `${Math.min(cacheReadPct, 100)}%` }}
-              title={`Cache read: ${formatTokenCount(cache_read)}`}
-            />
-          )}
-          {cacheCreatePct > 0 && (
-            <div
-              className="h-full bg-[var(--color-jade)]/30 transition-all duration-500"
-              style={{ width: `${Math.min(cacheCreatePct, 100)}%` }}
-              title={`Cache write: ${formatTokenCount(cache_create)}`}
-            />
-          )}
-          {freshInputPct > 0 && (
-            <div
-              className="h-full bg-[var(--color-sky)]/60 transition-all duration-500"
-              style={{ width: `${Math.min(freshInputPct, 100)}%` }}
-              title={`Fresh input: ${formatTokenCount(Math.max(0, input_tokens - cache_read - cache_create))}`}
-            />
-          )}
-          {outputPct > 0 && (
-            <div
-              className={cn(
-                'h-full transition-all duration-500',
-                severity === 'critical'
-                  ? 'bg-[var(--color-vermillion)]/70'
-                  : severity === 'warning'
-                    ? 'bg-[var(--color-harvest)]/60'
-                    : 'bg-purple-400/50'
-              )}
-              style={{ width: `${Math.min(outputPct, 100)}%` }}
-              title={`Output: ${formatTokenCount(output_tokens)}`}
-            />
-          )}
-        </div>
-        <span
-          className={cn(
-            'text-body tabular-nums shrink-0',
-            severity === 'critical'
-              ? 'text-[var(--color-vermillion)]'
-              : severity === 'warning'
-                ? 'text-[var(--color-harvest)]'
-                : 'text-[var(--color-stone)]/60'
-          )}
-        >
-          {Math.round(pct)}%
-        </span>
-      </div>
-
-      {/* Metrics row */}
+    <div className="shrink-0 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-void)]/80 px-3 py-1.5">
       <div className="flex items-center gap-3 flex-wrap text-body">
+        <span className="text-[var(--color-stone)]/40">Session</span>
         {shortModel && <span className="text-[var(--color-stone)]/50">{shortModel}</span>}
-        <span className="text-[var(--color-stone)]/60 tabular-nums">
-          {formatTokenCount(totalUsed)} / {formatTokenCount(context_window)}
+        <span
+          className="text-[var(--color-stone)]/60 tabular-nums"
+          title="Total tokens (input + output)"
+        >
+          {formatTokenCount(totalTokens)} total
         </span>
-        <span className="text-[var(--color-sky)]/70 tabular-nums" title="Input tokens (fresh)">
-          ↓{formatTokenCount(input_tokens)}
+        <span
+          className="text-[var(--color-sky)]/70 tabular-nums"
+          title="Fresh input tokens (non-cached)"
+        >
+          ↓{formatTokenCount(freshInput)}
         </span>
         <span className="text-purple-400/70 tabular-nums" title="Output tokens">
           ↑{formatTokenCount(output_tokens)}
         </span>
         {cache_read > 0 && (
-          <span className="text-[var(--color-jade)]/70 tabular-nums" title="Cache read tokens">
+          <span
+            className="text-[var(--color-jade)]/70 tabular-nums"
+            title="Tokens served from cache"
+          >
             ⚡{formatTokenCount(cache_read)}
           </span>
         )}
         {cacheHitRate > 0 && (
           <span
             className="text-[var(--color-jade)]/60 tabular-nums"
-            title="Cache hit rate (% of input served from cache)"
+            title="% of input served from cache"
           >
             {Math.round(cacheHitRate)}% cached
           </span>
         )}
-        {severity === 'critical' && (
-          <span className="text-[var(--color-vermillion)] uppercase tracking-wider text-body ml-auto">
-            Context near capacity
-          </span>
-        )}
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-3 mt-1.5 text-body text-[var(--color-stone)]/40">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-sm bg-[var(--color-jade)]/60" />
-          Cache
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-sm bg-[var(--color-sky)]/60" />
-          Input
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-sm bg-purple-400/50" />
-          Output
-        </span>
       </div>
     </div>
   )
@@ -1501,16 +1422,15 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     })
   }, [])
 
-  // Extract context usage data from streaming tokens (active) or initial messages (completed)
-  const contextUsage = useMemo((): ContextUsageData | null => {
-    // During active runs, use live WebSocket data
-    if (tokens?.context_window && tokens.context_window > 0) {
+  // Extract session token totals from streaming tokens (active) or final usage message (completed)
+  const sessionTokens = useMemo((): ContextUsageData | null => {
+    // During active runs, use live WebSocket cumulative totals
+    if (tokens && (tokens.input_tokens > 0 || tokens.output_tokens > 0)) {
       return {
         input_tokens: tokens.input_tokens,
         output_tokens: tokens.output_tokens,
         cache_read: tokens.cache_read,
         cache_create: tokens.cache_create,
-        context_window: tokens.context_window,
         model: tokens.model,
       }
     }
@@ -1518,16 +1438,12 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     for (let i = initialMessages.length - 1; i >= 0; i--) {
       const msg = initialMessages[i]
       if (msg.type === 'usage' && msg.metadata?.final) {
-        const cw = msg.metadata.context_window
-        if (cw && cw > 0) {
-          return {
-            input_tokens: msg.metadata.input_tokens || 0,
-            output_tokens: msg.metadata.output_tokens || 0,
-            cache_read: msg.metadata.cache_read || 0,
-            cache_create: msg.metadata.cache_create || 0,
-            context_window: cw,
-            model: msg.metadata.model || null,
-          }
+        return {
+          input_tokens: msg.metadata.input_tokens || 0,
+          output_tokens: msg.metadata.output_tokens || 0,
+          cache_read: msg.metadata.cache_read || 0,
+          cache_create: msg.metadata.cache_create || 0,
+          model: msg.metadata.model || null,
         }
       }
     }
@@ -1752,7 +1668,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       </div>
 
       {/* Context usage footer — visible for active and completed runs */}
-      {contextUsage && <ContextUsageFooter data={contextUsage} />}
+      {sessionTokens && <SessionTokensFooter data={sessionTokens} />}
     </div>
   )
 }
