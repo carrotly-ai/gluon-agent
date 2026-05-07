@@ -1070,6 +1070,7 @@ class GluonAgent:
                                     "duration_ms": msg.duration_ms,
                                     "duration_api_ms": msg.duration_api_ms,
                                     "is_error": msg.is_error,
+                                    "api_error_status": msg.api_error_status,
                                     "model_used": model_used,
                                     "stop_reason": stop_reason,
                                     "errors": msg.errors,
