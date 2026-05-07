@@ -659,7 +659,7 @@ const markdownComponents = {
     <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>
   ),
   li: ({ children }: { children?: React.ReactNode }) => (
-    <li className="[&>p]:inline [&>p]:mb-0">{children}</li>
+    <li className="[&>p]:mb-0 [&>p:first-child]:mt-0">{children}</li>
   ),
   strong: ({ children }: { children?: React.ReactNode }) => (
     <strong className="font-medium">{children}</strong>
@@ -915,7 +915,13 @@ function SystemMessage({
       <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
       {hasExpandableContent ? (
         <div className={cn('text-body flex-1 min-w-0 leading-relaxed', config.color)}>
-          <div className={cn('whitespace-pre-wrap break-words', !isExpanded && 'line-clamp-3')}>
+          <div
+            className={cn(
+              !isResult && 'whitespace-pre-wrap',
+              'break-words',
+              !isExpanded && 'line-clamp-3'
+            )}
+          >
             {isResult ? (
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                 {msg.content}
