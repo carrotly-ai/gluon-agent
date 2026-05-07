@@ -958,49 +958,99 @@ function SystemMessage({
   )
 }
 
-function TaskMessage({
-  msg,
-  showTimestamp = true,
+interface AggregatedTask {
+  id: string
+  name: string
+  status: 'running' | 'completed' | 'failed'
+  startedAt: string
+  completedAt?: string
+  durationMs?: number
+  totalTokens?: number
+  toolUses?: number
+}
+
+function TaskChecklist({
+  tasks,
+  isExpanded,
+  onToggle,
 }: {
-  msg: AgentMessage
-  showTimestamp?: boolean
+  tasks: AggregatedTask[]
+  isExpanded: boolean
+  onToggle: () => void
 }) {
-  const time = formatMessageTime(msg.timestamp)
-  const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
-  const Icon = config.icon
-  const meta = msg.metadata as Record<string, unknown> | undefined
-  const taskId = meta?.task_id as string | undefined
-  const lastTool = meta?.last_tool_name as string | undefined
-  const usage = meta?.usage as Record<string, unknown> | undefined
+  const completed = tasks.filter((t) => t.status === 'completed').length
+  const failed = tasks.filter((t) => t.status === 'failed').length
+  const running = tasks.filter((t) => t.status === 'running').length
+  const total = tasks.length
+
+  const summary = [
+    `${completed}/${total} done`,
+    running > 0 && `${running} running`,
+    failed > 0 && `${failed} failed`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    <div className={cn('flex items-start gap-2 py-1.5 px-3', config.bg, config.border)}>
-      <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
-      <div className="flex-1 min-w-0">
-        <span className={cn('text-body', config.color)}>{msg.content}</span>
-        {(taskId || lastTool || usage) && (
-          <div className="flex items-center gap-3 mt-0.5 text-body text-[var(--color-stone)]/40 font-mono">
-            {taskId && <span>task={taskId.slice(0, 8)}</span>}
-            {lastTool && <span>tool={lastTool}</span>}
-            {usage && (usage as Record<string, unknown>).input_tokens != null && (
-              <span>
-                {String((usage as Record<string, unknown>).input_tokens)}→
-                {String((usage as Record<string, unknown>).output_tokens)} tokens
+    <div className="py-1 px-3">
+      <button className="flex items-center gap-2 w-full text-left group" onClick={onToggle}>
+        <ListChecks className="w-3 h-3 text-[var(--color-sky)]/70 shrink-0" />
+        {isExpanded ? (
+          <ChevronDown className="w-3 h-3 text-[var(--color-stone)]/40" />
+        ) : (
+          <ChevronRight className="w-3 h-3 text-[var(--color-stone)]/40" />
+        )}
+        <span className="text-body text-[var(--color-paper)]/70">Tasks</span>
+        <span className="text-body text-[var(--color-stone)]/50">{summary}</span>
+      </button>
+      {isExpanded && (
+        <div className="ml-5 mt-1 space-y-0.5">
+          {tasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-2 py-0.5">
+              {task.status === 'running' && (
+                <Loader2 className="w-3 h-3 text-[var(--color-sky)] animate-spin shrink-0" />
+              )}
+              {task.status === 'completed' && (
+                <CheckCircle2 className="w-3 h-3 text-[var(--color-jade)] shrink-0" />
+              )}
+              {task.status === 'failed' && (
+                <AlertCircle className="w-3 h-3 text-[var(--color-vermillion)] shrink-0" />
+              )}
+              <span
+                className={cn(
+                  'text-body flex-1 min-w-0 truncate',
+                  task.status === 'running'
+                    ? 'text-[var(--color-paper)]/70'
+                    : 'text-[var(--color-stone)]/60'
+                )}
+              >
+                {task.name}
               </span>
-            )}
-          </div>
-        )}
-      </div>
-      <span
-        className={cn(
-          'text-body text-[var(--color-stone)]/40 font-mono shrink-0',
-          !showTimestamp && 'hidden sm:inline'
-        )}
-      >
-        {time}
-      </span>
+              {task.durationMs != null && (
+                <span className="text-body text-[var(--color-stone)]/40 tabular-nums shrink-0">
+                  {formatDurationMs(task.durationMs)}
+                </span>
+              )}
+              {task.totalTokens != null && (
+                <span className="text-body text-[var(--color-stone)]/30 tabular-nums shrink-0">
+                  {formatTokenCount(task.totalTokens)}t
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const secs = ms / 1000
+  if (secs < 60) return `${secs.toFixed(1)}s`
+  const mins = Math.floor(secs / 60)
+  const remainSecs = Math.round(secs % 60)
+  return `${mins}m${remainSecs}s`
 }
 
 function ScreenshotMessage({
@@ -1296,6 +1346,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
 
   const [filter, setFilter] = useState<MessageFilter>('all')
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set())
+  const [taskChecklistExpanded, setTaskChecklistExpanded] = useState(true)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -1337,6 +1388,8 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       // Handles both new format (type="task_progress") and old format (type="system", content="task_progress")
       if (msg.type === 'task_progress') return false
       if (msg.type === 'system' && msg.content === 'task_progress') return false
+      // Filter out task_updated noise (system messages with no useful content)
+      if (msg.type === 'system' && msg.content === 'task_updated') return false
       // Create unique key from timestamp + type + content preview
       // This handles the race condition between HTTP fetch and WebSocket streaming
       const contentPreview = msg.content?.slice(0, 100) || ''
@@ -1346,12 +1399,27 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       return true
     })
 
+    // Collapse task_started/task_notification into a single placeholder message.
+    // The first task event becomes a synthetic "task_checklist" marker; the rest are removed.
+    let insertedChecklist = false
+    const withChecklist = deduped.reduce<AgentMessage[]>((acc, msg) => {
+      if (msg.type === 'task_started' || msg.type === 'task_notification') {
+        if (!insertedChecklist) {
+          insertedChecklist = true
+          acc.push({ timestamp: msg.timestamp, type: 'system', content: '__task_checklist__' })
+        }
+        return acc
+      }
+      acc.push(msg)
+      return acc
+    }, [])
+
     // Theme C2 — attach preceding assistant reasoning to each tool_use so the
     // tool card can show "why did the agent do X?". We walk forward once and
     // track the most recent reasoning/text block; each tool_use adopts it.
     // A new user message resets the rolling reasoning (new turn starts fresh).
     let currentReasoning: string | null = null
-    return deduped.map((msg) => {
+    return withChecklist.map((msg) => {
       if (msg.type === 'user') {
         currentReasoning = null
         return msg
@@ -1369,6 +1437,48 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       }
       return msg
     })
+  }, [initialMessages, streamedMessages])
+
+  // Aggregate task events into a compact checklist model
+  const aggregatedTasks = useMemo((): AggregatedTask[] => {
+    const taskMap = new Map<string, AggregatedTask>()
+    const allRaw = [...initialMessages, ...streamedMessages]
+    for (const msg of allRaw) {
+      if (msg.type === 'task_started') {
+        const id = (msg.metadata as Record<string, unknown>)?.task_id as string
+        if (!id) continue
+        const name = (msg.content || '').replace(/^Task started:\s*/i, '')
+        taskMap.set(id, { id, name, status: 'running', startedAt: msg.timestamp || '' })
+      }
+      if (msg.type === 'task_notification') {
+        const meta = msg.metadata as Record<string, unknown> | undefined
+        const id = meta?.task_id as string
+        if (!id) continue
+        const existing = taskMap.get(id)
+        const status = meta?.status === 'failed' ? ('failed' as const) : ('completed' as const)
+        const usage = meta?.usage as Record<string, number> | null | undefined
+        if (existing) {
+          existing.status = status
+          existing.completedAt = msg.timestamp || ''
+          existing.durationMs = usage?.duration_ms
+          existing.totalTokens = usage?.total_tokens
+          existing.toolUses = usage?.tool_uses
+        } else {
+          const name = (msg.content || '').replace(/^Task (completed|failed):\s*/i, '')
+          taskMap.set(id, {
+            id,
+            name,
+            status,
+            startedAt: msg.timestamp || '',
+            completedAt: msg.timestamp || '',
+            durationMs: usage?.duration_ms,
+            totalTokens: usage?.total_tokens,
+            toolUses: usage?.tool_uses,
+          })
+        }
+      }
+    }
+    return Array.from(taskMap.values())
   }, [initialMessages, streamedMessages])
 
   // Handle scroll position tracking
@@ -1467,12 +1577,25 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
       if (msg.type === 'screenshot') {
         return <ScreenshotMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
       }
-      if (msg.type === 'task_started' || msg.type === 'task_notification') {
-        return <TaskMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
+      if (msg.content === '__task_checklist__' && aggregatedTasks.length > 0) {
+        return (
+          <TaskChecklist
+            key="task-checklist"
+            tasks={aggregatedTasks}
+            isExpanded={taskChecklistExpanded}
+            onToggle={() => setTaskChecklistExpanded((v) => !v)}
+          />
+        )
       }
       return <SystemMessage key={msgKey} msg={msg} showTimestamp={isFirstOrLast} />
     },
-    [expandedTools, filteredMessages.length, toggleToolExpanded]
+    [
+      expandedTools,
+      filteredMessages.length,
+      toggleToolExpanded,
+      aggregatedTasks,
+      taskChecklistExpanded,
+    ]
   )
 
   // Auto-scroll to bottom when new messages arrive (using virtualizer)
