@@ -891,8 +891,10 @@ function SystemMessage({
   const config = MESSAGE_CONFIG[msg.type] || MESSAGE_CONFIG.system
   const Icon = config.icon
   const isResult = msg.type === 'result'
-  const isLong = isResult && msg.content.length > 200
-  const [isExpanded, setIsExpanded] = useState(true)
+  const isThinking = msg.type === 'thinking'
+  const hasExpandableContent = isResult || isThinking
+  const isLong = hasExpandableContent && msg.content.length > 200
+  const [isExpanded, setIsExpanded] = useState(isResult)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -905,37 +907,41 @@ function SystemMessage({
     <div
       className={cn(
         'flex gap-2 py-1.5 px-3',
-        isResult ? 'items-start' : 'items-center',
+        hasExpandableContent ? 'items-start' : 'items-center',
         config.bg,
         config.border
       )}
     >
       <Icon className={cn('w-2.5 h-2.5 shrink-0 mt-0.5', config.color)} />
-      {isResult ? (
+      {hasExpandableContent ? (
         <div className={cn('text-body flex-1 min-w-0 leading-relaxed', config.color)}>
-          <div className={cn(!isExpanded && 'line-clamp-3')}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {msg.content}
-            </ReactMarkdown>
+          <div className={cn('whitespace-pre-wrap break-words', !isExpanded && 'line-clamp-3')}>
+            {isResult ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {msg.content}
+              </ReactMarkdown>
+            ) : (
+              msg.content
+            )}
           </div>
-          <div className="flex items-center gap-3 mt-1">
-            {isLong && (
+          {isLong && (
+            <div className="flex items-center gap-3 mt-1">
               <button
                 className="text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
                 onClick={() => setIsExpanded(!isExpanded)}
               >
                 {isExpanded ? 'Show less' : 'Show more'}
               </button>
-            )}
-            <button
-              className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
-              onClick={handleCopy}
-              title="Copy markdown to clipboard"
-            >
-              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              <span>{copied ? 'Copied' : 'Copy'}</span>
-            </button>
-          </div>
+              <button
+                className="flex items-center gap-1 text-body text-[var(--color-stone)]/60 hover:text-[var(--color-paper)]"
+                onClick={handleCopy}
+                title="Copy to clipboard"
+              >
+                {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <span className={cn('text-body flex-1', config.color)}>{msg.content}</span>
