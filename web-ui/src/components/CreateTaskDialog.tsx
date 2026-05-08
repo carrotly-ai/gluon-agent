@@ -180,8 +180,6 @@ export function CreateTaskDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
-
   // Formula mode state
   const [mode, setMode] = useState<'manual' | 'formula'>('manual')
   const [formulaTemplates, setFormulaTemplates] = useState<FormulaTemplate[]>([])
@@ -589,7 +587,6 @@ export function CreateTaskDialog({
     }
   }
 
-  const selectedProfileOption = PROFILE_OPTIONS.find((p) => p.value === profile)
   const selectedAdvancedModelOption = MODEL_OPTIONS.find((m) => m.value === modelOverride)
   const selectedAdvancedThinkingOption = THINKING_OPTIONS.find((t) => t.value === thinkingOverride)
   const selectedAdvancedEffortOption = EFFORT_OPTIONS.find((e) => e.value === effortOverride)
@@ -1052,60 +1049,32 @@ export function CreateTaskDialog({
               )}
             </div>
 
-            {/* Profile Select */}
-            <div>
-              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+            {/* Profile Select — compact segmented buttons */}
+            <div className="flex items-center gap-2">
+              <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/70 shrink-0">
                 Profile
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                  onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                >
-                  <span className="text-[var(--color-paper)]">
-                    {selectedProfileOption?.label}
-                    <span className="ml-2 text-[var(--color-stone)]/60">
-                      {selectedProfileOption?.description}
-                    </span>
-                  </span>
-                  <ChevronDown
+              </span>
+              <div className="flex items-center gap-1 flex-1">
+                {PROFILE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
                     className={cn(
-                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                      profileDropdownOpen && 'rotate-180'
+                      'px-2.5 py-1 text-caption rounded-sm transition-colors',
+                      profile === option.value
+                        ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:bg-[rgba(163,163,163,0.06)]'
                     )}
-                  />
-                </button>
-
-                {profileDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                    {PROFILE_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={cn(
-                          'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                          profile === option.value
-                            ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                            : 'text-[var(--color-stone)]'
-                        )}
-                        onClick={() => {
-                          setProfile(option.value)
-                          setProfileDropdownOpen(false)
-                          // Clear model transition when switching away from Planning
-                          if (option.value !== 'planning') {
-                            setModelTransition('')
-                          }
-                        }}
-                      >
-                        {option.label}
-                        <span className="ml-2 text-[var(--color-stone)]/60">
-                          {option.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                    onClick={() => {
+                      setProfile(option.value)
+                      if (option.value !== 'planning') {
+                        setModelTransition('')
+                      }
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1120,7 +1089,28 @@ export function CreateTaskDialog({
                   className={cn('w-4 h-4 transition-transform', showAdvanced && 'rotate-90')}
                 />
                 <Settings className="w-4 h-4" />
-                <span>Advanced Options</span>
+                <span>Advanced</span>
+                {!showAdvanced &&
+                  (useWorktree ||
+                    ralphEnabled ||
+                    agentTeams ||
+                    modelOverride ||
+                    thinkingOverride ||
+                    effortOverride ||
+                    maxBudgetOverride ||
+                    taskBudgetOverride) && (
+                    <span className="text-caption text-[var(--color-stone)]/50 ml-1">
+                      {[
+                        useWorktree && 'worktree',
+                        ralphEnabled && 'loop',
+                        agentTeams && 'teams',
+                        modelOverride && modelOverride,
+                        effortOverride && effortOverride,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  )}
               </button>
 
               {showAdvanced && (
