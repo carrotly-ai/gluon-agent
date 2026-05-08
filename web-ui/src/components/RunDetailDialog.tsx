@@ -655,8 +655,10 @@ export function RunDetailDialog({
     try {
       const updated = await cancelRun(run.id)
       onRunUpdated(updated)
+      toast.success('Run cancelled')
     } catch (err) {
       console.error('Failed to cancel run:', err)
+      toast.error('Failed to cancel run')
     } finally {
       setCancelling(false)
     }

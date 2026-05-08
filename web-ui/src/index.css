@@ -11,7 +11,7 @@
   --color-void: #0c0c0c;
   --color-ink: #171717;
   --color-paper: #fafaf9;
-  --color-stone: #a3a3a3;
+  --color-stone: #b0b0b0;
   --color-mist: #e5e5e5;
   --color-vermillion: #c73e3a;
   --color-indigo: #3d5a80;
@@ -241,20 +241,20 @@ body {
 }
 
 .text-body {
-  font-size: 0.75rem !important; /* 12px - body text, descriptions */
+  font-size: 0.8125rem !important; /* 13px - body text, descriptions */
   font-weight: 300;
   line-height: 1.5;
 }
 
 /* Input text - same as text-body but allows touch device override for iOS zoom prevention */
 .text-input {
-  font-size: 0.75rem; /* 12px on desktop */
+  font-size: 0.8125rem; /* 13px on desktop */
   font-weight: 300;
   line-height: 1.5;
 }
 
 .text-caption {
-  font-size: 0.625rem; /* 10px - labels, metadata, buttons */
+  font-size: 0.6875rem; /* 11px - labels, metadata, buttons */
   font-weight: 300;
   color: var(--color-stone);
   letter-spacing: 0.03em;
@@ -262,7 +262,7 @@ body {
 
 .text-mono {
   font-family: var(--font-mono);
-  font-size: 0.625rem; /* 10px - align with caption */
+  font-size: 0.6875rem; /* 11px - align with caption */
   letter-spacing: -0.01em;
 }
 
