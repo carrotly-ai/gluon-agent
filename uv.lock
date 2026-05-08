@@ -783,7 +783,7 @@ wheels = [
 
 [[package]]
 name = "gluon-agent"
-version = "0.11.8"
+version = "0.11.9"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic", extra = ["vertex"] },
