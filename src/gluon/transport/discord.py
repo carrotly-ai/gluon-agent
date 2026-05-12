@@ -21,7 +21,7 @@ from gluon.transport.base import Transport, TransportContext, TransportResponse
 from gluon.transport.capabilities import DISCORD_CAPS, TransportCapabilities
 
 if TYPE_CHECKING:
-    from gluon.models import PendingApproval
+    from gluon.models import PendingApproval, PendingQuestion
     from gluon.store import GluonStore
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 # Button custom_id format: "approval:<decision>:<uuid>". Discord's custom_id
 # limit is 100 chars, which comfortably fits a decision keyword + UUID.
 _APPROVAL_CUSTOM_ID_PREFIX = "approval"
+
+# Select-menu custom_id format: "question:<uuid>" — fits Discord's 100-char limit
+_QUESTION_CUSTOM_ID_PREFIX = "question"
 
 
 def _truncate(text: str, limit: int = 300) -> str:
@@ -224,6 +227,169 @@ async def _edit_approval_message(interaction, approval, *, decided_by_note: bool
         await interaction.message.edit(embed=embed, view=None)
     except Exception:
         logger.debug("Could not edit approval message", exc_info=True)
+
+
+def format_question_embed(question: PendingQuestion):
+    """Format a PendingQuestion as a rich Discord embed."""
+    if not DISCORD_AVAILABLE:
+        raise RuntimeError("discord.py not installed")
+
+    embed = discord.Embed(
+        title=f"❓ {question.header}",
+        description=_truncate(question.question_text, 1500),
+        color=0x3498DB,  # blue — input requested
+    )
+    embed.add_field(name="Run", value=f"`{question.run_id[:8]}`", inline=True)
+    embed.add_field(name="Question", value=f"`{question.id[:8]}`", inline=True)
+    if question.multi_select:
+        embed.add_field(name="Mode", value="multi-select", inline=True)
+
+    # Show option list inline so it's visible in the channel feed even if
+    # the picker is collapsed.
+    options_text_parts: list[str] = []
+    for opt in question.options[:10]:
+        label = opt.get("label", "")
+        desc = opt.get("description", "")
+        if desc:
+            options_text_parts.append(f"• **{label}** — {desc}")
+        else:
+            options_text_parts.append(f"• **{label}**")
+    if options_text_parts:
+        embed.add_field(
+            name="Options",
+            value=_truncate("\n".join(options_text_parts), 1000),
+            inline=False,
+        )
+
+    footer = "Pick an option below."
+    if question.multi_select:
+        footer = "Pick one or more options below."
+    embed.set_footer(text=footer)
+    return embed
+
+
+def _build_question_view(
+    question: PendingQuestion,
+    store: GluonStore,
+    is_authorized: callable,
+):
+    """Build a persistent question Select view.
+
+    Uses a discord.ui.Select so users can pick from up to 25 options
+    (Discord limit). Multi-select questions enable `max_values > 1`.
+    """
+    if not DISCORD_AVAILABLE:
+        raise RuntimeError("discord.py not installed")
+
+    # Discord limits: max 25 options, label <= 100 chars, value <= 100 chars
+    options: list[discord.SelectOption] = []
+    for idx, opt in enumerate(question.options[:25]):
+        label = (opt.get("label") or f"Option {idx + 1}")[:100]
+        desc = opt.get("description") or None
+        if desc:
+            desc = desc[:100]
+        # Value encodes the option index so unicode/whitespace in labels
+        # doesn't break round-trip through Discord's custom_id pipeline.
+        options.append(discord.SelectOption(label=label, description=desc, value=str(idx)))
+
+    max_values = max(1, len(options)) if question.multi_select else 1
+
+    class QuestionView(discord.ui.View):
+        def __init__(self) -> None:
+            super().__init__(timeout=None)
+
+        @discord.ui.select(
+            placeholder="Select an option…",
+            min_values=1,
+            max_values=max_values,
+            options=options,
+            custom_id=f"{_QUESTION_CUSTOM_ID_PREFIX}:{question.id}",
+        )
+        async def picker(
+            self,
+            interaction: discord.Interaction,
+            select: discord.ui.Select,
+        ) -> None:
+            await _handle_question_decision(
+                interaction=interaction,
+                store=store,
+                question_id=question.id,
+                selected_values=list(select.values),
+                option_labels=[o.label for o in options],
+                is_authorized=is_authorized,
+            )
+
+    return QuestionView()
+
+
+async def _handle_question_decision(
+    *,
+    interaction,
+    store: GluonStore,
+    question_id: str,
+    selected_values: list[str],
+    option_labels: list[str],
+    is_authorized: callable,
+) -> None:
+    """Persist a user's question answer; runner picks it up on its next poll."""
+    from gluon.models import QuestionStatus
+
+    user_id = f"discord:{interaction.user.id}"
+
+    if not is_authorized(user_id):
+        await interaction.response.send_message("Not authorized.", ephemeral=True)
+        return
+
+    question = store.get_pending_question(question_id)
+    if question is None:
+        await interaction.response.send_message(
+            f"Question {question_id[:8]} not found.",
+            ephemeral=True,
+        )
+        return
+
+    if question.status != QuestionStatus.PENDING:
+        await interaction.response.send_message(
+            f"Already {question.status.value}.",
+            ephemeral=True,
+        )
+        return
+
+    # Map selected indexes back to labels
+    selected_labels: list[str] = []
+    for v in selected_values:
+        try:
+            idx = int(v)
+            if 0 <= idx < len(option_labels):
+                selected_labels.append(option_labels[idx])
+        except (TypeError, ValueError):
+            continue
+
+    if not selected_labels:
+        await interaction.response.send_message("No valid option selected.", ephemeral=True)
+        return
+
+    question.answer(selected_labels, source="user")
+    store.update_pending_question(question)
+
+    summary = ", ".join(selected_labels)
+    await interaction.response.send_message(f"Answer recorded: {summary}", ephemeral=True)
+    try:
+        await _edit_question_message(interaction, question, selected_labels)
+    except Exception:
+        logger.debug("Could not edit question message", exc_info=True)
+
+
+async def _edit_question_message(interaction, question, selected_labels: list[str]) -> None:
+    """Show the answer in the embed + remove the picker."""
+    try:
+        embed = format_question_embed(question)
+        embed.color = 0x2ECC71  # green — answered
+        embed.title = f"✅ {question.header}"
+        embed.set_footer(text=f"Answered: {', '.join(selected_labels)}")
+        await interaction.message.edit(embed=embed, view=None)
+    except Exception:
+        logger.debug("Could not edit question message", exc_info=True)
 
 
 # Model aliases for convenience
@@ -436,8 +602,9 @@ class DiscordTransport(Transport):
         # Channel-to-project explicit mappings (loaded from DB)
         self._channel_project_map: dict[int, str] = {}
 
-        # Approval watcher (started on bot ready)
+        # Approval + question watchers (started on bot ready)
         self._approval_watcher = None
+        self._question_watcher = None
 
     @property
     def name(self) -> str:
@@ -455,8 +622,9 @@ class DiscordTransport(Transport):
             logger.info(f"Discord bot logged in as {self.bot.user}")
             # Load channel mappings from DB
             self._load_channel_mappings()
-            # Start the approval watcher now that the bot is connected
+            # Start the approval + question watchers now that the bot is connected
             await self._start_approval_watcher()
+            await self._start_question_watcher()
 
         @self.bot.event
         async def on_message(message: discord.Message):
@@ -475,6 +643,20 @@ class DiscordTransport(Transport):
             name="discord-approvals",
         )
         await self._approval_watcher.start()
+
+    async def _start_question_watcher(self) -> None:
+        """Start the QuestionWatcher once (idempotent)."""
+        if self._question_watcher is not None and self._question_watcher.is_running:
+            return
+
+        from gluon.question_watcher import QuestionWatcher
+
+        self._question_watcher = QuestionWatcher(
+            store=self.bot_core.store,
+            poster=self,
+            name="discord-questions",
+        )
+        await self._question_watcher.start()
 
     def _load_channel_mappings(self) -> None:
         """Load channel-to-project mappings from database."""
@@ -582,7 +764,12 @@ class DiscordTransport(Transport):
         ctx: TransportContext,
         response: TransportResponse,
     ) -> str:
-        """Send a message to Discord."""
+        """Send a message to Discord.
+
+        Honors ``response.reply_to_id`` to thread the message under an
+        existing one (e.g. so completion/approval/question notifications
+        anchor to the task's status message).
+        """
         text = self.truncate_text(response.text)
 
         channel_id = int(ctx.chat_id)
@@ -591,10 +778,21 @@ class DiscordTransport(Transport):
         if not channel:
             channel = await self.bot.fetch_channel(channel_id)
 
-        if not isinstance(channel, discord.TextChannel):
+        if not isinstance(channel, discord.abc.Messageable):
             raise ValueError(f"Cannot send to channel type: {type(channel)}")
 
-        msg = await channel.send(text)
+        send_kwargs: dict = {"content": text}
+        if response.reply_to_id:
+            try:
+                send_kwargs["reference"] = discord.MessageReference(
+                    message_id=int(response.reply_to_id),
+                    channel_id=channel_id,
+                    fail_if_not_exists=False,
+                )
+            except (TypeError, ValueError):
+                pass  # Bad reply_to_id — fall through to a normal send
+
+        msg = await channel.send(**send_kwargs)
         return str(msg.id)
 
     async def edit(
@@ -650,57 +848,184 @@ class DiscordTransport(Transport):
 
     async def stop(self) -> None:
         """Stop the Discord bot."""
-        # Stop approval watcher if it was started
+        # Stop watchers if they were started
         if self._approval_watcher is not None:
             try:
                 await self._approval_watcher.stop()
             except Exception:
                 logger.debug("Approval watcher stop failed", exc_info=True)
 
+        if self._question_watcher is not None:
+            try:
+                await self._question_watcher.stop()
+            except Exception:
+                logger.debug("Question watcher stop failed", exc_info=True)
+
         await self.bot_core.git_manager.stop_background_sync()
         await self.bot.close()
         logger.info("Discord transport stopped")
+
+    async def _resolve_run_origin_channel(
+        self,
+        run_id: str,
+    ) -> tuple[discord.abc.Messageable | None, int | None]:
+        """Find the Discord channel and originating status message for a run.
+
+        Looks up the most recent `message_run_map` row for this run on the
+        discord transport. If the run was started from a Discord channel,
+        returns (channel, status_message_id) so callers can post a threaded
+        reply that anchors the notification to the task that triggered it.
+
+        Returns (None, None) if no Discord origin exists (run was started
+        from CLI/web/Telegram) or the channel can't be fetched.
+        """
+        try:
+            mapping = self.bot_core.store.find_message_run_map_by_run(run_id, transport="discord")
+        except Exception:
+            logger.debug("find_message_run_map_by_run failed for %s", run_id[:8], exc_info=True)
+            return None, None
+
+        if mapping is None:
+            return None, None
+
+        try:
+            channel_id = int(mapping.chat_id)
+        except (TypeError, ValueError):
+            return None, None
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except Exception:
+                logger.debug("Origin channel %s for run %s not fetchable", channel_id, run_id[:8])
+                return None, None
+
+        if not isinstance(channel, discord.abc.Messageable):
+            return None, None
+
+        try:
+            message_id = int(mapping.message_id)
+        except (TypeError, ValueError):
+            message_id = None
+
+        return channel, message_id
 
     async def post_approval_request(self, approval: PendingApproval) -> bool:
         """Post an approval request to Discord with Approve/Deny buttons.
 
         Called by the ApprovalWatcher. Returns True on success, False on
-        retry-worthy failure. If no approval_channel_id is configured, returns
-        True (no-op — don't spam logs, but watcher won't retry).
-        """
-        if self.approval_channel_id is None:
-            logger.warning(
-                "Discord has no approval_channel_id configured; skipping approval %s",
-                approval.id[:8],
-            )
-            return True  # No-op — avoid retry spam
+        retry-worthy failure.
 
-        try:
-            channel = self.bot.get_channel(self.approval_channel_id)
-            if channel is None:
-                try:
-                    channel = await self.bot.fetch_channel(self.approval_channel_id)
-                except Exception as e:
-                    logger.warning("Approval channel %s not found: %s", self.approval_channel_id, e)
+        Routing priority:
+          1. The channel the run was originally submitted from (per the
+             message_run_map). The approval is posted as a reply to the
+             originating status message so all task context stays threaded
+             in one place.
+          2. The legacy GLUON_DISCORD_APPROVAL_CHANNEL fallback.
+        If neither is available, returns True (no-op) so the watcher stops
+        retrying instead of spamming logs.
+        """
+        # Try the originating Discord channel first
+        origin_channel, origin_msg_id = await self._resolve_run_origin_channel(approval.run_id)
+
+        target_channel: discord.abc.Messageable | None = origin_channel
+        reply_to_id = origin_msg_id
+
+        if target_channel is None:
+            # Fall back to the dedicated approval channel
+            if self.approval_channel_id is None:
+                logger.warning(
+                    "No Discord channel for approval %s (no run origin, no approval_channel_id)",
+                    approval.id[:8],
+                )
+                return True  # No-op — avoid retry spam
+
+            try:
+                fallback = self.bot.get_channel(self.approval_channel_id)
+                if fallback is None:
+                    try:
+                        fallback = await self.bot.fetch_channel(self.approval_channel_id)
+                    except Exception as e:
+                        logger.warning("Approval channel %s not found: %s", self.approval_channel_id, e)
+                        return False
+
+                if not isinstance(fallback, discord.abc.Messageable):
+                    logger.warning(
+                        "Approval channel %s is not messageable (%s)",
+                        self.approval_channel_id,
+                        type(fallback),
+                    )
                     return False
 
-            if not isinstance(channel, discord.abc.Messageable):
-                logger.warning(
-                    "Approval channel %s is not messageable (%s)",
-                    self.approval_channel_id,
-                    type(channel),
-                )
+                target_channel = fallback
+                reply_to_id = None
+            except Exception as e:
+                logger.warning("Failed to resolve fallback approval channel: %s", e)
                 return False
 
+        try:
             embed = format_approval_embed(approval)
             view = _build_approval_view(approval.id, self.bot_core.store, self.is_authorized)
             # Register as persistent view so buttons survive bot restart
             self.bot.add_view(view)
 
-            await channel.send(embed=embed, view=view)
+            send_kwargs: dict = {"embed": embed, "view": view}
+            if reply_to_id is not None:
+                # MessageReference with fail_if_not_exists=False so a deleted
+                # status message doesn't drop the approval on the floor.
+                send_kwargs["reference"] = discord.MessageReference(
+                    message_id=reply_to_id,
+                    channel_id=target_channel.id if hasattr(target_channel, "id") else None,
+                    fail_if_not_exists=False,
+                )
+
+            await target_channel.send(**send_kwargs)
             return True
         except Exception as e:
             logger.warning("Failed to post approval %s to Discord: %s", approval.id[:8], e)
+            return False
+
+    async def post_question_request(self, question: PendingQuestion) -> bool:
+        """Post a pending AskUserQuestion to Discord with a select-menu.
+
+        Called by the QuestionWatcher. Routes to the originating channel
+        for the question's run (per message_run_map) so the question lands
+        in the same channel that submitted the task. If the run wasn't
+        originated from Discord, returns True (no-op) — another transport
+        will handle it, and we don't want the watcher retrying forever.
+        """
+        origin_channel, origin_msg_id = await self._resolve_run_origin_channel(question.run_id)
+
+        if origin_channel is None:
+            # Run didn't come from Discord — nothing for us to do. Mark
+            # delivered so the watcher stops retrying; other transports
+            # (Telegram) post via their own watcher.
+            logger.debug(
+                "No Discord origin for question %s on run %s; skipping",
+                question.id[:8],
+                question.run_id[:8],
+            )
+            return True
+
+        try:
+            embed = format_question_embed(question)
+            view = _build_question_view(question, self.bot_core.store, self.is_authorized)
+            # Register as persistent view so the select-menu survives bot restart
+            self.bot.add_view(view)
+
+            send_kwargs: dict = {"embed": embed, "view": view}
+            if origin_msg_id is not None:
+                send_kwargs["reference"] = discord.MessageReference(
+                    message_id=origin_msg_id,
+                    channel_id=origin_channel.id if hasattr(origin_channel, "id") else None,
+                    fail_if_not_exists=False,
+                )
+
+            await origin_channel.send(**send_kwargs)
+            return True
+        except Exception as e:
+            logger.warning("Failed to post question %s to Discord: %s", question.id[:8], e)
             return False
 
     async def _handle_message(self, message: discord.Message) -> None:
@@ -1190,6 +1515,16 @@ class DiscordTransport(Transport):
 
         ctx = self._make_context(message, project_hint=project.name)
 
+        # Persist the message<->run mapping NOW so approval/question watchers
+        # can route notifications back to this DM while the task is running.
+        self.bot_core.store.create_message_run_map(
+            transport="discord",
+            message_id=str(status_msg.id),
+            run_id=run.id,
+            chat_id=str(message.channel.id),
+            user_id=ctx.user_id,
+        )
+
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
             # Send to DM channel
             msg = await message.channel.send(response.text[:2000])
@@ -1217,14 +1552,6 @@ class DiscordTransport(Transport):
                             f"_{cleaned_prompt[:60]}{'...' if len(cleaned_prompt) > 60 else ''}_\n"
                             f"💬 Reply to continue"
                         )
-                    )
-                    # Track this message for future resume (persisted to DB)
-                    self.bot_core.store.create_message_run_map(
-                        transport="discord",
-                        message_id=str(status_msg.id),
-                        run_id=run.id,
-                        chat_id=str(message.channel.id),
-                        user_id=ctx.user_id,
                     )
 
             except Exception:
@@ -1291,6 +1618,16 @@ class DiscordTransport(Transport):
 
         ctx = self._make_context(message)
 
+        # Persist the message<->run mapping NOW so approval/question watchers
+        # can route notifications back to this channel while the task runs.
+        self.bot_core.store.create_message_run_map(
+            transport="discord",
+            message_id=str(status_msg.id),
+            run_id=new_run.id,
+            chat_id=str(message.channel.id),
+            user_id=user_id,
+        )
+
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
             return await self.send(ctx, response)
 
@@ -1316,14 +1653,6 @@ class DiscordTransport(Transport):
                             f"_{prompt[:60]}{'...' if len(prompt) > 60 else ''}_\n"
                             f"💬 Reply to continue"
                         )
-                    )
-                    # Track this message for future resume (persisted to DB)
-                    self.bot_core.store.create_message_run_map(
-                        transport="discord",
-                        message_id=str(status_msg.id),
-                        run_id=new_run.id,
-                        chat_id=str(message.channel.id),
-                        user_id=user_id,
                     )
 
             except Exception:
@@ -1417,6 +1746,17 @@ class DiscordTransport(Transport):
             f"Run: `{run.id[:8]}`\nStatus: Running..."
         )
 
+        # Persist the message<->run mapping NOW (not at completion) so the
+        # approval/question watchers can route notifications back to this
+        # channel while the task is still running.
+        self.bot_core.store.create_message_run_map(
+            transport="discord",
+            message_id=str(status_msg.id),
+            run_id=run.id,
+            chat_id=str(message.channel.id),
+            user_id=ctx.user_id,
+        )
+
         async def send_callback(ctx: TransportContext, response: TransportResponse) -> str | None:
             return await self.send(ctx, response)
 
@@ -1442,14 +1782,6 @@ class DiscordTransport(Transport):
                             f"_{cleaned_prompt[:60]}{'...' if len(cleaned_prompt) > 60 else ''}_\n"
                             f"💬 Reply to continue"
                         )
-                    )
-                    # Track this message for future resume (persisted to DB)
-                    self.bot_core.store.create_message_run_map(
-                        transport="discord",
-                        message_id=str(status_msg.id),
-                        run_id=run.id,
-                        chat_id=str(message.channel.id),
-                        user_id=ctx.user_id,
                     )
 
             except Exception:

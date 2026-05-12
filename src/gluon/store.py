@@ -812,6 +812,15 @@ MIGRATIONS = [
         "ON link_codes(transport, expires_at) WHERE consumed_at IS NULL;"
     ),
     "ALTER TABLE execution_runs ADD COLUMN ci_status TEXT;",
+    # Discord/Telegram question escalation — track whether a pending question
+    # has been posted to an async transport so the QuestionWatcher doesn't
+    # double-post. Mirrors `pending_approvals.notified_at`.
+    "ALTER TABLE pending_questions ADD COLUMN notified_at TEXT;",
+    ("CREATE INDEX IF NOT EXISTS idx_pending_questions_notified ON pending_questions(status, notified_at);"),
+    # Lookup index: find the most-recent message_run_map row for a given
+    # run, used by approval/question watchers to route notifications back
+    # to the channel that originated the run.
+    "CREATE INDEX IF NOT EXISTS idx_message_run_map_run ON message_run_map(run_id, created_at);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -3908,6 +3917,7 @@ class GluonStore:
 
     def _row_to_pending_question(self, row: sqlite3.Row) -> PendingQuestion:
         """Convert database row to PendingQuestion model."""
+        keys = row.keys()
         return PendingQuestion(
             id=row["id"],
             run_id=row["run_id"],
@@ -3922,7 +3932,44 @@ class GluonStore:
             expires_at=_parse_datetime(row["expires_at"]),
             selected_labels=json.loads(row["selected_labels"]) if row["selected_labels"] else [],
             answer_source=row["answer_source"],
+            notified_at=_parse_datetime(row["notified_at"]) if "notified_at" in keys else None,
         )
+
+    def list_pending_undelivered_questions(self, limit: int = 50) -> list[PendingQuestion]:
+        """Return PENDING questions that have not yet been notified to an async transport.
+
+        Used by the QuestionWatcher to find questions needing a Telegram/Discord
+        notification. Once posted, the watcher calls `mark_question_notified`
+        so subsequent polls skip it. Mirrors `list_pending_undelivered_approvals`.
+        """
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM pending_questions
+                WHERE status = ? AND notified_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (QuestionStatus.PENDING.value, limit),
+            ).fetchall()
+            return [self._row_to_pending_question(row) for row in rows]
+
+    def mark_question_notified(self, question_id: str) -> bool:
+        """Record that a question has been posted to an async transport.
+
+        Atomic — uses WHERE notified_at IS NULL so two watchers don't
+        double-notify. Returns True if this caller won the race.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE pending_questions
+                SET notified_at = ?
+                WHERE id = ? AND notified_at IS NULL
+                """,
+                (utc_now().isoformat(), question_id),
+            )
+            return cursor.rowcount > 0
 
     # ========== Todo Snapshot CRUD ==========
 
@@ -4955,6 +5002,50 @@ class GluonStore:
                 """,
                 (transport, message_id, chat_id, utc_now().isoformat()),
             ).fetchone()
+            if row:
+                return self._row_to_message_run_map(row)
+        return None
+
+    def find_message_run_map_by_run(
+        self,
+        run_id: str,
+        transport: str | None = None,
+    ) -> MessageRunMapping | None:
+        """Find the most-recent (non-expired) message-to-run mapping for a run.
+
+        Used by transports to discover the originating channel/message for a
+        run so out-of-band notifications (approvals, questions, completions)
+        can be posted back into the same Discord channel — replying to the
+        originating status message for thread continuity.
+
+        Args:
+            run_id: ExecutionRun ID to look up
+            transport: Optional transport filter (e.g., "discord")
+
+        Returns:
+            Most-recent MessageRunMapping, or None if none exists / all expired
+        """
+        with self._get_conn() as conn:
+            if transport:
+                row = conn.execute(
+                    """
+                    SELECT * FROM message_run_map
+                    WHERE run_id = ? AND transport = ? AND expires_at > ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (run_id, transport, utc_now().isoformat()),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT * FROM message_run_map
+                    WHERE run_id = ? AND expires_at > ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (run_id, utc_now().isoformat()),
+                ).fetchone()
             if row:
                 return self._row_to_message_run_map(row)
         return None

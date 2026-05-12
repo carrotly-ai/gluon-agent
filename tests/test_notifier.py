@@ -37,9 +37,10 @@ def _make_run(
     return run
 
 
-def _make_mock_store(project_name: str = "my-project", mappings=None):
+def _make_mock_store(project_name: str = "my-project", mappings=None, origin=None):
     store = MagicMock()
     store.list_channel_mappings_for_project.return_value = mappings or []
+    store.find_message_run_map_by_run.return_value = origin
     project = MagicMock()
     project.name = project_name
     store.get_project.return_value = project
@@ -223,6 +224,79 @@ class TestNotify:
 
         await dispatcher.notify(run, RunStatus.RUNNING, RunStatus.FAILED)
         transport.send.assert_awaited_once()
+
+
+class TestNotifyOriginRouting:
+    """Routes completion notifications to the channel that originated the run."""
+
+    def _make_origin(self, transport: str = "discord", chat_id: str = "555", message_id: str = "7777"):
+        m = MagicMock()
+        m.transport = transport
+        m.chat_id = chat_id
+        m.message_id = message_id
+        return m
+
+    @pytest.mark.asyncio
+    async def test_posts_to_origin_channel_with_reply_threading(self):
+        origin = self._make_origin("discord", "555", "7777")
+        store = _make_mock_store(mappings=[], origin=origin)
+        transport = AsyncMock()
+        dispatcher = NotificationDispatcher(store=store, transports={"discord": transport})
+
+        run = _make_run()
+        await dispatcher.notify(run, RunStatus.RUNNING, RunStatus.COMPLETED)
+
+        transport.send.assert_awaited_once()
+        ctx, response = transport.send.call_args.args
+        assert ctx.transport == "discord"
+        assert ctx.chat_id == "555"
+        assert response.reply_to_id == "7777"
+
+    @pytest.mark.asyncio
+    async def test_origin_and_project_mappings_dedup(self):
+        """If origin chat matches a project-wide mapping, only one send."""
+        origin = self._make_origin("discord", "555", "7777")
+        mapping = _make_mapping("discord", "555")
+        store = _make_mock_store(mappings=[mapping], origin=origin)
+        transport = AsyncMock()
+        dispatcher = NotificationDispatcher(store=store, transports={"discord": transport})
+
+        run = _make_run()
+        await dispatcher.notify(run, RunStatus.RUNNING, RunStatus.COMPLETED)
+
+        # Posted exactly once (origin), project-wide mapping deduped
+        assert transport.send.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_origin_plus_other_project_mapping_both_fire(self):
+        """Origin in chat-A; project mapping for chat-B → both get notified."""
+        origin = self._make_origin("discord", "chat-A", "msg-7")
+        mapping = _make_mapping("discord", "chat-B")
+        store = _make_mock_store(mappings=[mapping], origin=origin)
+        transport = AsyncMock()
+        dispatcher = NotificationDispatcher(store=store, transports={"discord": transport})
+
+        run = _make_run()
+        await dispatcher.notify(run, RunStatus.RUNNING, RunStatus.COMPLETED)
+
+        assert transport.send.await_count == 2
+        chat_ids = [call.args[0].chat_id for call in transport.send.await_args_list]
+        assert "chat-A" in chat_ids
+        assert "chat-B" in chat_ids
+
+    @pytest.mark.asyncio
+    async def test_origin_transport_not_registered_falls_through_to_mappings(self):
+        """Origin transport unknown → still post to project-wide channel mappings."""
+        origin = self._make_origin("slack", "slack-1", "msg")
+        mapping = _make_mapping("discord", "discord-1")
+        store = _make_mock_store(mappings=[mapping], origin=origin)
+        discord_t = AsyncMock()
+        dispatcher = NotificationDispatcher(store=store, transports={"discord": discord_t})
+
+        run = _make_run()
+        await dispatcher.notify(run, RunStatus.RUNNING, RunStatus.COMPLETED)
+
+        discord_t.send.assert_awaited_once()
 
 
 # ===================================================================

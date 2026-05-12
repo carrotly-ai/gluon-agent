@@ -1159,6 +1159,10 @@ class PendingQuestion(BaseModel):
     selected_labels: list[str] = Field(default_factory=list)  # Selected option label(s)
     answer_source: str | None = None  # "user", "auto_recommended", "auto_first", "ralph"
 
+    # When an async transport (Telegram/Discord) posted this question to a
+    # human. Used by the QuestionWatcher to avoid re-posting. NULL = not yet.
+    notified_at: datetime | None = None
+
     @property
     def is_pending(self) -> bool:
         """Check if question is still awaiting answer."""
