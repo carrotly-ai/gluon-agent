@@ -53,7 +53,15 @@ class NotificationDispatcher:
         old_status: RunStatus,
         new_status: RunStatus,
     ) -> None:
-        """Send notification to all channels mapped to this run's project.
+        """Send notification to channels mapped to this run.
+
+        Routing:
+          1. If the run was originated from a transport channel (per the
+             message_run_map), post into that channel as a reply to the
+             status message — keeps the whole task threaded together.
+          2. Then post into every project-wide ChannelMapping that isn't
+             the same (transport, channel) we already posted to. This lets
+             multiple subscriber channels still get notified.
 
         Skips non-interesting transitions (e.g., PENDING -> RUNNING).
         """
@@ -66,16 +74,45 @@ class NotificationDispatcher:
         if not self.transports:
             return
 
-        mappings = self.store.list_channel_mappings_for_project(run.project_id)
-        if not mappings:
-            return
-
         project = self.store.get_project(run.project_id)
         project_name = project.name if project else run.project_id[:8]
-
         text = self._format(run, project_name, new_status)
 
+        delivered: set[tuple[str, str]] = set()
+
+        # 1. Origin channel — reply to the status message for context
+        origin = self.store.find_message_run_map_by_run(run.id)
+        if origin is not None:
+            transport = self.transports.get(origin.transport)
+            if transport is not None:
+                try:
+                    ctx = TransportContext(
+                        transport=origin.transport,
+                        user_id="gluon:system",
+                        chat_id=origin.chat_id,
+                    )
+                    await transport.send(
+                        ctx,
+                        TransportResponse(
+                            text=text,
+                            parse_mode="markdown",
+                            reply_to_id=origin.message_id,
+                        ),
+                    )
+                    delivered.add((origin.transport, origin.chat_id))
+                except Exception:
+                    logger.debug(
+                        "Failed to send origin notification to %s:%s",
+                        origin.transport,
+                        origin.chat_id,
+                        exc_info=True,
+                    )
+
+        # 2. Project-wide subscribers
+        mappings = self.store.list_channel_mappings_for_project(run.project_id)
         for mapping in mappings:
+            if (mapping.transport, mapping.channel_id) in delivered:
+                continue
             transport = self.transports.get(mapping.transport)
             if not transport:
                 continue
@@ -86,6 +123,7 @@ class NotificationDispatcher:
                     chat_id=mapping.channel_id,
                 )
                 await transport.send(ctx, TransportResponse(text=text, parse_mode="markdown"))
+                delivered.add((mapping.transport, mapping.channel_id))
             except Exception:
                 logger.debug(
                     "Failed to send notification to %s:%s",
