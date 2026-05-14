@@ -29,7 +29,8 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "croniter>=2.0.0",  # Cron expression parsing for heartbeat scheduler
     # Transitive dependency floors for security patches (Dependabot)
-    "python-multipart>=0.0.22",  # CVE: arbitrary file write
+    "python-multipart>=0.0.27",  # CVE: unbounded multipart part header DoS
+    "urllib3>=2.7.0",            # CVE: cross-origin header leak, decompression bomb bypass
     "mcp>=1.23.0",               # CVE: DNS rebinding via SSRF
 ]
 
