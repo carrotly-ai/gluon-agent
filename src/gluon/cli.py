@@ -3727,6 +3727,7 @@ _KNOWN_SETTINGS: dict[str, str] = {
     "prehydration_enabled": "Pre-hydrate project context before the run starts (true/false).",
     "agent_teams_enabled": "Enable agent teams / sub-agents (true/false).",
     "skills_enabled": "Enable SDK skills feature (true/false).",
+    "include_hook_events": "Stream hook events (PreToolUse, PostToolUse, Stop) in the message stream (true/false).",
     "sandbox_enabled": "Enable sandboxed execution (true/false).",
     "github_webhook_secret": "HMAC secret for GitHub webhook signature verification.",
     "session_cleanup_enabled": ("Auto-delete previous Claude session JSONL files on run completion (default false)."),

@@ -1117,6 +1117,7 @@ but explicit commits with good messages are preferred.
                 vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
                 vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
                 skills_enabled = _resolve("skills_enabled", "true", workspace_id) == "true"
+                include_hook_events = _resolve("include_hook_events", "false", workspace_id) == "true"
 
                 agent = GluonAgent(
                     model=run.model or self.agent.model,
@@ -1137,6 +1138,7 @@ but explicit commits with good messages are preferred.
                     vercel_token=vercel_token,
                     task_budget=task_budget,
                     skills_enabled=skills_enabled,
+                    include_hook_events=include_hook_events,
                     # Theme D1: approval gates on risky tool calls
                     approval_policy=run.approval_policy,
                     store=self.store,
@@ -2489,6 +2491,7 @@ but explicit commits with good messages are preferred.
             vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
             vercel_token = _resolve("vercel_token", "", workspace_id) or os.environ.get("VERCEL_TOKEN") or None
             skills_enabled = _resolve("skills_enabled", "true", workspace_id) == "true"
+            include_hook_events = _resolve("include_hook_events", "false", workspace_id) == "true"
 
             agent = GluonAgent(
                 model=run.model or self.agent.model,
@@ -2499,6 +2502,7 @@ but explicit commits with good messages are preferred.
                 vercel_cli_enabled=vercel_cli_enabled,
                 vercel_token=vercel_token,
                 skills_enabled=skills_enabled,
+                include_hook_events=include_hook_events,
             )
 
             # Create and execute ralph manager
@@ -2704,6 +2708,7 @@ but explicit commits with good messages are preferred.
             # Vercel CLI integration (optional)
             vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", ws_id) == "true"
             vercel_token = _resolve("vercel_token", "", ws_id) or os.environ.get("VERCEL_TOKEN") or None
+            include_hook_events = _resolve("include_hook_events", "false", ws_id) == "true"
 
             recovery_agent = (
                 GluonAgent(
@@ -2712,6 +2717,7 @@ but explicit commits with good messages are preferred.
                     agent_teams_enabled=agent_teams_enabled,
                     vercel_cli_enabled=vercel_cli_enabled,
                     vercel_token=vercel_token,
+                    include_hook_events=include_hook_events,
                 )
                 if run.model
                 else self.agent

@@ -2,7 +2,7 @@
 
 Verifies that GluonAgent.execute() correctly yields AgentMessage/AgentResult
 for ResultMessage (stop_reason), TaskStartedMessage, TaskProgressMessage,
-and TaskNotificationMessage from the SDK.
+TaskNotificationMessage, and HookEventMessage from the SDK.
 """
 
 from __future__ import annotations
@@ -12,12 +12,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from claude_agent_sdk import (
+    HookEventMessage,
     ResultMessage,
     TaskNotificationMessage,
     TaskProgressMessage,
     TaskStartedMessage,
 )
-from claude_agent_sdk.types import TaskUsage
+from claude_agent_sdk.types import DeferredToolUse, TaskUsage
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 
@@ -259,3 +260,95 @@ class TestTypedTaskMessages:
         task_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "task_notification"]
         assert len(task_msgs) == 1
         assert task_msgs[0].metadata["usage"] is None
+
+
+# ===========================================================================
+# SDK 0.1.74: HookEventMessage streaming
+# ===========================================================================
+
+
+class TestHookEventMessages:
+    @pytest.mark.asyncio
+    async def test_hook_event_yields_agent_message(self):
+        """HookEventMessage should yield AgentMessage with type='hook_event'."""
+        msgs = [
+            HookEventMessage(
+                subtype="hook_event",
+                data={"tool_name": "Bash", "input": {"command": "ls"}},
+                hook_event_name="PreToolUse",
+                session_id="sess-456",
+            ),
+            _make_result_message(),
+        ]
+        items = await _collect_from_execute(msgs)
+
+        hook_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "hook_event"]
+        assert len(hook_msgs) == 1
+        assert hook_msgs[0].content == "PreToolUse"
+        assert hook_msgs[0].metadata["hook_event_name"] == "PreToolUse"
+        assert hook_msgs[0].metadata["data"]["tool_name"] == "Bash"
+        assert hook_msgs[0].metadata["session_id"] == "sess-456"
+
+    @pytest.mark.asyncio
+    async def test_hook_event_not_treated_as_system_message(self):
+        """HookEventMessage should not be handled by the SystemMessage branch."""
+        msgs = [
+            HookEventMessage(
+                subtype="init",
+                data={"session_id": "should-not-override"},
+                hook_event_name="Stop",
+            ),
+            _make_result_message(),
+        ]
+        items = await _collect_from_execute(msgs)
+
+        hook_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "hook_event"]
+        system_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "system"]
+        assert len(hook_msgs) == 1
+        assert len(system_msgs) == 0
+
+
+# ===========================================================================
+# SDK 0.1.74: deferred_tool_use on ResultMessage
+# ===========================================================================
+
+
+class TestDeferredToolUse:
+    @pytest.mark.asyncio
+    async def test_deferred_tool_use_surfaced_in_result_metadata(self):
+        """When ResultMessage has deferred_tool_use, it should appear in result metadata."""
+        result_msg = ResultMessage(
+            subtype="result",
+            duration_ms=500,
+            duration_api_ms=400,
+            is_error=False,
+            num_turns=1,
+            session_id="sess-789",
+            stop_reason="deferred_tool_use",
+            total_cost_usd=0.1,
+            usage={"input_tokens": 50, "output_tokens": 20},
+            result="Deferred",
+            deferred_tool_use=DeferredToolUse(
+                id="tool-1",
+                name="Bash",
+                input={"command": "rm -rf /"},
+            ),
+        )
+        items = await _collect_from_execute([result_msg])
+
+        result_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "result"]
+        assert len(result_msgs) == 1
+        deferred = result_msgs[0].metadata["deferred_tool_use"]
+        assert deferred is not None
+        assert deferred["id"] == "tool-1"
+        assert deferred["name"] == "Bash"
+        assert deferred["input"] == {"command": "rm -rf /"}
+
+    @pytest.mark.asyncio
+    async def test_no_deferred_tool_use_is_none(self):
+        """When no deferred_tool_use, the metadata field should be None."""
+        items = await _collect_from_execute([_make_result_message()])
+
+        result_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "result"]
+        assert len(result_msgs) == 1
+        assert result_msgs[0].metadata["deferred_tool_use"] is None
