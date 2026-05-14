@@ -1014,6 +1014,22 @@ class ExecutionRun(BaseModel):
     chain_id: str | None = None  # FK to task_chains (if part of a chain)
     step_id: str | None = None  # FK to task_steps (which step this run executes)
 
+    # List-view cockpit fields — see docs/LIST-VIEW.md / tmp/list-view-plan.md
+    # custom_title: user-editable display name; falls back to truncated prompt when null.
+    custom_title: str | None = None
+    # kind: low-cardinality run category. Today: research / build / docs / bug / review / chore.
+    # Auto-detected from prompt on create; user can override via PATCH /api/runs/{id}.
+    kind: str | None = None
+    # snoozed_until: when set in the future, run hides from default list and lives in
+    # the "Snoozed" group; expires implicitly when datetime passes.
+    snoozed_until: datetime | None = None
+    # last_activity_at: bumped on create, resume, status change, queued-followup append.
+    # Powers the "Recent activity" sort. Distinct from `last_output_at` (token stream).
+    last_activity_at: datetime | None = None
+    # forked_from_run_id: parent run when this run was created via POST /api/runs/{id}/fork.
+    # Distinct from `recovery_from_run_id` (context-overflow recovery).
+    forked_from_run_id: str | None = None
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
@@ -1066,9 +1082,19 @@ class ExecutionRun(BaseModel):
         self.error_message = None
         self.resume_count += 1
         self.last_resumed_at = utc_now()
+        self.last_activity_at = utc_now()
         if fresh_session:
             self.claude_session_id = None
         # Reset PID - will be set by mark_running or subprocess
+
+    def bump_activity(self) -> None:
+        """Mark this run as recently touched — for "Recent activity" sorting."""
+        self.last_activity_at = utc_now()
+
+    @property
+    def is_snoozed(self) -> bool:
+        """True if `snoozed_until` is set and still in the future."""
+        return self.snoozed_until is not None and self.snoozed_until > utc_now()
 
     @property
     def is_resumable(self) -> bool:

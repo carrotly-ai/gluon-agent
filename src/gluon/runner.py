@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import random
+import re
 import signal
 import subprocess
 import sys
@@ -159,6 +160,30 @@ def _enforce_workspace_budget(store: "GluonStore", workspace_id: str) -> None:
                 spent_month,
                 budget,
             )
+
+
+_KIND_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # Order matters — first match wins. Earlier patterns are more specific.
+    ("bug", re.compile(r"\b(fix|bug|broken|error|crash|regression|repair)\b", re.I)),
+    ("docs", re.compile(r"\b(document(ation)?|docs?|readme|changelog|write[- ]?up)\b", re.I)),
+    ("review", re.compile(r"\b(review|audit|critique|pr\s*#?\d|merge\s+pr)\b", re.I)),
+    ("research", re.compile(r"\b(research|investigate|explore|study|analy[sz]e|look into)\b", re.I)),
+    ("chore", re.compile(r"\b(refactor|cleanup|tidy|rename|reformat|lint|chore)\b", re.I)),
+)
+
+
+def auto_detect_kind(prompt: str) -> str:
+    """Cheaply classify a prompt into one of:
+    research / bug / docs / review / chore / build (default).
+
+    Regex-based — no LLM call. Users can override via ``PATCH /api/runs/{id}``.
+    The patterns search anywhere in the prompt (not anchored to start) so phrases
+    like "now write the docs" are classified as ``docs``.
+    """
+    for kind, pattern in _KIND_PATTERNS:
+        if pattern.search(prompt):
+            return kind
+    return "build"
 
 
 def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
@@ -614,6 +639,8 @@ class TaskRunner:
             max_tool_calls=max_tool_calls,
             max_duration_minutes=max_duration_minutes,
             user_id=user_id,
+            kind=auto_detect_kind(prompt),
+            claude_session_id=claude_session_id,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 
@@ -754,6 +781,76 @@ class TaskRunner:
             # Execute in background subprocess
             self._spawn_background_process(run)
             return run
+
+    async def fork_run(
+        self,
+        parent_run_id: str,
+        new_prompt: str,
+        custom_title: str | None = None,
+        initiator: str | None = None,
+        user_id: str | None = None,
+    ) -> ExecutionRun:
+        """Fork a parent run's Claude session into a new child run.
+
+        Inherits the parent's ``claude_session_id`` and submits a fresh run that
+        the SDK will branch via its ``fork_session=True`` mechanism (see
+        ``agent.py:478``). The child has its own ID, log directory, status, and
+        cost tracking — only the conversation history is shared.
+
+        Args:
+            parent_run_id: The run to fork from. Must have a ``claude_session_id``.
+            new_prompt: The first prompt of the forked branch — typically a
+                redirect like "now write the docs" or "explore Postgres instead".
+            custom_title: Optional display name. Falls back to a derived label.
+            initiator: Who initiated the fork (e.g., "web:fork", "cli:fork").
+            user_id: Attribution (D5 Phase 2). Same semantics as ``submit``.
+
+        Returns:
+            The newly created child ``ExecutionRun``.
+
+        Raises:
+            ValueError: parent missing, has no ``claude_session_id``, or its
+                project is no longer present.
+        """
+        parent = self.store.get_run(parent_run_id)
+        if parent is None:
+            raise ValueError(f"Fork parent not found: {parent_run_id}")
+        if not parent.claude_session_id:
+            raise ValueError(
+                f"Run {parent_run_id[:8]} has no Claude session to fork "
+                "(never started or never completed its first turn)."
+            )
+
+        project = self.store.get_project(parent.project_id)
+        if project is None:
+            raise ValueError(f"Project not found for fork parent: {parent.project_id}")
+
+        # Fork inherits the parent's working tree (worktree path is recreated
+        # by submit/_execute_run if it disappeared). We deliberately re-resolve
+        # task options for the *child* — forks can change profile if desired,
+        # but for now they inherit the same model/profile.
+        child = self.store.create_run(
+            project_id=parent.project_id,
+            prompt=new_prompt,
+            initiator=initiator or "fork",
+            use_worktree=parent.use_worktree,
+            model=parent.model,
+            ralph_enabled=False,  # forks are conversational, not autonomous loops
+            agent_id=parent.agent_id,
+            approval_policy=parent.approval_policy,
+            user_id=user_id,
+            kind=auto_detect_kind(new_prompt),
+            custom_title=custom_title,
+            forked_from_run_id=parent.id,
+            claude_session_id=parent.claude_session_id,
+        )
+
+        # The SDK fork_session=True is the default in agent.py:732 — no extra
+        # plumbing needed at the runner level; _spawn_background_process /
+        # _execute_run will pick up the inherited claude_session_id and the
+        # agent will branch.
+        self._spawn_background_process(child)
+        return child
 
     def _write_resume_marker(self, run: ExecutionRun) -> None:
         """Write a resume marker to log files for visual separation."""

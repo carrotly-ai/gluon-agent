@@ -66,6 +66,27 @@ class RunResponse(BaseModel):
     user_id: str | None = Field(
         default=None, description="FK to users(id) — who submitted the run (null for SYSTEM_USER / pre-auth era)"
     )
+    # List-view cockpit fields (see tmp/list-view-plan.md)
+    custom_title: str | None = Field(
+        default=None,
+        description="User-editable display name; falls back to truncated prompt when null",
+    )
+    kind: str | None = Field(
+        default=None,
+        description="Run category: research / build / docs / bug / review / chore",
+    )
+    snoozed_until: datetime | None = Field(
+        default=None,
+        description="When set in the future, run hides from default listings until this time",
+    )
+    last_activity_at: datetime | None = Field(
+        default=None,
+        description="Last touch (create / resume / status change). Used for Recent-activity sort.",
+    )
+    forked_from_run_id: str | None = Field(
+        default=None,
+        description="Parent run when this run was created via POST /api/runs/{id}/fork",
+    )
 
     class Config:
         from_attributes = True
@@ -1496,3 +1517,59 @@ class ClaudeSessionMessagesResponse(BaseModel):
     messages: list[ClaudeSessionMessageItem]
     total: int
     has_more: bool
+
+
+# ---------------------------------------------------------------------------
+# List-view cockpit (tmp/list-view-plan.md): PATCH / snooze / fork / attention
+# ---------------------------------------------------------------------------
+
+
+class UpdateRunRequest(BaseModel):
+    """Partial update for a run's user-editable fields.
+
+    Each field is optional — pass only what you want to change. Passing
+    ``custom_title=null`` (or ``kind=null``) clears the field.
+    """
+
+    custom_title: str | None = Field(default=None, description="New display name; pass null to clear")
+    kind: str | None = Field(
+        default=None,
+        description="New kind: research / build / docs / bug / review / chore",
+    )
+
+
+class SnoozeRunRequest(BaseModel):
+    """Set or clear a run's snooze deadline.
+
+    Pass ``until=null`` to unsnooze immediately.
+    """
+
+    until: datetime | None = Field(
+        default=None,
+        description="UTC datetime when the run should reappear; null clears the snooze",
+    )
+
+
+class ForkRunRequest(BaseModel):
+    """Create a forked child of an existing run that shares the parent's
+    Claude session but diverges with a new prompt.
+    """
+
+    prompt: str = Field(description="The first prompt of the forked branch")
+    custom_title: str | None = Field(
+        default=None,
+        description="Optional display name for the new child run",
+    )
+
+
+class AttentionCountsResponse(BaseModel):
+    """Aggregate counts used to badge the sidebar and project headers."""
+
+    total: int = Field(description="Total runs needing attention across the system")
+    needs_input: int = Field(description="Subset: runs with a pending user question")
+    failed: int = Field(description="Subset: runs in the FAILED status")
+    conflicts: int = Field(description="Subset: runs whose PR is currently CONFLICTING")
+    by_project: dict[str, int] = Field(
+        default_factory=dict,
+        description="Mapping of project_id -> attention count (only projects with >0)",
+    )

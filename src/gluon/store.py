@@ -821,6 +821,17 @@ MIGRATIONS = [
     # run, used by approval/question watchers to route notifications back
     # to the channel that originated the run.
     "CREATE INDEX IF NOT EXISTS idx_message_run_map_run ON message_run_map(run_id, created_at);",
+    # List-view cockpit fields (see tmp/list-view-plan.md). All nullable; existing
+    # rows remain valid with NULL defaults.
+    "ALTER TABLE execution_runs ADD COLUMN custom_title TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN kind TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN snoozed_until TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN last_activity_at TEXT;",
+    "ALTER TABLE execution_runs ADD COLUMN forked_from_run_id TEXT;",
+    # Indexes for the new sorting / filtering paths.
+    "CREATE INDEX IF NOT EXISTS idx_runs_snoozed_until ON execution_runs(snoozed_until);",
+    "CREATE INDEX IF NOT EXISTS idx_runs_last_activity ON execution_runs(last_activity_at);",
+    "CREATE INDEX IF NOT EXISTS idx_runs_forked_from ON execution_runs(forked_from_run_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2961,12 +2972,20 @@ class GluonStore:
         max_tool_calls: int | None = None,
         max_duration_minutes: int | None = None,
         user_id: str | None = None,
+        kind: str | None = None,
+        custom_title: str | None = None,
+        forked_from_run_id: str | None = None,
+        claude_session_id: str | None = None,
     ) -> ExecutionRun:
         """Create a new execution run.
 
         ``user_id`` (D5 Phase 2): attribution to a logged-in Gluon user.
         Pass ``None`` for single-user / SYSTEM_USER context — the row will
         have NULL in that column and audit views will show ``system``.
+
+        ``kind`` / ``custom_title`` / ``forked_from_run_id`` / ``claude_session_id``
+        are the list-view cockpit fields. ``claude_session_id`` is only meaningful
+        when forking — the child inherits the parent's SDK session.
         """
         run = ExecutionRun(
             project_id=project_id,
@@ -2974,6 +2993,7 @@ class GluonStore:
             original_prompt=prompt,  # Preserve original prompt for auto-resume
             initiator=initiator,
             session_id=session_id,
+            claude_session_id=claude_session_id,
             use_worktree=use_worktree,
             model=model,
             ralph_enabled=ralph_enabled,
@@ -2985,20 +3005,29 @@ class GluonStore:
             max_tool_calls=max_tool_calls,
             max_duration_minutes=max_duration_minutes,
             user_id=user_id,
+            kind=kind,
+            custom_title=custom_title,
+            forked_from_run_id=forked_from_run_id,
         )
+        # Seed last_activity_at so the new run sorts correctly under "Recent activity".
+        run.last_activity_at = run.created_at
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO execution_runs
-                (id, session_id, project_id, pid, status, prompt, original_prompt, initiator, created_at,
+                (id, session_id, claude_session_id, project_id, pid, status, prompt, original_prompt,
+                 initiator, created_at,
                  started_at, completed_at, exit_code, log_path, error_message, model,
                  ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy,
-                 max_tool_calls, max_duration_minutes, tool_call_count, user_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 max_tool_calls, max_duration_minutes, tool_call_count, user_id,
+                 custom_title, kind, last_activity_at, forked_from_run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?)
                 """,
                 (
                     run.id,
                     run.session_id,
+                    run.claude_session_id,
                     run.project_id,
                     run.pid,
                     run.status.value,
@@ -3022,6 +3051,10 @@ class GluonStore:
                     run.max_duration_minutes,
                     run.tool_call_count,
                     run.user_id,
+                    run.custom_title,
+                    run.kind,
+                    run.last_activity_at.isoformat() if run.last_activity_at else None,
+                    run.forked_from_run_id,
                 ),
             )
         return run
@@ -3053,9 +3086,14 @@ class GluonStore:
         statuses: list[RunStatus] | None = None,
         initiator: str | None = None,
         include_archived: bool = False,
+        include_snoozed: bool = False,
         limit: int = 50,
     ) -> list[ExecutionRun]:
-        """List execution runs with optional filters."""
+        """List execution runs with optional filters.
+
+        ``include_snoozed`` (default False): hide runs whose ``snoozed_until`` is
+        still in the future. Older databases without the column see no change.
+        """
         with self._get_conn() as conn:
             query = "SELECT * FROM execution_runs WHERE 1=1"
             params: list[str | int] = []
@@ -3063,6 +3101,12 @@ class GluonStore:
             # Exclude archived by default
             if not include_archived:
                 query += " AND (archived IS NULL OR archived = 0)"
+
+            # Exclude future-snoozed by default. Strings sort lexicographically
+            # which is correct for ISO-8601 timestamps.
+            if not include_snoozed:
+                query += " AND (snoozed_until IS NULL OR snoozed_until <= ?)"
+                params.append(utc_now().isoformat())
 
             if project_id:
                 query += " AND project_id = ?"
@@ -3122,7 +3166,9 @@ class GluonStore:
                     metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?,
                     agent_id = ?,
                     approval_policy = ?,
-                    max_tool_calls = ?, max_duration_minutes = ?, tool_call_count = ?
+                    max_tool_calls = ?, max_duration_minutes = ?, tool_call_count = ?,
+                    custom_title = ?, kind = ?, snoozed_until = ?,
+                    last_activity_at = ?, forked_from_run_id = ?
                 WHERE id = ?
                 """,
                 (
@@ -3206,6 +3252,12 @@ class GluonStore:
                     run.max_tool_calls,
                     run.max_duration_minutes,
                     run.tool_call_count,
+                    # List-view cockpit fields
+                    run.custom_title,
+                    run.kind,
+                    run.snoozed_until.isoformat() if run.snoozed_until else None,
+                    run.last_activity_at.isoformat() if run.last_activity_at else None,
+                    run.forked_from_run_id,
                     run.id,
                 ),
             )
@@ -3413,6 +3465,12 @@ class GluonStore:
             # Task chain linking
             chain_id=row["chain_id"] if "chain_id" in keys else None,
             step_id=row["step_id"] if "step_id" in keys else None,
+            # List-view cockpit fields
+            custom_title=row["custom_title"] if "custom_title" in keys else None,
+            kind=row["kind"] if "kind" in keys else None,
+            snoozed_until=_parse_datetime(row["snoozed_until"]) if "snoozed_until" in keys else None,
+            last_activity_at=_parse_datetime(row["last_activity_at"]) if "last_activity_at" in keys else None,
+            forked_from_run_id=row["forked_from_run_id"] if "forked_from_run_id" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
@@ -3883,6 +3941,19 @@ class GluonStore:
     def get_pending_questions_for_run(self, run_id: str) -> list[PendingQuestion]:
         """Get all pending (unanswered) questions for a run."""
         return self.list_pending_questions(run_id, status=QuestionStatus.PENDING)
+
+    def list_run_ids_with_pending_questions(self) -> set[str]:
+        """Return the set of run IDs that currently have at least one PENDING question.
+
+        Used by ``GET /api/attention-counts`` to badge the sidebar — a single
+        round-trip instead of N queries.
+        """
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT run_id FROM pending_questions WHERE status = ?",
+                (QuestionStatus.PENDING.value,),
+            ).fetchall()
+        return {row[0] for row in rows}
 
     def update_pending_question(self, question: PendingQuestion) -> PendingQuestion:
         """Update a pending question (e.g., after answering)."""

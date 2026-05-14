@@ -40,6 +40,7 @@ from gluon.web.models import (
     ActivityListResponse,
     AnswerQuestionRequest,
     AttachImageRequest,
+    AttentionCountsResponse,
     AuthProvidersResponse,
     BranchListResponse,
     BranchOperationResponse,
@@ -69,6 +70,7 @@ from gluon.web.models import (
     ForcePushCheckResponse,
     ForcePushRequest,
     ForcePushResponse,
+    ForkRunRequest,
     FormulaListResponse,
     FormulaRunRequest,
     FormulaRunResponse,
@@ -130,6 +132,7 @@ from gluon.web.models import (
     # Slash Command models
     SlashCommandResponse,
     SlashCommandsResponse,
+    SnoozeRunRequest,
     StatusResponse,
     StopLoopResponse,
     SupervisionDecisionResponse,
@@ -146,6 +149,7 @@ from gluon.web.models import (
     TaskResponse,
     TaskUpdateRequest,
     TodoItemResponse,
+    UpdateRunRequest,
     UpdateStatusRequest,
     UpdateStatusResponse,
     UpdateUserRequest,
@@ -381,6 +385,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             chain_step_index=chain_step_index,
             chain_total_steps=chain_total_steps,
             stop_reason=run.metadata.get("stop_reason") if run.metadata else None,
+            # List-view cockpit fields
+            custom_title=run.custom_title,
+            kind=run.kind,
+            snoozed_until=run.snoozed_until,
+            last_activity_at=run.last_activity_at,
+            forked_from_run_id=run.forked_from_run_id,
         )
 
     # ========== REST API Routes ==========
@@ -554,6 +564,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             max_tool_calls=run.max_tool_calls,
             max_duration_minutes=run.max_duration_minutes,
             tool_call_count=run.tool_call_count,
+            # List-view cockpit fields
+            custom_title=run.custom_title,
+            kind=run.kind,
+            snoozed_until=run.snoozed_until,
+            last_activity_at=run.last_activity_at,
+            forked_from_run_id=run.forked_from_run_id,
         )
 
     @app.post("/api/runs", response_model=RunResponse)
@@ -2556,6 +2572,143 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         await ws_manager.broadcast_run_update(updated_run, project_name)
 
         return response
+
+    # ========== List-view cockpit endpoints (see tmp/list-view-plan.md) ==========
+
+    @app.patch("/api/runs/{run_id}", response_model=RunResponse)
+    async def patch_run(run_id: str, body: UpdateRunRequest) -> RunResponse:
+        """Partially update a run's user-editable fields (title, kind).
+
+        Unspecified fields are left unchanged. Pass ``null`` explicitly to clear
+        a field. Returns the updated ``RunResponse``.
+        """
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        # Pydantic's `model_fields_set` tells us which fields the client actually
+        # sent — distinguishes "set to null" (clear) from "omitted" (leave).
+        sent = body.model_fields_set
+        if "custom_title" in sent:
+            title = body.custom_title
+            if title is not None:
+                title = title.strip()
+                if len(title) > 200:
+                    raise HTTPException(status_code=400, detail="custom_title must be ≤ 200 chars")
+                run.custom_title = title or None
+            else:
+                run.custom_title = None
+        if "kind" in sent:
+            kind = body.kind
+            if kind is not None:
+                kind = kind.strip().lower()
+                if kind and kind not in {"research", "build", "docs", "bug", "review", "chore"}:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="kind must be one of: research, build, docs, bug, review, chore",
+                    )
+                run.kind = kind or None
+            else:
+                run.kind = None
+
+        run.bump_activity()
+        store.update_run(run)
+
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id, run.project_id[:8])
+        await ws_manager.broadcast_run_update(run, project_name)
+        return run_to_response(run, project_lookup)
+
+    @app.post("/api/runs/{run_id}/snooze", response_model=RunResponse)
+    async def snooze_run(run_id: str, body: SnoozeRunRequest) -> RunResponse:
+        """Set or clear a run's snooze deadline."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        run.snoozed_until = body.until
+        run.bump_activity()
+        store.update_run(run)
+
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id, run.project_id[:8])
+        await ws_manager.broadcast_run_update(run, project_name)
+        return run_to_response(run, project_lookup)
+
+    @app.post("/api/runs/{run_id}/fork", response_model=RunResponse)
+    async def fork_run_endpoint(
+        run_id: str,
+        body: ForkRunRequest,
+        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
+    ) -> RunResponse:
+        """Fork an existing run's Claude session into a new child run.
+
+        The child run inherits the parent's ``claude_session_id`` and gets its
+        own subprocess. Parent must have started at least once (must have a
+        session id). See ``TaskRunner.fork_run`` for behaviour details.
+        """
+        parent = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
+        try:
+            child = await runner.fork_run(
+                parent_run_id=parent.id,
+                new_prompt=body.prompt,
+                custom_title=body.custom_title,
+                initiator="web:fork",
+                user_id=attribution_user_id,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(child.project_id, child.project_id[:8])
+        await ws_manager.broadcast_run_update(child, project_name)
+        return run_to_response(child, project_lookup)
+
+    @app.get("/api/attention-counts", response_model=AttentionCountsResponse)
+    async def get_attention_counts() -> AttentionCountsResponse:
+        """Aggregate counts of runs that need user attention.
+
+        A run "needs attention" if it is FAILED, has a CONFLICTING PR, or has a
+        pending question (``pending_questions.status = 'pending'``). Snoozed and
+        archived runs are excluded.
+        """
+        runs = store.list_runs(limit=1000)
+        try:
+            pending_q_run_ids = store.list_run_ids_with_pending_questions()
+        except Exception:
+            pending_q_run_ids = set()
+
+        needs_input = 0
+        failed = 0
+        conflicts = 0
+        by_project: dict[str, int] = {}
+        for run in runs:
+            if run.archived or run.is_snoozed:
+                continue
+            attention = False
+            if run.id in pending_q_run_ids:
+                needs_input += 1
+                attention = True
+            if run.status == RunStatus.FAILED:
+                failed += 1
+                attention = True
+            if run.pr_mergeable == "CONFLICTING":
+                conflicts += 1
+                attention = True
+            if attention:
+                by_project[run.project_id] = by_project.get(run.project_id, 0) + 1
+
+        return AttentionCountsResponse(
+            total=needs_input + failed + conflicts,
+            needs_input=needs_input,
+            failed=failed,
+            conflicts=conflicts,
+            by_project=by_project,
+        )
 
     @app.post("/api/runs/{run_id}/pr-status", response_model=RunResponse)
     async def update_pr_status(run_id: str, pr_status: str = Query(..., description="New PR status")) -> RunResponse:
