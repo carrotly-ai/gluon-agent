@@ -19,6 +19,7 @@ from claude_agent_sdk import (
     ClaudeSDKError,
     CLIConnectionError,
     CLINotFoundError,
+    HookEventMessage,
     PermissionResultAllow,
     PermissionResultDeny,
     ProcessError,
@@ -373,6 +374,7 @@ class GluonAgent:
         vercel_token: str | None = None,
         task_budget: int | None = None,
         skills_enabled: bool = False,
+        include_hook_events: bool = False,
         approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE
         store: Any = None,  # GluonStore — required when approval_policy != PERMISSIVE
     ):
@@ -412,6 +414,8 @@ class GluonAgent:
         self.task_budget = task_budget
         # SDK 0.1.62: Enable Claude Code skills on agent sessions
         self.skills_enabled = skills_enabled
+        # SDK 0.1.74: Stream hook events (PreToolUse, PostToolUse, Stop, etc.)
+        self.include_hook_events = include_hook_events
         # Approval gates (Theme D1). `approval_policy=None` resolves to PERMISSIVE.
         from gluon.models import ApprovalPolicy as _ApprovalPolicy
 
@@ -520,6 +524,8 @@ class GluonAgent:
             mcp_servers=mcp_config if mcp_config else {},
             strict_mcp_config=True,
             thinking=thinking_config,
+            session_store_flush="eager",
+            include_hook_events=self.include_hook_events,
         )
 
         # Set reasoning effort level via native SDK field
@@ -885,6 +891,17 @@ class GluonAgent:
                                 },
                             )
 
+                        elif isinstance(msg, HookEventMessage):
+                            yield AgentMessage(
+                                type="hook_event",
+                                content=msg.hook_event_name or msg.subtype,
+                                metadata={
+                                    "hook_event_name": msg.hook_event_name,
+                                    "data": msg.data,
+                                    "session_id": msg.session_id,
+                                },
+                            )
+
                         elif isinstance(msg, SystemMessage):
                             if msg.subtype == "init" and isinstance(msg.data, dict):
                                 session_from_data = msg.data.get("session_id")
@@ -1059,6 +1076,14 @@ class GluonAgent:
                                     "final": True,
                                 },
                             )
+                            # Surface deferred tool use (SDK 0.1.74) if present
+                            deferred = None
+                            if msg.deferred_tool_use:
+                                deferred = {
+                                    "id": msg.deferred_tool_use.id,
+                                    "name": msg.deferred_tool_use.name,
+                                    "input": msg.deferred_tool_use.input,
+                                }
                             yield AgentMessage(
                                 type="result",
                                 content=msg.result or "Execution complete",
@@ -1074,6 +1099,7 @@ class GluonAgent:
                                     "model_used": model_used,
                                     "stop_reason": stop_reason,
                                     "errors": msg.errors,
+                                    "deferred_tool_use": deferred,
                                 },
                             )
 
