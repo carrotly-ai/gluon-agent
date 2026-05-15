@@ -30,7 +30,17 @@ from gluon.cleanup import LogCleanupService, WorktreeCleanupService
 from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.files import get_project_files
-from gluon.models import Notification, OrchestratorTask, RunStatus, TaskComment, TaskStatus, expand_path
+from gluon.models import (
+    ConcurrencyPolicy,
+    Notification,
+    OrchestratorTask,
+    RunStatus,
+    TaskComment,
+    TaskSchedule,
+    TaskStatus,
+    expand_path,
+    utc_now,
+)
 from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
@@ -61,6 +71,7 @@ from gluon.web.models import (
     CreateLinkCodeRequest,
     CreateProjectRequest,
     CreateRunRequest,
+    CreateTaskScheduleRequest,
     CreateUserRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
@@ -147,11 +158,16 @@ from gluon.web.models import (
     TaskCreateRequest,
     TaskListResponse,
     TaskResponse,
+    TaskScheduleListResponse,
+    TaskSchedulePreviewRequest,
+    TaskSchedulePreviewResponse,
+    TaskScheduleResponse,
     TaskUpdateRequest,
     TodoItemResponse,
     UpdateRunRequest,
     UpdateStatusRequest,
     UpdateStatusResponse,
+    UpdateTaskScheduleRequest,
     UpdateUserRequest,
     UpdateWorkspaceBudgetRequest,
     UsageSummaryResponse,
@@ -391,6 +407,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             snoozed_until=run.snoozed_until,
             last_activity_at=run.last_activity_at,
             forked_from_run_id=run.forked_from_run_id,
+            # Scheduled-task linkage
+            schedule_id=run.schedule_id,
         )
 
     # ========== REST API Routes ==========
@@ -5295,6 +5313,294 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         responses = [_task_to_response(t, agent_name_cache) for t in tasks]
         return TaskListResponse(tasks=responses, total=len(responses))
 
+    # ========== Task Schedules — user-defined recurring tasks ==========
+
+    def _schedule_to_response(schedule: TaskSchedule) -> TaskScheduleResponse:
+        """Build the response payload for a TaskSchedule, denormalizing project_name
+        and computing per-schedule run counts + summary."""
+        from gluon.recurrence import human_summary
+
+        project_lookup = get_project_lookup()
+        try:
+            run_count = len(store.list_runs_for_schedule(schedule.id, limit=10000))
+        except Exception:
+            run_count = 0
+        try:
+            active_count = len(store.list_active_runs_for_schedule(schedule.id))
+        except Exception:
+            active_count = 0
+        # Friendly summary; falls back to the raw cron string when the
+        # schedule was authored via the Advanced (cron-only) path.
+        if schedule.recurrence_days and schedule.recurrence_time:
+            summary = human_summary(schedule.recurrence_days, schedule.recurrence_time, schedule.timezone)
+        else:
+            summary = f"Cron: {schedule.schedule_cron} ({schedule.timezone})"
+        return TaskScheduleResponse(
+            id=schedule.id,
+            name=schedule.name,
+            project_id=schedule.project_id,
+            project_name=project_lookup.get(schedule.project_id, schedule.project_id[:8]),
+            prompt=schedule.prompt,
+            profile=schedule.profile,
+            model=schedule.model,
+            use_worktree=schedule.use_worktree,
+            timezone=schedule.timezone,
+            recurrence_days=schedule.recurrence_days,
+            recurrence_time=schedule.recurrence_time,
+            schedule_cron=schedule.schedule_cron,
+            concurrency_policy=schedule.concurrency_policy.value,
+            is_enabled=schedule.is_enabled,
+            last_fired_at=schedule.last_fired_at,
+            next_fire_at=schedule.next_fire_at,
+            description=schedule.description,
+            created_by_user_id=schedule.created_by_user_id,
+            created_at=schedule.created_at,
+            updated_at=schedule.updated_at,
+            summary=summary,
+            run_count=run_count,
+            active_run_count=active_count,
+        )
+
+    def _resolve_cron(
+        schedule_cron: str | None,
+        recurrence_days: list[int] | None,
+        recurrence_time: str | None,
+    ) -> str:
+        """Pick the source of truth between raw cron and friendly editor."""
+        from gluon.recurrence import recurrence_to_cron, validate_cron
+
+        if schedule_cron:
+            if not validate_cron(schedule_cron):
+                raise HTTPException(status_code=400, detail=f"Invalid cron: {schedule_cron!r}")
+            return schedule_cron
+        if recurrence_days and recurrence_time:
+            try:
+                return recurrence_to_cron(recurrence_days, recurrence_time)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from None
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either schedule_cron or both recurrence_days+recurrence_time.",
+        )
+
+    @app.get("/api/schedules", response_model=TaskScheduleListResponse)
+    async def list_schedules_endpoint(
+        project_id: str | None = None,
+        include_disabled: bool = True,
+    ) -> TaskScheduleListResponse:
+        schedules = store.list_task_schedules(project_id=project_id, include_disabled=include_disabled)
+        return TaskScheduleListResponse(
+            schedules=[_schedule_to_response(s) for s in schedules],
+            total=len(schedules),
+        )
+
+    @app.post("/api/schedules", response_model=TaskScheduleResponse)
+    async def create_schedule_endpoint(
+        body: CreateTaskScheduleRequest,
+        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
+    ) -> TaskScheduleResponse:
+        from gluon.recurrence import compute_next_fire_in_tz
+
+        try:
+            project = orchestrator.get_project(body.project_name)
+        except ProjectNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Project not found: {body.project_name}") from None
+
+        cron = _resolve_cron(body.schedule_cron, body.recurrence_days, body.recurrence_time)
+
+        # Validate concurrency_policy
+        try:
+            policy = ConcurrencyPolicy(body.concurrency_policy)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="concurrency_policy must be one of: skip, cancel_replace, allow_overlap",
+            ) from None
+
+        schedule = TaskSchedule(
+            name=body.name.strip(),
+            project_id=project.id,
+            prompt=body.prompt,
+            profile=body.profile,
+            model=body.model,
+            use_worktree=body.use_worktree,
+            timezone=body.timezone,
+            recurrence_days=body.recurrence_days,
+            recurrence_time=body.recurrence_time,
+            schedule_cron=cron,
+            concurrency_policy=policy,
+            is_enabled=body.is_enabled,
+            description=body.description,
+            created_by_user_id=user.id if user.id != SYSTEM_USER.id else None,
+        )
+        try:
+            schedule.next_fire_at = compute_next_fire_in_tz(cron, body.timezone)
+        except Exception:
+            logger.exception("Failed to compute next fire for new schedule")
+        store.create_task_schedule(schedule)
+        return _schedule_to_response(schedule)
+
+    @app.get("/api/schedules/{schedule_id}", response_model=TaskScheduleResponse)
+    async def get_schedule_endpoint(schedule_id: str) -> TaskScheduleResponse:
+        s = store.get_task_schedule(schedule_id)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+        return _schedule_to_response(s)
+
+    @app.patch("/api/schedules/{schedule_id}", response_model=TaskScheduleResponse)
+    async def update_schedule_endpoint(
+        schedule_id: str,
+        body: UpdateTaskScheduleRequest,
+    ) -> TaskScheduleResponse:
+        from gluon.recurrence import compute_next_fire_in_tz
+
+        s = store.get_task_schedule(schedule_id)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+
+        sent = body.model_fields_set
+        if "name" in sent and body.name:
+            s.name = body.name.strip()
+        if "project_name" in sent and body.project_name:
+            try:
+                project = orchestrator.get_project(body.project_name)
+            except ProjectNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Project not found: {body.project_name}") from None
+            s.project_id = project.id
+        if "prompt" in sent and body.prompt is not None:
+            s.prompt = body.prompt
+        if "profile" in sent and body.profile:
+            s.profile = body.profile
+        if "model" in sent:
+            s.model = body.model
+        if "use_worktree" in sent and body.use_worktree is not None:
+            s.use_worktree = body.use_worktree
+        if "timezone" in sent and body.timezone:
+            s.timezone = body.timezone
+        if "description" in sent:
+            s.description = body.description
+        if "is_enabled" in sent and body.is_enabled is not None:
+            s.is_enabled = body.is_enabled
+        if "concurrency_policy" in sent and body.concurrency_policy:
+            try:
+                s.concurrency_policy = ConcurrencyPolicy(body.concurrency_policy)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid concurrency_policy") from None
+
+        # Recurrence: if any of the three triggers fired, recompute the cron.
+        cron_changed = any(k in sent for k in ("schedule_cron", "recurrence_days", "recurrence_time"))
+        if cron_changed:
+            new_cron = _resolve_cron(
+                body.schedule_cron if "schedule_cron" in sent else None,
+                body.recurrence_days if "recurrence_days" in sent else s.recurrence_days,
+                body.recurrence_time if "recurrence_time" in sent else s.recurrence_time,
+            )
+            s.schedule_cron = new_cron
+            # Track structured fields too — clear them when only cron was set
+            if "schedule_cron" in sent and "recurrence_days" not in sent and "recurrence_time" not in sent:
+                s.recurrence_days = None
+                s.recurrence_time = None
+            else:
+                if "recurrence_days" in sent:
+                    s.recurrence_days = body.recurrence_days
+                if "recurrence_time" in sent:
+                    s.recurrence_time = body.recurrence_time
+
+        # Recompute next_fire_at any time cron OR timezone changed.
+        if cron_changed or "timezone" in sent:
+            try:
+                s.next_fire_at = compute_next_fire_in_tz(s.schedule_cron, s.timezone)
+            except Exception:
+                logger.exception("Failed to recompute next fire on schedule update")
+
+        store.update_task_schedule(s)
+        return _schedule_to_response(s)
+
+    @app.delete("/api/schedules/{schedule_id}")
+    async def delete_schedule_endpoint(schedule_id: str) -> dict[str, bool]:
+        deleted = store.delete_task_schedule(schedule_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+        return {"deleted": True}
+
+    @app.post("/api/schedules/{schedule_id}/enable", response_model=TaskScheduleResponse)
+    async def enable_schedule_endpoint(schedule_id: str) -> TaskScheduleResponse:
+        from gluon.recurrence import compute_next_fire_in_tz
+
+        s = store.get_task_schedule(schedule_id)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+        s.is_enabled = True
+        try:
+            s.next_fire_at = compute_next_fire_in_tz(s.schedule_cron, s.timezone)
+        except Exception:
+            pass
+        store.update_task_schedule(s)
+        return _schedule_to_response(s)
+
+    @app.post("/api/schedules/{schedule_id}/disable", response_model=TaskScheduleResponse)
+    async def disable_schedule_endpoint(schedule_id: str) -> TaskScheduleResponse:
+        s = store.get_task_schedule(schedule_id)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+        s.is_enabled = False
+        store.update_task_schedule(s)
+        return _schedule_to_response(s)
+
+    @app.post("/api/schedules/{schedule_id}/fire", response_model=RunResponse)
+    async def fire_schedule_now_endpoint(schedule_id: str) -> RunResponse:
+        """Manually fire a schedule once — useful for testing without waiting."""
+        s = store.get_task_schedule(schedule_id)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+        try:
+            run = await runner.submit(
+                project_id=s.project_id,
+                prompt=s.prompt,
+                wait=False,
+                use_worktree=s.use_worktree,
+                initiator=f"schedule:{s.id[:8]}:manual",
+                model=s.model,
+                profile=s.profile,
+                schedule_id=s.id,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to spawn run: {e!s}") from e
+        s.last_fired_at = utc_now()
+        store.update_task_schedule(s)
+        project_lookup = get_project_lookup()
+        project_name = project_lookup.get(run.project_id, run.project_id[:8])
+        await ws_manager.broadcast_run_update(run, project_name)
+        return run_to_response(run, project_lookup)
+
+    @app.get("/api/schedules/{schedule_id}/runs", response_model=list[RunResponse])
+    async def list_schedule_runs_endpoint(schedule_id: str, limit: int = 50) -> list[RunResponse]:
+        s = store.get_task_schedule(schedule_id)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}")
+        runs = store.list_runs_for_schedule(schedule_id, limit=limit)
+        project_lookup = get_project_lookup()
+        return [run_to_response(r, project_lookup) for r in runs]
+
+    @app.post("/api/schedules/preview", response_model=TaskSchedulePreviewResponse)
+    async def preview_schedule_endpoint(body: TaskSchedulePreviewRequest) -> TaskSchedulePreviewResponse:
+        """Render the cron + the next 5 fire moments for live editor preview.
+
+        Doesn't persist anything — pure projection.
+        """
+        from gluon.recurrence import human_summary, next_n_fires_in_tz
+
+        cron = _resolve_cron(body.schedule_cron, body.recurrence_days, body.recurrence_time)
+        try:
+            fires = next_n_fires_in_tz(cron, body.timezone, n=5)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to compute fires: {e!s}") from e
+        if body.recurrence_days and body.recurrence_time:
+            summary = human_summary(body.recurrence_days, body.recurrence_time, body.timezone)
+        else:
+            summary = f"Cron: {cron} ({body.timezone})"
+        return TaskSchedulePreviewResponse(schedule_cron=cron, summary=summary, next_fires=fires)
+
     # ========== WebSocket ==========
 
     @app.websocket("/api/ws")
@@ -5743,6 +6049,21 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             await app.state.heartbeat_scheduler.start()
             logger.info("Heartbeat scheduler enabled (poll=%ds)", heartbeat_poll_secs)
 
+        # Start user-facing TaskScheduleManager. ON BY DEFAULT — the dashboard
+        # has no other way to fire user schedules, and an empty schedule list
+        # makes the loop a near-no-op. Opt out with GLUON_SCHEDULES_DISABLED=1.
+        if os.environ.get("GLUON_SCHEDULES_DISABLED", "").lower() not in ("1", "true", "yes"):
+            from gluon.task_scheduler import TaskScheduleManager
+
+            sched_poll_secs = int(os.environ.get("GLUON_TASK_SCHEDULES_POLL_SECS", "30"))
+            app.state.task_schedule_manager = TaskScheduleManager(
+                store=store,
+                runner=runner,
+                poll_interval_secs=sched_poll_secs,
+            )
+            await app.state.task_schedule_manager.start()
+            logger.info("Task schedule manager enabled (poll=%ds)", sched_poll_secs)
+
         # Start witness health monitor if enabled
         if os.environ.get("GLUON_WITNESS_ENABLED", "").lower() in ("1", "true", "yes"):
             from gluon.health_monitor import HealthMonitor
@@ -5791,6 +6112,14 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 await heartbeat_scheduler.stop()
             except Exception:
                 logger.debug("Heartbeat scheduler stop failed", exc_info=True)
+
+        # Stop user task schedule manager if it was started
+        task_schedule_manager = getattr(app.state, "task_schedule_manager", None)
+        if task_schedule_manager is not None:
+            try:
+                await task_schedule_manager.stop()
+            except Exception:
+                logger.debug("Task schedule manager stop failed", exc_info=True)
 
         tasks_to_cancel = []
         if _polling_task:

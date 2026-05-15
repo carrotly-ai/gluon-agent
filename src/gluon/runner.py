@@ -557,6 +557,7 @@ class TaskRunner:
         max_tool_calls: int | None = None,
         max_duration_minutes: int | None = None,
         user_id: str | None = None,
+        schedule_id: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -641,6 +642,7 @@ class TaskRunner:
             user_id=user_id,
             kind=auto_detect_kind(prompt),
             claude_session_id=claude_session_id,
+            schedule_id=schedule_id,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 

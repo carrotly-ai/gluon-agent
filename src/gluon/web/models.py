@@ -87,6 +87,11 @@ class RunResponse(BaseModel):
         default=None,
         description="Parent run when this run was created via POST /api/runs/{id}/fork",
     )
+    # Scheduled-task linkage — set when a TaskSchedule firing spawned this run.
+    schedule_id: str | None = Field(
+        default=None,
+        description="FK to task_schedules(id); set when this run was spawned by a schedule firing",
+    )
 
     class Config:
         from_attributes = True
@@ -1573,3 +1578,106 @@ class AttentionCountsResponse(BaseModel):
         default_factory=dict,
         description="Mapping of project_id -> attention count (only projects with >0)",
     )
+
+
+# ===========================================================================
+# Task Schedules — user-defined recurring tasks
+# ===========================================================================
+
+
+class TaskScheduleResponse(BaseModel):
+    """Response model for a TaskSchedule row."""
+
+    id: str
+    name: str
+    project_id: str
+    project_name: str = Field(description="Denormalized for display in tables")
+    prompt: str
+    profile: str
+    model: str | None = None
+    use_worktree: bool
+    timezone: str
+    recurrence_days: list[int] | None = Field(
+        default=None, description="ISO weekday numbers (Mon=0..Sun=6) when using the friendly editor"
+    )
+    recurrence_time: str | None = Field(default=None, description="Wall-clock HH:MM in the schedule's timezone")
+    schedule_cron: str = Field(description="Canonical 5-field cron expression — source of truth for evaluation")
+    concurrency_policy: str = Field(description="skip / cancel_replace / allow_overlap")
+    is_enabled: bool
+    last_fired_at: datetime | None = None
+    next_fire_at: datetime | None = None
+    description: str | None = None
+    created_by_user_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    # Friendly summary like "Weekdays at 9:00 AM (Asia/Singapore)" — derived
+    summary: str = Field(description="Human-readable recurrence summary")
+    # Counts of spawned runs (lightweight; computed in the endpoint)
+    run_count: int = 0
+    active_run_count: int = 0
+
+
+class CreateTaskScheduleRequest(BaseModel):
+    """Body for POST /api/schedules.
+
+    Either provide the friendly ``recurrence_days`` + ``recurrence_time`` (and
+    we'll compute the cron), or set ``schedule_cron`` directly for power users.
+    """
+
+    name: str = Field(min_length=1, max_length=120)
+    project_name: str = Field(description="Project to run this schedule against")
+    prompt: str = Field(min_length=1)
+    profile: str = "standard"
+    model: str | None = None
+    use_worktree: bool = False
+    timezone: str = Field(description="IANA timezone, e.g. Asia/Singapore")
+    recurrence_days: list[int] | None = Field(
+        default=None, description="Mon=0..Sun=6. Provide together with recurrence_time."
+    )
+    recurrence_time: str | None = Field(default=None, description="HH:MM, 24-hour")
+    schedule_cron: str | None = Field(default=None, description="Raw cron — overrides days/time when set")
+    concurrency_policy: str = "skip"
+    is_enabled: bool = True
+    description: str | None = None
+
+
+class UpdateTaskScheduleRequest(BaseModel):
+    """Body for PATCH /api/schedules/{id}. All fields optional."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    project_name: str | None = None
+    prompt: str | None = None
+    profile: str | None = None
+    model: str | None = None
+    use_worktree: bool | None = None
+    timezone: str | None = None
+    recurrence_days: list[int] | None = None
+    recurrence_time: str | None = None
+    schedule_cron: str | None = None
+    concurrency_policy: str | None = None
+    is_enabled: bool | None = None
+    description: str | None = None
+
+
+class TaskScheduleListResponse(BaseModel):
+    schedules: list[TaskScheduleResponse]
+    total: int
+
+
+class TaskSchedulePreviewRequest(BaseModel):
+    """POST /api/schedules/preview — render the cron + next fires without persisting.
+
+    Lets the editor show "Will fire next on Mon May 18 at 9:00 AM …" live as
+    the user adjusts checkboxes / the time picker.
+    """
+
+    timezone: str
+    recurrence_days: list[int] | None = None
+    recurrence_time: str | None = None
+    schedule_cron: str | None = None
+
+
+class TaskSchedulePreviewResponse(BaseModel):
+    schedule_cron: str
+    summary: str
+    next_fires: list[datetime] = Field(default_factory=list, description="Up to 5 upcoming fire times in UTC")

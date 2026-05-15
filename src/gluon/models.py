@@ -768,6 +768,61 @@ class HeartbeatRun(BaseModel):
     completed_at: datetime | None = None
 
 
+# ===========================================================================
+# Task Schedules — user-facing recurring task scheduler.
+#
+# Distinct from AgentSchedule (above) which is the internal "wake the agent"
+# heartbeat system. A TaskSchedule represents a user-defined recurring task
+# ("run my morning audit at 9 AM weekdays"). Each fire spawns a normal
+# ExecutionRun — those rows get a `schedule_id` FK so the cockpit list view
+# can render them naturally with a chip linking back to the schedule.
+# ===========================================================================
+
+
+class ConcurrencyPolicy(StrEnum):
+    """How a TaskSchedule reacts when it fires while a previous run is still going."""
+
+    SKIP = "skip"  # Default: drop the new firing
+    CANCEL_REPLACE = "cancel_replace"  # Cancel the in-flight run, start fresh
+    ALLOW_OVERLAP = "allow_overlap"  # Spawn another run alongside the first
+
+
+class TaskSchedule(BaseModel):
+    """A user-defined recurring task (e.g. "morning audit weekdays at 9 AM").
+
+    The friendly recurrence editor stores both the canonical cron expression
+    (the source of truth for evaluation) and a structured `recurrence_days`
+    + `recurrence_time` pair so the editor can re-render the original choices
+    without round-trip ambiguity. When the user uses the "Advanced" cron
+    field, both structured fields are NULL and the cron is the only source.
+
+    Cron is evaluated in the schedule's IANA `timezone`, NOT UTC — so DST
+    transitions move with the user's wall clock.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str  # Human-friendly identifier (e.g. "Morning audit")
+    project_id: str  # FK to Project — schedules always run against a project
+    prompt: str  # The task prompt that fires
+    profile: str = "standard"  # Task profile: quick / standard / deep / planning
+    model: str | None = None  # Optional model override
+    use_worktree: bool = False  # Run in a worktree
+    timezone: str = "UTC"  # IANA timezone name, e.g. "Asia/Singapore"
+    # Structured recurrence — populated by the friendly editor; both NULL when
+    # the user falls back to the Advanced cron field.
+    recurrence_days: list[int] | None = None  # ISO weekday numbers: 0=Mon..6=Sun
+    recurrence_time: str | None = None  # Wall-clock HH:MM in `timezone`
+    schedule_cron: str  # Canonical 5-field cron — the source of truth
+    concurrency_policy: ConcurrencyPolicy = ConcurrencyPolicy.SKIP
+    is_enabled: bool = True
+    last_fired_at: datetime | None = None  # UTC
+    next_fire_at: datetime | None = None  # UTC
+    description: str | None = None
+    created_by_user_id: str | None = None  # FK to users(id), null pre-auth
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 # Task-lock TTL: if execution_locked_at is older than this, the lock is stale
 # and the task can be re-checked-out. Expressed in seconds.
 TASK_LOCK_TTL_SECS = 3600  # 1 hour
@@ -1029,6 +1084,11 @@ class ExecutionRun(BaseModel):
     # forked_from_run_id: parent run when this run was created via POST /api/runs/{id}/fork.
     # Distinct from `recovery_from_run_id` (context-overflow recovery).
     forked_from_run_id: str | None = None
+
+    # Scheduled-task linkage (Theme: Scheduled Tasks). Nullable; populated when
+    # the run was spawned by a TaskSchedule firing. Lets the cockpit list view
+    # render a "📅 daily 9am" chip linking back to the schedule.
+    schedule_id: str | None = None
 
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
