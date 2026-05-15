@@ -64,3 +64,4 @@ tmp/
 *.txt
 .playwright-mcp/
 .claude/scheduled_tasks.lock
+.claude/worktrees/
