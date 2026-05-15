@@ -67,6 +67,92 @@ export interface Run {
   snoozed_until?: string | null
   last_activity_at?: string | null
   forked_from_run_id?: string | null
+  // Schedule that spawned this run (null for ad-hoc runs)
+  schedule_id?: string | null
+}
+
+// ========== Task Schedules (user-defined recurring tasks) ==========
+
+export type ConcurrencyPolicy = 'skip' | 'cancel_replace' | 'allow_overlap'
+
+/** A user-defined recurring task. */
+export interface TaskSchedule {
+  id: string
+  name: string
+  project_id: string
+  project_name: string
+  prompt: string
+  profile: string
+  model: string | null
+  use_worktree: boolean
+  timezone: string
+  /** ISO weekday numbers, Mon=0..Sun=6. Null when using Advanced cron. */
+  recurrence_days: number[] | null
+  /** Wall-clock HH:MM in `timezone`. Null when using Advanced cron. */
+  recurrence_time: string | null
+  schedule_cron: string
+  concurrency_policy: ConcurrencyPolicy
+  is_enabled: boolean
+  last_fired_at: string | null
+  next_fire_at: string | null
+  description: string | null
+  created_by_user_id: string | null
+  created_at: string
+  updated_at: string
+  /** Friendly one-line summary, e.g. "Weekdays at 9:00 AM (Asia/Singapore)" */
+  summary: string
+  run_count: number
+  active_run_count: number
+}
+
+export interface TaskScheduleListResponse {
+  schedules: TaskSchedule[]
+  total: number
+}
+
+export interface CreateTaskScheduleRequest {
+  name: string
+  project_name: string
+  prompt: string
+  profile?: string
+  model?: string | null
+  use_worktree?: boolean
+  timezone: string
+  recurrence_days?: number[] | null
+  recurrence_time?: string | null
+  schedule_cron?: string | null
+  concurrency_policy?: ConcurrencyPolicy
+  is_enabled?: boolean
+  description?: string | null
+}
+
+export interface UpdateTaskScheduleRequest {
+  name?: string
+  project_name?: string
+  prompt?: string
+  profile?: string
+  model?: string | null
+  use_worktree?: boolean
+  timezone?: string
+  recurrence_days?: number[] | null
+  recurrence_time?: string | null
+  schedule_cron?: string | null
+  concurrency_policy?: ConcurrencyPolicy
+  is_enabled?: boolean
+  description?: string | null
+}
+
+export interface SchedulePreviewRequest {
+  timezone: string
+  recurrence_days?: number[] | null
+  recurrence_time?: string | null
+  schedule_cron?: string | null
+}
+
+export interface SchedulePreviewResponse {
+  schedule_cron: string
+  summary: string
+  next_fires: string[]
 }
 
 /** Run "kind" — low-cardinality category surfaced as a leading glyph in the list. */

@@ -45,6 +45,7 @@ export function useRouteSync() {
     if (path.startsWith('/merge')) return 'merge' as const
     if (path.startsWith('/cost')) return 'usage' as const
     if (path.startsWith('/sessions')) return 'sessions' as const
+    if (path.startsWith('/schedules')) return 'schedules' as const
     if (path.startsWith('/list')) return 'list' as const
     if (path.startsWith('/admin/users')) return 'admin-users' as const
     if (path.startsWith('/settings')) return 'settings' as const
@@ -88,6 +89,7 @@ export function useRouteSync() {
         | 'merge'
         | 'usage'
         | 'sessions'
+        | 'schedules'
         | 'settings'
         | 'admin-users'
     ) => {
@@ -112,6 +114,9 @@ export function useRouteSync() {
           break
         case 'sessions':
           navigate('/sessions')
+          break
+        case 'schedules':
+          navigate('/schedules')
           break
         case 'settings':
           navigate('/settings')
