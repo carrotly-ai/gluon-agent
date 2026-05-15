@@ -13,6 +13,7 @@ import type {
   ConflictDiff,
   CreateProjectRequest,
   CreateRunRequest,
+  CreateTaskScheduleRequest,
   // Auth types (D5 Phase 2)
   CreateUserRequest,
   CreateWorkspaceRequest,
@@ -62,6 +63,8 @@ import type {
   RunTodosResponse,
   RunUsageItem,
   ScanResultResponse,
+  SchedulePreviewRequest,
+  SchedulePreviewResponse,
   SDKSession,
   SessionDetail,
   SessionHistoryResponse,
@@ -70,8 +73,11 @@ import type {
   SlashCommandsResponse,
   StopLoopResponse,
   SystemStatus,
+  TaskSchedule,
+  TaskScheduleListResponse,
   UpdateRunRequest,
   UpdateStatusResponse,
+  UpdateTaskScheduleRequest,
   UpdateUserRequest,
   UsageSummary,
   User,
@@ -381,6 +387,70 @@ export async function deleteProject(
 ): Promise<{ deleted: boolean; project_id: string }> {
   return fetchJson<{ deleted: boolean; project_id: string }>(`/projects/${projectId}`, {
     method: 'DELETE',
+  })
+}
+
+// ========== Task Schedules (user-defined recurring tasks) ==========
+
+export async function fetchSchedules(opts?: {
+  project_id?: string
+  include_disabled?: boolean
+}): Promise<TaskScheduleListResponse> {
+  const params = new URLSearchParams()
+  if (opts?.project_id) params.set('project_id', opts.project_id)
+  if (opts?.include_disabled !== undefined)
+    params.set('include_disabled', String(opts.include_disabled))
+  const qs = params.toString()
+  return fetchJson<TaskScheduleListResponse>(`/schedules${qs ? `?${qs}` : ''}`)
+}
+
+export async function fetchSchedule(scheduleId: string): Promise<TaskSchedule> {
+  return fetchJson<TaskSchedule>(`/schedules/${scheduleId}`)
+}
+
+export async function createSchedule(body: CreateTaskScheduleRequest): Promise<TaskSchedule> {
+  return fetchJson<TaskSchedule>('/schedules', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateSchedule(
+  scheduleId: string,
+  body: UpdateTaskScheduleRequest
+): Promise<TaskSchedule> {
+  return fetchJson<TaskSchedule>(`/schedules/${scheduleId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteSchedule(scheduleId: string): Promise<void> {
+  await fetchJson<unknown>(`/schedules/${scheduleId}`, { method: 'DELETE' })
+}
+
+export async function enableSchedule(scheduleId: string): Promise<TaskSchedule> {
+  return fetchJson<TaskSchedule>(`/schedules/${scheduleId}/enable`, { method: 'POST' })
+}
+
+export async function disableSchedule(scheduleId: string): Promise<TaskSchedule> {
+  return fetchJson<TaskSchedule>(`/schedules/${scheduleId}/disable`, { method: 'POST' })
+}
+
+export async function fireScheduleNow(scheduleId: string): Promise<Run> {
+  return fetchJson<Run>(`/schedules/${scheduleId}/fire`, { method: 'POST' })
+}
+
+export async function fetchScheduleRuns(scheduleId: string, limit = 50): Promise<Run[]> {
+  return fetchJson<Run[]>(`/schedules/${scheduleId}/runs?limit=${limit}`)
+}
+
+export async function previewSchedule(
+  body: SchedulePreviewRequest
+): Promise<SchedulePreviewResponse> {
+  return fetchJson<SchedulePreviewResponse>('/schedules/preview', {
+    method: 'POST',
+    body: JSON.stringify(body),
   })
 }
 

@@ -52,6 +52,10 @@ createRoot(document.getElementById('root')!).render(
           {/* SDK Sessions */}
           <Route path="/sessions" element={<App />} />
 
+          {/* Task schedules — user-defined recurring tasks */}
+          <Route path="/schedules" element={<App />} />
+          <Route path="/schedules/:scheduleId" element={<App />} />
+
           {/* Settings routes */}
           <Route path="/settings" element={<App />} />
           <Route path="/settings/:tab" element={<App />} />

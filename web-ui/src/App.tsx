@@ -1,6 +1,7 @@
 import {
   Activity,
   BarChart3,
+  CalendarClock,
   Database,
   GitMerge,
   LayoutGrid,
@@ -26,6 +27,7 @@ import { OfflineOverlay } from './components/OfflineOverlay'
 import { ProjectFilter } from './components/ProjectFilter'
 import { QuestionModal } from './components/QuestionModal'
 import { RunDetailDialog } from './components/RunDetailDialog'
+import { SchedulesPage } from './components/SchedulesPage'
 import { SessionBrowserPage } from './components/SessionBrowserPage'
 import { SettingsPage } from './components/SettingsPage'
 import { UpdateBanner } from './components/UpdateBanner'
@@ -66,6 +68,7 @@ type ViewMode =
   | 'queue'
   | 'merge'
   | 'sessions'
+  | 'schedules'
   | 'usage'
   | 'settings'
   | 'admin-users'
@@ -74,6 +77,7 @@ const SECONDARY_NAV_ITEMS: { mode: ViewMode; icon: typeof Activity; label: strin
   { mode: 'activity', icon: Activity, label: 'Activity' },
   { mode: 'queue', icon: ListTodo, label: 'Work Queue' },
   { mode: 'merge', icon: GitMerge, label: 'Merge Queue' },
+  { mode: 'schedules', icon: CalendarClock, label: 'Schedules' },
   { mode: 'sessions', icon: Database, label: 'Sessions' },
   { mode: 'usage', icon: BarChart3, label: 'Usage' },
 ]
@@ -628,6 +632,8 @@ function AuthenticatedApp() {
             <MergeQueuePage />
           ) : viewMode === 'sessions' ? (
             <SessionBrowserPage />
+          ) : viewMode === 'schedules' ? (
+            <SchedulesPage />
           ) : viewMode === 'list' ? (
             <ListViewPage runs={filteredRuns} onRunUpdate={handleRunUpdated} onRefresh={refresh} />
           ) : (filter.type === 'archived' ? archivedLoading : loading) ? (

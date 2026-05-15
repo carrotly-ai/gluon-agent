@@ -21,6 +21,7 @@ from gluon.models import (
     CircuitState,
     CommitFileSnapshot,
     CommitSnapshot,
+    ConcurrencyPolicy,
     ExecutionRun,
     FileChangeSnapshot,
     GitStatus,
@@ -55,6 +56,7 @@ from gluon.models import (
     TaskChain,
     TaskComment,
     TaskProfile,
+    TaskSchedule,
     TaskStatus,
     TaskStep,
     TodoSnapshot,
@@ -832,6 +834,40 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_runs_snoozed_until ON execution_runs(snoozed_until);",
     "CREATE INDEX IF NOT EXISTS idx_runs_last_activity ON execution_runs(last_activity_at);",
     "CREATE INDEX IF NOT EXISTS idx_runs_forked_from ON execution_runs(forked_from_run_id);",
+    # ---------------------------------------------------------------------
+    # Task Schedules — user-defined recurring tasks. Distinct from the
+    # internal AgentSchedule heartbeat system (`agent_schedules`).
+    # ---------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS task_schedules (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        prompt TEXT NOT NULL,
+        profile TEXT NOT NULL DEFAULT 'standard',
+        model TEXT,
+        use_worktree INTEGER NOT NULL DEFAULT 0,
+        timezone TEXT NOT NULL DEFAULT 'UTC',
+        recurrence_days TEXT,
+        recurrence_time TEXT,
+        schedule_cron TEXT NOT NULL,
+        concurrency_policy TEXT NOT NULL DEFAULT 'skip',
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        last_fired_at TEXT,
+        next_fire_at TEXT,
+        description TEXT,
+        created_by_user_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_task_schedules_project ON task_schedules(project_id);",
+    "CREATE INDEX IF NOT EXISTS idx_task_schedules_enabled ON task_schedules(is_enabled);",
+    "CREATE INDEX IF NOT EXISTS idx_task_schedules_next_fire ON task_schedules(next_fire_at);",
+    # FK from execution_runs back to the schedule that spawned them. Nullable;
+    # NULL for runs created from the UI / CLI / API directly.
+    "ALTER TABLE execution_runs ADD COLUMN schedule_id TEXT;",
+    "CREATE INDEX IF NOT EXISTS idx_runs_schedule_id ON execution_runs(schedule_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -2605,6 +2641,176 @@ class GluonStore:
             updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
         )
 
+    # ========== TaskSchedule CRUD (user-facing recurring tasks) ==========
+
+    def create_task_schedule(self, schedule: TaskSchedule) -> TaskSchedule:
+        """Insert a new TaskSchedule row."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO task_schedules
+                (id, name, project_id, prompt, profile, model, use_worktree,
+                 timezone, recurrence_days, recurrence_time, schedule_cron,
+                 concurrency_policy, is_enabled, last_fired_at, next_fire_at,
+                 description, created_by_user_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    schedule.id,
+                    schedule.name,
+                    schedule.project_id,
+                    schedule.prompt,
+                    schedule.profile,
+                    schedule.model,
+                    1 if schedule.use_worktree else 0,
+                    schedule.timezone,
+                    json.dumps(schedule.recurrence_days) if schedule.recurrence_days is not None else None,
+                    schedule.recurrence_time,
+                    schedule.schedule_cron,
+                    schedule.concurrency_policy.value,
+                    1 if schedule.is_enabled else 0,
+                    schedule.last_fired_at.isoformat() if schedule.last_fired_at else None,
+                    schedule.next_fire_at.isoformat() if schedule.next_fire_at else None,
+                    schedule.description,
+                    schedule.created_by_user_id,
+                    schedule.created_at.isoformat(),
+                    schedule.updated_at.isoformat(),
+                ),
+            )
+        return schedule
+
+    def get_task_schedule(self, schedule_id: str) -> TaskSchedule | None:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM task_schedules WHERE id = ?", (schedule_id,)).fetchone()
+        return self._row_to_task_schedule(row) if row else None
+
+    def list_task_schedules(
+        self,
+        project_id: str | None = None,
+        include_disabled: bool = True,
+    ) -> list[TaskSchedule]:
+        """List task schedules, newest first."""
+        query = "SELECT * FROM task_schedules WHERE 1=1"
+        params: list[str | int] = []
+        if project_id is not None:
+            query += " AND project_id = ?"
+            params.append(project_id)
+        if not include_disabled:
+            query += " AND is_enabled = 1"
+        query += " ORDER BY created_at DESC"
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._row_to_task_schedule(r) for r in rows]
+
+    def list_due_task_schedules(self, now: datetime | None = None) -> list[TaskSchedule]:
+        """Return enabled schedules whose next_fire_at is at or before ``now``."""
+        cutoff = (now or utc_now()).isoformat()
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM task_schedules
+                 WHERE is_enabled = 1
+                   AND next_fire_at IS NOT NULL
+                   AND next_fire_at <= ?
+                 ORDER BY next_fire_at ASC
+                """,
+                (cutoff,),
+            ).fetchall()
+        return [self._row_to_task_schedule(r) for r in rows]
+
+    def update_task_schedule(self, schedule: TaskSchedule) -> None:
+        """Persist all mutable fields of a TaskSchedule."""
+        schedule.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE task_schedules SET
+                    name = ?, project_id = ?, prompt = ?, profile = ?, model = ?,
+                    use_worktree = ?, timezone = ?, recurrence_days = ?,
+                    recurrence_time = ?, schedule_cron = ?, concurrency_policy = ?,
+                    is_enabled = ?, last_fired_at = ?, next_fire_at = ?,
+                    description = ?, updated_at = ?
+                 WHERE id = ?
+                """,
+                (
+                    schedule.name,
+                    schedule.project_id,
+                    schedule.prompt,
+                    schedule.profile,
+                    schedule.model,
+                    1 if schedule.use_worktree else 0,
+                    schedule.timezone,
+                    json.dumps(schedule.recurrence_days) if schedule.recurrence_days is not None else None,
+                    schedule.recurrence_time,
+                    schedule.schedule_cron,
+                    schedule.concurrency_policy.value,
+                    1 if schedule.is_enabled else 0,
+                    schedule.last_fired_at.isoformat() if schedule.last_fired_at else None,
+                    schedule.next_fire_at.isoformat() if schedule.next_fire_at else None,
+                    schedule.description,
+                    schedule.updated_at.isoformat(),
+                    schedule.id,
+                ),
+            )
+
+    def delete_task_schedule(self, schedule_id: str) -> bool:
+        """Delete a task schedule. Spawned runs survive (schedule_id becomes a dangling FK)."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM task_schedules WHERE id = ?", (schedule_id,))
+            return cursor.rowcount > 0
+
+    def list_runs_for_schedule(self, schedule_id: str, limit: int = 50) -> list[ExecutionRun]:
+        """List recent runs spawned by a task schedule, newest first."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM execution_runs WHERE schedule_id = ? ORDER BY created_at DESC LIMIT ?",
+                (schedule_id, limit),
+            ).fetchall()
+        return [self._row_to_run(r) for r in rows]
+
+    def list_active_runs_for_schedule(self, schedule_id: str) -> list[ExecutionRun]:
+        """Pending or running runs spawned by a schedule — used for concurrency checks."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM execution_runs
+                 WHERE schedule_id = ?
+                   AND status IN ('pending', 'running')
+                """,
+                (schedule_id,),
+            ).fetchall()
+        return [self._row_to_run(r) for r in rows]
+
+    def _row_to_task_schedule(self, row: sqlite3.Row) -> TaskSchedule:
+        days_raw = row["recurrence_days"]
+        days: list[int] | None = None
+        if days_raw:
+            try:
+                days = json.loads(days_raw)
+            except (ValueError, TypeError):
+                days = None
+        return TaskSchedule(
+            id=row["id"],
+            name=row["name"],
+            project_id=row["project_id"],
+            prompt=row["prompt"],
+            profile=row["profile"] or "standard",
+            model=row["model"],
+            use_worktree=bool(row["use_worktree"]) if row["use_worktree"] is not None else False,
+            timezone=row["timezone"] or "UTC",
+            recurrence_days=days,
+            recurrence_time=row["recurrence_time"],
+            schedule_cron=row["schedule_cron"],
+            concurrency_policy=ConcurrencyPolicy(row["concurrency_policy"] or "skip"),
+            is_enabled=bool(row["is_enabled"]),
+            last_fired_at=_parse_datetime(row["last_fired_at"]),
+            next_fire_at=_parse_datetime(row["next_fire_at"]),
+            description=row["description"],
+            created_by_user_id=row["created_by_user_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+        )
+
     # ========== HeartbeatRun CRUD (Theme B Phase 2) ==========
 
     def record_heartbeat(self, heartbeat: HeartbeatRun) -> HeartbeatRun:
@@ -2976,6 +3182,7 @@ class GluonStore:
         custom_title: str | None = None,
         forked_from_run_id: str | None = None,
         claude_session_id: str | None = None,
+        schedule_id: str | None = None,
     ) -> ExecutionRun:
         """Create a new execution run.
 
@@ -2986,6 +3193,9 @@ class GluonStore:
         ``kind`` / ``custom_title`` / ``forked_from_run_id`` / ``claude_session_id``
         are the list-view cockpit fields. ``claude_session_id`` is only meaningful
         when forking — the child inherits the parent's SDK session.
+
+        ``schedule_id``: when set, links this run back to a TaskSchedule that
+        spawned it. The list-view chip uses this to jump to the schedule.
         """
         run = ExecutionRun(
             project_id=project_id,
@@ -3008,6 +3218,7 @@ class GluonStore:
             kind=kind,
             custom_title=custom_title,
             forked_from_run_id=forked_from_run_id,
+            schedule_id=schedule_id,
         )
         # Seed last_activity_at so the new run sorts correctly under "Recent activity".
         run.last_activity_at = run.created_at
@@ -3020,9 +3231,9 @@ class GluonStore:
                  started_at, completed_at, exit_code, log_path, error_message, model,
                  ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy,
                  max_tool_calls, max_duration_minutes, tool_call_count, user_id,
-                 custom_title, kind, last_activity_at, forked_from_run_id)
+                 custom_title, kind, last_activity_at, forked_from_run_id, schedule_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?)
+                        ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -3055,6 +3266,7 @@ class GluonStore:
                     run.kind,
                     run.last_activity_at.isoformat() if run.last_activity_at else None,
                     run.forked_from_run_id,
+                    run.schedule_id,
                 ),
             )
         return run
@@ -3163,7 +3375,7 @@ class GluonStore:
                     supervision_auto_resume_count = ?, last_supervision_check_at = ?,
                     last_supervision_resume_at = ?, supervision_disabled_reason = ?,
                     queued_messages = ?, changes_snapshotted = ?, snapshot_at = ?,
-                    metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?,
+                    metadata = ?, last_output_at = ?, chain_id = ?, step_id = ?, schedule_id = ?,
                     agent_id = ?,
                     approval_policy = ?,
                     max_tool_calls = ?, max_duration_minutes = ?, tool_call_count = ?,
@@ -3244,6 +3456,7 @@ class GluonStore:
                     run.last_output_at.isoformat() if run.last_output_at else None,
                     run.chain_id,
                     run.step_id,
+                    run.schedule_id,
                     # Agent linkage (Theme B Phase 1)
                     run.agent_id,
                     # Approval gates (Theme D1)
@@ -3471,6 +3684,8 @@ class GluonStore:
             snoozed_until=_parse_datetime(row["snoozed_until"]) if "snoozed_until" in keys else None,
             last_activity_at=_parse_datetime(row["last_activity_at"]) if "last_activity_at" in keys else None,
             forked_from_run_id=row["forked_from_run_id"] if "forked_from_run_id" in keys else None,
+            # Scheduled-task linkage
+            schedule_id=row["schedule_id"] if "schedule_id" in keys else None,
         )
 
     def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
