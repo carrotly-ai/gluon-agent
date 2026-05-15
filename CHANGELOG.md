@@ -9,6 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes yet._
 
+## [0.12.0] - 2026-05-15
+
+Headline: **Two big new features for managing agents at scale.** A Slack-style **list-view cockpit** that turns the run list into a real attention-management surface (smart groups, search, snooze, fork, custom titles, keyboard nav) for users running 20+ concurrent agents, plus user-defined **Scheduled Tasks** with a friendly recurrence editor (day checkboxes + time picker + IANA timezone) and per-schedule concurrency policy. Spawned schedule runs flow back into the cockpit list view automatically.
+
+### Added — List-view cockpit (#108)
+
+Restructures `ListViewPage` to scale past the ~10-thread point where the old flat-project sidebar collapses. Adds an attention layer, search, snooze, fork, custom titles, and keyboard navigation.
+
+- **Smart sidebar groups**: `Needs you` (failed / conflicting / pending question) → `Running` → projects → `Snoozed` → `Archived`. A run appears in at most one group; Needs-you takes precedence over Running; Snoozed shadows Running until it wakes.
+- **Custom titles** — click the inline pencil in the right-pane header. Falls back to the truncated prompt when blank.
+- **Auto-detected `kind`** (research / build / docs / bug / review / chore) shown as a leading glyph in each row. Regex-detected on submit; user can override via the `⋯` menu.
+- **Snooze** — `H` (or `⋯ → Snooze…`) opens a popover with `1h / Tomorrow / Monday / Next week / Pick a date`. Snoozed runs hide from the default list and reappear at the chosen time.
+- **Fork** — `F` (or the right-pane Fork button) opens a modal that spawns a child run inheriting the parent's Claude session via the SDK's `fork_session=True`. Forked rows show a `↳` glyph and a `Parent` jump button in the detail header.
+- **Search + sort + density** — `/` focuses the search box (fuzzy across title, prompt, branch, project, kind). Sort toggle: `Recent activity` / `Created` / `Project A→Z`. Compact density toggle in the footer. All three persist to localStorage.
+- **Always-visible `⋯` overflow menu** on every row replaces the previous hover-only pin/archive (was failing on touch and on first-encounter discoverability). Exposes Pin / Snooze / Set kind / Fork / Archive / Cancel.
+- **Attention badges** — per project header shows `total · N!` where N is the needs-attention count. Sourced from the new `GET /api/attention-counts` endpoint.
+- **Keyboard nav** (Linear-style): `j/k` ↔ `↑/↓` move selection, `Enter` focuses chat input, `/` focuses search, `x` archives, `f` forks, `h` snoozes, `Esc` clears.
+- **Strengthened selected state** — 3px inset shadow (no width shift on toggle).
+- **Better empty state** with feature checklist + CTA.
+
+Backend additions powering this:
+
+- 5 new nullable columns on `execution_runs`: `custom_title`, `kind`, `snoozed_until`, `last_activity_at`, `forked_from_run_id`. Additive migrations; existing rows remain valid with NULL defaults.
+- New endpoints: `PATCH /api/runs/{id}` (title + kind), `POST /api/runs/{id}/snooze`, `POST /api/runs/{id}/fork`, `GET /api/attention-counts`.
+- `store.list_runs` gains an `include_snoozed` flag (default `false`) so list endpoints hide future-snoozed rows without callers having to filter.
+- 38 new tests for round-trip / fork / snooze / attention-count flows.
+
+### Added — Scheduled Tasks (#109)
+
+User-defined recurring tasks with a friendly editor. Sister of the existing `HeartbeatScheduler` (agent-internal heartbeats) rather than a refactor — keeps the user-facing scheduler conceptually clean.
+
+- **Dedicated `/schedules` page** in the header overflow menu (icon: `CalendarClock`) — table with name, friendly summary, project, next/last fire, run counts, and row actions (pause+resume / fire-now / edit / delete). Disabled rows render dimmed.
+- **`ScheduleEditorDialog`** modal: day-preset chips (`Weekdays / Weekends / Every day`), per-day toggles, time picker, IANA timezone defaulting to the browser's, "Advanced (cron)" disclosure for raw expressions, **live preview** ("Weekdays at 9:00 AM (Asia/Singapore) — next Mon May 18, 9:00 AM SGT" + canonical cron), per-schedule concurrency-policy radio.
+- **Three concurrency policies**: `Skip` (default — drop the new firing if one's in flight), `Cancel & restart` (cancel the in-flight then start fresh), `Allow overlap` (spawn another alongside).
+- **Spawned runs flow into the cockpit List view** automatically via the new `execution_runs.schedule_id` FK column.
+- **DST-correct evaluation** — uses `croniter` + Python's `zoneinfo`, so a `9 AM` schedule in Asia/Singapore stays 9 AM SGT across DST transitions.
+
+Backend additions powering this:
+
+- New `gluon.recurrence` module: bijective `recurrence_to_cron` / `cron_to_recurrence`, `compute_next_fire_in_tz`, `human_summary`.
+- New `gluon.task_scheduler.TaskScheduleManager`: separate poll loop (30s default), enforces per-schedule concurrency. On by default; opt out with `GLUON_SCHEDULES_DISABLED=1`.
+- New `task_schedules` table and `execution_runs.schedule_id` FK column (additive migrations).
+- 8 new endpoints under `/api/schedules` (list / create / detail / patch / delete / enable / disable / fire-now / runs / preview).
+- 43 new tests for round-trip / DST / store CRUD / endpoints / each concurrency policy.
+
+### Tests
+
+- Total suite: 2155 passing.
+
 ## [0.11.0] - 2026-04-26
 
 Headline: **Multi-user authentication is here.** Optional, opt-in via a single feature flag (`GLUON_AUTH_ENABLED=true`), and ships in **all four phases at once** — local password auth, OIDC / SSO, RBAC with three roles, per-row attribution on every action, an admin user-management screen, and self-serve chat-account linking from Telegram and Discord. Single-user installs see zero behaviour change after upgrading.
