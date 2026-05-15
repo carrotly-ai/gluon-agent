@@ -1,6 +1,7 @@
 import type {
   // Activity Log types
   ActivityEvent,
+  AttentionCountsResponse,
   AuthProvidersResponse,
   BranchListResponse,
   BranchOperationResponse,
@@ -19,6 +20,7 @@ import type {
   FileDiff,
   ForcePushCheckResponse,
   ForcePushResponse,
+  ForkRunRequest,
   // Formula types
   FormulaTemplate,
   GitStatusInfo,
@@ -68,6 +70,7 @@ import type {
   SlashCommandsResponse,
   StopLoopResponse,
   SystemStatus,
+  UpdateRunRequest,
   UpdateStatusResponse,
   UpdateUserRequest,
   UsageSummary,
@@ -159,6 +162,42 @@ export async function archiveRun(runId: string): Promise<Run> {
   return fetchJson<Run>(`/runs/${runId}/archive`, {
     method: 'POST',
   })
+}
+
+/** Unarchive a run */
+export async function unarchiveRun(runId: string): Promise<Run> {
+  return fetchJson<Run>(`/runs/${runId}/unarchive`, {
+    method: 'POST',
+  })
+}
+
+/** PATCH a run's user-editable fields (title, kind). */
+export async function updateRun(runId: string, patch: UpdateRunRequest): Promise<Run> {
+  return fetchJson<Run>(`/runs/${runId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+/** Set or clear a run's snooze deadline. Pass null to unsnooze. */
+export async function snoozeRun(runId: string, until: string | null): Promise<Run> {
+  return fetchJson<Run>(`/runs/${runId}/snooze`, {
+    method: 'POST',
+    body: JSON.stringify({ until }),
+  })
+}
+
+/** Fork an existing run's Claude session into a new child run. */
+export async function forkRun(runId: string, body: ForkRunRequest): Promise<Run> {
+  return fetchJson<Run>(`/runs/${runId}/fork`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** Fetch aggregate attention counts (for sidebar / project badges). */
+export async function fetchAttentionCounts(): Promise<AttentionCountsResponse> {
+  return fetchJson<AttentionCountsResponse>('/attention-counts')
 }
 
 /** Update PR status (e.g., mark as merged to move from REVIEW to DONE) */

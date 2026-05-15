@@ -61,7 +61,16 @@ export interface Run {
   chain_total_steps?: number | null
   // SDK stop reason (surfaced in run lists/cards)
   stop_reason?: string | null
+  // List-view cockpit fields (see tmp/list-view-plan.md)
+  custom_title?: string | null
+  kind?: RunKind | null
+  snoozed_until?: string | null
+  last_activity_at?: string | null
+  forked_from_run_id?: string | null
 }
+
+/** Run "kind" — low-cardinality category surfaced as a leading glyph in the list. */
+export type RunKind = 'research' | 'build' | 'docs' | 'bug' | 'review' | 'chore'
 
 /** Detailed run response (includes additional fields) */
 export interface RunDetail extends Run {
@@ -244,6 +253,35 @@ export interface RecoverRunResponse {
 export interface SessionHistoryResponse {
   session_id: string
   runs: Run[]
+}
+
+// ========== List-view Cockpit (tmp/list-view-plan.md) ==========
+
+/** PATCH /api/runs/{id} — partial update of user-editable fields. */
+export interface UpdateRunRequest {
+  custom_title?: string | null
+  kind?: RunKind | null
+}
+
+/** POST /api/runs/{id}/snooze — set or clear a run's snooze deadline. */
+export interface SnoozeRunRequest {
+  /** ISO datetime when the run should reappear; null clears the snooze. */
+  until: string | null
+}
+
+/** POST /api/runs/{id}/fork — fork an existing run's Claude session. */
+export interface ForkRunRequest {
+  prompt: string
+  custom_title?: string | null
+}
+
+/** GET /api/attention-counts — aggregate badge counts. */
+export interface AttentionCountsResponse {
+  total: number
+  needs_input: number
+  failed: number
+  conflicts: number
+  by_project: Record<string, number>
 }
 
 // ========== Ralph Loop Types ==========
