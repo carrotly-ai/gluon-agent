@@ -23,6 +23,7 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     PermissionResultDeny,
     ProcessError,
+    RateLimitEvent,
     ResultMessage,
     ServerToolResultBlock,
     ServerToolUseBlock,
@@ -1168,6 +1169,21 @@ class GluonAgent:
                                     "stop_reason": stop_reason,
                                     "errors": msg.errors,
                                     "deferred_tool_use": deferred,
+                                },
+                            )
+
+                        elif isinstance(msg, RateLimitEvent):
+                            info = msg.rate_limit_info
+                            yield AgentMessage(
+                                type="rate_limit",
+                                content=f"Rate limit {info.status}: {info.rate_limit_type or 'unknown'}",
+                                metadata={
+                                    "status": info.status,
+                                    "rate_limit_type": info.rate_limit_type,
+                                    "utilization": info.utilization,
+                                    "resets_at": info.resets_at,
+                                    "overage_status": info.overage_status,
+                                    "overage_resets_at": info.overage_resets_at,
                                 },
                             )
 
