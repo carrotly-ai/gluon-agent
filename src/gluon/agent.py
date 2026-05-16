@@ -149,7 +149,19 @@ def _classify_api_error(error: Exception) -> Exception:
 
 
 # Default tools available to Claude Code agents
-DEFAULT_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "TodoWrite"]
+DEFAULT_TOOLS = [
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Glob",
+    "Grep",
+    "Task",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskGet",
+    "TaskList",
+]
 
 # Dangerous command patterns blocked via PermissionResultDeny
 DANGEROUS_PATTERNS = [
@@ -177,6 +189,54 @@ MCP_CONFIG_PATHS = [
     # Alternative location
     Path.home() / ".claude" / "mcp.json",
 ]
+
+
+def _task_tool_to_todo_list(
+    tool_name: str,
+    inp: dict[str, Any] | Any,
+    todo_collector: Any,
+) -> list[dict[str, Any]]:
+    """Convert a TaskCreate/TaskUpdate call into a TodoSnapshot-compatible list.
+
+    SDK 0.2.82 replaced TodoWrite with per-task CRUD tools. We reconstruct the
+    full task list by reading the latest snapshot from the store and merging.
+    """
+    if not isinstance(inp, dict):
+        return []
+    try:
+        existing = todo_collector.store.get_latest_todo_snapshot(todo_collector.run_id)
+        todos: list[dict[str, Any]] = list(existing.todos) if existing else []
+    except Exception:
+        todos = []
+
+    if tool_name == "TaskCreate":
+        todos.append(
+            {
+                "content": inp.get("content", ""),
+                "status": inp.get("status", "pending"),
+                "id": inp.get("id", ""),
+            }
+        )
+    elif tool_name == "TaskUpdate":
+        task_id = inp.get("id", "")
+        updated = False
+        for t in todos:
+            if t.get("id") == task_id:
+                if "status" in inp:
+                    t["status"] = inp["status"]
+                if "content" in inp:
+                    t["content"] = inp["content"]
+                updated = True
+                break
+        if not updated:
+            todos.append(
+                {
+                    "content": inp.get("content", ""),
+                    "status": inp.get("status", "pending"),
+                    "id": task_id,
+                }
+            )
+    return todos
 
 
 def find_mcp_config(working_dir: Path | None = None) -> Path | None:
@@ -943,14 +1003,22 @@ class GluonAgent:
                                             "input": block.input,
                                         },
                                     )
-                                    # Mirror TodoWrite to store (inline fallback
-                                    # for when SDK PostToolUse hooks don't fire)
-                                    if block.name == "TodoWrite" and todo_collector is not None:
+                                    # Mirror task tools to store (inline fallback
+                                    # for when SDK PostToolUse hooks don't fire).
+                                    # SDK 0.2.82: headless sessions use TaskCreate/TaskUpdate
+                                    # instead of TodoWrite. Support both for backward compat.
+                                    if (
+                                        block.name in ("TodoWrite", "TaskCreate", "TaskUpdate")
+                                        and todo_collector is not None
+                                    ):
                                         try:
                                             from gluon.models import TodoSnapshot
 
                                             inp = block.input
-                                            todos = inp.get("todos", []) if isinstance(inp, dict) else []
+                                            if block.name == "TodoWrite":
+                                                todos = inp.get("todos", []) if isinstance(inp, dict) else []
+                                            else:
+                                                todos = _task_tool_to_todo_list(block.name, inp, todo_collector)
                                             if isinstance(todos, list) and todos:
                                                 snap = TodoSnapshot.from_tool_input(todo_collector.run_id, todos)
                                                 todo_collector.store.save_todo_snapshot(snap)
@@ -972,7 +1040,7 @@ class GluonAgent:
                                                         }
                                                     )
                                         except Exception:
-                                            logger.exception("Failed to mirror TodoWrite inline")
+                                            logger.exception("Failed to mirror task tool inline")
                                     # Detect planning completion for model transition
                                     if self.model_transition and not model_switched and block.name == "ExitPlanMode":
                                         transition_map = {

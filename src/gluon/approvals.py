@@ -128,7 +128,7 @@ def classify_tool_call(
             return ApprovalDecision(True, f"PARANOID: all writes require approval — {tool_name}")
         return ApprovalDecision(False, "")
 
-    # All other tools (Read, Glob, Grep, WebFetch, Task, TodoWrite, MCP tools, etc.)
+    # All other tools (Read, Glob, Grep, WebFetch, Task, TaskCreate, TaskUpdate, MCP tools, etc.)
     # are not gated. Operators who want to gate MCP tools specifically can use
     # PARANOID — it catches Bash. Explicit per-MCP gating is a future enhancement.
     return ApprovalDecision(False, "")

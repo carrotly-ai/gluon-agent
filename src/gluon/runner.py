@@ -2481,16 +2481,19 @@ but explicit commits with good messages are preferred.
                 for line in f:
                     try:
                         msg = json.loads(line)
-                        # Look for TodoWrite tool results with completed tasks
                         if msg.get("type") == "tool_use":
                             metadata = msg.get("metadata", {})
                             tool = metadata.get("tool", "")
+                            input_data = metadata.get("input", {})
+                            # Legacy TodoWrite: snapshot list
                             if tool == "TodoWrite":
-                                input_data = metadata.get("input", {})
                                 todos = input_data.get("todos", [])
                                 for todo in todos:
                                     if todo.get("status") == "completed":
                                         completed.append(todo.get("content", ""))
+                            # SDK 0.2.82: TaskUpdate with completed status
+                            elif tool == "TaskUpdate" and input_data.get("status") == "completed":
+                                completed.append(input_data.get("content", ""))
                     except json.JSONDecodeError:
                         continue
         except Exception:

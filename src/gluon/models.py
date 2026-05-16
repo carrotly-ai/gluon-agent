@@ -200,7 +200,7 @@ PLANNING_SYSTEM_PROMPT = """
 Before executing ANY code changes or tool calls that modify files, you MUST:
 
 1. **Analyze the Request**: Understand what the user is asking for
-2. **Create a Plan**: Write a detailed plan using TodoWrite tool with specific tasks
+2. **Create a Plan**: Write a detailed plan using TaskCreate tool with specific tasks
 3. **Present the Plan**: Output the plan for review BEFORE executing
 4. **Wait for Confirmation**: Only proceed after presenting the plan
 
@@ -220,7 +220,7 @@ PLANNING_AUTONOMOUS_PROMPT = """
 
 **Phase 1 - Planning:**
 1. Analyze the request
-2. Create a detailed plan using TodoWrite with checkbox format:
+2. Create a detailed plan using TaskCreate with checkbox format:
    - [ ] Task 1: Description
    - [ ] Task 2: Description
 3. Output the plan
