@@ -319,39 +319,54 @@ def _make_screenshot_interceptor(collector: ScreenshotCollector):
 
 @dataclass
 class TodoCollector:
-    """Mirrors TodoWrite tool calls to the Gluon store for dashboard visibility.
+    """Mirrors task tool calls to the Gluon store for dashboard visibility.
 
     This is a read-only observer — it does not modify Claude's input or output.
-    Each TodoWrite call produces a TodoSnapshot persisted to the todo_snapshots table.
+    Supports both legacy TodoWrite (SDK <0.2) and TaskCreate/TaskUpdate (SDK >=0.2.82).
     """
 
     run_id: str
     store: GluonStore
+    working_dir: Path | None = None
+    image_service: Any = None
     message_callback: Callable[[dict[str, Any]], None] | None = None
 
 
-def _make_todo_mirror_hook(collector: TodoCollector):
-    """Create a PostToolUse hook that mirrors TodoWrite state to the Gluon store."""
+_TASK_TOOL_NAMES = frozenset({"TodoWrite", "TaskCreate", "TaskUpdate"})
 
-    async def on_post_todo_write(
+
+def _make_todo_mirror_hook(collector: TodoCollector):
+    """Create a PostToolUse hook that mirrors task state to the Gluon store.
+
+    Handles both TodoWrite (snapshot replacement) and TaskCreate/TaskUpdate
+    (per-task CRUD, accumulated into a snapshot).
+    """
+
+    async def on_post_task_tool(
         input_data: PostToolUseHookInput | HookInput,
         tool_use_id: str | None,
         context: HookContext,
     ) -> SyncHookJSONOutput | AsyncHookJSONOutput:
         tool_name = input_data.get("tool_name", "")
-        if tool_name != "TodoWrite":
+        if tool_name not in _TASK_TOOL_NAMES:
             return {}
 
         tool_input = input_data.get("tool_input", {})
         if not isinstance(tool_input, dict):
             return {}
 
-        todos = tool_input.get("todos", [])
-        if not isinstance(todos, list):
-            return {}
-
         try:
+            from gluon.agent import _task_tool_to_todo_list
             from gluon.models import TodoSnapshot
+
+            if tool_name == "TodoWrite":
+                todos = tool_input.get("todos", [])
+                if not isinstance(todos, list):
+                    return {}
+            else:
+                todos = _task_tool_to_todo_list(tool_name, tool_input, collector)
+                if not todos:
+                    return {}
 
             snapshot = TodoSnapshot.from_tool_input(collector.run_id, todos)
             collector.store.save_todo_snapshot(snapshot)
@@ -367,7 +382,6 @@ def _make_todo_mirror_hook(collector: TodoCollector):
                 },
             )
 
-            # Write to messages.jsonl for WebSocket streaming
             if collector.message_callback:
                 collector.message_callback(
                     {
@@ -384,11 +398,11 @@ def _make_todo_mirror_hook(collector: TodoCollector):
                     }
                 )
         except Exception:
-            logger.exception("Failed to mirror TodoWrite to store")
+            logger.exception("Failed to mirror task tool to store")
 
         return {}
 
-    return on_post_todo_write
+    return on_post_task_tool
 
 
 # ---------------------------------------------------------------------------

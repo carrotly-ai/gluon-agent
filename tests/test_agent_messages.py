@@ -352,3 +352,38 @@ class TestDeferredToolUse:
         result_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "result"]
         assert len(result_msgs) == 1
         assert result_msgs[0].metadata["deferred_tool_use"] is None
+
+
+# ===========================================================================
+# SDK 0.2.82: RateLimitEvent streaming
+# ===========================================================================
+
+
+class TestRateLimitEvent:
+    @pytest.mark.asyncio
+    async def test_rate_limit_event_yields_agent_message(self):
+        """RateLimitEvent should yield AgentMessage with type='rate_limit'."""
+        from claude_agent_sdk import RateLimitEvent, RateLimitInfo
+
+        msgs = [
+            RateLimitEvent(
+                rate_limit_info=RateLimitInfo(
+                    status="allowed_warning",
+                    resets_at=1700000000,
+                    rate_limit_type="five_hour",
+                    utilization=0.85,
+                    raw={"status": "allowed_warning"},
+                ),
+                uuid="rl-1",
+                session_id="sess-rl",
+            ),
+            _make_result_message(),
+        ]
+        items = await _collect_from_execute(msgs)
+
+        rl_msgs = [i for i in items if isinstance(i, AgentMessage) and i.type == "rate_limit"]
+        assert len(rl_msgs) == 1
+        assert rl_msgs[0].metadata["status"] == "allowed_warning"
+        assert rl_msgs[0].metadata["rate_limit_type"] == "five_hour"
+        assert rl_msgs[0].metadata["utilization"] == 0.85
+        assert rl_msgs[0].metadata["resets_at"] == 1700000000
