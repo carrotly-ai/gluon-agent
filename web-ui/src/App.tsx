@@ -294,6 +294,7 @@ function AuthenticatedApp() {
     onBrowserNotification: showBrowserNotification,
   })
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createDialogProject, setCreateDialogProject] = useState<string | undefined>(undefined)
   const [projects, setProjects] = useState<Project[]>([])
   useTheme()
   const online = useOnline()
@@ -635,7 +636,15 @@ function AuthenticatedApp() {
           ) : viewMode === 'schedules' ? (
             <SchedulesPage />
           ) : viewMode === 'list' ? (
-            <ListViewPage runs={filteredRuns} onRunUpdate={handleRunUpdated} onRefresh={refresh} />
+            <ListViewPage
+              runs={filteredRuns}
+              onRunUpdate={handleRunUpdated}
+              onRefresh={refresh}
+              onNewTaskForProject={(projectName) => {
+                setCreateDialogProject(projectName)
+                setCreateDialogOpen(true)
+              }}
+            />
           ) : (filter.type === 'archived' ? archivedLoading : loading) ? (
             <div className="flex items-center justify-center h-full">
               <div className="mark mark-running w-2 h-2" />
@@ -668,9 +677,15 @@ function AuthenticatedApp() {
 
         <CreateTaskDialog
           open={createDialogOpen}
-          onOpenChange={setCreateDialogOpen}
+          onOpenChange={(open) => {
+            setCreateDialogOpen(open)
+            if (!open) setCreateDialogProject(undefined)
+          }}
           onTaskCreated={() => {}}
-          initialProject={filter.type === 'project' ? filter.value || undefined : undefined}
+          initialProject={
+            createDialogProject ||
+            (filter.type === 'project' ? filter.value || undefined : undefined)
+          }
         />
 
         {/* Global Question Modal — renders for any run's pending questions */}

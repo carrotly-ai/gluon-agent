@@ -21,6 +21,7 @@ import {
   Pin,
   PinOff,
   Play,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -171,6 +172,7 @@ interface ListViewPageProps {
   runs: Run[]
   onRunUpdate: (run: Run) => void
   onRefresh: () => void
+  onNewTaskForProject?: (projectName: string) => void
 }
 
 type PinnedSet = Set<string>
@@ -423,7 +425,12 @@ function MenuItem({ label, icon: Icon, shortcut, tone, onClick }: MenuItemProps)
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ListViewPage({ runs, onRunUpdate, onRefresh }: ListViewPageProps) {
+export function ListViewPage({
+  runs,
+  onRunUpdate,
+  onRefresh,
+  onNewTaskForProject,
+}: ListViewPageProps) {
   const { pendingQuestions } = useNotificationCenter()
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [detail, setDetail] = useState<RunDetail | null>(null)
@@ -1051,40 +1058,59 @@ Focus on preserving the functionality from both sides where possible.`
                 : 0
             return (
               <div key={section.key}>
-                <button
-                  className={cn(
-                    'w-full flex items-center gap-1.5 px-3 py-1.5 text-caption uppercase tracking-widest',
-                    'hover:text-[var(--color-paper)] transition-colors',
-                    isSmart && section.key === 'needs'
-                      ? 'text-[var(--color-harvest)]'
-                      : 'text-[var(--color-stone)]/60'
-                  )}
-                  onClick={() => toggleSection(section.key)}
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="w-3 h-3 shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3 shrink-0" />
-                  )}
-                  <Icon
+                <div className="group/section flex items-center">
+                  <button
                     className={cn(
-                      'w-3 h-3 shrink-0',
-                      section.key === 'needs' && totalAttention > 0 && 'animate-pulse'
+                      'flex-1 flex items-center gap-1.5 px-3 py-1.5 text-caption uppercase tracking-widest',
+                      'hover:text-[var(--color-paper)] transition-colors',
+                      isSmart && section.key === 'needs'
+                        ? 'text-[var(--color-harvest)]'
+                        : 'text-[var(--color-stone)]/60'
                     )}
-                  />
-                  <span className="truncate flex-1 text-left">{section.title}</span>
-                  <span className="text-[var(--color-stone)]/40 tabular-nums">
-                    {section.runs.length}
-                  </span>
-                  {projectAttention > 0 && (
-                    <span
-                      className="ml-1 px-1 rounded-sm bg-[var(--color-harvest)]/20 text-[var(--color-harvest)] tabular-nums"
-                      title={`${projectAttention} need${projectAttention === 1 ? 's' : ''} your attention`}
-                    >
-                      {projectAttention}!
+                    onClick={() => toggleSection(section.key)}
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="w-3 h-3 shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3 shrink-0" />
+                    )}
+                    <Icon
+                      className={cn(
+                        'w-3 h-3 shrink-0',
+                        section.key === 'needs' && totalAttention > 0 && 'animate-pulse'
+                      )}
+                    />
+                    <span className="truncate flex-1 text-left">{section.title}</span>
+                    <span className="text-[var(--color-stone)]/40 tabular-nums">
+                      {section.runs.length}
                     </span>
+                    {projectAttention > 0 && (
+                      <span
+                        className="ml-1 px-1 rounded-sm bg-[var(--color-harvest)]/20 text-[var(--color-harvest)] tabular-nums"
+                        title={`${projectAttention} need${projectAttention === 1 ? 's' : ''} your attention`}
+                      >
+                        {projectAttention}!
+                      </span>
+                    )}
+                  </button>
+                  {section.key.startsWith('project:') && onNewTaskForProject && (
+                    <button
+                      type="button"
+                      className={cn(
+                        'shrink-0 mr-2 p-0.5 rounded-sm transition-all',
+                        'text-[var(--color-stone)]/30 hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/8',
+                        'opacity-0 group-hover/section:opacity-100'
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onNewTaskForProject(section.title)
+                      }}
+                      title={`New task in ${section.title}`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
                   )}
-                </button>
+                </div>
                 {!isCollapsed &&
                   section.runs.map((run) => {
                     const isPending = pendingQuestionByRun.has(run.id)
