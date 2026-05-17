@@ -1116,9 +1116,12 @@ interface ContextUsageData {
 function SessionTokensFooter({ data }: { data: ContextUsageData }) {
   const { input_tokens, output_tokens, cache_read, cache_create, model } = data
 
-  const totalTokens = input_tokens + output_tokens
+  // input_tokens may or may not include cache tokens depending on SDK version.
+  // Derive fresh input safely, then reconstruct the true total.
   const freshInput = Math.max(0, input_tokens - cache_read - cache_create)
-  const cacheHitRate = input_tokens > 0 ? (cache_read / input_tokens) * 100 : 0
+  const totalInput = freshInput + cache_read + cache_create
+  const totalTokens = totalInput + output_tokens
+  const cacheHitRate = totalInput > 0 ? (cache_read / totalInput) * 100 : 0
   const shortModel = model?.replace(/^(global\.)?anthropic\./, '').replace(/-v\d+.*$/, '') ?? null
 
   return (
