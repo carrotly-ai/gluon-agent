@@ -467,6 +467,8 @@ class TestVertexProvider:
             "ANTHROPIC_VERTEX_PROJECT_ID",
             "CLOUD_ML_REGION",
             "GOOGLE_APPLICATION_CREDENTIALS",
+            "GOOGLE_CLOUD_PROJECT",
+            "GCLOUD_PROJECT",
         ):
             monkeypatch.delenv(k, raising=False)
         env = VertexProvider().runner_env()
