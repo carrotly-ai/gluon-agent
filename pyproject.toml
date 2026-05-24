@@ -32,6 +32,7 @@ dependencies = [
     "python-multipart>=0.0.27",  # CVE: unbounded multipart part header DoS
     "urllib3>=2.7.0",            # CVE: cross-origin header leak, decompression bomb bypass
     "mcp>=1.23.0",               # CVE: DNS rebinding via SSRF
+    "idna>=3.15",                # GHSA-65pc-fj4g-8rjx: idna.encode() bypass of CVE-2024-3651 fix
 ]
 
 [project.optional-dependencies]
