@@ -51,12 +51,61 @@ body {
   color: var(--color-paper);
   margin: 0;
   min-height: 100vh;
-  font-weight: 300;
+  /* Sora at 400 still reads light/airy but stays above the readable floor.
+     300 was below WCAG contrast/legibility for many users — Tokyo Minimal
+     restraint comes from letter-spacing and palette, not from thin weight. */
+  font-weight: 400;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   transition:
     background-color 0.2s ease,
     color 0.2s ease;
+}
+
+/* Muted-text contrast floor:
+   - For text at 13px or smaller, the lowest opacity for `--color-stone` is /60.
+   - Anything dimmer (/30, /40) fails WCAG AA contrast at this size.
+   - When the user explicitly wants something almost-invisible (last-connected
+     footer, etc.), use larger spacing/size instead of dropping opacity. */
+
+/* Honour user motion preference globally. Anything we animate via keyframes
+   or transitions effectively becomes instant — keeps the Tokyo Minimal feel
+   intact for users who don't want motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Focus rings — calm but visible, on top of the Tokyo Minimal palette.
+   We use --color-paper for dark mode (light ring on dark bg) and dial it
+   down for light mode so it doesn't glow. The 2px offset keeps the ring
+   off the element itself so the underlying shape stays unchanged. */
+:where(button, a, [role="button"], [role="link"], [role="menuitem"], [tabindex]):focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-paper);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Light mode: the dark "paper" colour as outline reads as a confident hairline
+   without the glow effect that pure black would have. */
+html.light
+:where(button, a, [role="button"], [role="link"], [role="menuitem"], [tabindex]):focus-visible,
+html.light input:focus-visible,
+html.light textarea:focus-visible,
+html.light select:focus-visible,
+html.light summary:focus-visible {
+  outline-color: var(--color-paper);
+  outline-offset: 2px;
 }
 
 /* iOS PWA safe area - push content below status bar / Dynamic Island.
@@ -144,7 +193,14 @@ body {
   }
 }
 
-/* Connection indicator - sonar ping style */
+/* Connection indicator - sonar ping style.
+   The rings only animate when both:
+   1. The `.connected` class is present (connection healthy)
+   2. The user hasn't opted into prefers-reduced-motion — the blanket
+      reduce-motion rule above already neutralises the animation, so we don't
+      need a redundant media query here. The reduce-motion fallback keeps the
+      green dot visible without the pulsing rings; status is conveyed by
+      colour alone for that audience. */
 .connection-indicator {
   position: relative;
 }
