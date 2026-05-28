@@ -56,9 +56,14 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/schedules" element={<App />} />
           <Route path="/schedules/:scheduleId" element={<App />} />
 
-          {/* Settings routes */}
+          {/* Settings routes. The :tab segment is one of
+              workspaces / projects / account / preferences / formulas.
+              Preferences additionally supports a left-rail group
+              (agent / integrations / workspace / system) via a nested
+              segment, e.g. /settings/preferences/integrations. */}
           <Route path="/settings" element={<App />} />
           <Route path="/settings/:tab" element={<App />} />
+          <Route path="/settings/preferences/:group" element={<App />} />
 
           {/* Admin routes (D5 Phase 2) */}
           <Route path="/admin/users" element={<App />} />
