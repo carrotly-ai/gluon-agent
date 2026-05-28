@@ -1200,7 +1200,7 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
                           : vercelTestResult?.valid
                             ? 'bg-[rgba(34,197,94,0.15)] border-[rgba(34,197,94,0.3)] text-green-400'
                             : vercelTestResult && !vercelTestResult.valid
-                              ? 'bg-[rgba(199,62,58,0.15)] border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
+                              ? 'bg-[rgb(var(--color-vermillion-rgb)/0.15)] border-[rgb(var(--color-vermillion-rgb)/0.3)] text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.25)]'
                               : 'border-[rgba(163,163,163,0.2)] text-[var(--color-stone)] hover:bg-[rgba(163,163,163,0.1)]'
                       )}
                     >

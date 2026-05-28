@@ -1110,7 +1110,7 @@ Focus on preserving the functionality from both sides where possible.`
               {/* Cancel */}
               {isActive && (
                 <button
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgba(199,62,58,0.1)] rounded-sm transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] rounded-sm transition-colors"
                   onClick={handleCancel}
                   disabled={cancelling}
                 >
@@ -1174,12 +1174,12 @@ Focus on preserving the functionality from both sides where possible.`
 
           {/* PR/Merge errors */}
           {prError && (
-            <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+            <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm">
               <p className="text-caption text-[var(--color-vermillion)]">{prError}</p>
             </div>
           )}
           {mergeError && (
-            <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+            <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm">
               <p className="text-caption text-[var(--color-vermillion)]">{mergeError}</p>
             </div>
           )}
@@ -1193,7 +1193,7 @@ Focus on preserving the functionality from both sides where possible.`
 
           {/* Error Message */}
           {run?.error_message && (
-            <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+            <div className="mb-6 p-3 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm">
               <p className="text-caption uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
                 Error
               </p>
@@ -1523,7 +1523,7 @@ Focus on preserving the functionality from both sides where possible.`
                                                   file.change_type === 'modified' &&
                                                     'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
                                                   file.change_type === 'deleted' &&
-                                                    'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                                    'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                                   file.change_type === 'renamed' &&
                                                     'bg-[rgba(168,85,247,0.15)] text-purple-400'
                                                 )}
@@ -1657,7 +1657,7 @@ Focus on preserving the functionality from both sides where possible.`
                                   file.change_type === 'modified' &&
                                     'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
                                   file.change_type === 'deleted' &&
-                                    'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                    'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                   file.change_type === 'renamed' &&
                                     'bg-[rgba(168,85,247,0.15)] text-purple-400'
                                 )}
@@ -1717,7 +1717,7 @@ Focus on preserving the functionality from both sides where possible.`
                                         'text-[var(--color-jade)] bg-[rgba(45,212,191,0.08)]'
                                     } else if (line.startsWith('-') && !line.startsWith('---')) {
                                       lineClass =
-                                        'text-[var(--color-vermillion)] bg-[rgba(199,62,58,0.08)]'
+                                        'text-[var(--color-vermillion)] bg-[rgb(var(--color-vermillion-rgb)/0.08)]'
                                     } else if (line.startsWith('@@')) {
                                       lineClass = 'text-purple-400'
                                     } else if (

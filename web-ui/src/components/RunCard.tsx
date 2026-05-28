@@ -81,7 +81,7 @@ interface RunCardProps {
 // Map status to CSS variable for border color
 function getStatusBorderColor(status: string, isRecovering?: boolean): string {
   // Amber for recovery state (distinct from running)
-  if (isRecovering) return '#f59e0b'
+  if (isRecovering) return 'var(--color-harvest)'
 
   switch (status) {
     case 'running':
@@ -91,7 +91,7 @@ function getStatusBorderColor(status: string, isRecovering?: boolean): string {
     case 'completed':
       return 'var(--color-jade)'
     case 'review':
-      return '#a855f7' // Purple for review
+      return 'var(--color-orchid)' // Purple for review
     case 'failed':
       return 'var(--color-vermillion)'
     case 'cancelled':
@@ -132,7 +132,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       {isRecovering && (
         <div
           className="stripe-shimmer absolute top-0 bottom-0 w-[3px]"
-          style={{ backgroundColor: '#f59e0b', left: '-3px' }}
+          style={{ backgroundColor: 'var(--color-harvest)', left: '-3px' }}
         />
       )}
 

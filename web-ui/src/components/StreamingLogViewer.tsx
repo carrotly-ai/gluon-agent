@@ -76,7 +76,7 @@ const MESSAGE_CONFIG: Record<
   error: {
     icon: AlertCircle,
     color: 'text-[var(--color-vermillion)]',
-    bg: 'bg-[rgba(199,62,58,0.06)]',
+    bg: 'bg-[rgb(var(--color-vermillion-rgb)/0.06)]',
     border: 'border-l-2 border-l-[var(--color-vermillion)]',
     label: 'Error',
   },
@@ -1631,7 +1631,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
             className={cn(
               'px-2 py-1 text-body rounded-sm transition-colors flex items-center gap-1',
               filter === 'error'
-                ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
+                ? 'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]'
                 : 'text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)]'
             )}
             onClick={() => setFilter('error')}

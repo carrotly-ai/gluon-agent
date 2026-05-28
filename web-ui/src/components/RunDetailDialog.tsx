@@ -237,7 +237,7 @@ function MobileActionMenu({
             )}
             {isActive && (
               <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.1)] transition-colors"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] transition-colors"
                 onClick={() => {
                   onCancel()
                   setOpen(false)
@@ -1603,7 +1603,7 @@ Focus on preserving the functionality from both sides where possible.`
                 )}
               {isActive && (
                 <button
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgba(199,62,58,0.1)] rounded-sm transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] rounded-sm transition-colors"
                   onClick={handleCancel}
                   disabled={cancelling}
                 >
@@ -1756,13 +1756,13 @@ Focus on preserving the functionality from both sides where possible.`
             )}
             {/* PR creation error */}
             {prError && (
-              <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
+              <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm shrink-0">
                 <p className="text-body text-[var(--color-vermillion)]">{prError}</p>
               </div>
             )}
             {/* Merge error */}
             {mergeError && (
-              <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
+              <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm shrink-0">
                 <p className="text-body text-[var(--color-vermillion)]">{mergeError}</p>
               </div>
             )}
@@ -1780,7 +1780,7 @@ Focus on preserving the functionality from both sides where possible.`
 
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
-              <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm shrink-0">
+              <div className="mb-6 p-3 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm shrink-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1">
                     <p className="text-body uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
@@ -1811,14 +1811,14 @@ Focus on preserving the functionality from both sides where possible.`
                 </div>
                 {/* Recovery error message */}
                 {recoverError && (
-                  <p className="text-body text-[var(--color-vermillion)] mt-2 border-t border-[rgba(199,62,58,0.2)] pt-2">
+                  <p className="text-body text-[var(--color-vermillion)] mt-2 border-t border-[rgb(var(--color-vermillion-rgb)/0.2)] pt-2">
                     Recovery failed: {recoverError}
                   </p>
                 )}
                 {/* Context overflow help text */}
                 {(run.status === 'failed' || run.status === 'review') &&
                   isContextOverflowError(run.error_message) && (
-                    <p className="text-body text-[var(--color-stone)]/60 mt-2 border-t border-[rgba(199,62,58,0.15)] pt-2">
+                    <p className="text-body text-[var(--color-stone)]/60 mt-2 border-t border-[rgb(var(--color-vermillion-rgb)/0.15)] pt-2">
                       This run exceeded the context limit. Click Recover to start a fresh session
                       that preserves progress from completed tasks.
                     </p>
@@ -2250,7 +2250,7 @@ Focus on preserving the functionality from both sides where possible.`
                                                       file.change_type === 'modified' &&
                                                         'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
                                                       file.change_type === 'deleted' &&
-                                                        'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                                        'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                                       file.change_type === 'renamed' &&
                                                         'bg-[rgba(168,85,247,0.15)] text-purple-400'
                                                     )}
@@ -2383,7 +2383,7 @@ Focus on preserving the functionality from both sides where possible.`
                                       file.change_type === 'modified' &&
                                         'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
                                       file.change_type === 'deleted' &&
-                                        'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                        'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                       file.change_type === 'renamed' &&
                                         'bg-[rgba(168,85,247,0.15)] text-purple-400'
                                     )}
@@ -2449,7 +2449,7 @@ Focus on preserving the functionality from both sides where possible.`
                                           !line.startsWith('---')
                                         ) {
                                           lineClass =
-                                            'text-[var(--color-vermillion)] bg-[rgba(199,62,58,0.08)]'
+                                            'text-[var(--color-vermillion)] bg-[rgb(var(--color-vermillion-rgb)/0.08)]'
                                         } else if (line.startsWith('@@')) {
                                           lineClass = 'text-purple-400'
                                         } else if (

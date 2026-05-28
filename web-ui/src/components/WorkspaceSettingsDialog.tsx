@@ -66,7 +66,7 @@ function SettingTextInput({
     <input
       ref={inputRef}
       type={type}
-      className="w-40 text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-carrotly)]/40"
+      className="w-40 text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-indigo)]/40"
       value={localValue}
       placeholder={placeholder}
       onChange={(e) => setLocalValue(e.target.value)}
@@ -207,7 +207,7 @@ export function WorkspaceSettingsDialog({
           <div className="space-y-6">
             {/* Settings Overrides Section */}
             <div>
-              <h3 className="text-caption-strong text-[var(--color-stone)]/80 uppercase tracking-wider mb-3">
+              <h3 className="text-caption text-[var(--color-stone)]/80 uppercase tracking-wider mb-3">
                 Setting Overrides
               </h3>
               <div className="space-y-2">
@@ -226,7 +226,7 @@ export function WorkspaceSettingsDialog({
                             {setting.label}
                           </span>
                           {overridden ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-carrotly)]/15 text-[var(--color-carrotly)]">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-indigo)]/15 text-[var(--color-indigo)]">
                               overridden
                             </span>
                           ) : (
@@ -244,7 +244,7 @@ export function WorkspaceSettingsDialog({
                             className={cn(
                               'relative w-9 h-5 rounded-full transition-colors',
                               value === 'true'
-                                ? 'bg-[var(--color-carrotly)]'
+                                ? 'bg-[var(--color-indigo)]'
                                 : 'bg-[rgba(163,163,163,0.2)]'
                             )}
                             onClick={() =>
@@ -293,7 +293,7 @@ export function WorkspaceSettingsDialog({
 
             {/* Environment Variables Section */}
             <div>
-              <h3 className="text-caption-strong text-[var(--color-stone)]/80 uppercase tracking-wider mb-3">
+              <h3 className="text-caption text-[var(--color-stone)]/80 uppercase tracking-wider mb-3">
                 Environment Variables
               </h3>
               <p className="text-caption text-[var(--color-stone)]/50 mb-3">
@@ -309,7 +309,7 @@ export function WorkspaceSettingsDialog({
                       className="flex items-center justify-between px-3 py-2 rounded-md bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.08)]"
                     >
                       <div className="flex items-center gap-2">
-                        <code className="text-caption text-[var(--color-carrotly)]">{key}</code>
+                        <code className="text-caption text-[var(--color-indigo)]">{key}</code>
                         <span className="text-caption text-[var(--color-stone)]/40">••••••••</span>
                       </div>
                       <button
@@ -334,7 +334,7 @@ export function WorkspaceSettingsDialog({
                   </label>
                   <input
                     type="text"
-                    className="w-full text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1.5 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-carrotly)]/40"
+                    className="w-full text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1.5 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-indigo)]/40"
                     value={newEnvKey}
                     onChange={(e) => setNewEnvKey(e.target.value.toUpperCase())}
                     placeholder="GH_TOKEN"
@@ -353,7 +353,7 @@ export function WorkspaceSettingsDialog({
                   <div className="relative">
                     <input
                       type={showNewEnvValue ? 'text' : 'password'}
-                      className="w-full text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1.5 pr-8 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-carrotly)]/40"
+                      className="w-full text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1.5 pr-8 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-indigo)]/40"
                       value={newEnvValue}
                       onChange={(e) => setNewEnvValue(e.target.value)}
                       placeholder="value"
@@ -373,7 +373,7 @@ export function WorkspaceSettingsDialog({
                 </div>
                 <button
                   type="button"
-                  className="px-3 py-1.5 rounded bg-[var(--color-carrotly)] text-white text-caption hover:bg-[var(--color-carrotly)]/90 transition-colors disabled:opacity-50"
+                  className="px-3 py-1.5 rounded bg-[var(--color-indigo)] text-white text-caption hover:bg-[var(--color-indigo)]/90 transition-colors disabled:opacity-50"
                   onClick={handleAddEnvVar}
                   disabled={saving || !newEnvKey.trim() || !newEnvValue.trim()}
                 >

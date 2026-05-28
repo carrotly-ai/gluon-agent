@@ -20,6 +20,12 @@
   --color-sky: #38bdf8;
   --color-harvest: #f59e0b;
   --color-jade: #10b981;
+  --color-orchid: #a855f7; /* review state — purple */
+
+  /* RGB triplets for alpha compositing: rgb(var(--color-X-rgb) / <alpha>)
+     Use these instead of hardcoded rgba() literals so the palette stays the
+     single source of truth. */
+  --color-vermillion-rgb: 199, 62, 58;
 }
 
 * {
@@ -116,7 +122,7 @@ body {
 }
 
 .mark-review {
-  background: #a855f7;
+  background: var(--color-orchid);
 }
 
 .mark-failed {
