@@ -98,13 +98,15 @@ export function CommandAutocomplete({
   // Use portal to render outside dialog stacking context
   return createPortal(
     <div
-      className="fixed z-[99999] w-[min(400px,calc(100vw-2rem))] max-h-[300px] overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-2xl touch-manipulation"
+      className="fixed z-[99999] w-[min(400px,calc(100vw-2rem))] max-h-[300px] overflow-y-auto rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-2xl touch-manipulation"
       style={{
         top: Math.max(position.top, 60),
         left: position.left,
         transform: 'translateY(-100%)', // Position above the anchor
       }}
       ref={listRef}
+      role="listbox"
+      aria-label="Command suggestions"
     >
       <div className="p-1">
         {filteredCommands.map((cmd, index) => (
@@ -112,50 +114,56 @@ export function CommandAutocomplete({
             key={`${cmd.type}-${cmd.name}`}
             type="button"
             data-command-item
+            role="option"
+            aria-selected={index === selectedIndex}
             className={cn(
-              'w-full flex items-start gap-3 px-3 py-2 text-left rounded-md transition-colors',
+              'w-full flex items-start gap-3 px-3 py-2 text-left rounded-sm transition-colors',
               index === selectedIndex
-                ? 'bg-zinc-700 text-zinc-100'
-                : 'text-zinc-300 hover:bg-zinc-800'
+                ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
+                : 'text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5'
             )}
             onClick={() => onSelect(cmd)}
             onMouseEnter={() => setSelectedIndex(index)}
           >
             <div className="flex-shrink-0 mt-0.5">
               {cmd.type === 'command' ? (
-                <Terminal className="h-4 w-4 text-blue-400" />
+                <Terminal className="h-4 w-4 text-[var(--color-sky)]" />
               ) : (
-                <Command className="h-4 w-4 text-purple-400" />
+                <Command className="h-4 w-4 text-[var(--color-orchid)]" />
               )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-sm text-zinc-100">/{cmd.name}</span>
+                <span className="font-mono text-body text-[var(--color-paper)]">/{cmd.name}</span>
                 {cmd.argument_hint && (
-                  <span className="text-xs text-zinc-500">{cmd.argument_hint}</span>
+                  <span className="text-caption text-[var(--color-stone)]/60">
+                    {cmd.argument_hint}
+                  </span>
                 )}
               </div>
-              <p className="text-xs text-zinc-400 truncate mt-0.5">{cmd.description}</p>
+              <p className="text-caption text-[var(--color-stone)] truncate mt-0.5">
+                {cmd.description}
+              </p>
             </div>
             <div className="flex-shrink-0">
-              <span
-                className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded',
-                  cmd.type === 'command'
-                    ? 'bg-blue-900/50 text-blue-300'
-                    : 'bg-purple-900/50 text-purple-300'
-                )}
-              >
-                {cmd.type}
-              </span>
+              <span className="text-micro uppercase text-[var(--color-stone)]/70">{cmd.type}</span>
             </div>
           </button>
         ))}
       </div>
-      <div className="border-t border-zinc-700 px-3 py-1.5 text-[10px] text-zinc-500">
-        <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-400">↑↓</kbd> navigate{' '}
-        <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-400">Tab</kbd> select{' '}
-        <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-400">Esc</kbd> close
+      <div className="border-t border-[rgba(163,163,163,0.1)] px-3 py-1.5 text-micro uppercase text-[var(--color-stone)]/60">
+        <kbd className="font-mono px-1 py-0.5 rounded-sm bg-[var(--color-paper)]/8 text-[var(--color-stone)]">
+          ↑↓
+        </kbd>{' '}
+        navigate{' '}
+        <kbd className="font-mono px-1 py-0.5 rounded-sm bg-[var(--color-paper)]/8 text-[var(--color-stone)]">
+          Tab
+        </kbd>{' '}
+        select{' '}
+        <kbd className="font-mono px-1 py-0.5 rounded-sm bg-[var(--color-paper)]/8 text-[var(--color-stone)]">
+          Esc
+        </kbd>{' '}
+        close
       </div>
     </div>,
     document.body
