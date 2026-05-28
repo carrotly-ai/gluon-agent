@@ -73,13 +73,22 @@ type ViewMode =
   | 'settings'
   | 'admin-users'
 
+// Items shown in the desktop "More" overflow + the mobile hamburger. The
+// daily-use views (Board, List, Queue, Merge, Usage) live in the visible
+// primary nav row; everything else collapses into here.
 const SECONDARY_NAV_ITEMS: { mode: ViewMode; icon: typeof Activity; label: string }[] = [
   { mode: 'activity', icon: Activity, label: 'Activity' },
-  { mode: 'queue', icon: ListTodo, label: 'Work Queue' },
-  { mode: 'merge', icon: GitMerge, label: 'Merge Queue' },
-  { mode: 'schedules', icon: CalendarClock, label: 'Schedules' },
   { mode: 'sessions', icon: Database, label: 'Sessions' },
-  { mode: 'usage', icon: BarChart3, label: 'Usage' },
+  { mode: 'schedules', icon: CalendarClock, label: 'Schedules' },
+]
+
+// Mobile-only extras — Merge demoted into the hamburger on small screens to
+// keep the primary row tappable. Settings also lives here on mobile (on
+// desktop it's a separate gear next to the user menu).
+const MOBILE_SECONDARY_NAV_ITEMS: { mode: ViewMode; icon: typeof Activity; label: string }[] = [
+  { mode: 'merge', icon: GitMerge, label: 'Merge Queue' },
+  ...SECONDARY_NAV_ITEMS,
+  { mode: 'settings', icon: Settings, label: 'Settings' },
 ]
 
 function MobileNavMenu({
@@ -102,76 +111,67 @@ function MobileNavMenu({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const isSecondaryActive = SECONDARY_NAV_ITEMS.some((item) => item.mode === viewMode)
+  // Mobile primary: Board / List / Queue / Usage. Everything else
+  // (Merge, Activity, Sessions, Schedules, Settings) lives in the hamburger
+  // so the always-tappable row stays at 4 icons + menu.
+  const MOBILE_PRIMARY: { mode: ViewMode; icon: typeof Activity; title: string }[] = [
+    { mode: 'board', icon: LayoutGrid, title: 'Board view' },
+    { mode: 'list', icon: List, title: 'List view' },
+    { mode: 'queue', icon: ListTodo, title: 'Work Queue' },
+    { mode: 'usage', icon: BarChart3, title: 'Usage' },
+  ]
+  const isSecondaryActive = MOBILE_SECONDARY_NAV_ITEMS.some((item) => item.mode === viewMode)
 
   return (
     <div className="md:hidden relative" ref={menuRef}>
       <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+        {MOBILE_PRIMARY.map(({ mode, icon: Icon, title }) => (
+          <button
+            key={mode}
+            className={cn(
+              'min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-sm transition-colors',
+              viewMode === mode
+                ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+            )}
+            onClick={() => {
+              onViewChange(mode)
+              setOpen(false)
+            }}
+            title={title}
+            aria-label={title}
+            aria-current={viewMode === mode ? 'page' : undefined}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </button>
+        ))}
         <button
           className={cn(
-            'p-1.5 rounded-sm transition-colors',
-            viewMode === 'board'
-              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-          )}
-          onClick={() => {
-            onViewChange('board')
-            setOpen(false)
-          }}
-          title="Board view"
-        >
-          <LayoutGrid className="w-3.5 h-3.5" />
-        </button>
-        <button
-          className={cn(
-            'p-1.5 rounded-sm transition-colors',
-            viewMode === 'list'
-              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-          )}
-          onClick={() => {
-            onViewChange('list')
-            setOpen(false)
-          }}
-          title="List view"
-        >
-          <List className="w-3.5 h-3.5" />
-        </button>
-        <button
-          className={cn(
-            'p-1.5 rounded-sm transition-colors',
-            viewMode === 'settings'
-              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-          )}
-          onClick={() => {
-            onViewChange('settings')
-            setOpen(false)
-          }}
-          title="Settings"
-        >
-          <Settings className="w-3.5 h-3.5" />
-        </button>
-        <button
-          className={cn(
-            'p-1.5 rounded-sm transition-colors',
+            'min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-sm transition-colors',
             open || isSecondaryActive
               ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
               : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
           )}
           onClick={() => setOpen((prev) => !prev)}
           title="More views"
+          aria-label="More views"
+          aria-expanded={open}
+          aria-haspopup="menu"
         >
           <Menu className="w-3.5 h-3.5" />
         </button>
       </div>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
-          {SECONDARY_NAV_ITEMS.map(({ mode, icon: Icon, label }) => (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1"
+          role="menu"
+        >
+          {MOBILE_SECONDARY_NAV_ITEMS.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
+              role="menuitem"
               className={cn(
-                'w-full flex items-center gap-2.5 px-3 py-2 text-body transition-colors',
+                'w-full flex items-center gap-2.5 px-3 min-h-[44px] text-body transition-colors',
                 viewMode === mode
                   ? 'text-[var(--color-paper)] bg-[var(--color-paper)]/8'
                   : 'text-[var(--color-stone)] hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5'
@@ -180,6 +180,8 @@ function MobileNavMenu({
                 onViewChange(mode)
                 setOpen(false)
               }}
+              aria-label={label}
+              aria-current={viewMode === mode ? 'page' : undefined}
             >
               <Icon className="w-3.5 h-3.5" />
               <span className="uppercase tracking-widest">{label}</span>
@@ -210,23 +212,27 @@ function DesktopMoreMenu({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const DESKTOP_PRIMARY_MODES = new Set<ViewMode>(['board', 'list', 'usage', 'settings'])
-  const desktopItems = SECONDARY_NAV_ITEMS.filter((item) => !DESKTOP_PRIMARY_MODES.has(item.mode))
+  // Desktop primary nav now includes Queue + Merge (daily-use). SECONDARY_NAV_ITEMS
+  // already excludes those — it's just Activity / Sessions / Schedules.
+  const desktopItems = SECONDARY_NAV_ITEMS
   const isSecondaryActive = desktopItems.some((item) => item.mode === viewMode)
 
   return (
     <div className="relative" ref={menuRef}>
       <button
         className={cn(
-          'p-1.5 rounded-sm transition-colors',
+          'flex items-center gap-1.5 px-2 py-1.5 rounded-sm transition-colors text-caption uppercase tracking-widest',
           open || isSecondaryActive
             ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
             : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
         )}
         onClick={() => setOpen((prev) => !prev)}
         title="More views"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         <MoreVertical className="w-3.5 h-3.5" />
+        <span>More</span>
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
@@ -562,14 +568,18 @@ function AuthenticatedApp() {
 
             {/* Right - view toggle + theme + connection pulse */}
             <div className="flex items-center gap-3 sm:gap-4">
-              {/* View Toggle - Desktop: primary buttons + overflow dropdown */}
+              {/* View Toggle - Desktop: primary daily-use views + overflow dropdown.
+                  Settings is intentionally NOT in this group — it lives as a
+                  separate gear icon next to the user menu (lower-frequency,
+                  config-style action). */}
               <div className="hidden md:flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
                 {(
                   [
                     { mode: 'board', icon: LayoutGrid, label: 'Board' },
                     { mode: 'list', icon: List, label: 'List' },
+                    { mode: 'queue', icon: ListTodo, label: 'Queue' },
+                    { mode: 'merge', icon: GitMerge, label: 'Merge' },
                     { mode: 'usage', icon: BarChart3, label: 'Usage' },
-                    { mode: 'settings', icon: Settings, label: 'Settings' },
                   ] as const
                 ).map(({ mode, icon: Icon, label }) => (
                   <button
@@ -588,10 +598,33 @@ function AuthenticatedApp() {
                 ))}
                 <DesktopMoreMenu viewMode={viewMode} onViewChange={setViewMode} />
               </div>
-              {/* View Toggle - Mobile: Board + Settings + overflow menu */}
+              {/* Mobile: Board + List + Queue + Usage + hamburger */}
               <MobileNavMenu viewMode={viewMode} onViewChange={setViewMode} />
               <NotificationBell onNavigateToRun={(runId) => openRunDetail(runId)} />
-              <UserMenu onOpenAdmin={() => setViewMode('admin-users')} />
+              {/* Settings gear — desktop only (mobile users find Settings in the hamburger).
+                  Sits at the same hierarchy level as the user menu — both are
+                  "account / configuration" affordances rather than primary views. */}
+              <button
+                type="button"
+                className={cn(
+                  'hidden md:flex p-1.5 rounded-sm transition-colors',
+                  viewMode === 'settings'
+                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                )}
+                onClick={() => setViewMode('settings')}
+                title="Settings"
+                aria-label="Settings"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+              <UserMenu
+                onOpenAdmin={() => setViewMode('admin-users')}
+                onOpenAccountSettings={() => {
+                  setViewMode('settings')
+                  setSettingsTab('account')
+                }}
+              />
               {/* Sonar-style connection indicator */}
               <div
                 className={cn(
