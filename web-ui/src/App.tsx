@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   CalendarClock,
+  ChevronRight,
   Database,
   GitMerge,
   LayoutGrid,
@@ -33,6 +34,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { UpdateBanner } from './components/UpdateBanner'
 import { UsagePage } from './components/UsagePage'
 import { UserMenu } from './components/UserMenu'
+import { StatusDot } from './components/ui/StatusDot'
 import { WorkQueuePage } from './components/WorkQueuePage'
 import { useConnectivity } from './hooks/useConnectivity'
 import { useCurrentUser } from './hooks/useCurrentUser'
@@ -228,6 +230,7 @@ function DesktopMoreMenu({
         )}
         onClick={() => setOpen((prev) => !prev)}
         title="More views"
+        aria-label="More views"
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -235,10 +238,14 @@ function DesktopMoreMenu({
         <span>More</span>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
+        <div
+          className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1"
+          role="menu"
+        >
           {desktopItems.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
+              role="menuitem"
               className={cn(
                 'w-full flex items-center gap-2.5 px-3 py-2 text-body transition-colors',
                 viewMode === mode
@@ -249,6 +256,8 @@ function DesktopMoreMenu({
                 onViewChange(mode)
                 setOpen(false)
               }}
+              aria-label={label}
+              aria-current={viewMode === mode ? 'page' : undefined}
             >
               <Icon className="w-3.5 h-3.5" />
               <span className="uppercase tracking-widest">{label}</span>
@@ -554,15 +563,51 @@ function AuthenticatedApp() {
                 <Plus className="w-3 h-3" />
                 <span className="hidden sm:inline">New</span>
               </button>
+              {/* Active-runs counter — desktop. Uses the canonical StatusDot
+                  primitive (Stream 2) for the leading pulsing glyph so the
+                  styling stays consistent with KanbanBoard / WorkQueue. */}
               {activeRuns > 0 && (
-                <span className="text-caption header-stats">{activeRuns} active</span>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('board')}
+                  className="hidden sm:inline-flex items-center gap-1.5 text-caption header-stats hover:opacity-80 transition-opacity"
+                  title="View active runs"
+                  aria-label={`${activeRuns} active run${activeRuns === 1 ? '' : 's'}`}
+                >
+                  <StatusDot state="running" size="md" />
+                  <span>{activeRuns} active</span>
+                </button>
               )}
+              {/* Cost-today link — desktop. Subtle underline-on-hover plus
+                  a tiny chevron at rest, so it reads as navigable without
+                  shouting (Tokyo Minimal: signal not decoration). */}
               <button
-                className="hidden sm:block text-caption text-[var(--color-harvest)] hover:underline"
+                type="button"
+                className="hidden sm:inline-flex items-center gap-1 text-caption text-[var(--color-harvest)] hover:opacity-80 transition-opacity group"
                 onClick={() => setViewMode('usage')}
                 title="View usage details"
               >
-                ${todayCost.toFixed(2)} today
+                <span className="group-hover:underline underline-offset-2">
+                  ${todayCost.toFixed(2)} today
+                </span>
+                <ChevronRight className="w-3 h-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </button>
+              {/* Mobile status pill — collapses both stats into one tappable
+                  affordance so the small-screen header doesn't lose the cost
+                  signal. Tap → Usage; pulsing dot if any active. */}
+              <button
+                type="button"
+                onClick={() => setViewMode('usage')}
+                className="sm:hidden inline-flex items-center gap-1.5 px-2 py-1 rounded-sm text-caption text-[var(--color-harvest)] bg-[rgba(163,163,163,0.06)] hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+                title="View usage details"
+                aria-label={
+                  activeRuns > 0
+                    ? `${activeRuns} active, $${todayCost.toFixed(2)} today`
+                    : `$${todayCost.toFixed(2)} today`
+                }
+              >
+                {activeRuns > 0 && <StatusDot state="running" size="sm" />}
+                <span>${todayCost.toFixed(2)}</span>
               </button>
             </div>
 
@@ -625,16 +670,29 @@ function AuthenticatedApp() {
                   setSettingsTab('account')
                 }}
               />
-              {/* Sonar-style connection indicator */}
-              <div
-                className={cn(
-                  'connection-indicator w-2 h-2 rounded-full transition-colors',
-                  connected
-                    ? 'connected bg-[var(--color-jade)] text-[var(--color-jade)]'
-                    : 'bg-[var(--color-vermillion)] text-[var(--color-vermillion)]'
-                )}
-                title={connected ? 'WebSocket connected' : 'Connection lost'}
-              />
+              {/* Sonar-style connection indicator. Wrapped in a button so the
+                  44×44 hit target is reachable on touch — the visible dot stays
+                  8px but the surrounding clickable area lets users retry when
+                  the connection is lost. Status is conveyed by colour + aria-label. */}
+              <button
+                type="button"
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-sm"
+                title={connected ? 'WebSocket connected' : 'Connection lost — click to retry'}
+                aria-label={connected ? 'WebSocket connected' : 'Connection lost — click to retry'}
+                aria-live="polite"
+                onClick={() => {
+                  if (!connected) checkNow()
+                }}
+              >
+                <span
+                  className={cn(
+                    'connection-indicator w-2 h-2 rounded-full transition-colors',
+                    connected
+                      ? 'connected bg-[var(--color-jade)] text-[var(--color-jade)]'
+                      : 'bg-[var(--color-vermillion)] text-[var(--color-vermillion)]'
+                  )}
+                />
+              </button>
             </div>
           </div>
         </header>
