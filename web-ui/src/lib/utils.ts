@@ -8,7 +8,14 @@ const customTwMerge = extendTailwindMerge({
     classGroups: {
       // Add our custom typography classes to their own group
       // so they don't conflict with text color classes
-      'font-size': ['text-body', 'text-caption', 'text-title', 'text-mono'],
+      'font-size': [
+        'text-display',
+        'text-title',
+        'text-body',
+        'text-caption',
+        'text-mono',
+        'text-micro',
+      ],
     },
   },
 })
