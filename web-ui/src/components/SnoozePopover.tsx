@@ -63,6 +63,16 @@ export function SnoozePopover({ open, anchorRect, onPick, onClose }: SnoozePopov
   const [customMode, setCustomMode] = useState(false)
   const [customValue, setCustomValue] = useState('')
 
+  // Flat row order for ArrowUp/Down navigation:
+  // 0..3 = preset options, 4 = "Pick a date…", 5 = "Wake up now"
+  const TOTAL_ROWS = OPTIONS.length + 2
+  const [activeRow, setActiveRow] = useState(0)
+
+  // Reset highlight whenever the popover opens.
+  useEffect(() => {
+    if (open) setActiveRow(0)
+  }, [open])
+
   // Focus the date input once it appears — replaces auto-focus (a11y rule).
   useEffect(() => {
     if (customMode) customInputRef.current?.focus()
@@ -74,6 +84,37 @@ export function SnoozePopover({ open, anchorRect, onPick, onClose }: SnoozePopov
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
+        return
+      }
+      // Skip arrow nav while typing into the custom date input.
+      if (customMode) return
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault()
+          setActiveRow((r) => Math.min(r + 1, TOTAL_ROWS - 1))
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          setActiveRow((r) => Math.max(r - 1, 0))
+          break
+        case 'Home':
+          e.preventDefault()
+          setActiveRow(0)
+          break
+        case 'End':
+          e.preventDefault()
+          setActiveRow(TOTAL_ROWS - 1)
+          break
+        case 'Enter':
+          e.preventDefault()
+          if (activeRow < OPTIONS.length) {
+            onPick(OPTIONS[activeRow].compute().toISOString())
+          } else if (activeRow === OPTIONS.length) {
+            setCustomMode(true)
+          } else {
+            onPick(null)
+          }
+          break
       }
     }
     const onClick = (e: MouseEvent) => {
@@ -87,7 +128,7 @@ export function SnoozePopover({ open, anchorRect, onPick, onClose }: SnoozePopov
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('mousedown', onClick)
     }
-  }, [open, onClose])
+  }, [open, onClose, activeRow, customMode, onPick, TOTAL_ROWS])
 
   useEffect(() => {
     if (!open) setCustomMode(false)
@@ -111,18 +152,23 @@ export function SnoozePopover({ open, anchorRect, onPick, onClose }: SnoozePopov
       )}
       style={{ top, left }}
     >
-      <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/50">
+      <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60">
         Snooze until
       </div>
-      {OPTIONS.map((opt) => (
+      {OPTIONS.map((opt, idx) => (
         <button
           key={opt.label}
           type="button"
-          className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-paper)]/5 text-[var(--color-paper)]"
+          className={cn(
+            'w-full text-left px-3 py-1.5 hover:bg-[var(--color-paper)]/5 text-[var(--color-paper)]',
+            activeRow === idx && 'bg-[var(--color-paper)]/5'
+          )}
           onClick={() => onPick(opt.compute().toISOString())}
+          onMouseEnter={() => setActiveRow(idx)}
+          aria-label={`Snooze ${opt.label}`}
         >
           {opt.label}
-          <span className="ml-2 text-caption text-[var(--color-stone)]/50">
+          <span className="ml-2 text-caption text-[var(--color-stone)]/60">
             {fmt(opt.compute())}
           </span>
         </button>
@@ -153,8 +199,12 @@ export function SnoozePopover({ open, anchorRect, onPick, onClose }: SnoozePopov
         ) : (
           <button
             type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-paper)]/5 text-[var(--color-stone)]"
+            className={cn(
+              'w-full text-left px-3 py-1.5 hover:bg-[var(--color-paper)]/5 text-[var(--color-stone)]',
+              activeRow === OPTIONS.length && 'bg-[var(--color-paper)]/5'
+            )}
             onClick={() => setCustomMode(true)}
+            onMouseEnter={() => setActiveRow(OPTIONS.length)}
           >
             Pick a date…
           </button>
@@ -163,8 +213,12 @@ export function SnoozePopover({ open, anchorRect, onPick, onClose }: SnoozePopov
       <div className="border-t border-[rgba(163,163,163,0.08)] mt-1 pt-1">
         <button
           type="button"
-          className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-paper)]/5 text-[var(--color-stone)]"
+          className={cn(
+            'w-full text-left px-3 py-1.5 hover:bg-[var(--color-paper)]/5 text-[var(--color-stone)]',
+            activeRow === OPTIONS.length + 1 && 'bg-[var(--color-paper)]/5'
+          )}
           onClick={() => onPick(null)}
+          onMouseEnter={() => setActiveRow(OPTIONS.length + 1)}
         >
           Wake up now
         </button>

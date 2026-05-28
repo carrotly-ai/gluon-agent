@@ -98,9 +98,10 @@ export function ForkRunDialog({ open, parent, onClose, onForked }: ForkRunDialog
           </div>
           <button
             type="button"
-            className="p-1 text-[var(--color-stone)]/40 hover:text-[var(--color-stone)] rounded-sm"
+            className="p-1 text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] rounded-sm"
             onClick={onClose}
             title="Close (Esc)"
+            aria-label="Close fork dialog"
           >
             <X className="w-3.5 h-3.5" />
           </button>

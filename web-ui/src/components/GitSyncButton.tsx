@@ -183,7 +183,7 @@ function getButtonConfig(state: SyncState, project: Project, compact: boolean): 
         label: compact ? '—' : 'No remote',
         icon: null,
         bgClass: 'bg-[var(--color-stone)]/5',
-        textClass: 'text-[var(--color-stone)]/50',
+        textClass: 'text-[var(--color-stone)]/60',
         canSync: false,
         tooltip: 'No remote configured',
       }
@@ -193,7 +193,7 @@ function getButtonConfig(state: SyncState, project: Project, compact: boolean): 
         label: '',
         icon: null,
         bgClass: '',
-        textClass: 'text-[var(--color-stone)]/30',
+        textClass: 'text-[var(--color-stone)]/60',
         canSync: false,
         tooltip: 'Not a git repository',
       }
@@ -253,6 +253,7 @@ export function GitSyncButton({ project, onSyncComplete, compact = false }: GitS
         onClick={config.canSync ? handleSync : undefined}
         disabled={!config.canSync || loading}
         title={error || config.tooltip}
+        aria-label={error || config.tooltip}
         className={cn(
           'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-caption transition-colors',
           config.bgClass,
@@ -272,9 +273,10 @@ export function GitSyncButton({ project, onSyncComplete, compact = false }: GitS
           onClick={handleRefresh}
           disabled={loading}
           title="Refresh git status"
+          aria-label="Refresh git status"
           className={cn(
             'p-0.5 rounded-sm transition-colors',
-            'text-[var(--color-stone)]/40 hover:text-[var(--color-stone)]/70',
+            'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]/90',
             'hover:bg-[var(--color-stone)]/10'
           )}
         >

@@ -57,11 +57,11 @@ function NotificationItem({
             {notification.title}
           </p>
           {notification.message && (
-            <p className="text-body text-[var(--color-stone)]/50 truncate mt-0.5">
+            <p className="text-body text-[var(--color-stone)]/60 truncate mt-0.5">
               {notification.message}
             </p>
           )}
-          <p className="text-body text-[var(--color-stone)]/30 mt-0.5">{ageLabel}</p>
+          <p className="text-body text-[var(--color-stone)]/60 mt-0.5">{ageLabel}</p>
         </div>
       </div>
     </button>
@@ -88,9 +88,12 @@ export function NotificationBell({
     <div className="relative">
       <button
         type="button"
-        className="relative p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+        className="relative min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 inline-flex items-center justify-center md:p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
         onClick={handleToggle}
         title={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+        aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+        aria-expanded={open}
+        aria-haspopup="dialog"
       >
         <Bell className="w-4 h-4 text-[var(--color-stone)]" />
         {unreadCount > 0 && (
@@ -115,9 +118,10 @@ export function NotificationBell({
                 {unreadCount > 0 && (
                   <button
                     type="button"
-                    className="p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+                    className="min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 inline-flex items-center justify-center md:p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
                     onClick={() => markAllRead()}
                     title="Mark all read"
+                    aria-label="Mark all read"
                   >
                     <CheckCheck className="w-3.5 h-3.5 text-[var(--color-stone)]/60" />
                   </button>
@@ -125,17 +129,20 @@ export function NotificationBell({
                 {notifications.length > 0 && (
                   <button
                     type="button"
-                    className="p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+                    className="min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 inline-flex items-center justify-center md:p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
                     onClick={() => clearAll()}
                     title="Clear all notifications"
+                    aria-label="Clear all notifications"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-[var(--color-stone)]/60" />
                   </button>
                 )}
                 <button
                   type="button"
-                  className="p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
+                  className="min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 inline-flex items-center justify-center md:p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors"
                   onClick={handleClose}
+                  title="Close"
+                  aria-label="Close notifications"
                 >
                   <X className="w-3.5 h-3.5 text-[var(--color-stone)]/60" />
                 </button>
@@ -145,7 +152,7 @@ export function NotificationBell({
             {/* List */}
             <div className="flex-1 overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="px-3 py-8 text-center text-body text-[var(--color-stone)]/40">
+                <div className="px-3 py-8 text-center text-body text-[var(--color-stone)]/60">
                   No notifications
                 </div>
               ) : (
