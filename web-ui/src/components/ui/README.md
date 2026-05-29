@@ -109,28 +109,31 @@ Renders the `.mark mark-{state}` glyph from `index.css`.
 first, then add it to the `StatusState` union — keep the system as the
 source of truth.
 
-## `<SaveableSetting>`
+## `<Combobox>`
 
-Card chrome around a single labelled control with optional inline Save +
-state pill (Saving… / Saved, auto-dismiss 2s).
+Accessible single-select dropdown — `role=listbox`/`option`, full keyboard
+navigation (Arrow/Home/End/Enter/Esc), outside-click dismissal, and focus
+return. Escape is intercepted on window-capture so it dismisses only the
+dropdown, not an enclosing Radix Dialog.
 
 ```tsx
-<SaveableSetting
-  label="API token"
-  description="Used for outbound webhooks."
-  dirty={value !== savedValue}
-  saving={saving}
-  saved={justSaved}
-  onSave={save}
->
-  <input value={value} onChange={(e) => setValue(e.target.value)} />
-</SaveableSetting>
+<Combobox
+  label="Model override"
+  options={[
+    { value: '', label: 'Use profile default' },
+    { value: 'opus-4.6', label: 'Opus 4.6', description: 'Highest quality' },
+  ]}
+  value={model}
+  onChange={setModel}
+  placeholder="Use profile default"
+/>
 ```
 
-**Don't:** scatter four different save patterns across Settings, Workspace,
-and Schedule editors. **Do:** use this one. The `onSave` slot is optional —
-omit it for autosave-style controls (the `saving` / `saved` pill still works
-for status feedback).
+Options take an optional `group` for workspace-style section headers and an
+optional `description` (muted suffix). **Don't:** hand-roll a `<button>` +
+absolutely-positioned `<div>` select — those skip keyboard and ARIA. **Do:**
+use this; it's what `ProjectFilter`-style pickers and every dropdown in
+`CreateTaskDialog` now share.
 
 ## `<DataPage>` / `<DataPage.Body>`
 

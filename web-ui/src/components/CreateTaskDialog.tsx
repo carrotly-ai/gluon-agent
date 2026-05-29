@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   ChevronRight,
   GitBranch,
   Image as ImageIcon,
@@ -11,7 +10,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
 import { FileAutocomplete } from '@/components/FileAutocomplete'
 import { Combobox } from '@/components/ui/Combobox'
@@ -31,7 +30,6 @@ import type {
   FormulaTemplate,
   Project,
   ProjectFile,
-  ProjectWithWorkspace,
   SlashCommand,
   TaskProfile,
   ThinkingBudget,
@@ -163,9 +161,9 @@ function getLastRalphEnabledSetting(): boolean {
   return sessionStorage.getItem(RALPH_ENABLED_STORAGE_KEY) === 'true'
 }
 
-// Get last ralph max loops setting from sessionStorage
+// Get last ralph max loops setting from sessionStorage (default 100).
 function getLastRalphMaxLoops(): number {
-  if (typeof window === 'undefined') return 10
+  if (typeof window === 'undefined') return 100
   const stored = sessionStorage.getItem(RALPH_MAX_LOOPS_STORAGE_KEY)
   return stored ? parseInt(stored, 10) : 100
 }
@@ -259,14 +257,12 @@ export function CreateTaskDialog({
   const [maxCostUsd, setMaxCostUsd] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
   // Formula mode state
   const [mode, setMode] = useState<'manual' | 'formula'>('manual')
   const [formulaTemplates, setFormulaTemplates] = useState<FormulaTemplate[]>([])
   const [selectedFormula, setSelectedFormula] = useState<string>('')
   const [formulaVariables, setFormulaVariables] = useState<Record<string, string>>({})
   const [loadingFormulas, setLoadingFormulas] = useState(false)
-  const [formulaDropdownOpen, setFormulaDropdownOpen] = useState(false)
 
   // Advanced options state
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -474,6 +470,38 @@ export function CreateTaskDialog({
   }, [])
 
   const grouped = groupProjectsByWorkspace(projects)
+
+  // Flattened, workspace-grouped project options for the accessible Combobox.
+  const projectOptions = useMemo(
+    () =>
+      Array.from(grouped.entries()).flatMap(([workspace, workspaceProjects]) =>
+        workspaceProjects.map((p) => ({ value: p.name, label: p.name, group: workspace }))
+      ),
+    [grouped]
+  )
+
+  const formulaOptions = useMemo(
+    () =>
+      formulaTemplates.map((f) => ({
+        value: f.name,
+        label: f.name,
+        description: f.description || undefined,
+      })),
+    [formulaTemplates]
+  )
+
+  const handleFormulaChange = useCallback(
+    (name: string) => {
+      setSelectedFormula(name)
+      const tmpl = formulaTemplates.find((f) => f.name === name)
+      const defaults: Record<string, string> = {}
+      for (const v of tmpl?.variables ?? []) {
+        defaults[v.name] = v.default || ''
+      }
+      setFormulaVariables(defaults)
+    },
+    [formulaTemplates]
+  )
 
   // Handle prompt changes and detect slash command / file triggers
   const handlePromptChange = useCallback(
@@ -728,57 +756,13 @@ export function CreateTaskDialog({
               <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
                 Project
               </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                  onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                >
-                  <span
-                    className={
-                      selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
-                    }
-                  >
-                    {selectedProject || 'Select a project...'}
-                  </span>
-                  <ChevronDown
-                    className={cn(
-                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                      projectDropdownOpen && 'rotate-180'
-                    )}
-                  />
-                </button>
-
-                {projectDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                    {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
-                      <div key={workspace}>
-                        <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
-                          {workspace}
-                        </div>
-                        {workspaceProjects.map((project: ProjectWithWorkspace) => (
-                          <button
-                            key={project.id}
-                            type="button"
-                            className={cn(
-                              'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                              selectedProject === project.name
-                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                : 'text-[var(--color-stone)]'
-                            )}
-                            onClick={() => {
-                              setSelectedProject(project.name)
-                              setProjectDropdownOpen(false)
-                            }}
-                          >
-                            {project.name}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <Combobox
+                label="Project"
+                options={projectOptions}
+                value={selectedProject}
+                onChange={setSelectedProject}
+                placeholder="Select a project..."
+              />
             </div>
 
             {/* Formula Select */}
@@ -792,62 +776,13 @@ export function CreateTaskDialog({
                   Loading formulas...
                 </div>
               ) : (
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                    onClick={() => setFormulaDropdownOpen(!formulaDropdownOpen)}
-                  >
-                    <span
-                      className={
-                        selectedFormula
-                          ? 'text-[var(--color-paper)]'
-                          : 'text-[var(--color-stone)]/60'
-                      }
-                    >
-                      {selectedFormula || 'Select a formula...'}
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                        formulaDropdownOpen && 'rotate-180'
-                      )}
-                    />
-                  </button>
-
-                  {formulaDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                      {formulaTemplates.map((f) => (
-                        <button
-                          key={f.name}
-                          type="button"
-                          className={cn(
-                            'w-full px-3 py-2 text-left hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                            selectedFormula === f.name
-                              ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                              : 'text-[var(--color-stone)]'
-                          )}
-                          onClick={() => {
-                            setSelectedFormula(f.name)
-                            setFormulaDropdownOpen(false)
-                            const defaults: Record<string, string> = {}
-                            for (const v of f.variables) {
-                              defaults[v.name] = v.default || ''
-                            }
-                            setFormulaVariables(defaults)
-                          }}
-                        >
-                          <span className="text-title">{f.name}</span>
-                          {f.description && (
-                            <span className="text-caption text-[var(--color-stone)]/50 ml-2">
-                              {f.description}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <Combobox
+                  label="Formula"
+                  options={formulaOptions}
+                  value={selectedFormula}
+                  onChange={handleFormulaChange}
+                  placeholder="Select a formula..."
+                />
               )}
             </div>
 
@@ -955,59 +890,13 @@ export function CreateTaskDialog({
                 <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
                   Project
                 </label>
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                    onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                  >
-                    <span
-                      className={
-                        selectedProject
-                          ? 'text-[var(--color-paper)]'
-                          : 'text-[var(--color-stone)]/60'
-                      }
-                    >
-                      {selectedProject || 'Select a project...'}
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                        projectDropdownOpen && 'rotate-180'
-                      )}
-                    />
-                  </button>
-
-                  {projectDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                      {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
-                        <div key={workspace}>
-                          <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
-                            {workspace}
-                          </div>
-                          {workspaceProjects.map((project: ProjectWithWorkspace) => (
-                            <button
-                              key={project.id}
-                              type="button"
-                              className={cn(
-                                'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                selectedProject === project.name
-                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                  : 'text-[var(--color-stone)]'
-                              )}
-                              onClick={() => {
-                                setSelectedProject(project.name)
-                                setProjectDropdownOpen(false)
-                              }}
-                            >
-                              {project.name}
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <Combobox
+                  label="Project"
+                  options={projectOptions}
+                  value={selectedProject}
+                  onChange={setSelectedProject}
+                  placeholder="Select a project..."
+                />
               </div>
 
               {/* Prompt */}

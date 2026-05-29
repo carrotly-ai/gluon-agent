@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import {
   ApiError,
@@ -91,40 +92,40 @@ export function AdminUsersPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(163,163,163,0.1)]">
-        <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-[var(--color-stone)]" />
-          <h1 className="text-display text-[var(--color-paper)] tracking-tight">User management</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-caption text-[var(--color-stone)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={includeDisabled}
-              onChange={(e) => setIncludeDisabled(e.target.checked)}
-              className="accent-[var(--color-paper)]"
-            />
-            Show disabled
-          </label>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={loading}
-            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors disabled:opacity-50"
-            title="Refresh"
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreateForm((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 transition-opacity"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New user
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="User management"
+        icon={Shield}
+        actions={
+          <>
+            <label className="flex items-center gap-1.5 text-caption text-[var(--color-stone)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeDisabled}
+                onChange={(e) => setIncludeDisabled(e.target.checked)}
+                className="accent-[var(--color-paper)]"
+              />
+              Show disabled
+            </label>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              disabled={loading}
+              className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors disabled:opacity-50"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreateForm((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-caption uppercase tracking-widest bg-[var(--color-paper)] text-[var(--color-void)] rounded-sm hover:opacity-90 transition-opacity"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New user
+            </button>
+          </>
+        }
+      />
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
