@@ -23,6 +23,19 @@ export function UpdateBanner({ className }: UpdateBannerProps) {
   }
 
   const handleRefresh = () => {
+    // Guard against losing in-flight work: an open dialog or a textarea with
+    // content is a pragmatic signal that the user has unsaved state.
+    const hasOpenDialog = document.querySelector('[role="dialog"]') !== null
+    const hasDirtyTextarea = Array.from(document.querySelectorAll('textarea')).some(
+      (el) => el.value.trim().length > 0
+    )
+    if (hasOpenDialog || hasDirtyTextarea) {
+      const proceed = window.confirm(
+        'A new version is ready. Refresh now? Unsaved changes in open dialogs will be lost.'
+      )
+      if (!proceed) return
+    }
+
     // Clear service worker caches before reloading
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
