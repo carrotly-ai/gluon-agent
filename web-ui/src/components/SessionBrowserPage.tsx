@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { fetchSDKSessionDetail, fetchSDKSessions, resumeSdkSession } from '@/lib/api'
 import { POLL_SLOW } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
@@ -87,9 +87,12 @@ function SessionDetailDialog({
           </button>
 
           <div className="flex-1 min-w-0">
-            <h2 className="text-body font-medium text-[var(--color-paper)] truncate">
+            <DialogTitle className="text-body font-medium text-[var(--color-paper)] truncate">
               {session.custom_title || truncate(session.summary || 'Untitled session', 80)}
-            </h2>
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Session details: summary, git branch, working directory, and message history.
+            </DialogDescription>
             <div className="flex items-center gap-3 mt-0.5 text-caption text-[var(--color-stone)]/50 flex-wrap">
               {session.git_branch && (
                 <span className="flex items-center gap-1">

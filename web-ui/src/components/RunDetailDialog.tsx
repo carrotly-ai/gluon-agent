@@ -30,7 +30,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import {
   answerQuestion,
   archiveRun,
@@ -293,8 +293,8 @@ function RunMetaStrip({
           <span className="text-mono text-[var(--color-sky)] shrink-0">{toolCount} tools</span>
         )}
         {detail?.branch_name && (
-          <span className="hidden sm:inline-flex items-center gap-1 text-purple-300/70 shrink-0 min-w-0">
-            <GitBranch className="w-2.5 h-2.5 text-purple-400/70 shrink-0" />
+          <span className="hidden sm:inline-flex items-center gap-1 text-[var(--color-orchid)]/70 shrink-0 min-w-0">
+            <GitBranch className="w-2.5 h-2.5 text-[var(--color-orchid)]/70 shrink-0" />
             <span className="truncate max-w-[140px]">{detail.branch_name}</span>
           </span>
         )}
@@ -305,8 +305,8 @@ function RunMetaStrip({
         <div className="mt-2 ml-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[var(--color-stone)]/55">
           <span>{formatDateWithContext(run?.created_at ?? null)}</span>
           {detail?.branch_name && (
-            <span className="flex items-center gap-1 text-purple-300/70 sm:hidden">
-              <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
+            <span className="flex items-center gap-1 text-[var(--color-orchid)]/70 sm:hidden">
+              <GitBranch className="w-2.5 h-2.5 text-[var(--color-orchid)]/70" />
               <span className="truncate max-w-[160px]">{detail.branch_name}</span>
             </span>
           )}
@@ -1516,6 +1516,13 @@ Focus on preserving the functionality from both sides where possible.`
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dialog-content sm:max-w-6xl w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">
+          {run?.custom_title || `Run ${run?.id.slice(0, 8) ?? ''}`}
+          {run?.status ? ` — ${run.status}` : ''}
+        </DialogTitle>
+        <DialogDescription className="sr-only">
+          Run details: messages, file changes, commits, and live progress.
+        </DialogDescription>
         {/* Compact Header Bar */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-2.5 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
           {/* Left: Back (mobile) + Run Identity */}
@@ -1540,8 +1547,8 @@ Focus on preserving the functionality from both sides where possible.`
             {detail?.branch_name && (
               <div className="hidden sm:flex items-center gap-1.5 ml-1 text-body text-[var(--color-stone)]/50">
                 <span className="text-[var(--color-stone)]/30">on</span>
-                <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
-                <span className="text-purple-300/80 truncate max-w-[100px]">
+                <GitBranch className="w-2.5 h-2.5 text-[var(--color-orchid)]/70" />
+                <span className="text-[var(--color-orchid)]/80 truncate max-w-[100px]">
                   {detail.branch_name}
                 </span>
                 {detail.git_commit_sha && (
@@ -1567,14 +1574,14 @@ Focus on preserving the functionality from both sides where possible.`
                 className={cn(
                   'hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm text-body transition-colors',
                   detail.pr_mergeable === 'CONFLICTING' &&
-                    'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-red-400 hover:bg-[rgba(239,68,68,0.2)]',
+                    'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(239,68,68,0.2)]',
                   detail.pr_mergeable !== 'CONFLICTING' &&
                     detail.pr_status === 'open' &&
-                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.15)]',
                   detail.pr_status === 'merged' &&
-                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-[var(--color-orchid)]',
                   detail.pr_status === 'closed' &&
-                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[var(--color-vermillion)]',
                   detail.pr_status === 'draft' &&
                     'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                 )}
@@ -1608,7 +1615,7 @@ Focus on preserving the functionality from both sides where possible.`
               {detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive && (
                 <button
                   onClick={handleResolveConflicts}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors text-purple-400/80 hover:text-purple-400 hover:bg-[rgba(168,85,247,0.1)]"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors text-[var(--color-orchid)]/80 hover:text-[var(--color-orchid)] hover:bg-[rgba(168,85,247,0.1)]"
                   title="Use Claude to resolve merge conflicts"
                 >
                   <Sparkles className="w-3 h-3" />
@@ -1627,7 +1634,7 @@ Focus on preserving the functionality from both sides where possible.`
                     primaryAction.busy
                       ? 'bg-[var(--color-stone)]/15 text-[var(--color-stone)]/50 cursor-wait'
                       : primaryAction.tone === 'merge'
-                        ? 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                        ? 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.25)]'
                         : 'border border-[var(--color-vermillion)]/30 text-[var(--color-vermillion)] hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)]'
                   )}
                   title={primaryAction.title}
@@ -1672,14 +1679,14 @@ Focus on preserving the functionality from both sides where possible.`
                 className={cn(
                   'sm:hidden flex items-center gap-1.5 px-2 py-1 mb-3 self-start rounded-sm text-body transition-colors',
                   detail.pr_mergeable === 'CONFLICTING' &&
-                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[var(--color-vermillion)] hover:bg-[rgba(239,68,68,0.15)]',
                   detail.pr_mergeable !== 'CONFLICTING' &&
                     detail.pr_status === 'open' &&
-                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.15)]',
                   detail.pr_status === 'merged' &&
-                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-[var(--color-orchid)]',
                   detail.pr_status === 'closed' &&
-                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[var(--color-vermillion)]',
                   detail.pr_status === 'draft' &&
                     'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                 )}
@@ -1687,7 +1694,7 @@ Focus on preserving the functionality from both sides where possible.`
                 <GitPullRequest className="w-3 h-3" />
                 <span>#{detail.pr_number}</span>
                 {detail.pr_mergeable === 'CONFLICTING' ? (
-                  <span className="uppercase text-red-400">Conflicts</span>
+                  <span className="uppercase text-[var(--color-vermillion)]">Conflicts</span>
                 ) : (
                   <span className="uppercase">{detail.pr_status}</span>
                 )}
@@ -1737,7 +1744,7 @@ Focus on preserving the functionality from both sides where possible.`
                           'flex items-center gap-1.5 px-3 py-1.5 text-body uppercase tracking-widest rounded-sm transition-colors shrink-0',
                           recovering
                             ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                            : 'bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]'
+                            : 'bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-[var(--color-orchid)] hover:bg-[rgba(168,85,247,0.25)]'
                         )}
                         title="Recover from context overflow - starts fresh session with progress summary"
                       >
@@ -2093,8 +2100,8 @@ Focus on preserving the functionality from both sides where possible.`
                       <div className="space-y-0">
                         {/* Branch info header */}
                         <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
-                          <GitBranch className="w-3.5 h-3.5 text-purple-400" />
-                          <span className="text-body text-purple-300">
+                          <GitBranch className="w-3.5 h-3.5 text-[var(--color-orchid)]" />
+                          <span className="text-body text-[var(--color-orchid)]">
                             {commitsData.branch_name}
                           </span>
                           <span className="text-body text-[var(--color-stone)]/50">
@@ -2186,7 +2193,7 @@ Focus on preserving the functionality from both sides where possible.`
                                                       file.change_type === 'deleted' &&
                                                         'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                                       file.change_type === 'renamed' &&
-                                                        'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                                        'bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)]'
                                                     )}
                                                   >
                                                     {file.change_type === 'added'
@@ -2319,7 +2326,7 @@ Focus on preserving the functionality from both sides where possible.`
                                       file.change_type === 'deleted' &&
                                         'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                       file.change_type === 'renamed' &&
-                                        'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                        'bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)]'
                                     )}
                                   >
                                     {file.change_type === 'added'
@@ -2385,7 +2392,7 @@ Focus on preserving the functionality from both sides where possible.`
                                           lineClass =
                                             'text-[var(--color-vermillion)] bg-[rgb(var(--color-vermillion-rgb)/0.08)]'
                                         } else if (line.startsWith('@@')) {
-                                          lineClass = 'text-purple-400'
+                                          lineClass = 'text-[var(--color-orchid)]'
                                         } else if (
                                           line.startsWith('diff ') ||
                                           line.startsWith('index ') ||
@@ -2543,7 +2550,7 @@ Focus on preserving the functionality from both sides where possible.`
                           const classColors: Record<string, string> = {
                             healthy: 'text-[var(--color-jade)]',
                             slow: 'text-[var(--color-harvest)]',
-                            looping: 'text-orange-400',
+                            looping: 'text-[var(--color-harvest)]',
                             stuck: 'text-[var(--color-vermillion)]',
                             zombie: 'text-[var(--color-vermillion)]',
                             needs_context_reset: 'text-[var(--color-vermillion)]',
@@ -2551,7 +2558,7 @@ Focus on preserving the functionality from both sides where possible.`
                           const classBg: Record<string, string> = {
                             healthy: 'bg-[var(--color-jade)]/15',
                             slow: 'bg-[var(--color-harvest)]/15',
-                            looping: 'bg-orange-400/15',
+                            looping: 'bg-[var(--color-harvest)]/15',
                             stuck: 'bg-[var(--color-vermillion)]/15',
                             zombie: 'bg-[var(--color-vermillion)]/15',
                             needs_context_reset: 'bg-[var(--color-vermillion)]/15',
@@ -2607,7 +2614,7 @@ Focus on preserving the functionality from both sides where possible.`
                                     d.classification === 'slow' &&
                                       'bg-[var(--color-harvest)]/15 text-[var(--color-harvest)]',
                                     d.classification === 'looping' &&
-                                      'bg-orange-400/15 text-orange-400',
+                                      'bg-[var(--color-harvest)]/15 text-[var(--color-harvest)]',
                                     (d.classification === 'stuck' ||
                                       d.classification === 'zombie' ||
                                       d.classification === 'needs_context_reset') &&

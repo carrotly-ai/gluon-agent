@@ -210,7 +210,7 @@ export function SchedulesPage() {
                         {s.name}
                       </button>
                       {s.use_worktree && (
-                        <span className="flex items-center gap-1 text-caption text-purple-400/70 mt-0.5">
+                        <span className="flex items-center gap-1 text-caption text-[var(--color-orchid)]/70 mt-0.5">
                           <GitBranch className="w-2.5 h-2.5" />
                           Worktree
                         </span>

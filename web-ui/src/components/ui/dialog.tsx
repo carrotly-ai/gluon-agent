@@ -96,7 +96,7 @@ function DialogTitle({ className, ...props }: React.ComponentProps<typeof Dialog
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('text-lg leading-none font-semibold text-[var(--color-paper)]', className)}
+      className={cn('text-display leading-none font-semibold text-[var(--color-paper)]', className)}
       {...props}
     />
   )
@@ -109,7 +109,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn('text-[var(--color-stone)] text-sm', className)}
+      className={cn('text-[var(--color-stone)] text-body', className)}
       {...props}
     />
   )

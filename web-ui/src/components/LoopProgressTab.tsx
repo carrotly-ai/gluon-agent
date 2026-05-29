@@ -26,11 +26,11 @@ interface LoopProgressTabProps {
 function getCircuitStateColor(state: CircuitState): string {
   switch (state) {
     case 'CLOSED':
-      return 'text-green-400'
+      return 'text-[var(--color-jade)]'
     case 'HALF_OPEN':
-      return 'text-yellow-400'
+      return 'text-[var(--color-harvest)]'
     case 'OPEN':
-      return 'text-red-400'
+      return 'text-[var(--color-vermillion)]'
     default:
       return 'text-[var(--color-stone)]/60'
   }
@@ -74,7 +74,7 @@ function SafetyBadge({
             isDanger
               ? 'text-[var(--color-vermillion)]'
               : isWarning
-                ? 'text-yellow-400'
+                ? 'text-[var(--color-harvest)]'
                 : 'text-[var(--color-jade)]'
           )}
         >
@@ -344,7 +344,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                 completionConfidence >= 80
                   ? 'text-[var(--color-jade)]'
                   : completionConfidence >= 50
-                    ? 'text-yellow-400'
+                    ? 'text-[var(--color-harvest)]'
                     : 'text-[var(--color-stone)]/60'
               )}
             >

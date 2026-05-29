@@ -34,7 +34,7 @@ function TooltipContent({
       <TooltipPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          'z-50 max-w-xs overflow-hidden rounded-sm border border-[rgba(163,163,163,0.15)] bg-[var(--color-coal)] px-3 py-2 text-xs text-[var(--color-paper)] shadow-md',
+          'z-50 max-w-xs overflow-hidden rounded-sm border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] px-3 py-2 text-caption text-[var(--color-paper)] shadow-md',
           'animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
           'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
           className
@@ -49,7 +49,7 @@ function TooltipArrow({
   className,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Arrow>) {
-  return <TooltipPrimitive.Arrow className={cn('fill-[var(--color-coal)]', className)} {...props} />
+  return <TooltipPrimitive.Arrow className={cn('fill-[var(--color-ink)]', className)} {...props} />
 }
 
 export { Tooltip, TooltipArrow, TooltipContent, TooltipProvider, TooltipTrigger }

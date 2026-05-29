@@ -967,8 +967,8 @@ Focus on preserving functionality from both sides where possible.`
             {detail?.branch_name && (
               <div className="hidden sm:flex items-center gap-1.5 ml-1 text-caption text-[var(--color-stone)]/50">
                 <span className="text-[var(--color-stone)]/30">on</span>
-                <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
-                <span className="text-purple-300/80 truncate max-w-[100px]">
+                <GitBranch className="w-2.5 h-2.5 text-[var(--color-orchid)]/70" />
+                <span className="text-[var(--color-orchid)]/80 truncate max-w-[100px]">
                   {detail.branch_name}
                 </span>
                 {detail.git_commit_sha && (
@@ -994,14 +994,14 @@ Focus on preserving functionality from both sides where possible.`
                 className={cn(
                   'hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm text-caption transition-colors',
                   detail.pr_mergeable === 'CONFLICTING' &&
-                    'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-red-400 hover:bg-[rgba(239,68,68,0.2)]',
+                    'bg-[rgba(239,68,68,0.15)] border border-[rgba(239,68,68,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(239,68,68,0.2)]',
                   detail.pr_mergeable !== 'CONFLICTING' &&
                     detail.pr_status === 'open' &&
-                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.15)]',
                   detail.pr_status === 'merged' &&
-                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-[var(--color-orchid)]',
                   detail.pr_status === 'closed' &&
-                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[var(--color-vermillion)]',
                   detail.pr_status === 'draft' &&
                     'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                 )}
@@ -1040,7 +1040,7 @@ Focus on preserving functionality from both sides where possible.`
                       'flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
                       merging
                         ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.25)]'
                     )}
                   >
                     <GitMerge className="w-3 h-3" />
@@ -1061,7 +1061,7 @@ Focus on preserving functionality from both sides where possible.`
 Focus on preserving the functionality from both sides where possible.`
                     setResumePrompt(conflictPrompt)
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-[var(--color-orchid)] hover:bg-[rgba(168,85,247,0.25)]"
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>Resolve</span>
@@ -1080,7 +1080,7 @@ Focus on preserving the functionality from both sides where possible.`
                       'flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
                       creatingPr
                         ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.25)]'
                     )}
                   >
                     <GitPullRequest className="w-3 h-3" />
@@ -1100,7 +1100,7 @@ Focus on preserving the functionality from both sides where possible.`
                       'flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest rounded-sm transition-colors',
                       merging
                         ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.25)]'
                     )}
                   >
                     <GitMerge className="w-3 h-3" />
@@ -1431,8 +1431,8 @@ Focus on preserving the functionality from both sides where possible.`
                 ) : commitsData && commitsData.commits.length > 0 ? (
                   <div className="space-y-0">
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[rgba(163,163,163,0.08)]">
-                      <GitBranch className="w-3.5 h-3.5 text-purple-400" />
-                      <span className="text-caption text-purple-300">
+                      <GitBranch className="w-3.5 h-3.5 text-[var(--color-orchid)]" />
+                      <span className="text-caption text-[var(--color-orchid)]">
                         {commitsData.branch_name}
                       </span>
                       <span className="text-caption text-[var(--color-stone)]/50">
@@ -1440,7 +1440,7 @@ Focus on preserving the functionality from both sides where possible.`
                         ahead of {commitsData.base_branch}
                       </span>
                       {commitsData.from_snapshot && (
-                        <span className="flex items-center gap-1 px-1.5 py-0.5 text-micro uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 text-micro uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)] rounded-sm border border-[rgba(168,85,247,0.2)]">
                           <Archive className="w-2.5 h-2.5" />
                           Snapshot
                         </span>
@@ -1521,7 +1521,7 @@ Focus on preserving the functionality from both sides where possible.`
                                                   file.change_type === 'deleted' &&
                                                     'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                                   file.change_type === 'renamed' &&
-                                                    'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                                    'bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)]'
                                                 )}
                                               >
                                                 {file.change_type === 'added'
@@ -1588,7 +1588,7 @@ Focus on preserving the functionality from both sides where possible.`
                           {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''} changed
                         </span>
                         {filesData.from_snapshot && (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 text-micro uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 text-micro uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)] rounded-sm border border-[rgba(168,85,247,0.2)]">
                             <Archive className="w-2.5 h-2.5" />
                             Snapshot
                           </span>
@@ -1655,7 +1655,7 @@ Focus on preserving the functionality from both sides where possible.`
                                   file.change_type === 'deleted' &&
                                     'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                   file.change_type === 'renamed' &&
-                                    'bg-[rgba(168,85,247,0.15)] text-purple-400'
+                                    'bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)]'
                                 )}
                               >
                                 {file.change_type === 'added'
@@ -1715,7 +1715,7 @@ Focus on preserving the functionality from both sides where possible.`
                                       lineClass =
                                         'text-[var(--color-vermillion)] bg-[rgb(var(--color-vermillion-rgb)/0.08)]'
                                     } else if (line.startsWith('@@')) {
-                                      lineClass = 'text-purple-400'
+                                      lineClass = 'text-[var(--color-orchid)]'
                                     } else if (
                                       line.startsWith('diff ') ||
                                       line.startsWith('index ') ||

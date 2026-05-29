@@ -152,8 +152,8 @@ function getButtonConfig(state: SyncState, project: Project, compact: boolean): 
       return {
         label: compact ? `●${uncommitted}` : `Commit ${uncommitted}`,
         icon: <GitCommit className="w-3 h-3" />,
-        bgClass: 'bg-amber-500/10 hover:bg-amber-500/20',
-        textClass: 'text-amber-400',
+        bgClass: 'bg-[var(--color-harvest)]/10 hover:bg-[var(--color-harvest)]/20',
+        textClass: 'text-[var(--color-harvest)]',
         canSync: true,
         tooltip: `${uncommitted} uncommitted changes. Click to commit and push.`,
       }

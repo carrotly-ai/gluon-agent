@@ -123,10 +123,10 @@ function toolColorClass(name: string): string {
     return 'bg-[var(--color-jade)]'
   }
   if (n.startsWith('mcp__') || n === 'task') {
-    return 'bg-purple-400'
+    return 'bg-[var(--color-orchid)]'
   }
   if (n === 'webfetch' || n === 'websearch') {
-    return 'bg-blue-400'
+    return 'bg-[var(--color-sky)]'
   }
   return 'bg-[var(--color-stone)]/50'
 }

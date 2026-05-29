@@ -61,11 +61,11 @@ function CiIcon({ ci, prStatus }: { ci?: string | null; prStatus?: string | null
 function getCircuitStateColor(state: CircuitState): string {
   switch (state) {
     case 'CLOSED':
-      return 'text-green-400'
+      return 'text-[var(--color-jade)]'
     case 'HALF_OPEN':
-      return 'text-yellow-400'
+      return 'text-[var(--color-harvest)]'
     case 'OPEN':
-      return 'text-red-400'
+      return 'text-[var(--color-vermillion)]'
     default:
       return 'text-[var(--color-stone)]/60'
   }
@@ -74,11 +74,11 @@ function getCircuitStateColor(state: CircuitState): string {
 function getCircuitStateBg(state: CircuitState): string {
   switch (state) {
     case 'CLOSED':
-      return 'bg-green-400/15'
+      return 'bg-[var(--color-jade)]/15'
     case 'HALF_OPEN':
-      return 'bg-yellow-400/15'
+      return 'bg-[var(--color-harvest)]/15'
     case 'OPEN':
-      return 'bg-red-400/15'
+      return 'bg-[var(--color-vermillion)]/15'
     default:
       return 'bg-[var(--color-stone)]/15'
   }
@@ -91,7 +91,7 @@ function getHealthDotColor(classification: HealthClassification): string {
     case 'slow':
       return 'bg-[var(--color-harvest)]'
     case 'looping':
-      return 'bg-orange-400'
+      return 'bg-[var(--color-harvest)]'
     case 'stuck':
     case 'zombie':
       return 'bg-[var(--color-vermillion)]'
@@ -174,7 +174,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       key: 'recovering',
       collapsedLabel: 'Recovering',
       node: (
-        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-[var(--color-harvest)]">
           <RefreshCw className="w-2.5 h-2.5 animate-spin" />
           Recovering
         </span>
@@ -186,7 +186,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       key: 'max_turns',
       collapsedLabel: 'Max Turns',
       node: (
-        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-[var(--color-harvest)]">
           Max Turns
         </span>
       ),
@@ -203,20 +203,21 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
           rel="noopener noreferrer"
           className={cn(
             'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro transition-colors',
-            run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
-            run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
+            run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-[var(--color-orchid)]',
+            run.pr_status === 'closed' &&
+              'bg-[rgba(239,68,68,0.15)] text-[var(--color-vermillion)]',
             run.pr_status === 'open' &&
               run.ci_status === 'success' &&
-              'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+              'bg-[rgba(34,197,94,0.15)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.25)]',
             run.pr_status === 'open' &&
               run.ci_status === 'failure' &&
-              'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
+              'bg-[rgba(239,68,68,0.15)] text-[var(--color-vermillion)] hover:bg-[rgba(239,68,68,0.25)]',
             run.pr_status === 'open' &&
               run.ci_status === 'pending' &&
-              'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
+              'bg-[rgba(234,179,8,0.15)] text-[var(--color-harvest)] hover:bg-[rgba(234,179,8,0.25)]',
             run.pr_status === 'open' &&
               !run.ci_status &&
-              'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+              'bg-[rgba(34,197,94,0.15)] text-[var(--color-jade)] hover:bg-[rgba(34,197,94,0.25)]',
             run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
           )}
           onClick={(e) => e.stopPropagation()}
@@ -234,7 +235,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       collapsedLabel: run.branch_name || 'Worktree',
       node: (
         <span
-          className="flex items-center gap-1 text-purple-400"
+          className="flex items-center gap-1 text-[var(--color-orchid)]"
           title={run.branch_name || 'Worktree'}
         >
           <GitBranch className="w-3 h-3" />
@@ -447,7 +448,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             {/* Stop Loop button - only for running ralph tasks */}
             {run.status === 'running' && onStopLoop && (
               <button
-                className="p-1 text-[var(--color-stone)]/50 hover:text-amber-400 hover:bg-amber-400/10 rounded-sm transition-colors"
+                className="p-1 text-[var(--color-stone)]/50 hover:text-[var(--color-harvest)] hover:bg-[var(--color-harvest)]/10 rounded-sm transition-colors"
                 onClick={(e) => {
                   e.stopPropagation()
                   onStopLoop()
@@ -526,7 +527,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
 
       {/* Recovery progress OR Error message */}
       {isRecovering ? (
-        <p className="text-caption text-amber-400/80 mt-2 sm:mt-3 pl-4 sm:pl-[18px]">
+        <p className="text-caption text-[var(--color-harvest)]/80 mt-2 sm:mt-3 pl-4 sm:pl-[18px]">
           <RefreshCw className="w-3 h-3 inline mr-1 animate-spin" />
           Processing item {run.recovery_item_count || 0}...
           {run.cost_usd != null && run.cost_usd > 0 && (

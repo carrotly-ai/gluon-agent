@@ -703,7 +703,7 @@ export function SettingsPage({
               </div>
             )}
             {scanResult.projects_removed?.length > 0 && (
-              <div className="text-body text-red-400/80 pl-6">
+              <div className="text-body text-[var(--color-vermillion)]/80 pl-6">
                 Removed: {scanResult.projects_removed.join(', ')}
               </div>
             )}
@@ -1340,7 +1340,7 @@ export function SettingsPage({
                         vercelTesting
                           ? 'bg-[rgba(163,163,163,0.1)] border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
                           : vercelTestResult?.valid
-                            ? 'bg-[rgba(34,197,94,0.15)] border-[rgba(34,197,94,0.3)] text-green-400'
+                            ? 'bg-[rgba(34,197,94,0.15)] border-[rgba(34,197,94,0.3)] text-[var(--color-jade)]'
                             : vercelTestResult && !vercelTestResult.valid
                               ? 'bg-[rgb(var(--color-vermillion-rgb)/0.15)] border-[rgb(var(--color-vermillion-rgb)/0.3)] text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.25)]'
                               : 'border-[rgba(163,163,163,0.2)] text-[var(--color-stone)] hover:bg-[rgba(163,163,163,0.1)]'
