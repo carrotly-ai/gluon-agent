@@ -38,7 +38,7 @@ import { StatusDot } from './components/ui/StatusDot'
 import { WorkQueuePage } from './components/WorkQueuePage'
 import { useConnectivity } from './hooks/useConnectivity'
 import { useCurrentUser } from './hooks/useCurrentUser'
-import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { KeyboardHelpDialog, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import {
   NotificationCenterContext,
   useNotificationCenterProvider,
@@ -345,7 +345,7 @@ function AuthenticatedApp() {
   } = useRouteSync()
 
   // Keyboard shortcuts
-  useKeyboardShortcuts(
+  const { helpOpen, setHelpOpen } = useKeyboardShortcuts(
     useMemo(
       () => ({
         onNewTask: () => setCreateDialogOpen(true),
@@ -785,6 +785,9 @@ function AuthenticatedApp() {
             (filter.type === 'project' ? filter.value || undefined : undefined)
           }
         />
+
+        {/* Keyboard-shortcut reference, toggled with `?` */}
+        <KeyboardHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
 
         {/* Global Question Modal — renders for any run's pending questions */}
         {notificationCenter.pendingQuestions.length > 0 && (
