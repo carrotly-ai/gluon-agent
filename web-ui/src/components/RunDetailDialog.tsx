@@ -2782,19 +2782,20 @@ Focus on preserving the functionality from both sides where possible.`
                     truncated={filesTruncated}
                   />
                   {isActive ? (
-                    /* Active task - show Queue and Send Now buttons */
+                    /* Active task — Queue is the safe default (primary), Send Now
+                       cancels in-flight work so it reads as a warned secondary. */
                     <div className="flex gap-1.5 shrink-0 self-start">
                       <button
                         className={cn(
                           'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
                           'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:gap-1.5',
                           resumePrompt.trim() && !queuing && !resuming
-                            ? 'bg-[var(--color-stone)]/20 text-[var(--color-paper)] hover:bg-[var(--color-stone)]/30'
-                            : 'bg-[var(--color-stone)]/10 text-[var(--color-stone)]/40 cursor-not-allowed'
+                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
                         )}
                         onClick={handleQueueFollowup}
                         disabled={!resumePrompt.trim() || queuing || resuming}
-                        title={queuing ? 'Queueing...' : 'Add to queue'}
+                        title="Add after the current task finishes"
                       >
                         <Clock className="w-3 h-3" />
                         <span className="hidden sm:inline">
@@ -2806,12 +2807,12 @@ Focus on preserving the functionality from both sides where possible.`
                           'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
                           'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:gap-1.5',
                           resumePrompt.trim() && !resuming && !queuing
-                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                            ? 'border border-[var(--color-vermillion)]/30 text-[var(--color-vermillion)] hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)]'
+                            : 'border border-[var(--color-stone)]/15 text-[var(--color-stone)]/40 cursor-not-allowed'
                         )}
                         onClick={handleSendNow}
                         disabled={!resumePrompt.trim() || resuming || queuing}
-                        title="Cancel current task and send immediately"
+                        title="Cancel the current task and run this instead"
                       >
                         <Play className="w-3 h-3" />
                         <span className="hidden sm:inline">
@@ -2820,7 +2821,7 @@ Focus on preserving the functionality from both sides where possible.`
                       </button>
                     </div>
                   ) : (
-                    /* Not active - show single Resume button */
+                    /* Not active — single Resume button continues this session */
                     <button
                       className={cn(
                         'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
@@ -2831,7 +2832,7 @@ Focus on preserving the functionality from both sides where possible.`
                       )}
                       onClick={handleResume}
                       disabled={!resumePrompt.trim() || resuming}
-                      title={resuming ? 'Resuming...' : 'Resume'}
+                      title="Continue this session"
                     >
                       <Play className="w-3 h-3" />
                       <span className="hidden sm:inline">
@@ -2840,6 +2841,15 @@ Focus on preserving the functionality from both sides where possible.`
                     </button>
                   )}
                 </div>
+                {/* Inline hint disambiguating the two active-task verbs */}
+                {isActive && (
+                  <p className="text-caption text-[var(--color-stone)]/45 mt-2 leading-relaxed">
+                    <span className="text-[var(--color-stone)]/60">Queue</span> runs after the
+                    current task finishes.{' '}
+                    <span className="text-[var(--color-vermillion)]/70">Send Now</span> cancels it
+                    and runs this instead.
+                  </p>
+                )}
                 {resumeError && (
                   <p className="text-body text-[var(--color-vermillion)] mt-2">{resumeError}</p>
                 )}
