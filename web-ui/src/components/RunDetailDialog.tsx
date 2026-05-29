@@ -174,7 +174,6 @@ import { LoopProgressTab } from './LoopProgressTab'
 import { QuestionModal } from './QuestionModal'
 import { RunTimeline } from './RunTimeline'
 import { StreamingLogViewer } from './StreamingLogViewer'
-import { TodoTab } from './TodoTab'
 import { ToolBreakdown } from './ToolBreakdown'
 
 type TabType =
@@ -342,6 +341,9 @@ export function RunDetailDialog({
     messages: '',
   })
   const [activeTab, setActiveTabInternal] = useState<TabType>(initialTab || 'messages')
+  // Bumped when the Todos tab is clicked → tells StreamingLogViewer to scroll to
+  // and expand the latest TodoWrite in the stream (no duplicate checklist tab).
+  const [todoScrollSignal, setTodoScrollSignal] = useState(0)
 
   // Wrap setActiveTab to notify parent
   const setActiveTab = useCallback(
@@ -351,6 +353,13 @@ export function RunDetailDialog({
     },
     [onTabChange]
   )
+
+  // The Todos tab deep-links into the message stream rather than rendering a
+  // second copy of the checklist. Switch to Messages and bump the scroll signal.
+  const handleTodosDeepLink = useCallback(() => {
+    setActiveTab('messages')
+    setTodoScrollSignal((n) => n + 1)
+  }, [setActiveTab])
 
   // Sync with initialTab when it changes (URL navigation)
   useEffect(() => {
@@ -1478,12 +1487,14 @@ Focus on preserving the functionality from both sides where possible.`
       ),
       files: !(detail?.branch_name && (filesData?.file_count ?? detail?.file_count ?? 0) > 0),
       attachments: attachments.length === 0,
-      todos: !(todosData && todosData.todo_count > 0),
+      // Todos is no longer a destination tab — it deep-links into the stream.
+      // Coerce any lingering /todos deep link (or stale URL) back to messages.
+      todos: true,
     }
     if (hiddenTabs[activeTab]) {
       setActiveTab('messages')
     }
-  }, [activeTab, hasErrors, detail, commitsData, filesData, attachments, todosData, setActiveTab])
+  }, [activeTab, hasErrors, detail, commitsData, filesData, attachments, setActiveTab])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1904,13 +1915,9 @@ Focus on preserving the functionality from both sides where possible.`
                   )}
                   {todosData && todosData.todo_count > 0 && (
                     <button
-                      className={cn(
-                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
-                        activeTab === 'todos'
-                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                      )}
-                      onClick={() => setActiveTab('todos')}
+                      className="px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5 text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]"
+                      onClick={handleTodosDeepLink}
+                      title="Jump to the latest checklist in the message stream"
                     >
                       <ListChecks className="w-3 h-3" />
                       Todos
@@ -1998,6 +2005,7 @@ Focus on preserving the functionality from both sides where possible.`
                         runId={run?.id ?? null}
                         runStatus={(run?.status ?? 'pending') as RunStatus}
                         initialMessages={parseMessages(logs.messages)}
+                        scrollToTodoSignal={todoScrollSignal}
                       />
                     )}
                   </div>
@@ -2486,7 +2494,6 @@ Focus on preserving the functionality from both sides where possible.`
                     }}
                   />
                 )}
-                {activeTab === 'todos' && detail && <TodoTab run={detail} />}
                 {activeTab === 'tools' && (
                   <div className="flex-1 overflow-auto">
                     <ToolBreakdown
