@@ -1,4 +1,14 @@
-import { AlertCircle, CheckCircle2, Copy, Link as LinkIcon, Loader2, Unlink } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Copy,
+  Link as LinkIcon,
+  Loader2,
+  MessageCircle,
+  Send,
+  Unlink,
+} from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { ApiError, createLinkCode, fetchMe, unlinkMyChat } from '@/lib/api'
@@ -22,14 +32,15 @@ import type { LinkTransport } from '@/lib/types'
 type TransportConfig = {
   transport: LinkTransport
   label: string
-  emoji: string
+  // Lucide glyph — monochrome, matches the surrounding aesthetic (no emoji colour pops).
+  Icon: LucideIcon
   // The bot command pattern — used in the "how to redeem" hint.
   command: string
 }
 
 const TRANSPORTS: TransportConfig[] = [
-  { transport: 'telegram', label: 'Telegram', emoji: '✈️', command: '/link' },
-  { transport: 'discord', label: 'Discord', emoji: '💬', command: 'link-account' },
+  { transport: 'telegram', label: 'Telegram', Icon: Send, command: '/link' },
+  { transport: 'discord', label: 'Discord', Icon: MessageCircle, command: 'link-account' },
 ]
 
 interface ActiveCode {
@@ -131,8 +142,8 @@ export function ConnectedAccountsSection() {
           return (
             <div key={tc.transport} className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
-                <span className="w-5 text-center" aria-hidden>
-                  {tc.emoji}
+                <span className="w-5 flex justify-center shrink-0" aria-hidden>
+                  <tc.Icon className="w-4 h-4 text-[var(--color-stone)]" />
                 </span>
                 <span className="flex-1 text-body text-[var(--color-paper)]/90">{tc.label}</span>
                 {linked !== null ? (
