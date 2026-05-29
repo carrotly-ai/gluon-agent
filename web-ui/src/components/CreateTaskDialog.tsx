@@ -1190,6 +1190,9 @@ export function CreateTaskDialog({
                   />
                   <Settings className="w-4 h-4" />
                   <span>Advanced</span>
+                  {/* Collapsed by default so a first-timer sees only project, prompt,
+                      profile and Start. The chip surfaces what's active inside without
+                      expanding — legible words, not raw enum values. */}
                   {!showAdvanced &&
                     (useWorktree ||
                       ralphEnabled ||
@@ -1204,8 +1207,8 @@ export function CreateTaskDialog({
                           useWorktree && 'worktree',
                           ralphEnabled && 'loop',
                           agentTeams && 'teams',
-                          modelOverride && modelOverride,
-                          effortOverride && effortOverride,
+                          modelOverride && selectedAdvancedModelOption?.label,
+                          effortOverride && `${effortOverride} effort`,
                         ]
                           .filter(Boolean)
                           .join(' · ')}
