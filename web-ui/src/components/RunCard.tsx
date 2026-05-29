@@ -11,6 +11,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { StatusDot, type StatusState } from '@/components/ui/StatusDot'
 import { useNotificationCenter } from '@/hooks/useNotificationCenter'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
@@ -157,6 +158,129 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
   // When active the whole card signals it and all other metadata yields.
   const needsInput = hasPendingQuestions
 
+  // ── Metadata badges, prioritised by signal ──────────────────────────────
+  // The row could otherwise carry recovering + max-turns + project + health +
+  // branch + PR all at once. Establish an explicit priority and cap how many
+  // render simultaneously; the rest collapse into a "+N" overflow chip. Tokyo-
+  // Minimal restraint — the relative timestamp is kept separate (it's not part
+  // of the competing cluster) and the colour-only health dot is dropped as soon
+  // as any higher-signal badge is present.
+  const MAX_BADGES = 3
+  type Badge = { key: string; node: ReactNode; collapsedLabel: string }
+  const badges: Badge[] = []
+
+  if (isRecovering) {
+    badges.push({
+      key: 'recovering',
+      collapsedLabel: 'Recovering',
+      node: (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+          Recovering
+        </span>
+      ),
+    })
+  }
+  if (run.stop_reason === 'max_turns') {
+    badges.push({
+      key: 'max_turns',
+      collapsedLabel: 'Max Turns',
+      node: (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+          Max Turns
+        </span>
+      ),
+    })
+  }
+  if (run.pr_number && run.pr_url) {
+    badges.push({
+      key: 'pr',
+      collapsedLabel: `PR #${run.pr_number}`,
+      node: (
+        <a
+          href={run.pr_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] transition-colors',
+            run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
+            run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
+            run.pr_status === 'open' &&
+              run.ci_status === 'success' &&
+              'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+            run.pr_status === 'open' &&
+              run.ci_status === 'failure' &&
+              'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
+            run.pr_status === 'open' &&
+              run.ci_status === 'pending' &&
+              'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
+            run.pr_status === 'open' &&
+              !run.ci_status &&
+              'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+            run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
+          )}
+          onClick={(e) => e.stopPropagation()}
+          title={`PR #${run.pr_number}${run.ci_status ? ` · CI: ${run.ci_status}` : ''}`}
+        >
+          <CiIcon ci={run.ci_status} prStatus={run.pr_status} />
+          <span>#{run.pr_number}</span>
+        </a>
+      ),
+    })
+  }
+  if (run.use_worktree) {
+    badges.push({
+      key: 'branch',
+      collapsedLabel: run.branch_name || 'Worktree',
+      node: (
+        <span
+          className="flex items-center gap-1 text-purple-400"
+          title={run.branch_name || 'Worktree'}
+        >
+          <GitBranch className="w-3 h-3" />
+          {run.branch_name && (
+            <span className="text-caption truncate max-w-[80px]">{run.branch_name}</span>
+          )}
+        </span>
+      ),
+    })
+  }
+  // Project name (only when a custom_title already leads) — secondary identity,
+  // lowest badge priority.
+  if (run.custom_title) {
+    badges.push({
+      key: 'project',
+      collapsedLabel: run.project_name,
+      node: (
+        <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
+          {run.project_name}
+        </span>
+      ),
+    })
+  }
+  // Health dot — colour-only, weakest signal: keep only when it would otherwise
+  // be the sole badge on a running card.
+  const showHealthDot =
+    !!run.health_classification && run.status === 'running' && badges.length === 0
+  if (showHealthDot && run.health_classification) {
+    badges.push({
+      key: 'health',
+      collapsedLabel: `Health: ${run.health_classification}`,
+      node: (
+        <span
+          className={cn(
+            'w-2 h-2 rounded-full shrink-0',
+            getHealthDotColor(run.health_classification)
+          )}
+          title={`Health: ${run.health_classification}`}
+        />
+      ),
+    })
+  }
+
+  const visibleBadges = badges.slice(0, MAX_BADGES)
+  const collapsedBadges = badges.slice(MAX_BADGES)
+
   return (
     <div
       className={cn(
@@ -258,76 +382,19 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             needsInput && 'opacity-40'
           )}
         >
-          {/* Recovering badge */}
-          {isRecovering && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
-              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-              Recovering
+          {/* Prioritised badges (cap MAX_BADGES); overflow collapses to "+N". */}
+          {visibleBadges.map((b) => (
+            <span key={b.key} className="contents">
+              {b.node}
             </span>
-          )}
-          {/* Max turns badge */}
-          {run.stop_reason === 'max_turns' && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
-              Max Turns
-            </span>
-          )}
-          {/* Project name only here when a custom_title already leads the card —
-              otherwise the project name is the lead line and showing it again
-              would be redundant. */}
-          {run.custom_title && (
-            <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
-              {run.project_name}
-            </span>
-          )}
-          {run.health_classification && run.status === 'running' && (
+          ))}
+          {collapsedBadges.length > 0 && (
             <span
-              className={cn(
-                'w-2 h-2 rounded-full shrink-0',
-                getHealthDotColor(run.health_classification)
-              )}
-              title={`Health: ${run.health_classification}`}
-            />
-          )}
-          {run.use_worktree && (
-            <span
-              className="flex items-center gap-1 text-purple-400"
-              title={run.branch_name || 'Worktree'}
+              className="px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(163,163,163,0.12)] text-[var(--color-stone)]/70 shrink-0"
+              title={collapsedBadges.map((b) => b.collapsedLabel).join(' · ')}
             >
-              <GitBranch className="w-3 h-3" />
-              {run.branch_name && (
-                <span className="text-caption truncate max-w-[80px]">{run.branch_name}</span>
-              )}
+              +{collapsedBadges.length}
             </span>
-          )}
-          {run.pr_number && run.pr_url && (
-            <a
-              href={run.pr_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] transition-colors',
-                run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
-                run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
-                run.pr_status === 'open' &&
-                  run.ci_status === 'success' &&
-                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
-                run.pr_status === 'open' &&
-                  run.ci_status === 'failure' &&
-                  'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
-                run.pr_status === 'open' &&
-                  run.ci_status === 'pending' &&
-                  'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
-                run.pr_status === 'open' &&
-                  !run.ci_status &&
-                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
-                run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
-              )}
-              onClick={(e) => e.stopPropagation()}
-              title={`PR #${run.pr_number}${run.ci_status ? ` · CI: ${run.ci_status}` : ''}`}
-            >
-              <CiIcon ci={run.ci_status} prStatus={run.pr_status} />
-              <span>#{run.pr_number}</span>
-            </a>
           )}
           <span
             className="text-mono text-[var(--color-stone)]/55 hidden sm:inline cursor-help"
