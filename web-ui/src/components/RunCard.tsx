@@ -153,18 +153,34 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
   // glyph + word carry it together (the left-border stripe is now decorative).
   const stateLabel = STATE_LABELS[cardState]
 
+  // Blocked-waiting-for-user is the single most important CTA a card can carry.
+  // When active the whole card signals it and all other metadata yields.
+  const needsInput = hasPendingQuestions
+
   return (
     <div
       className={cn(
         'card hover-whisper cursor-grab active:cursor-grabbing group relative',
         run.status === 'running' && !isRecovering && 'card-running overflow-visible',
-        isRecovering && 'card-recovering overflow-visible'
+        isRecovering && 'card-recovering overflow-visible',
+        needsInput && 'overflow-visible'
       )}
       style={{
-        borderLeft: `3px solid ${getStatusBorderColor(effectiveStatus, isRecovering)}`,
+        borderLeft: needsInput
+          ? '3px solid var(--color-sky)'
+          : `3px solid ${getStatusBorderColor(effectiveStatus, isRecovering)}`,
       }}
       onClick={onClick}
     >
+      {/* Needs-input: pulsing sky ring around the whole card. Reuses the
+          index.css `breathe` keyframe (no new CSS) on an inset overlay so only
+          the border glows — the card content stays legible. */}
+      {needsInput && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -inset-px rounded-[inherit] ring-2 ring-[var(--color-sky)] animate-[breathe_2s_ease-in-out_infinite]"
+        />
+      )}
       {/* Shimmer stripe overlay for recovering cards */}
       {isRecovering && (
         <div
@@ -224,9 +240,24 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         </p>
       </div>
 
-      {/* Bottom row: metadata */}
+      {/* Needs-input affordance: the single most important CTA a card carries.
+          Full-width, sky-toned, breathing glyph — replaces the old 9px pill. */}
+      {needsInput && (
+        <div className="mt-2 sm:mt-3 flex items-center gap-2 rounded-sm bg-[var(--color-sky)]/[0.12] px-2.5 py-1.5">
+          <MessageCircleQuestion className="w-3.5 h-3.5 text-[var(--color-sky)] shrink-0 animate-[breathe_2s_ease-in-out_infinite]" />
+          <span className="text-caption font-medium text-[var(--color-sky)]">Needs your input</span>
+        </div>
+      )}
+
+      {/* Bottom row: metadata. When the card needs input, all secondary
+          metadata yields (dims) so the sky CTA above is unmistakably dominant. */}
       <div className="flex items-center justify-between mt-2 sm:mt-3 gap-2">
-        <div className="flex items-center gap-2 sm:gap-4 flex-wrap min-w-0">
+        <div
+          className={cn(
+            'flex items-center gap-2 sm:gap-4 flex-wrap min-w-0',
+            needsInput && 'opacity-40'
+          )}
+        >
           {/* Recovering badge */}
           {isRecovering && (
             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
@@ -238,16 +269,6 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
           {run.stop_reason === 'max_turns' && (
             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
               Max Turns
-            </span>
-          )}
-          {/* Needs input badge */}
-          {hasPendingQuestions && (
-            <span
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)] animate-pulse"
-              title="Waiting for input"
-            >
-              <MessageCircleQuestion className="w-2.5 h-2.5" />
-              Input
             </span>
           )}
           {/* Project name only here when a custom_title already leads the card —
