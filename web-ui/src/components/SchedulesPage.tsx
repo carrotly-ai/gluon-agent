@@ -1,7 +1,6 @@
 import {
   CalendarClock,
   CheckCircle2,
-  ChevronRight,
   Clock,
   GitBranch,
   Pause,
@@ -10,7 +9,6 @@ import {
   Plus,
   Rocket,
   Trash2,
-  XCircle,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -389,7 +387,3 @@ function IconButton({
     </button>
   )
 }
-
-// Re-export to satisfy unused-import warnings (Chevron may be used in future drilldown).
-export const _used = ChevronRight
-export const _x = XCircle
