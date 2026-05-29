@@ -11,10 +11,30 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react'
+import { StatusDot, type StatusState } from '@/components/ui/StatusDot'
 import { useNotificationCenter } from '@/hooks/useNotificationCenter'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { CircuitState, HealthClassification, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+// Map a run's effective status to the canonical StatusDot glyph state.
+function toStatusState(effectiveStatus: string, isRecovering?: boolean): StatusState {
+  if (isRecovering) return 'recovering'
+  switch (effectiveStatus) {
+    case 'running':
+      return 'running'
+    case 'completed':
+      return 'completed'
+    case 'review':
+      return 'review'
+    case 'failed':
+      return 'failed'
+    case 'cancelled':
+      return 'cancelled'
+    default:
+      return 'pending'
+  }
+}
 
 function CiIcon({ ci, prStatus }: { ci?: string | null; prStatus?: string | null }) {
   if (prStatus === 'merged') return <GitPullRequest className="w-2.5 h-2.5" />
@@ -116,6 +136,9 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
   // Card is in "done" state - completed and not awaiting review
   const isDone = run.status === 'completed' && effectiveStatus !== 'review'
 
+  // Canonical glyph state for the lead StatusDot.
+  const cardState = toStatusState(effectiveStatus, isRecovering)
+
   return (
     <div
       className={cn(
@@ -160,19 +183,44 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         </div>
       )}
 
-      {/* Prompt - no mark indicator */}
-      <p
-        className="text-title text-[var(--color-paper)] leading-relaxed break-words"
-        style={{
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-        title={run.prompt}
-      >
-        {run.prompt}
-      </p>
+      {/* Lead: status glyph + identity. Prefer a derived custom_title as the
+          lead line; otherwise the project name (highest-variance field). The
+          prompt is demoted to a single-line secondary preview below. */}
+      <div className={cn('flex items-start gap-2 min-w-0', !isActive && onArchive && 'pr-7')}>
+        <span className="mt-[3px] shrink-0">
+          <StatusDot state={cardState} size="md" />
+        </span>
+        <div className="min-w-0 flex-1">
+          {run.custom_title ? (
+            <>
+              <p
+                className="text-title text-[var(--color-paper)] leading-snug break-words line-clamp-1"
+                title={run.custom_title}
+              >
+                {run.custom_title}
+              </p>
+              <p
+                className="text-caption text-[var(--color-stone)]/55 leading-snug truncate"
+                title={run.prompt}
+              >
+                {run.prompt}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-mono text-[var(--color-paper)] leading-snug truncate">
+                {run.project_name}
+              </p>
+              <p
+                className="text-caption text-[var(--color-stone)]/55 leading-snug truncate"
+                title={run.prompt}
+              >
+                {run.prompt}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Bottom row: metadata */}
       <div className="flex items-center justify-between mt-2 sm:mt-3 gap-2">
@@ -200,9 +248,14 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
               Input
             </span>
           )}
-          <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
-            {run.project_name}
-          </span>
+          {/* Project name only here when a custom_title already leads the card —
+              otherwise the project name is the lead line and showing it again
+              would be redundant. */}
+          {run.custom_title && (
+            <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
+              {run.project_name}
+            </span>
+          )}
           {run.health_classification && run.status === 'running' && (
             <span
               className={cn(
