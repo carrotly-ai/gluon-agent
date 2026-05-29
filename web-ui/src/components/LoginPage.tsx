@@ -100,13 +100,12 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--color-void)] px-6">
       <div className="w-full max-w-sm">
-        {/* Brand header */}
+        {/* Brand header — echoes the app-header GLUON wordmark, set larger. */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-full bg-[var(--color-paper)]/10 flex items-center justify-center mb-3">
-            <LogIn className="w-5 h-5 text-[var(--color-paper)]" />
-          </div>
-          <h1 className="text-display text-[var(--color-paper)] tracking-tight">Gluon</h1>
-          <p className="text-caption text-[var(--color-stone)] mt-1 uppercase tracking-widest">
+          <h1 className="text-2xl font-normal tracking-[0.15em] text-[var(--color-paper)]">
+            GLUON
+          </h1>
+          <p className="text-caption text-[var(--color-stone)] mt-2 uppercase tracking-widest">
             Sign in to continue
           </p>
         </div>

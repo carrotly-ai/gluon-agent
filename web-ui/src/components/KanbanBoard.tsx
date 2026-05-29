@@ -142,19 +142,19 @@ function DroppableColumn({
               {status === 'running' && (
                 <>
                   <p>No active runs</p>
-                  <p className="text-[0.5625rem]">Create a task with +New to start</p>
+                  <p className="text-micro">Create a task with +New to start</p>
                 </>
               )}
               {status === 'review' && (
                 <>
                   <p>No tasks awaiting review</p>
-                  <p className="text-[0.5625rem]">Completed worktree runs appear here</p>
+                  <p className="text-micro">Completed worktree runs appear here</p>
                 </>
               )}
               {status === 'completed' && (
                 <>
                   <p>No completed runs</p>
-                  <p className="text-[0.5625rem]">Finished tasks will show here</p>
+                  <p className="text-micro">Finished tasks will show here</p>
                 </>
               )}
               {!['running', 'review', 'completed'].includes(status) && <p>Empty</p>}

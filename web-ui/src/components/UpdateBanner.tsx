@@ -23,6 +23,19 @@ export function UpdateBanner({ className }: UpdateBannerProps) {
   }
 
   const handleRefresh = () => {
+    // Guard against losing in-flight work: an open dialog or a textarea with
+    // content is a pragmatic signal that the user has unsaved state.
+    const hasOpenDialog = document.querySelector('[role="dialog"]') !== null
+    const hasDirtyTextarea = Array.from(document.querySelectorAll('textarea')).some(
+      (el) => el.value.trim().length > 0
+    )
+    if (hasOpenDialog || hasDirtyTextarea) {
+      const proceed = window.confirm(
+        'A new version is ready. Refresh now? Unsaved changes in open dialogs will be lost.'
+      )
+      if (!proceed) return
+    }
+
     // Clear service worker caches before reloading
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -48,7 +61,7 @@ export function UpdateBanner({ className }: UpdateBannerProps) {
       className={cn(
         'bg-[var(--color-jade)]/10 border-b border-[var(--color-jade)]/20',
         'px-4 py-2 flex items-center justify-center gap-3',
-        'text-[0.6875rem] text-[var(--color-jade)]',
+        'text-caption text-[var(--color-jade)]',
         className
       )}
     >
@@ -58,7 +71,7 @@ export function UpdateBanner({ className }: UpdateBannerProps) {
       </span>
       <button
         onClick={handleRefresh}
-        className="px-2 py-0.5 bg-[var(--color-jade)] text-[var(--color-void)] rounded-sm hover:opacity-90 transition-opacity text-[0.625rem] uppercase tracking-wider font-medium"
+        className="px-2 py-0.5 bg-[var(--color-jade)] text-[var(--color-void)] rounded-sm hover:opacity-90 transition-opacity text-micro uppercase tracking-wider font-medium"
       >
         Refresh
       </button>

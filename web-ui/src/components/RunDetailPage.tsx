@@ -1110,7 +1110,7 @@ Focus on preserving the functionality from both sides where possible.`
               {/* Cancel */}
               {isActive && (
                 <button
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgba(199,62,58,0.1)] rounded-sm transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] rounded-sm transition-colors"
                   onClick={handleCancel}
                   disabled={cancelling}
                 >
@@ -1174,12 +1174,12 @@ Focus on preserving the functionality from both sides where possible.`
 
           {/* PR/Merge errors */}
           {prError && (
-            <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+            <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm">
               <p className="text-caption text-[var(--color-vermillion)]">{prError}</p>
             </div>
           )}
           {mergeError && (
-            <div className="mb-4 p-2 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+            <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm">
               <p className="text-caption text-[var(--color-vermillion)]">{mergeError}</p>
             </div>
           )}
@@ -1193,7 +1193,7 @@ Focus on preserving the functionality from both sides where possible.`
 
           {/* Error Message */}
           {run?.error_message && (
-            <div className="mb-6 p-3 bg-[rgba(199,62,58,0.08)] border border-[rgba(199,62,58,0.2)] rounded-sm">
+            <div className="mb-6 p-3 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm">
               <p className="text-caption uppercase tracking-widest text-[var(--color-vermillion)]/70 mb-1.5">
                 Error
               </p>
@@ -1254,7 +1254,7 @@ Focus on preserving the functionality from both sides where possible.`
                 >
                   <Clock className="w-3 h-3" />
                   History
-                  <span className="text-[0.5rem] text-[var(--color-stone)]/50">
+                  <span className="text-micro text-[var(--color-stone)]/50">
                     ({sessionHistory.length})
                   </span>
                 </button>
@@ -1275,9 +1275,7 @@ Focus on preserving the functionality from both sides where possible.`
                     {(() => {
                       const count = commitsData?.commit_count ?? detail?.commit_count
                       return count && count > 0 ? (
-                        <span className="text-[0.5rem] text-[var(--color-stone)]/50">
-                          ({count})
-                        </span>
+                        <span className="text-micro text-[var(--color-stone)]/50">({count})</span>
                       ) : null
                     })()}
                   </button>
@@ -1295,9 +1293,7 @@ Focus on preserving the functionality from both sides where possible.`
                     {(() => {
                       const count = filesData?.file_count ?? detail?.file_count
                       return count && count > 0 ? (
-                        <span className="text-[0.5rem] text-[var(--color-stone)]/50">
-                          ({count})
-                        </span>
+                        <span className="text-micro text-[var(--color-stone)]/50">({count})</span>
                       ) : null
                     })()}
                   </button>
@@ -1315,7 +1311,7 @@ Focus on preserving the functionality from both sides where possible.`
                 <ImageIcon className="w-3 h-3" />
                 Images
                 {attachments.length > 0 && (
-                  <span className="text-[0.5rem] text-[var(--color-stone)]/50">
+                  <span className="text-micro text-[var(--color-stone)]/50">
                     ({attachments.length})
                   </span>
                 )}
@@ -1444,7 +1440,7 @@ Focus on preserving the functionality from both sides where possible.`
                         ahead of {commitsData.base_branch}
                       </span>
                       {commitsData.from_snapshot && (
-                        <span className="flex items-center gap-1 px-1.5 py-0.5 text-[0.5rem] uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 text-micro uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
                           <Archive className="w-2.5 h-2.5" />
                           Snapshot
                         </span>
@@ -1517,13 +1513,13 @@ Focus on preserving the functionality from both sides where possible.`
                                             >
                                               <span
                                                 className={cn(
-                                                  'uppercase px-1 py-0.5 rounded font-medium text-[0.5rem]',
+                                                  'uppercase px-1 py-0.5 rounded font-medium text-micro',
                                                   file.change_type === 'added' &&
                                                     'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
                                                   file.change_type === 'modified' &&
                                                     'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
                                                   file.change_type === 'deleted' &&
-                                                    'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                                    'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                                   file.change_type === 'renamed' &&
                                                     'bg-[rgba(168,85,247,0.15)] text-purple-400'
                                                 )}
@@ -1592,7 +1588,7 @@ Focus on preserving the functionality from both sides where possible.`
                           {filesData.file_count} file{filesData.file_count !== 1 ? 's' : ''} changed
                         </span>
                         {filesData.from_snapshot && (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 text-[0.5rem] uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 text-micro uppercase tracking-widest bg-[rgba(168,85,247,0.15)] text-purple-400 rounded-sm border border-[rgba(168,85,247,0.2)]">
                             <Archive className="w-2.5 h-2.5" />
                             Snapshot
                           </span>
@@ -1651,13 +1647,13 @@ Focus on preserving the functionality from both sides where possible.`
                               />
                               <span
                                 className={cn(
-                                  'text-[0.5rem] uppercase px-1 py-0.5 rounded font-medium shrink-0',
+                                  'text-micro uppercase px-1 py-0.5 rounded font-medium shrink-0',
                                   file.change_type === 'added' &&
                                     'bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]',
                                   file.change_type === 'modified' &&
                                     'bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]',
                                   file.change_type === 'deleted' &&
-                                    'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]',
+                                    'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]',
                                   file.change_type === 'renamed' &&
                                     'bg-[rgba(168,85,247,0.15)] text-purple-400'
                                 )}
@@ -1717,7 +1713,7 @@ Focus on preserving the functionality from both sides where possible.`
                                         'text-[var(--color-jade)] bg-[rgba(45,212,191,0.08)]'
                                     } else if (line.startsWith('-') && !line.startsWith('---')) {
                                       lineClass =
-                                        'text-[var(--color-vermillion)] bg-[rgba(199,62,58,0.08)]'
+                                        'text-[var(--color-vermillion)] bg-[rgb(var(--color-vermillion-rgb)/0.08)]'
                                     } else if (line.startsWith('@@')) {
                                       lineClass = 'text-purple-400'
                                     } else if (
@@ -1799,16 +1795,16 @@ Focus on preserving the functionality from both sides where possible.`
                               className="w-full h-24 object-cover"
                             />
                             <div className="absolute inset-0 bg-[var(--color-void)]/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                              <span className="flex items-center gap-1.5 px-2 py-1 text-[0.5rem] uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm">
+                              <span className="flex items-center gap-1.5 px-2 py-1 text-micro uppercase tracking-widest text-[var(--color-paper)] bg-[var(--color-paper)]/10 rounded-sm">
                                 <Download className="w-3 h-3" />
                                 View
                               </span>
                             </div>
                             <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-[var(--color-void)]/90">
-                              <p className="text-[0.5rem] text-[var(--color-paper)]/80 truncate">
+                              <p className="text-micro text-[var(--color-paper)]/80 truncate">
                                 {image.original_name}
                               </p>
-                              <p className="text-[0.5rem] text-[var(--color-stone)]/60">
+                              <p className="text-micro text-[var(--color-stone)]/60">
                                 {formatFileSize(image.size_bytes)}
                               </p>
                             </div>
@@ -1881,7 +1877,7 @@ Focus on preserving the functionality from both sides where possible.`
                       ) : (
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-caption text-[var(--color-sky)]/80 flex-1">
-                            <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-[10px] mr-2">
+                            <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-micro mr-2">
                               {idx + 1}
                             </span>
                             {msg.message.length > 100
@@ -1929,7 +1925,7 @@ Focus on preserving the functionality from both sides where possible.`
                         className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--color-vermillion)] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={() => removeResumeImage(idx)}
                       >
-                        <span className="text-[0.5rem] text-white font-bold">×</span>
+                        <span className="text-micro text-white font-bold">×</span>
                       </button>
                     </div>
                   ))}

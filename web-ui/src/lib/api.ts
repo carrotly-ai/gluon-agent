@@ -1104,6 +1104,26 @@ export async function fetchSDKSessionDetail(
   return fetchJson<SessionDetail>(`/sdk-sessions/${sessionId}${query ? `?${query}` : ''}`)
 }
 
+/**
+ * Resume a Claude SDK session as a new run.
+ *
+ * TODO(backend): no endpoint exists yet. The backend needs to expose
+ * `POST /api/sdk-sessions/{session_id}/resume` that:
+ *   - Reads the session's `cwd` to determine which project to attach to
+ *     (fallback: pick the first project whose path matches).
+ *   - Creates a new Run with `resume_session_id = session_id` so the SDK
+ *     `ClaudeAgentOptions.resume = session_id` kicks in (see agent.py:resume).
+ *   - Returns the new Run shape so the UI can navigate to /board/{run_id}.
+ *
+ * Until that lands, this throws — the SessionBrowserPage catches the error
+ * and surfaces an honest "Resume not available yet" message.
+ */
+export async function resumeSdkSession(sessionId: string): Promise<Run> {
+  return fetchJson<Run>(`/sdk-sessions/${sessionId}/resume`, {
+    method: 'POST',
+  })
+}
+
 // ========== Workspace Settings ==========
 
 /** Fetch workspace settings with global defaults for comparison */

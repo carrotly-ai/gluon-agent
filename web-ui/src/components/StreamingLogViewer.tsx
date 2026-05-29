@@ -76,7 +76,7 @@ const MESSAGE_CONFIG: Record<
   error: {
     icon: AlertCircle,
     color: 'text-[var(--color-vermillion)]',
-    bg: 'bg-[rgba(199,62,58,0.06)]',
+    bg: 'bg-[rgb(var(--color-vermillion-rgb)/0.06)]',
     border: 'border-l-2 border-l-[var(--color-vermillion)]',
     label: 'Error',
   },
@@ -1233,9 +1233,20 @@ export interface StreamingLogViewerProps {
   initialMessages: AgentMessage[]
   /** Callback when initial messages should be refreshed (e.g., after resume) */
   onRefreshInitial?: () => void
+  /**
+   * Monotonic counter that, when it changes, scrolls to and expands the latest
+   * TodoWrite in the stream. Lets the "Todos" tab deep-link into the timeline
+   * instead of rendering a duplicate checklist (see RunDetailDialog).
+   */
+  scrollToTodoSignal?: number
 }
 
-export function StreamingLogViewer({ runId, runStatus, initialMessages }: StreamingLogViewerProps) {
+export function StreamingLogViewer({
+  runId,
+  runStatus,
+  initialMessages,
+  scrollToTodoSignal,
+}: StreamingLogViewerProps) {
   const isActive = runStatus === 'running' || runStatus === 'pending'
 
   // Only subscribe when run is active
@@ -1581,6 +1592,38 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
     shouldAutoScrollRef.current = true
   }, [virtualizer, filteredMessages.length])
 
+  // Deep-link from the "Todos" tab: when the signal bumps, surface the latest
+  // TodoWrite in the stream (reset filter so it can't be hidden, expand it,
+  // scroll to it). This keeps the stream the single source of truth for todos.
+  const prevTodoSignalRef = useRef(scrollToTodoSignal ?? 0)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fire only on signal change
+  useEffect(() => {
+    const signal = scrollToTodoSignal ?? 0
+    if (signal === prevTodoSignalRef.current) return
+    prevTodoSignalRef.current = signal
+    if (signal === 0) return
+
+    // Reset the filter to 'all' so the latest TodoWrite can't be hidden.
+    setFilter('all')
+    // Defer to next tick so the filter change has been applied to the rendered
+    // list — index must be computed against the same list the virtualizer and
+    // expandedTools key off (allMessages, since filter is now 'all').
+    const id = window.setTimeout(() => {
+      let targetIdx = -1
+      for (let i = allMessages.length - 1; i >= 0; i--) {
+        if (allMessages[i].type === 'tool_use' && allMessages[i].metadata?.tool === 'TodoWrite') {
+          targetIdx = i
+          break
+        }
+      }
+      if (targetIdx < 0) return
+      setExpandedTools((prev) => new Set(prev).add(targetIdx))
+      shouldAutoScrollRef.current = false
+      virtualizer.scrollToIndex(targetIdx, { align: 'center', behavior: 'smooth' })
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [scrollToTodoSignal])
+
   return (
     <div className="flex flex-col h-full">
       {/* Progress bar for active runs */}
@@ -1631,7 +1674,7 @@ export function StreamingLogViewer({ runId, runStatus, initialMessages }: Stream
             className={cn(
               'px-2 py-1 text-body rounded-sm transition-colors flex items-center gap-1',
               filter === 'error'
-                ? 'bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]'
+                ? 'bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]'
                 : 'text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)]'
             )}
             onClick={() => setFilter('error')}

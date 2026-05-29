@@ -244,7 +244,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                 'hidden sm:flex items-center gap-2 px-3 py-2 rounded-sm text-body uppercase tracking-widest transition-colors shrink-0',
                 stopping
                   ? 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50 cursor-wait'
-                  : 'bg-[rgba(199,62,58,0.15)] border border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
+                  : 'bg-[rgb(var(--color-vermillion-rgb)/0.15)] border border-[rgb(var(--color-vermillion-rgb)/0.3)] text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.25)]'
               )}
             >
               <Square className="w-3.5 h-3.5" />
@@ -388,7 +388,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
         {/* Iteration History - Responsive table */}
         <div className="border border-[rgba(163,163,163,0.08)] rounded-sm p-2 sm:p-3 flex-1">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-body sm:text-sm uppercase tracking-widest text-[var(--color-stone)]/70">
+            <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
               Iterations
             </h3>
             <button
@@ -426,7 +426,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                       key={iteration.id}
                       className={cn(
                         'border-b border-[rgba(163,163,163,0.03)]',
-                        iteration.has_errors && 'bg-[rgba(199,62,58,0.05)]'
+                        iteration.has_errors && 'bg-[rgb(var(--color-vermillion-rgb)/0.05)]'
                       )}
                     >
                       {/* Loop number */}
@@ -484,7 +484,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                         <div className="flex items-center gap-1 flex-wrap">
                           {iteration.has_completion_signal && (
                             <span
-                              className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]"
+                              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]"
                               title="Completion signal detected"
                             >
                               Done
@@ -492,7 +492,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                           )}
                           {iteration.has_errors && (
                             <span
-                              className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(199,62,58,0.15)] text-[var(--color-vermillion)]"
+                              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]"
                               title={iteration.error_message || 'Error occurred'}
                             >
                               Err
@@ -500,7 +500,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                           )}
                           {iteration.is_test_only && (
                             <span
-                              className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]"
+                              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]"
                               title="Only ran tests"
                             >
                               Test
@@ -529,7 +529,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
               'sm:hidden flex items-center justify-center gap-2 w-full py-2 rounded-sm text-body uppercase tracking-widest transition-colors',
               stopping
                 ? 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50 cursor-wait'
-                : 'bg-[rgba(199,62,58,0.15)] border border-[rgba(199,62,58,0.3)] text-[var(--color-vermillion)] hover:bg-[rgba(199,62,58,0.25)]'
+                : 'bg-[rgb(var(--color-vermillion-rgb)/0.15)] border border-[rgb(var(--color-vermillion-rgb)/0.3)] text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.25)]'
             )}
           >
             <Square className="w-3.5 h-3.5" />

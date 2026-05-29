@@ -4,7 +4,6 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { ApiError, changePassword } from '@/lib/api'
 import type { User, UserRole } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { ConnectedAccountsSection } from './ConnectedAccountsSection'
 
 const ROLE_BADGE: Record<UserRole, string> = {
   admin: 'bg-[var(--color-harvest)]/15 text-[var(--color-harvest)]',
@@ -27,7 +26,7 @@ function avatarInitials(user: User): string {
  * by admins changing their own password (admin field is sent regardless —
  * the backend ignores it for admins, but it's harmless to include).
  */
-function ChangePasswordForm({
+export function ChangePasswordForm({
   user,
   isAdmin,
   onClose,
@@ -143,14 +142,18 @@ function ChangePasswordForm({
  * Header dropdown showing the logged-in user, role, and a logout / change-
  * password / admin shortcut. Only renders when `auth_enabled=true`.
  */
-export function UserMenu({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
+export function UserMenu({
+  onOpenAdmin,
+  onOpenAccountSettings,
+}: {
+  onOpenAdmin?: () => void
+  onOpenAccountSettings?: () => void
+}) {
   const { user, authEnabled, logout } = useCurrentUser()
   const [open, setOpen] = useState(false)
-  const [showPasswordForm, setShowPasswordForm] = useState(false)
 
   const handleClose = useCallback(() => {
     setOpen(false)
-    setShowPasswordForm(false)
   }, [])
 
   if (!authEnabled || !user) return null
@@ -190,7 +193,7 @@ export function UserMenu({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
                     </p>
                     <span
                       className={cn(
-                        'px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-widest font-medium shrink-0',
+                        'px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-widest font-medium shrink-0',
                         ROLE_BADGE[user.role]
                       )}
                     >
@@ -204,56 +207,50 @@ export function UserMenu({ onOpenAdmin }: { onOpenAdmin?: () => void }) {
               </div>
             </div>
 
-            {/* Inline change-password */}
-            {showPasswordForm ? (
-              <ChangePasswordForm
-                user={user}
-                isAdmin={isAdmin}
-                onClose={() => setShowPasswordForm(false)}
-              />
-            ) : (
-              <div className="py-1">
+            {/* Account controls now live in Settings → Account (D5 Phase 4). */}
+            <div className="py-1">
+              {onOpenAccountSettings && (
                 <button
                   type="button"
                   className="w-full flex items-center gap-2 px-3 py-2 text-body text-[var(--color-paper)]/90 hover:bg-[rgba(163,163,163,0.08)] transition-colors text-left"
-                  onClick={() => setShowPasswordForm(true)}
-                >
-                  <UserIcon className="w-3.5 h-3.5 text-[var(--color-stone)]/70" />
-                  Change password
-                </button>
-
-                {isAdmin && onOpenAdmin && (
-                  <button
-                    type="button"
-                    className="w-full flex items-center gap-2 px-3 py-2 text-body text-[var(--color-paper)]/90 hover:bg-[rgba(163,163,163,0.08)] transition-colors text-left"
-                    onClick={() => {
-                      onOpenAdmin()
-                      handleClose()
-                    }}
-                  >
-                    <Shield className="w-3.5 h-3.5 text-[var(--color-stone)]/70" />
-                    Manage users
-                  </button>
-                )}
-
-                {/* D5 Phase 4 — self-serve chat linking */}
-                <ConnectedAccountsSection />
-
-                <div className="my-1 mx-3 border-t border-[rgba(163,163,163,0.08)]" />
-
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-2 px-3 py-2 text-body text-[var(--color-vermillion)] hover:bg-[var(--color-vermillion)]/10 transition-colors text-left"
                   onClick={() => {
+                    onOpenAccountSettings()
                     handleClose()
-                    void logout()
                   }}
                 >
-                  <LogOut className="w-3.5 h-3.5" />
-                  Sign out
+                  <UserIcon className="w-3.5 h-3.5 text-[var(--color-stone)]/70" />
+                  Account settings
                 </button>
-              </div>
-            )}
+              )}
+
+              {isAdmin && onOpenAdmin && (
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-body text-[var(--color-paper)]/90 hover:bg-[rgba(163,163,163,0.08)] transition-colors text-left"
+                  onClick={() => {
+                    onOpenAdmin()
+                    handleClose()
+                  }}
+                >
+                  <Shield className="w-3.5 h-3.5 text-[var(--color-stone)]/70" />
+                  Manage users
+                </button>
+              )}
+
+              <div className="my-1 mx-3 border-t border-[rgba(163,163,163,0.08)]" />
+
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-3 py-2 text-body text-[var(--color-vermillion)] hover:bg-[var(--color-vermillion)]/10 transition-colors text-left"
+                onClick={() => {
+                  handleClose()
+                  void logout()
+                }}
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign out
+              </button>
+            </div>
           </div>
         </>
       )}

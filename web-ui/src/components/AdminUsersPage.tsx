@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Check,
+  Key,
   Loader2,
   Plus,
   RefreshCw,
@@ -10,6 +11,14 @@ import {
   X,
 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import {
   ApiError,
@@ -150,19 +159,19 @@ export function AdminUsersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--color-ink)] border-b border-[rgba(163,163,163,0.1)]">
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal">
                       User
                     </th>
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal">
                       Role
                     </th>
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal hidden md:table-cell">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal hidden md:table-cell">
                       Created
                     </th>
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal hidden lg:table-cell">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal hidden lg:table-cell">
                       Last seen
                     </th>
-                    <th className="text-right px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal">
+                    <th className="text-right px-3 py-2 text-caption text-[var(--color-stone)] font-normal">
                       Actions
                     </th>
                   </tr>
@@ -240,7 +249,7 @@ function UserRow({
   onCancelResetPassword: () => void
   onResetPasswordDone: () => void
 }) {
-  const [confirmDisable, setConfirmDisable] = useState(false)
+  const [showDisableConfirm, setShowDisableConfirm] = useState(false)
 
   if (isEditing) {
     return (
@@ -280,12 +289,12 @@ function UserRow({
               {user.display_name || user.username}
             </span>
             {isMe && (
-              <span className="text-[10px] uppercase tracking-widest text-[var(--color-stone)]/60 px-1.5 py-0.5 bg-[rgba(163,163,163,0.1)] rounded-sm">
+              <span className="text-micro uppercase tracking-widest text-[var(--color-stone)]/60 px-1.5 py-0.5 bg-[rgba(163,163,163,0.1)] rounded-sm">
                 You
               </span>
             )}
             {user.disabled && (
-              <span className="text-[10px] uppercase tracking-widest text-[var(--color-vermillion)] px-1.5 py-0.5 bg-[var(--color-vermillion)]/10 rounded-sm">
+              <span className="text-micro uppercase tracking-widest text-[var(--color-vermillion)] px-1.5 py-0.5 bg-[var(--color-vermillion)]/10 rounded-sm">
                 Disabled
               </span>
             )}
@@ -299,7 +308,7 @@ function UserRow({
       <td className="px-3 py-2.5">
         <span
           className={cn(
-            'inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-widest font-medium',
+            'inline-block px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-widest font-medium',
             ROLE_BADGE[user.role]
           )}
         >
@@ -325,33 +334,97 @@ function UserRow({
           <button
             type="button"
             onClick={onStartResetPassword}
-            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors text-caption uppercase tracking-widest"
+            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
+            aria-label="Reset password"
             title="Reset password"
           >
-            <span className="text-[10px]">PW</span>
+            <Key className="w-3.5 h-3.5" />
           </button>
           {!user.disabled && !isMe && (
             <button
               type="button"
-              onClick={() => {
-                if (confirmDisable) void onDisable()
-                else setConfirmDisable(true)
-              }}
-              onBlur={() => setConfirmDisable(false)}
-              className={cn(
-                'p-1.5 rounded-sm transition-colors',
-                confirmDisable
-                  ? 'bg-[var(--color-vermillion)]/20 text-[var(--color-vermillion)]'
-                  : 'hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)]'
-              )}
-              title={confirmDisable ? 'Click again to confirm' : 'Disable user'}
+              onClick={() => setShowDisableConfirm(true)}
+              className="p-1.5 rounded-sm transition-colors hover:bg-[var(--color-vermillion)]/10 text-[var(--color-stone)]/80 hover:text-[var(--color-vermillion)]"
+              aria-label="Disable user"
+              title="Disable user"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
       </td>
+
+      <DisableUserDialog
+        username={user.username}
+        open={showDisableConfirm}
+        onOpenChange={setShowDisableConfirm}
+        onConfirm={async () => {
+          setShowDisableConfirm(false)
+          await onDisable()
+        }}
+      />
     </tr>
+  )
+}
+
+/**
+ * Explicit confirmation for disabling a user. Replaces the old
+ * click→arm→click-again pattern (which silently disarmed on blur and was
+ * easy to mis-fire). A Radix Dialog forces a deliberate Cancel / Disable
+ * choice with the consequence spelled out.
+ */
+function DisableUserDialog({
+  username,
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  username: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void | Promise<void>
+}) {
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleConfirm = async () => {
+    setSubmitting(true)
+    try {
+      await onConfirm()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Disable @{username}?</DialogTitle>
+          <DialogDescription>
+            They will lose access immediately. Their run history is preserved.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+            className="px-3 py-1.5 text-caption uppercase tracking-widest bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)] rounded-sm hover:bg-[rgba(163,163,163,0.2)] disabled:opacity-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleConfirm()}
+            disabled={submitting}
+            className="px-3 py-1.5 text-caption uppercase tracking-widest bg-[var(--color-vermillion)] text-[var(--color-void)] rounded-sm hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5"
+          >
+            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Disable
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

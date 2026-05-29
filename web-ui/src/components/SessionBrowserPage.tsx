@@ -1,22 +1,28 @@
 import {
+  Check,
   ChevronLeft,
   Clock,
   ExternalLink,
   FolderOpen,
   GitBranch,
   HardDrive,
+  Layers,
   MessageSquare,
-  RefreshCw,
+  Play,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { fetchSDKSessionDetail, fetchSDKSessions } from '@/lib/api'
+import { fetchSDKSessionDetail, fetchSDKSessions, resumeSdkSession } from '@/lib/api'
+import { POLL_SLOW } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { SDKSession, SessionDetail, SessionMessage } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { DataPage } from './ui/DataPage'
+import { FilterBar } from './ui/FilterBar'
+import { PageHeader } from './ui/PageHeader'
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text
@@ -27,10 +33,14 @@ function SessionDetailDialog({
   session,
   open,
   onOpenChange,
+  onResume,
+  resuming,
 }: {
   session: SDKSession | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onResume: (session: SDKSession) => void
+  resuming: boolean
 }) {
   const navigate = useNavigate()
   const [detail, setDetail] = useState<SessionDetail | null>(null)
@@ -68,8 +78,10 @@ function SessionDetailDialog({
         {/* Header bar */}
         <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-[rgba(163,163,163,0.08)]">
           <button
+            type="button"
             className="md:hidden p-1 -ml-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60"
             onClick={() => onOpenChange(false)}
+            aria-label="Back"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -113,12 +125,13 @@ function SessionDetailDialog({
             <div className="hidden sm:flex items-center gap-1 shrink-0">
               {session.linked_run_ids.map((runId) => (
                 <button
+                  type="button"
                   key={runId}
                   onClick={() => {
                     onOpenChange(false)
                     navigate(`/board/${runId}`)
                   }}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
                 >
                   {runId.slice(0, 8)}
                   <ExternalLink className="w-2.5 h-2.5" />
@@ -127,9 +140,23 @@ function SessionDetailDialog({
             </div>
           )}
 
+          {/* Resume — primary affordance */}
           <button
+            type="button"
+            onClick={() => onResume(session)}
+            disabled={resuming}
+            className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 text-caption uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 disabled:opacity-40 rounded-sm transition-opacity"
+            aria-label="Resume session"
+          >
+            <Play className="w-3 h-3" />
+            Resume
+          </button>
+
+          <button
+            type="button"
             className="hidden md:flex p-1 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50 hover:text-[var(--color-stone)]"
             onClick={() => onOpenChange(false)}
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -169,7 +196,7 @@ function SessionDetailDialog({
         </div>
 
         {/* Session ID footer */}
-        <div className="shrink-0 px-4 py-2 border-t border-[rgba(163,163,163,0.06)] text-[10px] font-mono text-[var(--color-stone)]/30 select-all">
+        <div className="shrink-0 px-4 py-2 border-t border-[rgba(163,163,163,0.06)] text-mono text-[var(--color-stone)]/30 select-all">
           {session.session_id}
         </div>
       </DialogContent>
@@ -196,7 +223,7 @@ function TranscriptMessage({
       {showLabel && (
         <div
           className={cn(
-            'text-[10px] uppercase tracking-widest mb-1 font-medium',
+            'text-micro uppercase tracking-widest mb-1 font-medium',
             isUser ? 'text-[var(--color-sky)]/60' : 'text-[var(--color-stone)]/40'
           )}
         >
@@ -211,7 +238,7 @@ function TranscriptMessage({
             : 'bg-[rgba(163,163,163,0.04)]'
         )}
       >
-        <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--color-paper)]/85 overflow-x-auto">
+        <pre className="whitespace-pre-wrap text-mono leading-relaxed text-[var(--color-paper)]/85 overflow-x-auto">
           {content}
         </pre>
       </div>
@@ -225,6 +252,7 @@ export function SessionBrowserPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [selectedSession, setSelectedSession] = useState<SDKSession | null>(null)
+  const [resumingId, setResumingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -240,9 +268,32 @@ export function SessionBrowserPage() {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 30000)
+    const interval = setInterval(load, POLL_SLOW)
     return () => clearInterval(interval)
   }, [load])
+
+  const handleResume = useCallback(
+    async (session: SDKSession) => {
+      setResumingId(session.session_id)
+      try {
+        const run = await resumeSdkSession(session.session_id)
+        // Navigate to the new run; resumeSdkSession is currently a stub that
+        // will throw — the catch below shows a useful message.
+        navigate(`/board/${run.id}`)
+      } catch (err) {
+        console.error('Failed to resume session:', err)
+        // Best-effort surface — keep it terse, the API stub explains the gap.
+        window.alert(
+          err instanceof Error
+            ? `Resume not available yet: ${err.message}`
+            : 'Resume not available yet (backend endpoint pending).'
+        )
+      } finally {
+        setResumingId(null)
+      }
+    },
+    [navigate]
+  )
 
   const filtered = sessions.filter((s) => {
     if (!search) return true
@@ -256,63 +307,49 @@ export function SessionBrowserPage() {
     )
   })
 
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[rgba(163,163,163,0.08)]">
-        <div className="flex items-center gap-3">
-          <h2 className="text-body font-medium text-[var(--color-paper)]">SDK Sessions</h2>
-          <span className="text-caption text-[var(--color-stone)]/50">
-            {filtered.length} session{filtered.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Search sessions..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="px-2 py-1 text-caption bg-transparent border border-[rgba(163,163,163,0.15)] rounded text-[var(--color-paper)] placeholder:text-[var(--color-stone)]/30 focus:outline-none focus:border-[var(--color-sky)]/40 w-48"
-          />
-          <button
-            onClick={load}
-            disabled={loading}
-            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors text-[var(--color-stone)]/60"
-            title="Refresh"
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-          </button>
-        </div>
-      </div>
+  const isEmpty = !loading && filtered.length === 0
+  const initialLoading = loading && sessions.length === 0
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
-        {loading && sessions.length === 0 ? (
+  return (
+    <DataPage>
+      <PageHeader title="SDK Sessions" icon={Layers} count={filtered.length} countLabel="session" />
+
+      <FilterBar
+        search={{
+          value: search,
+          onChange: setSearch,
+          placeholder: 'Search sessions…',
+          ariaLabel: 'Search sessions',
+        }}
+        refresh={load}
+        refreshing={loading}
+      />
+
+      <DataPage.Body>
+        {initialLoading ? (
           <div className="flex items-center justify-center h-32">
             <div className="mark mark-running w-2 h-2" />
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-caption text-[var(--color-stone)]/40">
-            {search ? 'No sessions match your search' : 'No SDK sessions found'}
-          </div>
+        ) : isEmpty ? (
+          <SessionsEmptyState searching={search.length > 0} onClear={() => setSearch('')} />
         ) : (
           <table className="w-full">
-            <thead>
+            <thead className="sticky top-0 bg-[var(--color-void)] z-10">
               <tr className="border-b border-[rgba(163,163,163,0.08)] text-caption text-[var(--color-stone)]/50">
                 <th className="text-left px-4 py-2 font-normal">Title / Summary</th>
                 <th className="text-left px-4 py-2 font-normal">First Prompt</th>
                 <th className="text-left px-4 py-2 font-normal">Branch</th>
                 <th className="text-left px-4 py-2 font-normal">Directory</th>
                 <th className="text-left px-4 py-2 font-normal">Last Modified</th>
-                <th className="text-right px-4 py-2 font-normal">Size</th>
                 <th className="text-left px-4 py-2 font-normal">Linked Runs</th>
+                <th className="text-right px-4 py-2 font-normal w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((session) => (
                 <tr
                   key={session.session_id}
-                  className="border-b border-[rgba(163,163,163,0.04)] hover:bg-[rgba(163,163,163,0.03)] cursor-pointer transition-colors"
+                  className="border-b border-[rgba(163,163,163,0.04)] hover:bg-[rgba(163,163,163,0.03)] cursor-pointer transition-colors group"
                   onClick={() => setSelectedSession(session)}
                 >
                   <td className="px-4 py-2 text-body text-[var(--color-paper)]">
@@ -336,20 +373,18 @@ export function SessionBrowserPage() {
                   <td className="px-4 py-2 text-caption text-[var(--color-stone)]/50">
                     {formatRelativeTime(new Date(session.last_modified * 1000).toISOString())}
                   </td>
-                  <td className="px-4 py-2 text-caption text-[var(--color-stone)]/50 text-right">
-                    {formatFileSize(session.file_size)}
-                  </td>
                   <td className="px-4 py-2">
                     <div className="flex gap-1 flex-wrap">
                       {session.linked_run_ids.length > 0 ? (
                         session.linked_run_ids.map((runId) => (
                           <button
+                            type="button"
                             key={runId}
                             onClick={(e) => {
                               e.stopPropagation()
                               navigate(`/board/${runId}`)
                             }}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
                           >
                             {runId.slice(0, 8)}
                             <ExternalLink className="w-2.5 h-2.5" />
@@ -360,12 +395,33 @@ export function SessionBrowserPage() {
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleResume(session)
+                      }}
+                      disabled={resumingId === session.session_id}
+                      aria-label="Resume session"
+                      title="Resume session"
+                      className={cn(
+                        'p-1.5 rounded-sm transition-all',
+                        'text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5',
+                        // Visible always on touch / coarse pointers; only on hover on fine.
+                        'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100',
+                        resumingId === session.session_id && 'opacity-40 cursor-wait'
+                      )}
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </div>
+      </DataPage.Body>
 
       <SessionDetailDialog
         session={selectedSession}
@@ -373,7 +429,67 @@ export function SessionBrowserPage() {
         onOpenChange={(open) => {
           if (!open) setSelectedSession(null)
         }}
+        onResume={(s) => {
+          setSelectedSession(null)
+          void handleResume(s)
+        }}
+        resuming={resumingId !== null}
       />
+    </DataPage>
+  )
+}
+
+function SessionsEmptyState({ searching, onClear }: { searching: boolean; onClear: () => void }) {
+  if (searching) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-3 max-w-md mx-auto">
+        <Layers className="w-8 h-8 text-[var(--color-stone)]/30" />
+        <div>
+          <p className="text-display text-[var(--color-paper)] mb-1">No matching sessions</p>
+          <p className="text-body text-[var(--color-stone)]/60">
+            Try clearing filters or widening the date range. Search runs over title, summary,
+            prompt, branch, and working directory.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClear}
+          className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-paper)] border border-[rgba(163,163,163,0.2)] hover:bg-[rgba(163,163,163,0.06)] rounded-sm"
+        >
+          Clear search
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-3 max-w-md mx-auto">
+      <Layers className="w-8 h-8 text-[var(--color-stone)]/30" />
+      <div>
+        <p className="text-display text-[var(--color-paper)] mb-1">No SDK sessions yet</p>
+        <p className="text-body text-[var(--color-stone)]/60">
+          Sessions appear here once you've run agents through the Claude CLI. Each run leaves a
+          local transcript you can revisit or resume from.
+        </p>
+      </div>
+      <ul className="text-caption text-[var(--color-stone)]/50 text-left mt-2 flex flex-col gap-1">
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Full transcript with user +
+          assistant turns
+        </li>
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Linked back to the runs they
+          spawned
+        </li>
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Search across title, prompt,
+          branch, and cwd
+        </li>
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Resume any session as a new run
+          (when backend support lands)
+        </li>
+      </ul>
     </div>
   )
 }

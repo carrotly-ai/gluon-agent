@@ -19,8 +19,14 @@ export type RunDetailTab =
   | 'attachments'
   | 'health'
 
-// Valid tabs for SettingsPage
-export type SettingsTab = 'workspaces' | 'projects' | 'preferences' | 'formulas'
+// Valid tabs for SettingsPage. `account` was added in the IA restructure —
+// it owns Connected Accounts, Change Password, Profile. Sits between
+// Workspaces and Preferences in the tab order.
+export type SettingsTab = 'workspaces' | 'projects' | 'account' | 'preferences' | 'formulas'
+
+// Preferences left-rail groups. URL: /settings/preferences/<group>.
+// Stays optional — bare /settings/preferences defaults to 'agent'.
+export type PreferencesGroup = 'agent' | 'integrations' | 'workspace' | 'system'
 
 /**
  * Hook for syncing app state with URL routes
@@ -68,14 +74,28 @@ export function useRouteSync() {
   const selectedRunId = params.runId || null
   const selectedTab = (params.tab as RunDetailTab) || null
 
-  // Settings tab from route params (for /settings/:tab)
+  // Settings tab from route params (for /settings/:tab[/...]).
+  // Match by prefix so /settings/preferences/agent still resolves to the
+  // 'preferences' tab; the preferences group is parsed separately below.
   const settingsTab = useMemo((): SettingsTab => {
     if (viewMode !== 'settings') return 'workspaces'
     const path = location.pathname
-    if (path === '/settings/projects') return 'projects'
-    if (path === '/settings/preferences') return 'preferences'
-    if (path === '/settings/formulas') return 'formulas'
+    if (path.startsWith('/settings/projects')) return 'projects'
+    if (path.startsWith('/settings/account')) return 'account'
+    if (path.startsWith('/settings/preferences')) return 'preferences'
+    if (path.startsWith('/settings/formulas')) return 'formulas'
     return 'workspaces'
+  }, [viewMode, location.pathname])
+
+  // Preferences group, derived from /settings/preferences/<group>.
+  // Defaults to 'agent' — the most-used cluster (LLM provider, config, tools).
+  const preferencesGroup = useMemo((): PreferencesGroup => {
+    if (viewMode !== 'settings') return 'agent'
+    const path = location.pathname
+    if (path === '/settings/preferences/integrations') return 'integrations'
+    if (path === '/settings/preferences/workspace') return 'workspace'
+    if (path === '/settings/preferences/system') return 'system'
+    return 'agent'
   }, [viewMode, location.pathname])
 
   // Navigation functions
@@ -179,6 +199,13 @@ export function useRouteSync() {
     [navigate]
   )
 
+  const setPreferencesGroup = useCallback(
+    (group: PreferencesGroup) => {
+      navigate(`/settings/preferences/${group}`)
+    },
+    [navigate]
+  )
+
   return {
     // View mode
     viewMode,
@@ -195,5 +222,7 @@ export function useRouteSync() {
     // Settings
     settingsTab,
     setSettingsTab,
+    preferencesGroup,
+    setPreferencesGroup,
   }
 }

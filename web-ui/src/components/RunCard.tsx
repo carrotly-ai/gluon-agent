@@ -11,10 +11,42 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { StatusDot, type StatusState } from '@/components/ui/StatusDot'
 import { useNotificationCenter } from '@/hooks/useNotificationCenter'
 import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { CircuitState, HealthClassification, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+// Short, redundant state words so card state never relies on colour alone.
+const STATE_LABELS: Record<StatusState, string> = {
+  pending: 'Queued',
+  running: 'Running',
+  completed: 'Done',
+  review: 'Review',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  recovering: 'Recovering',
+}
+
+// Map a run's effective status to the canonical StatusDot glyph state.
+function toStatusState(effectiveStatus: string, isRecovering?: boolean): StatusState {
+  if (isRecovering) return 'recovering'
+  switch (effectiveStatus) {
+    case 'running':
+      return 'running'
+    case 'completed':
+      return 'completed'
+    case 'review':
+      return 'review'
+    case 'failed':
+      return 'failed'
+    case 'cancelled':
+      return 'cancelled'
+    default:
+      return 'pending'
+  }
+}
 
 function CiIcon({ ci, prStatus }: { ci?: string | null; prStatus?: string | null }) {
   if (prStatus === 'merged') return <GitPullRequest className="w-2.5 h-2.5" />
@@ -81,7 +113,7 @@ interface RunCardProps {
 // Map status to CSS variable for border color
 function getStatusBorderColor(status: string, isRecovering?: boolean): string {
   // Amber for recovery state (distinct from running)
-  if (isRecovering) return '#f59e0b'
+  if (isRecovering) return 'var(--color-harvest)'
 
   switch (status) {
     case 'running':
@@ -91,7 +123,7 @@ function getStatusBorderColor(status: string, isRecovering?: boolean): string {
     case 'completed':
       return 'var(--color-jade)'
     case 'review':
-      return '#a855f7' // Purple for review
+      return 'var(--color-orchid)' // Purple for review
     case 'failed':
       return 'var(--color-vermillion)'
     case 'cancelled':
@@ -116,23 +148,168 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
   // Card is in "done" state - completed and not awaiting review
   const isDone = run.status === 'completed' && effectiveStatus !== 'review'
 
+  // Canonical glyph state for the lead StatusDot.
+  const cardState = toStatusState(effectiveStatus, isRecovering)
+  // Redundant text label so state is never communicated by colour alone — the
+  // glyph + word carry it together (the left-border stripe is now decorative).
+  const stateLabel = STATE_LABELS[cardState]
+
+  // Blocked-waiting-for-user is the single most important CTA a card can carry.
+  // When active the whole card signals it and all other metadata yields.
+  const needsInput = hasPendingQuestions
+
+  // ── Metadata badges, prioritised by signal ──────────────────────────────
+  // The row could otherwise carry recovering + max-turns + project + health +
+  // branch + PR all at once. Establish an explicit priority and cap how many
+  // render simultaneously; the rest collapse into a "+N" overflow chip. Tokyo-
+  // Minimal restraint — the relative timestamp is kept separate (it's not part
+  // of the competing cluster) and the colour-only health dot is dropped as soon
+  // as any higher-signal badge is present.
+  const MAX_BADGES = 3
+  type Badge = { key: string; node: ReactNode; collapsedLabel: string }
+  const badges: Badge[] = []
+
+  if (isRecovering) {
+    badges.push({
+      key: 'recovering',
+      collapsedLabel: 'Recovering',
+      node: (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+          Recovering
+        </span>
+      ),
+    })
+  }
+  if (run.stop_reason === 'max_turns') {
+    badges.push({
+      key: 'max_turns',
+      collapsedLabel: 'Max Turns',
+      node: (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+          Max Turns
+        </span>
+      ),
+    })
+  }
+  if (run.pr_number && run.pr_url) {
+    badges.push({
+      key: 'pr',
+      collapsedLabel: `PR #${run.pr_number}`,
+      node: (
+        <a
+          href={run.pr_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro transition-colors',
+            run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
+            run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
+            run.pr_status === 'open' &&
+              run.ci_status === 'success' &&
+              'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+            run.pr_status === 'open' &&
+              run.ci_status === 'failure' &&
+              'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
+            run.pr_status === 'open' &&
+              run.ci_status === 'pending' &&
+              'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
+            run.pr_status === 'open' &&
+              !run.ci_status &&
+              'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
+            run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
+          )}
+          onClick={(e) => e.stopPropagation()}
+          title={`PR #${run.pr_number}${run.ci_status ? ` · CI: ${run.ci_status}` : ''}`}
+        >
+          <CiIcon ci={run.ci_status} prStatus={run.pr_status} />
+          <span>#{run.pr_number}</span>
+        </a>
+      ),
+    })
+  }
+  if (run.use_worktree) {
+    badges.push({
+      key: 'branch',
+      collapsedLabel: run.branch_name || 'Worktree',
+      node: (
+        <span
+          className="flex items-center gap-1 text-purple-400"
+          title={run.branch_name || 'Worktree'}
+        >
+          <GitBranch className="w-3 h-3" />
+          {run.branch_name && (
+            <span className="text-caption truncate max-w-[80px]">{run.branch_name}</span>
+          )}
+        </span>
+      ),
+    })
+  }
+  // Project name (only when a custom_title already leads) — secondary identity,
+  // lowest badge priority.
+  if (run.custom_title) {
+    badges.push({
+      key: 'project',
+      collapsedLabel: run.project_name,
+      node: (
+        <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
+          {run.project_name}
+        </span>
+      ),
+    })
+  }
+  // Health dot — colour-only, weakest signal: keep only when it would otherwise
+  // be the sole badge on a running card.
+  const showHealthDot =
+    !!run.health_classification && run.status === 'running' && badges.length === 0
+  if (showHealthDot && run.health_classification) {
+    badges.push({
+      key: 'health',
+      collapsedLabel: `Health: ${run.health_classification}`,
+      node: (
+        <span
+          className={cn(
+            'w-2 h-2 rounded-full shrink-0',
+            getHealthDotColor(run.health_classification)
+          )}
+          title={`Health: ${run.health_classification}`}
+        />
+      ),
+    })
+  }
+
+  const visibleBadges = badges.slice(0, MAX_BADGES)
+  const collapsedBadges = badges.slice(MAX_BADGES)
+
   return (
     <div
       className={cn(
         'card hover-whisper cursor-grab active:cursor-grabbing group relative',
         run.status === 'running' && !isRecovering && 'card-running overflow-visible',
-        isRecovering && 'card-recovering overflow-visible'
+        isRecovering && 'card-recovering overflow-visible',
+        needsInput && 'overflow-visible'
       )}
       style={{
-        borderLeft: `3px solid ${getStatusBorderColor(effectiveStatus, isRecovering)}`,
+        borderLeft: needsInput
+          ? '3px solid var(--color-sky)'
+          : `3px solid ${getStatusBorderColor(effectiveStatus, isRecovering)}`,
       }}
       onClick={onClick}
     >
+      {/* Needs-input: pulsing sky ring around the whole card. Reuses the
+          index.css `breathe` keyframe (no new CSS) on an inset overlay so only
+          the border glows — the card content stays legible. */}
+      {needsInput && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -inset-px rounded-[inherit] ring-2 ring-[var(--color-sky)] animate-[breathe_2s_ease-in-out_infinite]"
+        />
+      )}
       {/* Shimmer stripe overlay for recovering cards */}
       {isRecovering && (
         <div
           className="stripe-shimmer absolute top-0 bottom-0 w-[3px]"
-          style={{ backgroundColor: '#f59e0b', left: '-3px' }}
+          style={{ backgroundColor: 'var(--color-harvest)', left: '-3px' }}
         />
       )}
 
@@ -160,98 +337,64 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
         </div>
       )}
 
-      {/* Prompt - no mark indicator */}
-      <p
-        className="text-title text-[var(--color-paper)] leading-relaxed break-words"
-        style={{
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-        title={run.prompt}
-      >
-        {run.prompt}
-      </p>
-
-      {/* Bottom row: metadata */}
-      <div className="flex items-center justify-between mt-2 sm:mt-3 gap-2">
-        <div className="flex items-center gap-2 sm:gap-4 flex-wrap min-w-0">
-          {/* Recovering badge */}
-          {isRecovering && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
-              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-              Recovering
-            </span>
-          )}
-          {/* Max turns badge */}
-          {run.stop_reason === 'max_turns' && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
-              Max Turns
-            </span>
-          )}
-          {/* Needs input badge */}
-          {hasPendingQuestions && (
-            <span
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)] animate-pulse"
-              title="Waiting for input"
-            >
-              <MessageCircleQuestion className="w-2.5 h-2.5" />
-              Input
-            </span>
-          )}
-          <span className="text-mono text-[var(--color-stone)]/60 truncate max-w-[100px] sm:max-w-none">
+      {/* Lead: status glyph + identity. Prefer a derived custom_title as the
+          lead line; otherwise the project name (highest-variance field). The
+          prompt is demoted to a single-line secondary preview below. */}
+      <div className={cn('min-w-0', !isActive && onArchive && 'pr-7')}>
+        {/* Eyebrow: glyph + redundant state word. State is conveyed by glyph +
+            label together, never by the stripe colour alone. */}
+        <StatusDot state={cardState} size="md" label={stateLabel} className="min-w-0" />
+        {run.custom_title ? (
+          <p
+            className="text-title text-[var(--color-paper)] leading-snug break-words line-clamp-1 mt-1"
+            title={run.custom_title}
+          >
+            {run.custom_title}
+          </p>
+        ) : (
+          <p className="text-mono text-[var(--color-paper)] leading-snug truncate mt-1">
             {run.project_name}
-          </span>
-          {run.health_classification && run.status === 'running' && (
-            <span
-              className={cn(
-                'w-2 h-2 rounded-full shrink-0',
-                getHealthDotColor(run.health_classification)
-              )}
-              title={`Health: ${run.health_classification}`}
-            />
+          </p>
+        )}
+        <p
+          className="text-caption text-[var(--color-stone)]/55 leading-snug truncate"
+          title={run.prompt}
+        >
+          {run.prompt}
+        </p>
+      </div>
+
+      {/* Needs-input affordance: the single most important CTA a card carries.
+          Full-width, sky-toned, breathing glyph — replaces the old 9px pill. */}
+      {needsInput && (
+        <div className="mt-2 sm:mt-3 flex items-center gap-2 rounded-sm bg-[var(--color-sky)]/[0.12] px-2.5 py-1.5">
+          <MessageCircleQuestion className="w-3.5 h-3.5 text-[var(--color-sky)] shrink-0 animate-[breathe_2s_ease-in-out_infinite]" />
+          <span className="text-caption font-medium text-[var(--color-sky)]">Needs your input</span>
+        </div>
+      )}
+
+      {/* Bottom row: metadata. When the card needs input, all secondary
+          metadata yields (dims) so the sky CTA above is unmistakably dominant. */}
+      <div className="flex items-center justify-between mt-2 sm:mt-3 gap-2">
+        <div
+          className={cn(
+            'flex items-center gap-2 sm:gap-4 flex-wrap min-w-0',
+            needsInput && 'opacity-40'
           )}
-          {run.use_worktree && (
-            <span
-              className="flex items-center gap-1 text-purple-400"
-              title={run.branch_name || 'Worktree'}
-            >
-              <GitBranch className="w-3 h-3" />
-              {run.branch_name && (
-                <span className="text-caption truncate max-w-[80px]">{run.branch_name}</span>
-              )}
+        >
+          {/* Prioritised badges (cap MAX_BADGES); overflow collapses to "+N". */}
+          {visibleBadges.map((b) => (
+            <span key={b.key} className="contents">
+              {b.node}
             </span>
-          )}
-          {run.pr_number && run.pr_url && (
-            <a
-              href={run.pr_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] transition-colors',
-                run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
-                run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
-                run.pr_status === 'open' &&
-                  run.ci_status === 'success' &&
-                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
-                run.pr_status === 'open' &&
-                  run.ci_status === 'failure' &&
-                  'bg-[rgba(239,68,68,0.15)] text-red-400 hover:bg-[rgba(239,68,68,0.25)]',
-                run.pr_status === 'open' &&
-                  run.ci_status === 'pending' &&
-                  'bg-[rgba(234,179,8,0.15)] text-yellow-400 hover:bg-[rgba(234,179,8,0.25)]',
-                run.pr_status === 'open' &&
-                  !run.ci_status &&
-                  'bg-[rgba(34,197,94,0.15)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]',
-                run.pr_status === 'draft' && 'bg-[rgba(163,163,163,0.15)] text-[var(--color-stone)]'
-              )}
-              onClick={(e) => e.stopPropagation()}
-              title={`PR #${run.pr_number}${run.ci_status ? ` · CI: ${run.ci_status}` : ''}`}
+          ))}
+          {collapsedBadges.length > 0 && (
+            <span
+              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(163,163,163,0.12)] text-[var(--color-stone)]/70 shrink-0"
+              title={collapsedBadges.map((b) => b.collapsedLabel).join(' · ')}
             >
-              <CiIcon ci={run.ci_status} prStatus={run.pr_status} />
-              <span>#{run.pr_number}</span>
-            </a>
+              +{collapsedBadges.length}
+            </span>
           )}
           <span
             className="text-mono text-[var(--color-stone)]/55 hidden sm:inline cursor-help"
@@ -322,7 +465,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             {run.circuit_state && run.circuit_state !== 'CLOSED' && (
               <span
                 className={cn(
-                  'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase',
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase',
                   getCircuitStateBg(run.circuit_state),
                   getCircuitStateColor(run.circuit_state)
                 )}

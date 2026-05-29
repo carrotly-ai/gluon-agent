@@ -1,9 +1,13 @@
-import { RefreshCw, Trash2 } from 'lucide-react'
+import { Activity, Check, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { cleanupActivity, fetchActivity } from '@/lib/api'
+import { POLL_NORMAL } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { ActivityEvent } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { DataPage } from './ui/DataPage'
+import { FilterBar } from './ui/FilterBar'
+import { PageHeader } from './ui/PageHeader'
 
 const TIME_RANGES = [
   { label: 'Last 1h', hours: 1 },
@@ -30,6 +34,8 @@ export function ActivityPage() {
   const [actionFilter, setActionFilter] = useState<string>('')
   const [actorFilter, setActorFilter] = useState<string>('')
   const [timeRange, setTimeRange] = useState(24) // hours, 0 = all
+  const [search, setSearch] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [cleaning, setCleaning] = useState(false)
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null)
 
@@ -54,13 +60,24 @@ export function ActivityPage() {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 10000)
+    const interval = setInterval(load, POLL_NORMAL)
     return () => clearInterval(interval)
   }, [load])
 
   // Derive unique actions and actors for filter dropdowns
   const uniqueActions = [...new Set(events.map((e) => e.action))].sort()
   const uniqueActors = [...new Set(events.map((e) => e.actor))].sort()
+
+  const filtered = events.filter((e) => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (
+      e.message?.toLowerCase().includes(q) ||
+      e.actor.toLowerCase().includes(q) ||
+      e.action.toLowerCase().includes(q) ||
+      e.result?.toLowerCase().includes(q)
+    )
+  })
 
   const handleCleanup = async () => {
     setCleaning(true)
@@ -81,91 +98,102 @@ export function ActivityPage() {
     }
   }
 
+  const isEmpty = !loading && filtered.length === 0
+  const hasFilters =
+    search.length > 0 || actionFilter !== '' || actorFilter !== '' || timeRange !== 0
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-[rgba(163,163,163,0.1)] px-4 sm:px-6 py-3 flex items-center justify-between gap-3 shrink-0">
-        <h2 className="text-body font-normal tracking-wide text-[var(--color-paper)]">Activity</h2>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Action filter */}
-          <select
-            value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value)}
-            className="text-caption bg-transparent border border-[rgba(163,163,163,0.15)] rounded-sm px-2 py-1 text-[var(--color-stone)]"
-          >
-            <option value="">All Actions</option>
-            {uniqueActions.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
+    <DataPage>
+      <PageHeader
+        title="Activity"
+        icon={Activity}
+        count={filtered.length}
+        countLabel="event"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleCleanup}
+              disabled={cleaning}
+              className="flex items-center gap-1 px-2 py-1 text-caption text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)] transition-colors"
+              title="Cleanup events older than 90 days"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span className="hidden sm:inline">Cleanup</span>
+            </button>
+            {cleanupMessage && (
+              <span className="text-caption text-[var(--color-stone)]/50">{cleanupMessage}</span>
+            )}
+          </>
+        }
+      />
 
-          {/* Actor filter */}
-          <select
-            value={actorFilter}
-            onChange={(e) => setActorFilter(e.target.value)}
-            className="text-caption bg-transparent border border-[rgba(163,163,163,0.15)] rounded-sm px-2 py-1 text-[var(--color-stone)]"
-          >
-            <option value="">All Actors</option>
-            {uniqueActors.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
+      <FilterBar
+        filters={
+          <>
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="text-caption bg-transparent border border-[rgba(163,163,163,0.15)] rounded-sm px-2 py-1 text-[var(--color-stone)]"
+              aria-label="Filter by action"
+            >
+              <option value="">All actions</option>
+              {uniqueActions.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+            <select
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value)}
+              className="text-caption bg-transparent border border-[rgba(163,163,163,0.15)] rounded-sm px-2 py-1 text-[var(--color-stone)]"
+              aria-label="Filter by actor"
+            >
+              <option value="">All actors</option>
+              {uniqueActors.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+              {TIME_RANGES.map(({ label, hours }) => (
+                <button
+                  key={hours}
+                  type="button"
+                  aria-pressed={timeRange === hours}
+                  className={cn(
+                    'px-2 py-0.5 text-caption rounded-sm transition-colors',
+                    timeRange === hours
+                      ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                      : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+                  )}
+                  onClick={() => setTimeRange(hours)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        }
+        search={{
+          value: search,
+          onChange: setSearch,
+          placeholder: 'Search message / actor / action…',
+          ariaLabel: 'Search activity',
+        }}
+        refresh={load}
+        refreshing={loading}
+      />
 
-          {/* Time range */}
-          <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
-            {TIME_RANGES.map(({ label, hours }) => (
-              <button
-                key={hours}
-                className={cn(
-                  'px-2 py-0.5 text-caption rounded-sm transition-colors',
-                  timeRange === hours
-                    ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                    : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                )}
-                onClick={() => setTimeRange(hours)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={load}
-            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] transition-colors text-[var(--color-stone)]"
-            title="Refresh"
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-          </button>
-
-          <button
-            onClick={handleCleanup}
-            disabled={cleaning}
-            className="flex items-center gap-1 px-2 py-1 text-caption text-[var(--color-stone)]/60 hover:text-[var(--color-vermillion)] transition-colors"
-            title="Cleanup events older than 90 days"
-          >
-            <Trash2 className="w-3 h-3" />
-            <span className="hidden sm:inline">Cleanup</span>
-          </button>
-          {cleanupMessage && (
-            <span className="text-caption text-[var(--color-stone)]/50">{cleanupMessage}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <DataPage.Body>
         {loading && events.length === 0 ? (
           <div className="flex items-center justify-center h-32">
             <div className="mark mark-running w-2 h-2" />
           </div>
-        ) : events.length === 0 ? (
-          <div className="flex items-center justify-center h-32">
-            <p className="text-caption text-[var(--color-stone)]/60">No activity events found</p>
-          </div>
+        ) : isEmpty ? (
+          <ActivityEmptyState searching={hasFilters} />
         ) : (
           <table className="w-full text-caption">
             <thead className="sticky top-0 bg-[var(--color-ink)] z-10">
@@ -188,37 +216,109 @@ export function ActivityPage() {
               </tr>
             </thead>
             <tbody>
-              {events.map((event) => (
-                <tr
-                  key={event.id}
-                  className="border-b border-[rgba(163,163,163,0.05)] hover:bg-[rgba(163,163,163,0.03)]"
-                >
-                  <td className="px-4 py-2 text-[var(--color-stone)]/60 whitespace-nowrap">
-                    {formatRelativeTime(event.timestamp)}
-                  </td>
-                  <td className="px-4 py-2 text-[var(--color-stone)] font-mono text-[11px] truncate max-w-32">
-                    {event.actor}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span
+              {filtered.map((event) => {
+                const isExpanded = expandedId === event.id
+                const hasMessage = !!event.message
+                return (
+                  <tr
+                    key={event.id}
+                    className={cn(
+                      'border-b border-[rgba(163,163,163,0.05)] hover:bg-[rgba(163,163,163,0.03)]',
+                      hasMessage && 'cursor-pointer'
+                    )}
+                    onClick={
+                      hasMessage ? () => setExpandedId(isExpanded ? null : event.id) : undefined
+                    }
+                  >
+                    <td className="px-4 py-2 text-[var(--color-stone)]/60 whitespace-nowrap align-top">
+                      <span title={new Date(event.timestamp).toLocaleString()}>
+                        {formatRelativeTime(event.timestamp)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-[var(--color-stone)] text-mono truncate max-w-32 align-top">
+                      {event.actor}
+                    </td>
+                    <td className="px-4 py-2 align-top">
+                      <span
+                        className={cn(
+                          'inline-block px-1.5 py-0.5 rounded-sm text-micro uppercase',
+                          actionBadgeColor(event.action)
+                        )}
+                      >
+                        {event.action}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-[var(--color-stone)]/60 align-top">
+                      {event.result ?? '—'}
+                    </td>
+                    <td
                       className={cn(
-                        'inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider',
-                        actionBadgeColor(event.action)
+                        'px-4 py-2 text-[var(--color-stone)] align-top',
+                        !isExpanded && 'truncate max-w-xs'
                       )}
                     >
-                      {event.action}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-[var(--color-stone)]/60">{event.result ?? '—'}</td>
-                  <td className="px-4 py-2 text-[var(--color-stone)] truncate max-w-xs">
-                    {event.message ?? '—'}
-                  </td>
-                </tr>
-              ))}
+                      {isExpanded && event.message ? (
+                        <div className="whitespace-pre-wrap break-words text-body text-[var(--color-paper)]">
+                          {event.message}
+                        </div>
+                      ) : (
+                        (event.message ?? '—')
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
+      </DataPage.Body>
+    </DataPage>
+  )
+}
+
+function ActivityEmptyState({ searching }: { searching: boolean }) {
+  if (searching) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-3 max-w-md mx-auto">
+        <Activity className="w-8 h-8 text-[var(--color-stone)]/30" />
+        <div>
+          <p className="text-display text-[var(--color-paper)] mb-1">No matching activity</p>
+          <p className="text-body text-[var(--color-stone)]/60">
+            Try widening the time range or clearing filters. Search runs over message, actor,
+            action, and result text.
+          </p>
+        </div>
       </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-3 max-w-md mx-auto">
+      <Activity className="w-8 h-8 text-[var(--color-stone)]/30" />
+      <div>
+        <p className="text-display text-[var(--color-paper)] mb-1">Activity is empty</p>
+        <p className="text-body text-[var(--color-stone)]/60">
+          Events will appear here as agents run, get cancelled, or finish. This page is the forensic
+          record — every action with an actor, an outcome, and a timestamp.
+        </p>
+      </div>
+      <ul className="text-caption text-[var(--color-stone)]/50 text-left mt-2 flex flex-col gap-1">
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Filter by action, actor, or time
+          range
+        </li>
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Click a row to expand the full
+          message inline
+        </li>
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Auto-refreshes every 10 seconds
+        </li>
+        <li className="flex items-center gap-2">
+          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Cleanup trims events older than
+          90 days
+        </li>
+      </ul>
     </div>
   )
 }

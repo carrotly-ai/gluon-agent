@@ -1196,7 +1196,7 @@ Focus on preserving the functionality from both sides where possible.`
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className={cn(
-                                    'flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[0.5625rem] transition-colors',
+                                    'flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-micro transition-colors',
                                     run.pr_status === 'merged' &&
                                       'bg-[rgba(168,85,247,0.15)] text-purple-400',
                                     run.pr_status === 'closed' &&

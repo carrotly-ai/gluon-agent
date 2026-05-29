@@ -74,9 +74,13 @@ export function InlineTitleEditor({
           setEditing(true)
         }}
         title="Click to rename"
+        aria-label={`Rename: ${display}`}
       >
         <span className="truncate">{display}</span>
-        <Pencil className="w-2.5 h-2.5 shrink-0 opacity-0 group-hover/title:opacity-60 transition-opacity" />
+        {/* Pencil affordance — invisible on hover devices until hover, but
+            kept partially visible on touch (where there is no hover) so the
+            control is discoverable. Stays subtle to fit Tokyo Minimal. */}
+        <Pencil className="w-2.5 h-2.5 shrink-0 opacity-0 group-hover/title:opacity-60 [@media(pointer:coarse)]:opacity-40 transition-opacity" />
       </button>
     )
   }
@@ -116,6 +120,7 @@ export function InlineTitleEditor({
           void commit()
         }}
         title="Save"
+        aria-label="Save title"
       >
         <Check className="w-3 h-3" />
       </button>
@@ -129,6 +134,7 @@ export function InlineTitleEditor({
           setEditing(false)
         }}
         title="Cancel"
+        aria-label="Cancel rename"
       >
         <X className="w-3 h-3" />
       </button>

@@ -1,7 +1,6 @@
 import {
   CalendarClock,
   CheckCircle2,
-  ChevronRight,
   Clock,
   GitBranch,
   Pause,
@@ -10,7 +9,6 @@ import {
   Plus,
   Rocket,
   Trash2,
-  XCircle,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -26,6 +24,8 @@ import { formatRelativeTime } from '@/lib/timestamps'
 import type { Project, TaskSchedule } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { ScheduleEditorDialog } from './ScheduleEditorDialog'
+import { DataPage } from './ui/DataPage'
+import { PageHeader } from './ui/PageHeader'
 
 /**
  * Dedicated page for browsing and managing user-defined recurring tasks.
@@ -134,31 +134,28 @@ export function SchedulesPage() {
   }, [schedules])
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-      {/* Page header */}
-      <div className="shrink-0 border-b border-[rgba(163,163,163,0.1)] px-4 sm:px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <CalendarClock className="w-4 h-4 text-[var(--color-stone)]/70" />
-          <h1 className="text-display text-[var(--color-paper)]">Schedules</h1>
-          <span className="text-caption text-[var(--color-stone)]/50 ml-2">
-            {sorted.length} {sorted.length === 1 ? 'schedule' : 'schedules'}
-          </span>
-        </div>
-        <button
-          type="button"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 rounded-sm"
-          onClick={() => {
-            setEditing(null)
-            setEditorOpen(true)
-          }}
-        >
-          <Plus className="w-3 h-3" />
-          New schedule
-        </button>
-      </div>
+    <DataPage>
+      <PageHeader
+        title="Schedules"
+        icon={CalendarClock}
+        count={sorted.length}
+        countLabel="schedule"
+        actions={
+          <button
+            type="button"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-void)] bg-[var(--color-paper)] hover:opacity-90 rounded-sm"
+            onClick={() => {
+              setEditing(null)
+              setEditorOpen(true)
+            }}
+          >
+            <Plus className="w-3 h-3" />
+            New schedule
+          </button>
+        }
+      />
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto">
+      <DataPage.Body>
         {loading && (
           <div className="flex items-center justify-center h-full">
             <div className="mark mark-running w-2 h-2" />
@@ -298,7 +295,7 @@ export function SchedulesPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </DataPage.Body>
 
       <ScheduleEditorDialog
         open={editorOpen}
@@ -307,7 +304,7 @@ export function SchedulesPage() {
         onClose={() => setEditorOpen(false)}
         onSaved={handleSaved}
       />
-    </div>
+    </DataPage>
   )
 }
 
@@ -390,7 +387,3 @@ function IconButton({
     </button>
   )
 }
-
-// Re-export to satisfy unused-import warnings (Chevron may be used in future drilldown).
-export const _used = ChevronRight
-export const _x = XCircle

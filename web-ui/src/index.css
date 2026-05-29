@@ -20,6 +20,12 @@
   --color-sky: #38bdf8;
   --color-harvest: #f59e0b;
   --color-jade: #10b981;
+  --color-orchid: #a855f7; /* review state — purple */
+
+  /* RGB triplets for alpha compositing: rgb(var(--color-X-rgb) / <alpha>)
+     Use these instead of hardcoded rgba() literals so the palette stays the
+     single source of truth. */
+  --color-vermillion-rgb: 199, 62, 58;
 }
 
 * {
@@ -45,12 +51,61 @@ body {
   color: var(--color-paper);
   margin: 0;
   min-height: 100vh;
-  font-weight: 300;
+  /* Sora at 400 still reads light/airy but stays above the readable floor.
+     300 was below WCAG contrast/legibility for many users — Tokyo Minimal
+     restraint comes from letter-spacing and palette, not from thin weight. */
+  font-weight: 400;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   transition:
     background-color 0.2s ease,
     color 0.2s ease;
+}
+
+/* Muted-text contrast floor:
+   - For text at 13px or smaller, the lowest opacity for `--color-stone` is /60.
+   - Anything dimmer (/30, /40) fails WCAG AA contrast at this size.
+   - When the user explicitly wants something almost-invisible (last-connected
+     footer, etc.), use larger spacing/size instead of dropping opacity. */
+
+/* Honour user motion preference globally. Anything we animate via keyframes
+   or transitions effectively becomes instant — keeps the Tokyo Minimal feel
+   intact for users who don't want motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Focus rings — calm but visible, on top of the Tokyo Minimal palette.
+   We use --color-paper for dark mode (light ring on dark bg) and dial it
+   down for light mode so it doesn't glow. The 2px offset keeps the ring
+   off the element itself so the underlying shape stays unchanged. */
+:where(button, a, [role="button"], [role="link"], [role="menuitem"], [tabindex]):focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-paper);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Light mode: the dark "paper" colour as outline reads as a confident hairline
+   without the glow effect that pure black would have. */
+html.light
+:where(button, a, [role="button"], [role="link"], [role="menuitem"], [tabindex]):focus-visible,
+html.light input:focus-visible,
+html.light textarea:focus-visible,
+html.light select:focus-visible,
+html.light summary:focus-visible {
+  outline-color: var(--color-paper);
+  outline-offset: 2px;
 }
 
 /* iOS PWA safe area - push content below status bar / Dynamic Island.
@@ -116,7 +171,7 @@ body {
 }
 
 .mark-review {
-  background: #a855f7;
+  background: var(--color-orchid);
 }
 
 .mark-failed {
@@ -138,7 +193,14 @@ body {
   }
 }
 
-/* Connection indicator - sonar ping style */
+/* Connection indicator - sonar ping style.
+   The rings only animate when both:
+   1. The `.connected` class is present (connection healthy)
+   2. The user hasn't opted into prefers-reduced-motion — the blanket
+      reduce-motion rule above already neutralises the animation, so we don't
+      need a redundant media query here. The reduce-motion fallback keeps the
+      green dot visible without the pulsing rings; status is conveyed by
+      colour alone for that audience. */
 .connection-indicator {
   position: relative;
 }
@@ -225,7 +287,14 @@ body {
   background: rgba(250, 250, 249, 0.03);
 }
 
-/* Typography scale - 4-tier: 10px / 12px / 14px / 16px */
+/* Typography scale - 5-tier: 10px / 11px / 13px / 14px / 16px
+   text-display 16px — page H1 (e.g. "Schedules", "Activity")
+   text-title   14px — section headings, prominent text
+   text-body    13px — body text, descriptions, input
+   text-caption 11px — labels, metadata, button text
+   text-micro   10px — uppercase chip labels, count badges, eyebrow ALL-CAPS
+   (20px exists only in .offline-overlay__title — see ~line 760. If you find
+    yourself wanting a sixth size, push back: the scale is intentionally small.) */
 .text-display {
   font-size: 1rem; /* 16px - page headings */
   font-weight: 500;
@@ -264,6 +333,15 @@ body {
   font-family: var(--font-mono);
   font-size: 0.6875rem; /* 11px - align with caption */
   letter-spacing: -0.01em;
+}
+
+/* 10px tier - the smallest readable size. Use for ALL-CAPS chip labels,
+   uppercase eyebrow text, count badges, status pills. The wide letter-spacing
+   is what makes 10px feel intentional rather than cramped. */
+.text-micro {
+  font-size: 0.625rem; /* 10px */
+  font-weight: 400;
+  letter-spacing: 0.15em;
 }
 
 /* Column - vertical rhythm */
@@ -756,7 +834,11 @@ body {
 }
 
 .offline-overlay__title {
-  font-size: 1.25rem;
+  /* Intentional one-off above the 16px scale ceiling: the offline overlay is a
+     full-screen takeover, so its title anchors the whole viewport rather than a
+     section. 20px is deliberate here — do NOT fold it into text-display. This is
+     the single sanctioned exception noted in the type-scale comment above. */
+  font-size: 1.25rem; /* 20px */
   font-weight: 400;
   color: var(--color-paper);
   margin: 0;
