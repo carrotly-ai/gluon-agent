@@ -17,6 +17,17 @@ import { formatFullDateTime, formatRelativeTime } from '@/lib/timestamps'
 import type { CircuitState, HealthClassification, Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
+// Short, redundant state words so card state never relies on colour alone.
+const STATE_LABELS: Record<StatusState, string> = {
+  pending: 'Queued',
+  running: 'Running',
+  completed: 'Done',
+  review: 'Review',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  recovering: 'Recovering',
+}
+
 // Map a run's effective status to the canonical StatusDot glyph state.
 function toStatusState(effectiveStatus: string, isRecovering?: boolean): StatusState {
   if (isRecovering) return 'recovering'
@@ -138,6 +149,9 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
 
   // Canonical glyph state for the lead StatusDot.
   const cardState = toStatusState(effectiveStatus, isRecovering)
+  // Redundant text label so state is never communicated by colour alone — the
+  // glyph + word carry it together (the left-border stripe is now decorative).
+  const stateLabel = STATE_LABELS[cardState]
 
   return (
     <div
@@ -186,40 +200,28 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       {/* Lead: status glyph + identity. Prefer a derived custom_title as the
           lead line; otherwise the project name (highest-variance field). The
           prompt is demoted to a single-line secondary preview below. */}
-      <div className={cn('flex items-start gap-2 min-w-0', !isActive && onArchive && 'pr-7')}>
-        <span className="mt-[3px] shrink-0">
-          <StatusDot state={cardState} size="md" />
-        </span>
-        <div className="min-w-0 flex-1">
-          {run.custom_title ? (
-            <>
-              <p
-                className="text-title text-[var(--color-paper)] leading-snug break-words line-clamp-1"
-                title={run.custom_title}
-              >
-                {run.custom_title}
-              </p>
-              <p
-                className="text-caption text-[var(--color-stone)]/55 leading-snug truncate"
-                title={run.prompt}
-              >
-                {run.prompt}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-mono text-[var(--color-paper)] leading-snug truncate">
-                {run.project_name}
-              </p>
-              <p
-                className="text-caption text-[var(--color-stone)]/55 leading-snug truncate"
-                title={run.prompt}
-              >
-                {run.prompt}
-              </p>
-            </>
-          )}
-        </div>
+      <div className={cn('min-w-0', !isActive && onArchive && 'pr-7')}>
+        {/* Eyebrow: glyph + redundant state word. State is conveyed by glyph +
+            label together, never by the stripe colour alone. */}
+        <StatusDot state={cardState} size="md" label={stateLabel} className="min-w-0" />
+        {run.custom_title ? (
+          <p
+            className="text-title text-[var(--color-paper)] leading-snug break-words line-clamp-1 mt-1"
+            title={run.custom_title}
+          >
+            {run.custom_title}
+          </p>
+        ) : (
+          <p className="text-mono text-[var(--color-paper)] leading-snug truncate mt-1">
+            {run.project_name}
+          </p>
+        )}
+        <p
+          className="text-caption text-[var(--color-stone)]/55 leading-snug truncate"
+          title={run.prompt}
+        >
+          {run.prompt}
+        </p>
       </div>
 
       {/* Bottom row: metadata */}
