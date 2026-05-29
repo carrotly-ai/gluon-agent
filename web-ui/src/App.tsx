@@ -551,7 +551,7 @@ function AuthenticatedApp() {
             {/* Left - wordmark + filter + new + stats */}
             <div className="flex items-center gap-3 sm:gap-5">
               <button
-                className="text-body sm:text-title font-normal tracking-[0.1em] text-[var(--color-paper)] hover:opacity-80 transition-opacity"
+                className="text-title font-normal tracking-[0.1em] text-[var(--color-paper)] hover:opacity-80 transition-opacity"
                 title={semver ? `Gluon v${semver}` : undefined}
                 onClick={() => setViewMode('board')}
               >
