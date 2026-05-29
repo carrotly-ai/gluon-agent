@@ -1,6 +1,7 @@
 import { GitBranch, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { forkRun } from '@/lib/api'
 import type { Run } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -35,22 +36,11 @@ export function ForkRunDialog({ open, parent, onClose, onForked }: ForkRunDialog
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-
-  if (!open || !parent) return null
+  // Escape, overlay click and focus trap are provided by the Radix Dialog
+  // primitive — no bespoke keydown listener needed.
 
   const submit = async () => {
-    if (!prompt.trim()) return
+    if (!prompt.trim() || !parent) return
     setSubmitting(true)
     try {
       const child = await forkRun(parent.id, {
@@ -69,29 +59,20 @@ export function ForkRunDialog({ open, parent, onClose, onForked }: ForkRunDialog
     }
   }
 
-  const parentLabel = parent.custom_title?.trim() || parent.prompt.slice(0, 80)
+  const parentLabel = parent ? parent.custom_title?.trim() || parent.prompt.slice(0, 80) : ''
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4"
-      onClick={onClose}
-    >
-      <div
-        className={cn(
-          'bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-md',
-          'shadow-2xl w-full max-w-md flex flex-col'
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog open={open && parent !== null} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="w-full max-w-md p-0 gap-0 flex flex-col" showCloseButton={false}>
         <div className="flex items-start justify-between px-4 pt-4 pb-2">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-caption uppercase tracking-widest text-[var(--color-stone)]/60">
+            <DialogTitle className="flex items-center gap-2 text-caption font-normal leading-normal uppercase tracking-widest text-[var(--color-stone)]/60">
               <GitBranch className="w-3 h-3" />
               <span>Fork session</span>
-            </div>
+            </DialogTitle>
             <p
               className="text-body text-[var(--color-paper)] mt-1 line-clamp-2"
-              title={parent.prompt}
+              title={parent?.prompt}
             >
               from: {parentLabel}
             </p>
@@ -100,7 +81,6 @@ export function ForkRunDialog({ open, parent, onClose, onForked }: ForkRunDialog
             type="button"
             className="p-1 text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] rounded-sm"
             onClick={onClose}
-            title="Close (Esc)"
             aria-label="Close fork dialog"
           >
             <X className="w-3.5 h-3.5" />
@@ -173,7 +153,7 @@ export function ForkRunDialog({ open, parent, onClose, onForked }: ForkRunDialog
             {submitting ? 'Forking…' : 'Fork'}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

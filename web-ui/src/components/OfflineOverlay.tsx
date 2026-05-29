@@ -97,9 +97,10 @@ export function OfflineOverlay({ status, retryIn, onRetry, lastConnected }: Offl
           <OfflineRobot state={robotState} size="lg" />
         </div>
 
-        {/* Message */}
+        {/* Message — demoted from <h1> to <h2> so it sits below the page's own
+            <h1> in the heading outline instead of competing with it. */}
         <div className="offline-overlay__message">
-          <h1 className="offline-overlay__title">{message.title}</h1>
+          <h2 className="offline-overlay__title">{message.title}</h2>
           <p className="offline-overlay__subtitle">{message.subtitle}</p>
         </div>
 
