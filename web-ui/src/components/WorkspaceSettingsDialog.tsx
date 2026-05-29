@@ -207,7 +207,7 @@ export function WorkspaceSettingsDialog({
           <div className="space-y-6">
             {/* Settings Overrides Section */}
             <div>
-              <h3 className="text-caption text-[var(--color-stone)]/80 uppercase tracking-wider mb-3">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70 mb-3">
                 Setting Overrides
               </h3>
               <div className="space-y-2">
@@ -293,7 +293,7 @@ export function WorkspaceSettingsDialog({
 
             {/* Environment Variables Section */}
             <div>
-              <h3 className="text-caption text-[var(--color-stone)]/80 uppercase tracking-wider mb-3">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70 mb-3">
                 Environment Variables
               </h3>
               <p className="text-caption text-[var(--color-stone)]/50 mb-3">

@@ -159,19 +159,19 @@ export function AdminUsersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--color-ink)] border-b border-[rgba(163,163,163,0.1)]">
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal">
                       User
                     </th>
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal">
                       Role
                     </th>
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal hidden md:table-cell">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal hidden md:table-cell">
                       Created
                     </th>
-                    <th className="text-left px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal hidden lg:table-cell">
+                    <th className="text-left px-3 py-2 text-caption text-[var(--color-stone)] font-normal hidden lg:table-cell">
                       Last seen
                     </th>
-                    <th className="text-right px-3 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] font-normal">
+                    <th className="text-right px-3 py-2 text-caption text-[var(--color-stone)] font-normal">
                       Actions
                     </th>
                   </tr>

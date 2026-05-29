@@ -388,7 +388,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
         {/* Iteration History - Responsive table */}
         <div className="border border-[rgba(163,163,163,0.08)] rounded-sm p-2 sm:p-3 flex-1">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-body sm:text-sm uppercase tracking-widest text-[var(--color-stone)]/70">
+            <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
               Iterations
             </h3>
             <button
