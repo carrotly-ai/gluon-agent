@@ -498,14 +498,21 @@ export function RunDetailDialog({
     const isRunActive = run.status === 'running' || run.status === 'pending'
     if (!isRunActive) return
 
+    // Poll only what the WebSocket does NOT already cover for the open dialog.
+    // The message timeline + live token/cost flow through StreamingLogViewer's
+    // useRunLogStream subscription, so we deliberately omit the messages file
+    // here (re-fetching it raced the WS stream and made counts jitter). What
+    // remains — run detail (status/branch/PR), raw stdout/stderr, commits and
+    // files — has no WS feed for this dialog, so we keep polling it but back
+    // the interval off from 3s to 10s.
     const intervalId = setInterval(async () => {
       try {
         // Only refresh stdout/stderr if they've been loaded or are currently viewed
         const shouldRefreshStdout = !!logs.stdout || activeTab === 'output'
         const shouldRefreshStderr = !!logs.stderr || activeTab === 'errors'
 
-        const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] =
-          await Promise.all([
+        const [runDetail, stdoutLogs, stderrLogs, newCommitsData, newFilesData] = await Promise.all(
+          [
             fetchRun(run.id),
             shouldRefreshStdout
               ? fetchLogs(run.id, 'stdout').catch(() => ({ content: '' }))
@@ -513,25 +520,35 @@ export function RunDetailDialog({
             shouldRefreshStderr
               ? fetchLogs(run.id, 'stderr').catch(() => ({ content: '' }))
               : Promise.resolve(null),
-            fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
-            // Also refresh commits and files during active runs
+            // Commits and files have no WS feed — keep polling during active runs
             fetchRunCommits(run.id).catch(() => null),
             fetchRunFiles(run.id).catch(() => null),
-          ])
+          ]
+        )
         setDetail(runDetail)
         setLogs((prev) => ({
           stdout: stdoutLogs?.content ?? prev.stdout,
           stderr: stderrLogs?.content ?? prev.stderr,
-          messages: messagesLogs.content || '',
+          // messages stay as last HTTP load; live updates arrive via WebSocket
+          messages: prev.messages,
         }))
         // Update commits and files if fetched successfully
         if (newCommitsData) setCommitsData(newCommitsData)
         if (newFilesData) setFilesData(newFilesData)
         onRunUpdated(runDetail)
+
+        // On the active→terminal transition the WS subscription tears down and
+        // clears streamed messages, so do one final messages fetch to make sure
+        // the completed view holds the full log.
+        const becameInactive = runDetail.status !== 'running' && runDetail.status !== 'pending'
+        if (becameInactive) {
+          const finalMessages = await fetchLogs(run.id, 'messages').catch(() => ({ content: '' }))
+          setLogs((prev) => ({ ...prev, messages: finalMessages.content || prev.messages }))
+        }
       } catch (err) {
         console.error('Auto-refresh failed:', err)
       }
-    }, 3000) // Refresh every 3 seconds
+    }, 10000) // Back off from 3s — WS carries the live stream
 
     return () => clearInterval(intervalId)
   }, [open, run?.id, run?.status, onRunUpdated, run, logs.stdout, logs.stderr, activeTab])
