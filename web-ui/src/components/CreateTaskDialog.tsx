@@ -175,6 +175,50 @@ interface PendingImage {
   preview: string
 }
 
+// Platform-appropriate microcopy. The dialog is a touch-first PWA, so the
+// hard-coded mac-isms (⌘V, "drag, paste, or click") mislead phone and Windows
+// users. Detect touch via `(pointer: coarse)` and mac via the platform string,
+// then pick copy that actually matches the device in hand.
+interface PlatformHints {
+  // Modifier symbol for keyboard shortcuts, e.g. "⌘" on mac, "Ctrl" elsewhere.
+  modKey: string
+  // Prompt textarea placeholder.
+  promptPlaceholder: string
+  // Right-aligned hint under the "Attach images" button.
+  attachHint: string
+  // Tooltip on the Start button (omitted on touch — there's no keyboard).
+  submitHint?: string
+}
+
+function detectPlatformHints(): PlatformHints {
+  if (typeof window === 'undefined') {
+    return {
+      modKey: 'Ctrl',
+      promptPlaceholder: 'Type / for commands, @ for files. Paste with Ctrl+V',
+      attachHint: 'drag, paste, or click',
+    }
+  }
+
+  const isTouch = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  const isMac = /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent || '')
+
+  if (isTouch) {
+    return {
+      modKey: isMac ? '⌘' : 'Ctrl',
+      promptPlaceholder: 'Type / for commands, @ for files',
+      attachHint: 'tap to attach',
+    }
+  }
+
+  const modKey = isMac ? '⌘' : 'Ctrl'
+  return {
+    modKey,
+    promptPlaceholder: `Type / for commands, @ for files. Paste images with ${modKey}${isMac ? 'V' : '+V'}`,
+    attachHint: 'drag, paste, or click',
+    submitHint: `${modKey}${isMac ? '' : '+'}Enter to submit`,
+  }
+}
+
 // Inline help affordance: a hairline info icon that reveals a one-line
 // explanation on hover/focus/tap. Keeps the form uncluttered while letting a
 // first-timer decode jargon at the point of use.
@@ -240,6 +284,9 @@ export function CreateTaskDialog({
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Platform-appropriate copy (computed once; device class doesn't change mid-session).
+  const [platform] = useState(detectPlatformHints)
 
   // Slash command autocomplete state
   const [commands, setCommands] = useState<SlashCommand[]>([])
@@ -991,7 +1038,7 @@ export function CreateTaskDialog({
                     }
                   }}
                   onPaste={handlePaste}
-                  placeholder="Type / for commands, @ for files. Paste images with ⌘V"
+                  placeholder={platform.promptPlaceholder}
                   className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
                   autoFocus
                 />
@@ -1044,7 +1091,7 @@ export function CreateTaskDialog({
                     <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
                     <span className="text-body text-[var(--color-stone)]/50">Attach images</span>
                     <span className="text-caption text-[var(--color-stone)]/30 ml-auto">
-                      drag, paste, or click
+                      {platform.attachHint}
                     </span>
                   </button>
                 ) : (
@@ -1673,7 +1720,7 @@ export function CreateTaskDialog({
                       ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
                       : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
                   )}
-                  title="⌘+Enter to submit"
+                  title={platform.submitHint}
                 >
                   <Play className="w-3 h-3" />
                   {submitting ? 'Starting...' : 'Start'}
