@@ -250,6 +250,83 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
+// One-line metadata strip that sits below the prompt. Collapsed it shows the
+// project plus the highest-signal numbers (duration · cost · tools); a chevron
+// expands the full set (date, branch, commit, exit code, stop reason). This
+// replaces both the old desktop meta row and the mobile-only git info row.
+function RunMetaStrip({
+  run,
+  detail,
+  toolCount,
+}: {
+  run: Run | null
+  detail: RunDetail | null
+  toolCount: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  const duration = run?.duration_seconds != null ? formatDuration(run.duration_seconds) : null
+  const cost =
+    detail?.cost_usd != null && detail.cost_usd > 0 ? `$${detail.cost_usd.toFixed(4)}` : null
+  const hasExit = detail?.exit_code !== null && detail?.exit_code !== undefined
+  const commit = detail?.git_commit_sha ? detail.git_commit_sha.slice(0, 7) : null
+
+  return (
+    <div className="mb-4 shrink-0 text-body">
+      {/* Summary line — always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-3 w-full text-left text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]/80 transition-colors"
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Hide run details' : 'Show run details'}
+      >
+        <ChevronRight
+          className={cn(
+            'w-3 h-3 text-[var(--color-stone)]/40 transition-transform shrink-0',
+            expanded && 'rotate-90'
+          )}
+        />
+        <span className="text-[var(--color-paper)]/80 truncate">{run?.project_name}</span>
+        {duration && <span className="text-mono shrink-0">{duration}</span>}
+        {cost && <span className="text-mono text-[var(--color-harvest)] shrink-0">{cost}</span>}
+        {toolCount > 0 && (
+          <span className="text-mono text-[var(--color-sky)] shrink-0">{toolCount} tools</span>
+        )}
+        {detail?.branch_name && (
+          <span className="hidden sm:inline-flex items-center gap-1 text-purple-300/70 shrink-0 min-w-0">
+            <GitBranch className="w-2.5 h-2.5 text-purple-400/70 shrink-0" />
+            <span className="truncate max-w-[140px]">{detail.branch_name}</span>
+          </span>
+        )}
+      </button>
+
+      {/* Expanded detail — full grid */}
+      {expanded && (
+        <div className="mt-2 ml-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[var(--color-stone)]/55">
+          <span>{formatDateWithContext(run?.created_at ?? null)}</span>
+          {detail?.branch_name && (
+            <span className="flex items-center gap-1 text-purple-300/70 sm:hidden">
+              <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
+              <span className="truncate max-w-[160px]">{detail.branch_name}</span>
+            </span>
+          )}
+          {commit && (
+            <span className="flex items-center gap-1">
+              <GitCommit className="w-2.5 h-2.5" />
+              <span className="text-mono">{commit}</span>
+            </span>
+          )}
+          {hasExit && <span className="text-mono">exit {detail?.exit_code}</span>}
+          {detail?.stop_reason && (
+            <span className="text-mono text-[var(--color-stone)]/50">{detail.stop_reason}</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RunDetailDialog({
   run,
   open,
@@ -1549,83 +1626,54 @@ Focus on preserving the functionality from both sides where possible.`
         {/* Main Content */}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <div className="p-4 sm:p-5 flex flex-col flex-1 min-h-0">
-            {/* Project + Meta Row */}
-            <div className="flex items-center gap-4 text-body text-[var(--color-stone)]/60 mb-4 shrink-0 flex-wrap">
-              <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
-              <span className="hidden sm:inline">
-                {formatDateWithContext(run?.created_at ?? null)}
-              </span>
-              {run?.duration_seconds !== null && (
-                <span className="text-mono">{formatDuration(run?.duration_seconds ?? null)}</span>
-              )}
-              {detail?.exit_code !== null && detail?.exit_code !== undefined && (
-                <span className="text-mono">exit {detail?.exit_code}</span>
-              )}
-              {detail?.stop_reason && (
-                <span className="text-mono text-[var(--color-stone)]/50">{detail.stop_reason}</span>
-              )}
-              {detail?.cost_usd != null && detail.cost_usd > 0 && (
-                <span className="text-mono text-[var(--color-harvest)]">
-                  ${detail.cost_usd.toFixed(4)}
-                </span>
-              )}
-              {/* Tool count - calculated from messages */}
-              {(() => {
-                const toolCount = parseMessages(logs.messages).filter(
-                  (m) => m.type === 'tool_use'
-                ).length
-                return toolCount > 0 ? (
-                  <span className="text-mono text-[var(--color-sky)]">{toolCount} tools</span>
-                ) : null
-              })()}
+            {/* Prompt — leads the surface, directly below the header */}
+            <div className="mb-3 shrink-0">
+              <div className="max-h-24 overflow-y-auto pr-2 scrollbar-thin">
+                <p className="text-body text-[var(--color-paper)] leading-relaxed font-light">
+                  {run?.prompt}
+                </p>
+              </div>
             </div>
 
-            {/* Git Info Row - show on mobile only (desktop shows in header) */}
-            {(detail?.branch_name || detail?.pr_number) && (
-              <div className="flex sm:hidden items-center gap-3 text-body mb-4 shrink-0 flex-wrap">
-                {detail.branch_name && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] rounded-sm">
-                    <GitBranch className="w-3 h-3 text-purple-400" />
-                    <span className="text-purple-300">{detail.branch_name}</span>
-                  </div>
+            {/* Mobile PR link — desktop carries the PR badge in the header */}
+            {detail?.pr_number && detail?.pr_url && (
+              <a
+                href={detail.pr_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'sm:hidden flex items-center gap-1.5 px-2 py-1 mb-3 self-start rounded-sm text-body transition-colors',
+                  detail.pr_mergeable === 'CONFLICTING' &&
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
+                  detail.pr_mergeable !== 'CONFLICTING' &&
+                    detail.pr_status === 'open' &&
+                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                  detail.pr_status === 'merged' &&
+                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                  detail.pr_status === 'closed' &&
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                  detail.pr_status === 'draft' &&
+                    'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                 )}
-                {detail.git_commit_sha && (
-                  <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60">
-                    <GitCommit className="w-3 h-3" />
-                    <span className="text-mono">{detail.git_commit_sha.slice(0, 7)}</span>
-                  </div>
+              >
+                <GitPullRequest className="w-3 h-3" />
+                <span>#{detail.pr_number}</span>
+                {detail.pr_mergeable === 'CONFLICTING' ? (
+                  <span className="uppercase text-red-400">Conflicts</span>
+                ) : (
+                  <span className="uppercase">{detail.pr_status}</span>
                 )}
-                {detail.pr_number && detail.pr_url && (
-                  <a
-                    href={detail.pr_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
-                      detail.pr_mergeable === 'CONFLICTING' &&
-                        'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
-                      detail.pr_mergeable !== 'CONFLICTING' &&
-                        detail.pr_status === 'open' &&
-                        'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
-                      detail.pr_status === 'merged' &&
-                        'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
-                      detail.pr_status === 'closed' &&
-                        'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
-                      detail.pr_status === 'draft' &&
-                        'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
-                    )}
-                  >
-                    <span>PR #{detail.pr_number}</span>
-                    {detail.pr_mergeable === 'CONFLICTING' ? (
-                      <span className="text-body uppercase text-red-400">CONFLICTS</span>
-                    ) : (
-                      <span className="text-body uppercase">{detail.pr_status}</span>
-                    )}
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                )}
-              </div>
+                <ExternalLink className="w-2.5 h-2.5" />
+              </a>
             )}
+
+            {/* Collapsed metadata strip — duration / cost / tools, expandable */}
+            <RunMetaStrip
+              run={run}
+              detail={detail}
+              toolCount={parseMessages(logs.messages).filter((m) => m.type === 'tool_use').length}
+            />
+
             {/* PR creation error */}
             {prError && (
               <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm shrink-0">
@@ -1638,17 +1686,6 @@ Focus on preserving the functionality from both sides where possible.`
                 <p className="text-body text-[var(--color-vermillion)]">{mergeError}</p>
               </div>
             )}
-
-            {/* Prompt - Constrained height with scroll */}
-            <div className="mb-4 shrink-0">
-              <div className="flex items-start justify-between gap-3">
-                <div className="max-h-24 overflow-y-auto flex-1 pr-2 scrollbar-thin">
-                  <p className="text-body text-[var(--color-paper)] leading-relaxed font-light">
-                    {run?.prompt}
-                  </p>
-                </div>
-              </div>
-            </div>
 
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
