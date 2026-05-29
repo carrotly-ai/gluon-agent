@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { fetchSDKSessionDetail, fetchSDKSessions, resumeSdkSession } from '@/lib/api'
+import { POLL_SLOW } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { SDKSession, SessionDetail, SessionMessage } from '@/lib/types'
 import { formatFileSize } from '@/lib/types'
@@ -267,7 +268,7 @@ export function SessionBrowserPage() {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 30000)
+    const interval = setInterval(load, POLL_SLOW)
     return () => clearInterval(interval)
   }, [load])
 

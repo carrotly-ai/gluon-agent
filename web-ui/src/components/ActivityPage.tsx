@@ -1,6 +1,7 @@
 import { Activity, Check, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { cleanupActivity, fetchActivity } from '@/lib/api'
+import { POLL_NORMAL } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { ActivityEvent } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -59,7 +60,7 @@ export function ActivityPage() {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 10000)
+    const interval = setInterval(load, POLL_NORMAL)
     return () => clearInterval(interval)
   }, [load])
 

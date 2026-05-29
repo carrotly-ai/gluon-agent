@@ -1,6 +1,7 @@
 import { Check, ClipboardList, Pencil, Plus, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { addToQueue, cancelQueueItem, fetchWorkQueue, releaseQueueItem } from '@/lib/api'
+import { POLL_NORMAL } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { Project, WorkQueueItem, WorkQueueStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -88,7 +89,7 @@ export function WorkQueuePage({ projects }: WorkQueuePageProps) {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 10000)
+    const interval = setInterval(load, POLL_NORMAL)
     return () => clearInterval(interval)
   }, [load])
 
