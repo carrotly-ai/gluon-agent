@@ -1627,7 +1627,7 @@ export function CreateTaskDialog({
                         }}
                         className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
                       />
-                      <p className="text-[10px] text-[var(--color-stone)]/40 mt-0.5">
+                      <p className="text-caption text-[var(--color-stone)]/40 mt-0.5">
                         Model paces itself to finish within budget
                       </p>
                     </div>

@@ -1684,7 +1684,7 @@ export function SettingsPage({
                                   </code>
                                   <span className="text-[var(--color-stone)]/40">({v.type})</span>
                                   {v.required && (
-                                    <span className="text-[var(--color-vermillion)] text-[10px] uppercase">
+                                    <span className="text-[var(--color-vermillion)] text-micro uppercase">
                                       required
                                     </span>
                                   )}

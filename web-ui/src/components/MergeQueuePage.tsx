@@ -179,7 +179,7 @@ export function MergeQueuePage() {
                           )
                         ) : null}
                       </td>
-                      <td className="px-4 py-2 text-[var(--color-paper)] font-mono text-[11px]">
+                      <td className="px-4 py-2 text-[var(--color-paper)] text-mono">
                         {entry.branch_name}
                       </td>
                       <td className="px-4 py-2">
@@ -201,7 +201,7 @@ export function MergeQueuePage() {
                       <td className="px-4 py-2">
                         <span
                           className={cn(
-                            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider',
+                            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-wider',
                             statusBadge(entry.status)
                           )}
                         >
@@ -274,7 +274,7 @@ export function MergeQueuePage() {
                                   : 'Merge failed.'}
                               </p>
                               {entry.last_error && (
-                                <pre className="font-mono text-[11px] text-[var(--color-vermillion)]/90 whitespace-pre-wrap break-words">
+                                <pre className="text-mono text-[var(--color-vermillion)]/90 whitespace-pre-wrap break-words">
                                   {entry.last_error}
                                 </pre>
                               )}

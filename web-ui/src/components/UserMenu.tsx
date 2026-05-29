@@ -193,7 +193,7 @@ export function UserMenu({
                     </p>
                     <span
                       className={cn(
-                        'px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-widest font-medium shrink-0',
+                        'px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-widest font-medium shrink-0',
                         ROLE_BADGE[user.role]
                       )}
                     >

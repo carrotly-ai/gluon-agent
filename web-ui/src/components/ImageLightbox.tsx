@@ -92,7 +92,7 @@ export function ImageLightbox({ src, alt, children }: ImageLightboxProps) {
               }
               onClick={(e) => e.stopPropagation()}
             />
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 text-white/80 text-[0.65rem]">
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 text-white/80 text-caption">
               <span className="truncate max-w-[200px]">{alt}</span>
               <a
                 href={src}

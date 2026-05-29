@@ -2469,7 +2469,7 @@ Focus on preserving the functionality from both sides where possible.`
                                 />
                                 {/* Screenshot badge */}
                                 {image.source === 'screenshot' && (
-                                  <span className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-[var(--color-harvest)]/80 text-white rounded-sm">
+                                  <span className="absolute top-1 left-1 px-1.5 py-0.5 text-micro uppercase tracking-wider bg-[var(--color-harvest)]/80 text-white rounded-sm">
                                     Screenshot
                                   </span>
                                 )}
@@ -2561,7 +2561,7 @@ Focus on preserving the functionality from both sides where possible.`
                               <div className="flex items-center gap-3">
                                 <span
                                   className={cn(
-                                    'px-2 py-1 rounded-sm text-[11px] uppercase tracking-wider font-medium',
+                                    'px-2 py-1 rounded-sm text-caption uppercase tracking-wider font-medium',
                                     classBg[latest.classification] || 'bg-[var(--color-stone)]/10',
                                     classColors[latest.classification] ||
                                       'text-[var(--color-stone)]'
@@ -2601,7 +2601,7 @@ Focus on preserving the functionality from both sides where possible.`
                                 </span>
                                 <span
                                   className={cn(
-                                    'px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider w-28 text-center',
+                                    'px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-wider w-28 text-center',
                                     d.classification === 'healthy' &&
                                       'bg-[var(--color-jade)]/15 text-[var(--color-jade)]',
                                     d.classification === 'slow' &&
@@ -2693,7 +2693,7 @@ Focus on preserving the functionality from both sides where possible.`
                         ) : (
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-body text-[var(--color-sky)]/80 flex-1">
-                              <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-[10px] mr-2">
+                              <span className="text-[var(--color-sky)]/60 uppercase tracking-widest text-micro mr-2">
                                 {idx + 1}
                               </span>
                               {msg.message.length > 100

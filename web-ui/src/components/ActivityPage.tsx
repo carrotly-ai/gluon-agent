@@ -234,13 +234,13 @@ export function ActivityPage() {
                         {formatRelativeTime(event.timestamp)}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-[var(--color-stone)] font-mono text-[11px] truncate max-w-32 align-top">
+                    <td className="px-4 py-2 text-[var(--color-stone)] text-mono truncate max-w-32 align-top">
                       {event.actor}
                     </td>
                     <td className="px-4 py-2 align-top">
                       <span
                         className={cn(
-                          'inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider',
+                          'inline-block px-1.5 py-0.5 rounded-sm text-micro uppercase',
                           actionBadgeColor(event.action)
                         )}
                       >

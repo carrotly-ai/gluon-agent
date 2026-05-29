@@ -174,7 +174,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       key: 'recovering',
       collapsedLabel: 'Recovering',
       node: (
-        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
           <RefreshCw className="w-2.5 h-2.5 animate-spin" />
           Recovering
         </span>
@@ -186,7 +186,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
       key: 'max_turns',
       collapsedLabel: 'Max Turns',
       node: (
-        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(245,158,11,0.15)] text-amber-400">
           Max Turns
         </span>
       ),
@@ -202,7 +202,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
           target="_blank"
           rel="noopener noreferrer"
           className={cn(
-            'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] transition-colors',
+            'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro transition-colors',
             run.pr_status === 'merged' && 'bg-[rgba(168,85,247,0.15)] text-purple-400',
             run.pr_status === 'closed' && 'bg-[rgba(239,68,68,0.15)] text-red-400',
             run.pr_status === 'open' &&
@@ -390,7 +390,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
           ))}
           {collapsedBadges.length > 0 && (
             <span
-              className="px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase bg-[rgba(163,163,163,0.12)] text-[var(--color-stone)]/70 shrink-0"
+              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(163,163,163,0.12)] text-[var(--color-stone)]/70 shrink-0"
               title={collapsedBadges.map((b) => b.collapsedLabel).join(' · ')}
             >
               +{collapsedBadges.length}
@@ -465,7 +465,7 @@ export function RunCard({ run, onClick, onCancel, onArchive, onStopLoop }: RunCa
             {run.circuit_state && run.circuit_state !== 'CLOSED' && (
               <span
                 className={cn(
-                  'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[0.5rem] uppercase',
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase',
                   getCircuitStateBg(run.circuit_state),
                   getCircuitStateColor(run.circuit_state)
                 )}

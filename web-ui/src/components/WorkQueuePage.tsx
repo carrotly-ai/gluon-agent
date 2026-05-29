@@ -307,7 +307,7 @@ export function WorkQueuePage({ projects }: WorkQueuePageProps) {
                     <td className="px-4 py-2">
                       <span
                         className={cn(
-                          'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider',
+                          'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-wider',
                           statusBadge(item.status)
                         )}
                       >

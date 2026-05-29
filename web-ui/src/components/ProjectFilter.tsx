@@ -138,7 +138,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
       <button
         ref={triggerRef}
         type="button"
-        className="flex items-center gap-2 px-3 py-1.5 text-[0.6875rem] text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors bg-[rgba(163,163,163,0.05)] hover:bg-[rgba(163,163,163,0.1)] rounded-sm border border-[rgba(163,163,163,0.1)]"
+        className="flex items-center gap-2 px-3 py-1.5 text-caption text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors bg-[rgba(163,163,163,0.05)] hover:bg-[rgba(163,163,163,0.1)] rounded-sm border border-[rgba(163,163,163,0.1)]"
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -165,7 +165,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
                 role="option"
                 aria-selected={filter.type === 'all'}
                 className={cn(
-                  'w-full px-3 py-2 text-left text-[0.6875rem] transition-colors flex items-center gap-2',
+                  'w-full px-3 py-2 text-left text-caption transition-colors flex items-center gap-2',
                   filter.type === 'all'
                     ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                     : 'text-[var(--color-stone)]',
@@ -190,7 +190,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
                 role="option"
                 aria-selected={filter.type === 'archived'}
                 className={cn(
-                  'w-full px-3 py-2 text-left text-[0.6875rem] transition-colors flex items-center gap-2',
+                  'w-full px-3 py-2 text-left text-caption transition-colors flex items-center gap-2',
                   filter.type === 'archived'
                     ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                     : 'text-[var(--color-stone)]',
@@ -220,7 +220,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
                     role="option"
                     aria-selected={filter.type === 'workspace' && filter.value === workspace}
                     className={cn(
-                      'w-full px-3 py-2 text-left text-[0.625rem] uppercase tracking-widest transition-colors flex items-center gap-2',
+                      'w-full px-3 py-2 text-left text-micro uppercase tracking-widest transition-colors flex items-center gap-2',
                       filter.type === 'workspace' && filter.value === workspace
                         ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                         : 'text-[var(--color-stone)]/70',
@@ -249,7 +249,7 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
                     role="option"
                     aria-selected={filter.type === 'project' && filter.value === project.name}
                     className={cn(
-                      'w-full pl-7 pr-3 py-1.5 text-left text-[0.6875rem] transition-colors truncate',
+                      'w-full pl-7 pr-3 py-1.5 text-left text-caption transition-colors truncate',
                       filter.type === 'project' && filter.value === project.name
                         ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                         : 'text-[var(--color-stone)]/80',

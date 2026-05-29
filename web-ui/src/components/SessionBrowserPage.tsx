@@ -130,7 +130,7 @@ function SessionDetailDialog({
                     onOpenChange(false)
                     navigate(`/board/${runId}`)
                   }}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
                 >
                   {runId.slice(0, 8)}
                   <ExternalLink className="w-2.5 h-2.5" />
@@ -195,7 +195,7 @@ function SessionDetailDialog({
         </div>
 
         {/* Session ID footer */}
-        <div className="shrink-0 px-4 py-2 border-t border-[rgba(163,163,163,0.06)] text-[10px] font-mono text-[var(--color-stone)]/30 select-all">
+        <div className="shrink-0 px-4 py-2 border-t border-[rgba(163,163,163,0.06)] text-mono text-[var(--color-stone)]/30 select-all">
           {session.session_id}
         </div>
       </DialogContent>
@@ -222,7 +222,7 @@ function TranscriptMessage({
       {showLabel && (
         <div
           className={cn(
-            'text-[10px] uppercase tracking-widest mb-1 font-medium',
+            'text-micro uppercase tracking-widest mb-1 font-medium',
             isUser ? 'text-[var(--color-sky)]/60' : 'text-[var(--color-stone)]/40'
           )}
         >
@@ -237,7 +237,7 @@ function TranscriptMessage({
             : 'bg-[rgba(163,163,163,0.04)]'
         )}
       >
-        <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--color-paper)]/85 overflow-x-auto">
+        <pre className="whitespace-pre-wrap text-mono leading-relaxed text-[var(--color-paper)]/85 overflow-x-auto">
           {content}
         </pre>
       </div>
@@ -383,7 +383,7 @@ export function SessionBrowserPage() {
                               e.stopPropagation()
                               navigate(`/board/${runId}`)
                             }}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-mono bg-[var(--color-sky)]/10 text-[var(--color-sky)] hover:bg-[var(--color-sky)]/20 transition-colors"
                           >
                             {runId.slice(0, 8)}
                             <ExternalLink className="w-2.5 h-2.5" />

@@ -484,7 +484,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                         <div className="flex items-center gap-1 flex-wrap">
                           {iteration.has_completion_signal && (
                             <span
-                              className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]"
+                              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(45,212,191,0.15)] text-[var(--color-jade)]"
                               title="Completion signal detected"
                             >
                               Done
@@ -492,7 +492,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                           )}
                           {iteration.has_errors && (
                             <span
-                              className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]"
+                              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgb(var(--color-vermillion-rgb)/0.15)] text-[var(--color-vermillion)]"
                               title={iteration.error_message || 'Error occurred'}
                             >
                               Err
@@ -500,7 +500,7 @@ export function LoopProgressTab({ run, onRunUpdated: _onRunUpdated }: LoopProgre
                           )}
                           {iteration.is_test_only && (
                             <span
-                              className="px-1.5 py-0.5 rounded-sm text-[0.6rem] uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]"
+                              className="px-1.5 py-0.5 rounded-sm text-micro uppercase bg-[rgba(102,178,255,0.15)] text-[var(--color-sky)]"
                               title="Only ran tests"
                             >
                               Test

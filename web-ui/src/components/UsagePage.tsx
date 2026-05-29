@@ -607,7 +607,7 @@ function SortButton({
       onClick={onClick}
     >
       {label}
-      {active && <span className="text-[0.5rem]">{order === 'desc' ? '↓' : '↑'}</span>}
+      {active && <span className="text-micro">{order === 'desc' ? '↓' : '↑'}</span>}
     </button>
   )
 }

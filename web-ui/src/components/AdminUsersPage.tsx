@@ -289,12 +289,12 @@ function UserRow({
               {user.display_name || user.username}
             </span>
             {isMe && (
-              <span className="text-[10px] uppercase tracking-widest text-[var(--color-stone)]/60 px-1.5 py-0.5 bg-[rgba(163,163,163,0.1)] rounded-sm">
+              <span className="text-micro uppercase tracking-widest text-[var(--color-stone)]/60 px-1.5 py-0.5 bg-[rgba(163,163,163,0.1)] rounded-sm">
                 You
               </span>
             )}
             {user.disabled && (
-              <span className="text-[10px] uppercase tracking-widest text-[var(--color-vermillion)] px-1.5 py-0.5 bg-[var(--color-vermillion)]/10 rounded-sm">
+              <span className="text-micro uppercase tracking-widest text-[var(--color-vermillion)] px-1.5 py-0.5 bg-[var(--color-vermillion)]/10 rounded-sm">
                 Disabled
               </span>
             )}
@@ -308,7 +308,7 @@ function UserRow({
       <td className="px-3 py-2.5">
         <span
           className={cn(
-            'inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-widest font-medium',
+            'inline-block px-1.5 py-0.5 rounded-sm text-micro uppercase tracking-widest font-medium',
             ROLE_BADGE[user.role]
           )}
         >

@@ -226,11 +226,11 @@ export function WorkspaceSettingsDialog({
                             {setting.label}
                           </span>
                           {overridden ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-indigo)]/15 text-[var(--color-indigo)]">
+                            <span className="text-caption px-1.5 py-0.5 rounded bg-[var(--color-indigo)]/15 text-[var(--color-indigo)]">
                               overridden
                             </span>
                           ) : (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50">
+                            <span className="text-caption px-1.5 py-0.5 rounded bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/50">
                               inherited
                             </span>
                           )}
@@ -329,9 +329,7 @@ export function WorkspaceSettingsDialog({
               {/* Add new env var */}
               <div className="flex items-end gap-2">
                 <div className="flex-1 min-w-0">
-                  <label className="text-[10px] text-[var(--color-stone)]/50 uppercase tracking-wider">
-                    Key
-                  </label>
+                  <label className="text-micro text-[var(--color-stone)]/50 uppercase">Key</label>
                   <input
                     type="text"
                     className="w-full text-caption bg-[rgba(163,163,163,0.08)] border border-[rgba(163,163,163,0.12)] rounded px-2 py-1.5 text-[var(--color-stone)] focus:outline-none focus:border-[var(--color-indigo)]/40"
@@ -347,9 +345,7 @@ export function WorkspaceSettingsDialog({
                   </datalist>
                 </div>
                 <div className="flex-1 min-w-0 relative">
-                  <label className="text-[10px] text-[var(--color-stone)]/50 uppercase tracking-wider">
-                    Value
-                  </label>
+                  <label className="text-micro text-[var(--color-stone)]/50 uppercase">Value</label>
                   <div className="relative">
                     <input
                       type={showNewEnvValue ? 'text' : 'password'}
