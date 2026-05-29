@@ -16,6 +16,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { ActivityPage } from './components/ActivityPage'
 import { AdminUsersPage } from './components/AdminUsersPage'
 import { CreateTaskDialog } from './components/CreateTaskDialog'
@@ -57,6 +58,7 @@ import {
   fetchRuns,
   fetchUsageSummary,
   stopLoop,
+  unarchiveRun,
 } from './lib/api'
 import type { Project, Run, UsageSummary } from './lib/types'
 import { getWorkspaceFromPath } from './lib/types'
@@ -463,8 +465,9 @@ function AuthenticatedApp() {
       try {
         const updated = await cancelRun(run.id)
         setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+        toast.success('Run cancelled')
       } catch (err) {
-        console.error('Failed to cancel run:', err)
+        toast.error(err instanceof Error ? err.message : 'Failed to cancel run')
       }
     },
     [setRuns]
@@ -472,12 +475,29 @@ function AuthenticatedApp() {
 
   const handleArchiveRun = useCallback(
     async (run: Run) => {
+      // Remove from UI immediately (archived runs filtered on backend via WebSocket)
+      setRuns((prev) => prev.filter((r) => r.id !== run.id))
       try {
-        // Remove from UI immediately (archived runs filtered on backend via WebSocket)
-        setRuns((prev) => prev.filter((r) => r.id !== run.id))
         await archiveRun(run.id)
+        toast.success('Run archived', {
+          action: {
+            label: 'Undo',
+            onClick: async () => {
+              try {
+                const restored = await unarchiveRun(run.id)
+                setRuns((prev) =>
+                  prev.some((r) => r.id === restored.id) ? prev : [restored, ...prev]
+                )
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Failed to restore run')
+              }
+            },
+          },
+        })
       } catch (err) {
-        console.error('Failed to archive run:', err)
+        // Re-insert the run so a failed archive doesn't silently vanish it
+        setRuns((prev) => (prev.some((r) => r.id === run.id) ? prev : [run, ...prev]))
+        toast.error(err instanceof Error ? err.message : 'Failed to archive run')
       }
     },
     [setRuns]

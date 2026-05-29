@@ -1141,7 +1141,7 @@ function SessionTokensFooter({ data }: { data: ContextUsageData }) {
         >
           ↓{formatTokenCount(freshInput)}
         </span>
-        <span className="text-purple-400/70 tabular-nums" title="Output tokens">
+        <span className="text-[var(--color-orchid)]/70 tabular-nums" title="Output tokens">
           ↑{formatTokenCount(output_tokens)}
         </span>
         {cache_read > 0 && (

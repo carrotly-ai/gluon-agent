@@ -14,7 +14,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
 import { FileAutocomplete } from '@/components/FileAutocomplete'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Combobox } from '@/components/ui/Combobox'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   createRun,
@@ -273,12 +274,8 @@ export function CreateTaskDialog({
   const [thinkingOverride, setThinkingOverride] = useState('')
   const [maxBudgetOverride, setMaxBudgetOverride] = useState<string>('')
   const [taskBudgetOverride, setTaskBudgetOverride] = useState<string>('')
-  const [advancedModelDropdownOpen, setAdvancedModelDropdownOpen] = useState(false)
-  const [advancedThinkingDropdownOpen, setAdvancedThinkingDropdownOpen] = useState(false)
   const [effortOverride, setEffortOverride] = useState('')
-  const [advancedEffortDropdownOpen, setAdvancedEffortDropdownOpen] = useState(false)
   const [modelTransition, setModelTransition] = useState('')
-  const [modelTransitionDropdownOpen, setModelTransitionDropdownOpen] = useState(false)
 
   // Image upload state
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
@@ -670,12 +667,6 @@ export function CreateTaskDialog({
   }
 
   const selectedProfileOption = PROFILE_OPTIONS.find((p) => p.value === profile)
-  const selectedAdvancedModelOption = MODEL_OPTIONS.find((m) => m.value === modelOverride)
-  const selectedAdvancedThinkingOption = THINKING_OPTIONS.find((t) => t.value === thinkingOverride)
-  const selectedAdvancedEffortOption = EFFORT_OPTIONS.find((e) => e.value === effortOverride)
-  const selectedModelTransitionOption = MODEL_TRANSITION_OPTIONS.find(
-    (t) => t.value === modelTransition
-  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -683,9 +674,15 @@ export function CreateTaskDialog({
         className="dialog-content max-w-lg w-[90vw] p-0 gap-0 overflow-visible"
         showCloseButton={false}
       >
+        <DialogDescription className="sr-only">
+          Create and configure a new agent task: choose a project, write a prompt, and set execution
+          options.
+        </DialogDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-[rgba(163,163,163,0.1)] bg-[var(--color-void)]">
-          <span className="text-body text-[var(--color-paper)] font-normal">New Task</span>
+          <DialogTitle className="text-body text-[var(--color-paper)] font-normal">
+            New Task
+          </DialogTitle>
           <button
             className="p-1 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
             onClick={() => onOpenChange(false)}
@@ -1207,7 +1204,8 @@ export function CreateTaskDialog({
                           useWorktree && 'worktree',
                           ralphEnabled && 'loop',
                           agentTeams && 'teams',
-                          modelOverride && selectedAdvancedModelOption?.label,
+                          modelOverride &&
+                            MODEL_OPTIONS.find((m) => m.value === modelOverride)?.label,
                           effortOverride && `${effortOverride} effort`,
                         ]
                           .filter(Boolean)
@@ -1400,62 +1398,13 @@ export function CreateTaskDialog({
                       <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
                         Model Override
                       </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                          onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
-                        >
-                          <span
-                            className={
-                              modelOverride
-                                ? 'text-[var(--color-paper)]'
-                                : 'text-[var(--color-stone)]/60'
-                            }
-                          >
-                            {selectedAdvancedModelOption?.label || 'Use profile default'}
-                            {selectedAdvancedModelOption?.description && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {selectedAdvancedModelOption.description}
-                              </span>
-                            )}
-                          </span>
-                          <ChevronDown
-                            className={cn(
-                              'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                              advancedModelDropdownOpen && 'rotate-180'
-                            )}
-                          />
-                        </button>
-
-                        {advancedModelDropdownOpen && (
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                            {MODEL_OPTIONS.map((option) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                className={cn(
-                                  'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                  modelOverride === option.value
-                                    ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                    : 'text-[var(--color-stone)]'
-                                )}
-                                onClick={() => {
-                                  setModelOverride(option.value)
-                                  setAdvancedModelDropdownOpen(false)
-                                }}
-                              >
-                                {option.label}
-                                {option.description && (
-                                  <span className="ml-2 text-[var(--color-stone)]/60">
-                                    {option.description}
-                                  </span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <Combobox
+                        label="Model override"
+                        options={MODEL_OPTIONS}
+                        value={modelOverride}
+                        onChange={setModelOverride}
+                        placeholder="Use profile default"
+                      />
                     </div>
 
                     {/* Thinking Budget Override */}
@@ -1463,64 +1412,13 @@ export function CreateTaskDialog({
                       <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
                         Thinking Budget
                       </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                          onClick={() =>
-                            setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)
-                          }
-                        >
-                          <span
-                            className={
-                              thinkingOverride
-                                ? 'text-[var(--color-paper)]'
-                                : 'text-[var(--color-stone)]/60'
-                            }
-                          >
-                            {selectedAdvancedThinkingOption?.label || 'Use profile default'}
-                            {selectedAdvancedThinkingOption?.description && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {selectedAdvancedThinkingOption.description}
-                              </span>
-                            )}
-                          </span>
-                          <ChevronDown
-                            className={cn(
-                              'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                              advancedThinkingDropdownOpen && 'rotate-180'
-                            )}
-                          />
-                        </button>
-
-                        {advancedThinkingDropdownOpen && (
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                            {THINKING_OPTIONS.map((option) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                className={cn(
-                                  'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                  thinkingOverride === option.value
-                                    ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                    : 'text-[var(--color-stone)]'
-                                )}
-                                onClick={() => {
-                                  setThinkingOverride(option.value)
-                                  setAdvancedThinkingDropdownOpen(false)
-                                }}
-                              >
-                                {option.label}
-                                {option.description && (
-                                  <span className="ml-2 text-[var(--color-stone)]/60">
-                                    {option.description}
-                                  </span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <Combobox
+                        label="Thinking budget"
+                        options={THINKING_OPTIONS}
+                        value={thinkingOverride}
+                        onChange={setThinkingOverride}
+                        placeholder="Use profile default"
+                      />
                     </div>
 
                     {/* Effort Override */}
@@ -1528,62 +1426,13 @@ export function CreateTaskDialog({
                       <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
                         Effort Level
                       </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                          onClick={() => setAdvancedEffortDropdownOpen(!advancedEffortDropdownOpen)}
-                        >
-                          <span
-                            className={
-                              effortOverride
-                                ? 'text-[var(--color-paper)]'
-                                : 'text-[var(--color-stone)]/60'
-                            }
-                          >
-                            {selectedAdvancedEffortOption?.label || 'Use profile default'}
-                            {selectedAdvancedEffortOption?.description && (
-                              <span className="ml-2 text-[var(--color-stone)]/60">
-                                {selectedAdvancedEffortOption.description}
-                              </span>
-                            )}
-                          </span>
-                          <ChevronDown
-                            className={cn(
-                              'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                              advancedEffortDropdownOpen && 'rotate-180'
-                            )}
-                          />
-                        </button>
-
-                        {advancedEffortDropdownOpen && (
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                            {EFFORT_OPTIONS.map((option) => (
-                              <button
-                                key={option.value}
-                                type="button"
-                                className={cn(
-                                  'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                  effortOverride === option.value
-                                    ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                    : 'text-[var(--color-stone)]'
-                                )}
-                                onClick={() => {
-                                  setEffortOverride(option.value)
-                                  setAdvancedEffortDropdownOpen(false)
-                                }}
-                              >
-                                {option.label}
-                                {option.description && (
-                                  <span className="ml-2 text-[var(--color-stone)]/60">
-                                    {option.description}
-                                  </span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <Combobox
+                        label="Effort level"
+                        options={EFFORT_OPTIONS}
+                        value={effortOverride}
+                        onChange={setEffortOverride}
+                        placeholder="Use profile default"
+                      />
                     </div>
 
                     {/* Max Budget Override */}
@@ -1638,64 +1487,13 @@ export function CreateTaskDialog({
                         <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
                           Model Transition
                         </label>
-                        <div className="relative">
-                          <button
-                            type="button"
-                            className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                            onClick={() =>
-                              setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)
-                            }
-                          >
-                            <span
-                              className={
-                                modelTransition
-                                  ? 'text-[var(--color-paper)]'
-                                  : 'text-[var(--color-stone)]/60'
-                              }
-                            >
-                              {selectedModelTransitionOption?.label || 'None (single model)'}
-                              {selectedModelTransitionOption?.description && modelTransition && (
-                                <span className="ml-2 text-[var(--color-stone)]/60">
-                                  {selectedModelTransitionOption.description}
-                                </span>
-                              )}
-                            </span>
-                            <ChevronDown
-                              className={cn(
-                                'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                                modelTransitionDropdownOpen && 'rotate-180'
-                              )}
-                            />
-                          </button>
-
-                          {modelTransitionDropdownOpen && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                              {MODEL_TRANSITION_OPTIONS.map((option) => (
-                                <button
-                                  key={option.value}
-                                  type="button"
-                                  className={cn(
-                                    'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                    modelTransition === option.value
-                                      ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                      : 'text-[var(--color-stone)]'
-                                  )}
-                                  onClick={() => {
-                                    setModelTransition(option.value)
-                                    setModelTransitionDropdownOpen(false)
-                                  }}
-                                >
-                                  {option.label}
-                                  {option.description && (
-                                    <span className="ml-2 text-[var(--color-stone)]/60">
-                                      {option.description}
-                                    </span>
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <Combobox
+                          label="Model transition"
+                          options={MODEL_TRANSITION_OPTIONS}
+                          value={modelTransition}
+                          onChange={setModelTransition}
+                          placeholder="None (single model)"
+                        />
                       </div>
                     )}
                   </div>
