@@ -3,6 +3,7 @@ import {
   ChevronRight,
   GitBranch,
   Image as ImageIcon,
+  Info,
   Play,
   RefreshCw,
   Settings,
@@ -14,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
 import { FileAutocomplete } from '@/components/FileAutocomplete'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   createRun,
   fetchCommands,
@@ -43,26 +45,37 @@ interface CreateTaskDialogProps {
   initialProject?: string
 }
 
-// Task profile options
+// Task profile options.
+// Each profile is a model + reasoning-effort preset. `summary` is the one-liner
+// shown under the segmented buttons so "Opus / Sonnet / Haiku" isn't bare jargon.
 const PROFILE_OPTIONS = [
-  { value: 'quick', label: 'Quick', description: 'Haiku - Fast responses', model: 'haiku' },
+  {
+    value: 'quick',
+    label: 'Quick',
+    description: 'Haiku - Fast responses',
+    model: 'haiku',
+    summary: 'Haiku 4.5 — fastest, lowest cost. Good for simple edits and quick questions.',
+  },
   {
     value: 'standard',
     label: 'Standard',
     description: 'Sonnet - Balanced',
     model: 'sonnet',
+    summary: 'Sonnet 4.6 — balanced speed and quality for everyday tasks.',
   },
   {
     value: 'deep',
     label: 'Deep',
     description: 'Opus 4.6 - Maximum reasoning (default)',
     model: 'opus-4.6',
+    summary: 'Opus 4.6 — maximum reasoning. Best for hard or ambiguous work (default).',
   },
   {
     value: 'planning',
     label: 'Planning',
     description: 'Opus 4.6 - Plan before executing',
     model: 'opus-4.6',
+    summary: 'Opus 4.6 — drafts a plan and waits for approval before making changes.',
   },
 ]
 
@@ -160,6 +173,28 @@ function getLastRalphMaxLoops(): number {
 interface PendingImage {
   file: File
   preview: string
+}
+
+// Inline help affordance: a hairline info icon that reveals a one-line
+// explanation on hover/focus/tap. Keeps the form uncluttered while letting a
+// first-timer decode jargon at the point of use.
+function HelpTip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className="inline-flex items-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors"
+        >
+          <Info className="w-3 h-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[260px] text-pretty leading-relaxed">
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 export function CreateTaskDialog({
@@ -587,6 +622,7 @@ export function CreateTaskDialog({
     }
   }
 
+  const selectedProfileOption = PROFILE_OPTIONS.find((p) => p.value === profile)
   const selectedAdvancedModelOption = MODEL_OPTIONS.find((m) => m.value === modelOverride)
   const selectedAdvancedThinkingOption = THINKING_OPTIONS.find((t) => t.value === thinkingOverride)
   const selectedAdvancedEffortOption = EFFORT_OPTIONS.find((e) => e.value === effortOverride)
@@ -868,302 +904,402 @@ export function CreateTaskDialog({
             </button>
           </form>
         ) : (
-          <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
-            {/* Project Select */}
-            <div>
-              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-                Project
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                  onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                >
-                  <span
-                    className={
-                      selectedProject ? 'text-[var(--color-paper)]' : 'text-[var(--color-stone)]/60'
-                    }
+          <TooltipProvider>
+            <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
+              {/* Project Select */}
+              <div>
+                <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                  Project
+                </label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between px-3 py-2 text-title text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                    onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
                   >
-                    {selectedProject || 'Select a project...'}
-                  </span>
-                  <ChevronDown
-                    className={cn(
-                      'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
-                      projectDropdownOpen && 'rotate-180'
-                    )}
-                  />
-                </button>
+                    <span
+                      className={
+                        selectedProject
+                          ? 'text-[var(--color-paper)]'
+                          : 'text-[var(--color-stone)]/60'
+                      }
+                    >
+                      {selectedProject || 'Select a project...'}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        'w-4 h-4 text-[var(--color-stone)]/60 transition-transform',
+                        projectDropdownOpen && 'rotate-180'
+                      )}
+                    />
+                  </button>
 
-                {projectDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                    {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
-                      <div key={workspace}>
-                        <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
-                          {workspace}
+                  {projectDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                      {Array.from(grouped.entries()).map(([workspace, workspaceProjects]) => (
+                        <div key={workspace}>
+                          <div className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]">
+                            {workspace}
+                          </div>
+                          {workspaceProjects.map((project: ProjectWithWorkspace) => (
+                            <button
+                              key={project.id}
+                              type="button"
+                              className={cn(
+                                'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                selectedProject === project.name
+                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                  : 'text-[var(--color-stone)]'
+                              )}
+                              onClick={() => {
+                                setSelectedProject(project.name)
+                                setProjectDropdownOpen(false)
+                              }}
+                            >
+                              {project.name}
+                            </button>
+                          ))}
                         </div>
-                        {workspaceProjects.map((project: ProjectWithWorkspace) => (
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Prompt */}
+              <div className="relative">
+                <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
+                  Prompt
+                </label>
+                <textarea
+                  ref={textareaRef}
+                  value={prompt}
+                  onChange={handlePromptChange}
+                  onKeyDown={(e) => {
+                    // Let autocomplete handle navigation keys when visible
+                    if (
+                      (showAutocomplete || showFileAutocomplete) &&
+                      ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)
+                    ) {
+                      return
+                    }
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                      e.preventDefault()
+                      if (selectedProject && prompt.trim() && !submitting) {
+                        handleSubmit(e as unknown as React.FormEvent)
+                      }
+                    }
+                  }}
+                  onPaste={handlePaste}
+                  placeholder="Type / for commands, @ for files. Paste images with ⌘V"
+                  className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
+                  autoFocus
+                />
+                {/* Slash command autocomplete - rendered via portal */}
+                <CommandAutocomplete
+                  commands={commands}
+                  filter={autocompleteFilter}
+                  visible={showAutocomplete}
+                  onSelect={handleCommandSelect}
+                  onClose={handleAutocompleteClose}
+                  anchorRef={textareaRef}
+                />
+                {/* File autocomplete (@mentions) - rendered via portal */}
+                <FileAutocomplete
+                  files={projectFiles}
+                  filter={fileAutocompleteFilter}
+                  visible={showFileAutocomplete}
+                  onSelect={handleFileMentionSelect}
+                  onClose={handleFileAutocompleteClose}
+                  anchorRef={textareaRef}
+                  loading={filesLoading}
+                  truncated={filesTruncated}
+                />
+              </div>
+
+              {/* Image Attachments - Compact */}
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleFileSelect(e.target.files)}
+                />
+                {pendingImages.length === 0 ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-2 rounded-sm transition-colors',
+                      isDragging
+                        ? 'bg-[rgba(163,163,163,0.1)] border border-dashed border-[var(--color-paper)]'
+                        : 'hover:bg-[rgba(163,163,163,0.05)]'
+                    )}
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
+                    <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
+                    <span className="text-body text-[var(--color-stone)]/50">Attach images</span>
+                    <span className="text-caption text-[var(--color-stone)]/30 ml-auto">
+                      drag, paste, or click
+                    </span>
+                  </button>
+                ) : (
+                  <div
+                    className={cn(
+                      'border border-dashed rounded-sm p-2 transition-colors',
+                      isDragging
+                        ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
+                        : 'border-[rgba(163,163,163,0.15)]'
+                    )}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {pendingImages.map((img, index) => (
+                        <div key={img.preview} className="relative group">
+                          <img
+                            src={img.preview}
+                            alt={img.file.name}
+                            className="w-full h-12 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
+                          />
                           <button
-                            key={project.id}
                             type="button"
-                            className={cn(
-                              'w-full px-3 py-2 text-left text-title hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                              selectedProject === project.name
-                                ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                : 'text-[var(--color-stone)]'
-                            )}
-                            onClick={() => {
-                              setSelectedProject(project.name)
-                              setProjectDropdownOpen(false)
-                            }}
+                            className="absolute top-0.5 right-0.5 p-0.5 bg-[var(--color-void)]/80 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeImage(index)}
                           >
-                            {project.name}
+                            <Trash2 className="w-2.5 h-2.5 text-[var(--color-vermillion)]" />
                           </button>
-                        ))}
-                      </div>
-                    ))}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="h-12 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <ImageIcon className="w-3 h-3 text-[var(--color-stone)]/40" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
-            </div>
 
-            {/* Prompt */}
-            <div className="relative">
-              <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/70 mb-2">
-                Prompt
-              </label>
-              <textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={handlePromptChange}
-                onKeyDown={(e) => {
-                  // Let autocomplete handle navigation keys when visible
-                  if (
-                    (showAutocomplete || showFileAutocomplete) &&
-                    ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)
-                  ) {
-                    return
-                  }
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault()
-                    if (selectedProject && prompt.trim() && !submitting) {
-                      handleSubmit(e as unknown as React.FormEvent)
-                    }
-                  }
-                }}
-                onPaste={handlePaste}
-                placeholder="Type / for commands, @ for files. Paste images with ⌘V"
-                className="w-full px-3 py-2.5 text-title text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm resize-none h-32 placeholder:text-[var(--color-stone)]/50 focus:outline-none focus:border-[rgba(163,163,163,0.3)] transition-colors"
-                autoFocus
-              />
-              {/* Slash command autocomplete - rendered via portal */}
-              <CommandAutocomplete
-                commands={commands}
-                filter={autocompleteFilter}
-                visible={showAutocomplete}
-                onSelect={handleCommandSelect}
-                onClose={handleAutocompleteClose}
-                anchorRef={textareaRef}
-              />
-              {/* File autocomplete (@mentions) - rendered via portal */}
-              <FileAutocomplete
-                files={projectFiles}
-                filter={fileAutocompleteFilter}
-                visible={showFileAutocomplete}
-                onSelect={handleFileMentionSelect}
-                onClose={handleFileAutocompleteClose}
-                anchorRef={textareaRef}
-                loading={filesLoading}
-                truncated={filesTruncated}
-              />
-            </div>
-
-            {/* Image Attachments - Compact */}
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                multiple
-                className="hidden"
-                onChange={(e) => handleFileSelect(e.target.files)}
-              />
-              {pendingImages.length === 0 ? (
-                <button
-                  type="button"
-                  className={cn(
-                    'w-full flex items-center gap-2 px-3 py-2 rounded-sm transition-colors',
-                    isDragging
-                      ? 'bg-[rgba(163,163,163,0.1)] border border-dashed border-[var(--color-paper)]'
-                      : 'hover:bg-[rgba(163,163,163,0.05)]'
-                  )}
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                >
-                  <ImageIcon className="w-4 h-4 text-[var(--color-stone)]/40" />
-                  <span className="text-body text-[var(--color-stone)]/50">Attach images</span>
-                  <span className="text-caption text-[var(--color-stone)]/30 ml-auto">
-                    drag, paste, or click
+              {/* Profile Select — compact segmented buttons */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/70 shrink-0">
+                    Profile
                   </span>
-                </button>
-              ) : (
-                <div
-                  className={cn(
-                    'border border-dashed rounded-sm p-2 transition-colors',
-                    isDragging
-                      ? 'border-[var(--color-paper)] bg-[rgba(163,163,163,0.1)]'
-                      : 'border-[rgba(163,163,163,0.15)]'
-                  )}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                >
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {pendingImages.map((img, index) => (
-                      <div key={img.preview} className="relative group">
-                        <img
-                          src={img.preview}
-                          alt={img.file.name}
-                          className="w-full h-12 object-cover rounded-sm border border-[rgba(163,163,163,0.15)]"
-                        />
-                        <button
-                          type="button"
-                          className="absolute top-0.5 right-0.5 p-0.5 bg-[var(--color-void)]/80 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => removeImage(index)}
-                        >
-                          <Trash2 className="w-2.5 h-2.5 text-[var(--color-vermillion)]" />
-                        </button>
-                      </div>
+                  <HelpTip label="What is a profile?">
+                    A profile is a model + reasoning-effort preset. Quick uses Haiku 4.5, Standard
+                    uses Sonnet 4.6, Deep and Planning use Opus 4.6. Pick one and start; fine-tune
+                    under Advanced only if you need to.
+                  </HelpTip>
+                  <div className="flex items-center gap-1 flex-1">
+                    {PROFILE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={cn(
+                          'px-2.5 py-1 text-caption rounded-sm transition-colors',
+                          profile === option.value
+                            ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                            : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:bg-[rgba(163,163,163,0.06)]'
+                        )}
+                        onClick={() => {
+                          setProfile(option.value)
+                          if (option.value !== 'planning') {
+                            setModelTransition('')
+                          }
+                        }}
+                      >
+                        {option.label}
+                      </button>
                     ))}
-                    <button
-                      type="button"
-                      className="h-12 border border-dashed border-[rgba(163,163,163,0.2)] rounded-sm flex items-center justify-center hover:border-[rgba(163,163,163,0.4)] transition-colors"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <ImageIcon className="w-3 h-3 text-[var(--color-stone)]/40" />
-                    </button>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* Profile Select — compact segmented buttons */}
-            <div className="flex items-center gap-2">
-              <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/70 shrink-0">
-                Profile
-              </span>
-              <div className="flex items-center gap-1 flex-1">
-                {PROFILE_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={cn(
-                      'px-2.5 py-1 text-caption rounded-sm transition-colors',
-                      profile === option.value
-                        ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                        : 'text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] hover:bg-[rgba(163,163,163,0.06)]'
-                    )}
-                    onClick={() => {
-                      setProfile(option.value)
-                      if (option.value !== 'planning') {
-                        setModelTransition('')
-                      }
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {/* Surface what the selected profile actually uses, so the model
+                    tier names aren't bare jargon. */}
+                {selectedProfileOption?.summary && (
+                  <p className="text-caption text-[var(--color-stone)]/50">
+                    {selectedProfileOption.summary}
+                  </p>
+                )}
               </div>
-            </div>
 
-            {/* Advanced Options */}
-            <div>
-              <button
-                type="button"
-                className="flex items-center gap-2 text-body text-[var(--color-stone)]/70 hover:text-[var(--color-paper)] transition-colors"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-              >
-                <ChevronRight
-                  className={cn('w-4 h-4 transition-transform', showAdvanced && 'rotate-90')}
-                />
-                <Settings className="w-4 h-4" />
-                <span>Advanced</span>
-                {!showAdvanced &&
-                  (useWorktree ||
-                    ralphEnabled ||
-                    agentTeams ||
-                    modelOverride ||
-                    thinkingOverride ||
-                    effortOverride ||
-                    maxBudgetOverride ||
-                    taskBudgetOverride) && (
-                    <span className="text-caption text-[var(--color-stone)]/50 ml-1">
-                      {[
-                        useWorktree && 'worktree',
-                        ralphEnabled && 'loop',
-                        agentTeams && 'teams',
-                        modelOverride && modelOverride,
-                        effortOverride && effortOverride,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
-                  )}
-              </button>
+              {/* Advanced Options */}
+              <div>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-body text-[var(--color-stone)]/70 hover:text-[var(--color-paper)] transition-colors"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                >
+                  <ChevronRight
+                    className={cn('w-4 h-4 transition-transform', showAdvanced && 'rotate-90')}
+                  />
+                  <Settings className="w-4 h-4" />
+                  <span>Advanced</span>
+                  {!showAdvanced &&
+                    (useWorktree ||
+                      ralphEnabled ||
+                      agentTeams ||
+                      modelOverride ||
+                      thinkingOverride ||
+                      effortOverride ||
+                      maxBudgetOverride ||
+                      taskBudgetOverride) && (
+                      <span className="text-caption text-[var(--color-stone)]/50 ml-1">
+                        {[
+                          useWorktree && 'worktree',
+                          ralphEnabled && 'loop',
+                          agentTeams && 'teams',
+                          modelOverride && modelOverride,
+                          effortOverride && effortOverride,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
+                </button>
 
-              {showAdvanced && (
-                <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
-                  {/* Worktree Toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60" />
-                      <div>
-                        <span className="text-body text-[var(--color-paper)]">
-                          Use Git Worktree
-                        </span>
-                        <p className="text-caption text-[var(--color-stone)]/60">
-                          Run in isolated branch
-                        </p>
+                {showAdvanced && (
+                  <div className="mt-3 pl-6 space-y-4 border-l-2 border-[rgba(163,163,163,0.15)]">
+                    {/* Worktree Toggle */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        <GitBranch className="w-4 h-4 text-[var(--color-stone)]/60 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="text-body text-[var(--color-paper)]">
+                            Use Git Worktree
+                          </span>
+                          <p className="text-caption text-[var(--color-stone)]/60">
+                            Runs in an isolated branch so changes don't touch your working copy.
+                            Leave on for code tasks; turn off for chat or research.
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <button
-                      type="button"
-                      className={cn(
-                        'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                        useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
-                      )}
-                      onClick={() => setUseWorktree(!useWorktree)}
-                    >
-                      <span
+                      <button
+                        type="button"
                         className={cn(
-                          'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                          useWorktree ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                          'relative w-10 h-5 rounded-full transition-colors shrink-0 mt-0.5',
+                          useWorktree ? 'bg-[var(--color-paper)]' : 'bg-[rgba(163,163,163,0.2)]'
                         )}
-                        style={{ left: useWorktree ? '22px' : '2px' }}
-                      />
-                    </button>
-                  </div>
+                        onClick={() => setUseWorktree(!useWorktree)}
+                      >
+                        <span
+                          className={cn(
+                            'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                            useWorktree ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                          )}
+                          style={{ left: useWorktree ? '22px' : '2px' }}
+                        />
+                      </button>
+                    </div>
 
-                  {/* Ralph Loop Toggle */}
-                  <div className="space-y-3">
+                    {/* Ralph Loop Toggle */}
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2">
+                          <RefreshCw
+                            className={cn(
+                              'w-4 h-4 transition-colors mt-0.5 shrink-0',
+                              ralphEnabled
+                                ? 'text-[var(--color-sky)]'
+                                : 'text-[var(--color-stone)]/60'
+                            )}
+                          />
+                          <div>
+                            <span className="text-body text-[var(--color-paper)]">
+                              Enable Ralph Loop
+                            </span>
+                            <p className="text-caption text-[var(--color-stone)]/60">
+                              The agent keeps iterating on its own until it decides the task is done
+                              — or it hits Max Iterations or the Cost Limit below.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className={cn(
+                            'relative w-10 h-5 rounded-full transition-colors shrink-0 mt-0.5',
+                            ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                          )}
+                          onClick={() => setRalphEnabled(!ralphEnabled)}
+                        >
+                          <span
+                            className={cn(
+                              'absolute top-0.5 w-4 h-4 rounded-full transition-all',
+                              ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                            )}
+                            style={{ left: ralphEnabled ? '22px' : '2px' }}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Ralph Options (shown when enabled) */}
+                      {ralphEnabled && (
+                        <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
+                          <div className="flex items-center justify-between">
+                            <label className="text-body text-[var(--color-stone)]">
+                              Max Iterations
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={maxLoops}
+                              onChange={(e) =>
+                                setMaxLoops(
+                                  Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1))
+                                )
+                              }
+                              className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-body text-[var(--color-stone)]">
+                              Cost Limit (USD)
+                            </label>
+                            <div className="flex items-center gap-1">
+                              <span className="text-body text-[var(--color-stone)]/60">$</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="optional"
+                                value={maxCostUsd}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                    setMaxCostUsd(value)
+                                  }
+                                }}
+                                className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Agent Teams Toggle */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <RefreshCw
+                        <Users
                           className={cn(
                             'w-4 h-4 transition-colors',
-                            ralphEnabled
-                              ? 'text-[var(--color-sky)]'
-                              : 'text-[var(--color-stone)]/60'
+                            agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
                           )}
                         />
                         <div>
                           <span className="text-body text-[var(--color-paper)]">
-                            Enable Ralph Loop
+                            Enable Agent Teams
                           </span>
                           <p className="text-caption text-[var(--color-stone)]/60">
-                            Autonomous execution until complete
+                            Coordinated multi-agent collaboration
                           </p>
                         </div>
                       </div>
@@ -1171,400 +1307,92 @@ export function CreateTaskDialog({
                         type="button"
                         className={cn(
                           'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                          ralphEnabled ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
+                          agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
                         )}
-                        onClick={() => setRalphEnabled(!ralphEnabled)}
+                        onClick={() => {
+                          const enabling = !agentTeams
+                          setAgentTeams(enabling)
+                          if (enabling && !prompt.trim()) {
+                            setPrompt(AGENT_TEAMS_TEMPLATE)
+                            setTimeout(() => {
+                              textareaRef.current?.focus()
+                              textareaRef.current?.setSelectionRange(0, 0)
+                              textareaRef.current?.scrollTo(0, 0)
+                            }, 0)
+                          }
+                        }}
                       >
                         <span
                           className={cn(
                             'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                            ralphEnabled ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
+                            agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
                           )}
-                          style={{ left: ralphEnabled ? '22px' : '2px' }}
+                          style={{ left: agentTeams ? '22px' : '2px' }}
                         />
                       </button>
                     </div>
 
-                    {/* Ralph Options (shown when enabled) */}
-                    {ralphEnabled && (
-                      <div className="pl-6 space-y-3 border-l-2 border-[var(--color-sky)]/30">
-                        <div className="flex items-center justify-between">
-                          <label className="text-body text-[var(--color-stone)]">
-                            Max Iterations
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={1000}
-                            value={maxLoops}
-                            onChange={(e) =>
-                              setMaxLoops(
-                                Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1))
-                              )
-                            }
-                            className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)]"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <label className="text-body text-[var(--color-stone)]">
-                            Cost Limit (USD)
-                          </label>
-                          <div className="flex items-center gap-1">
-                            <span className="text-body text-[var(--color-stone)]/60">$</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="optional"
-                              value={maxCostUsd}
-                              onChange={(e) => {
-                                const value = e.target.value
-                                if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                                  setMaxCostUsd(value)
-                                }
-                              }}
-                              className="w-20 px-2 py-1 text-body text-[var(--color-paper)] text-right bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Agent Teams Toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Users
-                        className={cn(
-                          'w-4 h-4 transition-colors',
-                          agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                        )}
-                      />
-                      <div>
-                        <span className="text-body text-[var(--color-paper)]">
-                          Enable Agent Teams
-                        </span>
-                        <p className="text-caption text-[var(--color-stone)]/60">
-                          Coordinated multi-agent collaboration
-                        </p>
-                      </div>
+                    {/* Model override group — clarifies these are advanced overrides
+                        that replace whatever the selected Profile preset would use. */}
+                    <div className="pt-1 -mb-1 flex items-center gap-2 border-t border-[rgba(163,163,163,0.1)]">
+                      <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/50 pt-2">
+                        Profile overrides
+                      </span>
+                      <HelpTip label="What do these overrides do?">
+                        Profile already picks a model and reasoning effort. Set any of these to
+                        replace that preset for this one task. Leave them on "Use profile default"
+                        to keep the Profile's choices.
+                      </HelpTip>
                     </div>
-                    <button
-                      type="button"
-                      className={cn(
-                        'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                        agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
-                      )}
-                      onClick={() => {
-                        const enabling = !agentTeams
-                        setAgentTeams(enabling)
-                        if (enabling && !prompt.trim()) {
-                          setPrompt(AGENT_TEAMS_TEMPLATE)
-                          setTimeout(() => {
-                            textareaRef.current?.focus()
-                            textareaRef.current?.setSelectionRange(0, 0)
-                            textareaRef.current?.scrollTo(0, 0)
-                          }, 0)
-                        }
-                      }}
-                    >
-                      <span
-                        className={cn(
-                          'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                          agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
-                        )}
-                        style={{ left: agentTeams ? '22px' : '2px' }}
-                      />
-                    </button>
-                  </div>
 
-                  {/* Model Override */}
-                  <div>
-                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                      Model Override
-                    </label>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                        onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
-                      >
-                        <span
-                          className={
-                            modelOverride
-                              ? 'text-[var(--color-paper)]'
-                              : 'text-[var(--color-stone)]/60'
-                          }
-                        >
-                          {selectedAdvancedModelOption?.label || 'Use profile default'}
-                          {selectedAdvancedModelOption?.description && (
-                            <span className="ml-2 text-[var(--color-stone)]/60">
-                              {selectedAdvancedModelOption.description}
-                            </span>
-                          )}
-                        </span>
-                        <ChevronDown
-                          className={cn(
-                            'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                            advancedModelDropdownOpen && 'rotate-180'
-                          )}
-                        />
-                      </button>
-
-                      {advancedModelDropdownOpen && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                          {MODEL_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={cn(
-                                'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                modelOverride === option.value
-                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                  : 'text-[var(--color-stone)]'
-                              )}
-                              onClick={() => {
-                                setModelOverride(option.value)
-                                setAdvancedModelDropdownOpen(false)
-                              }}
-                            >
-                              {option.label}
-                              {option.description && (
-                                <span className="ml-2 text-[var(--color-stone)]/60">
-                                  {option.description}
-                                </span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Thinking Budget Override */}
-                  <div>
-                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                      Thinking Budget
-                    </label>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                        onClick={() =>
-                          setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)
-                        }
-                      >
-                        <span
-                          className={
-                            thinkingOverride
-                              ? 'text-[var(--color-paper)]'
-                              : 'text-[var(--color-stone)]/60'
-                          }
-                        >
-                          {selectedAdvancedThinkingOption?.label || 'Use profile default'}
-                          {selectedAdvancedThinkingOption?.description && (
-                            <span className="ml-2 text-[var(--color-stone)]/60">
-                              {selectedAdvancedThinkingOption.description}
-                            </span>
-                          )}
-                        </span>
-                        <ChevronDown
-                          className={cn(
-                            'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                            advancedThinkingDropdownOpen && 'rotate-180'
-                          )}
-                        />
-                      </button>
-
-                      {advancedThinkingDropdownOpen && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                          {THINKING_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={cn(
-                                'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                thinkingOverride === option.value
-                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                  : 'text-[var(--color-stone)]'
-                              )}
-                              onClick={() => {
-                                setThinkingOverride(option.value)
-                                setAdvancedThinkingDropdownOpen(false)
-                              }}
-                            >
-                              {option.label}
-                              {option.description && (
-                                <span className="ml-2 text-[var(--color-stone)]/60">
-                                  {option.description}
-                                </span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Effort Override */}
-                  <div>
-                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                      Effort Level
-                    </label>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                        onClick={() => setAdvancedEffortDropdownOpen(!advancedEffortDropdownOpen)}
-                      >
-                        <span
-                          className={
-                            effortOverride
-                              ? 'text-[var(--color-paper)]'
-                              : 'text-[var(--color-stone)]/60'
-                          }
-                        >
-                          {selectedAdvancedEffortOption?.label || 'Use profile default'}
-                          {selectedAdvancedEffortOption?.description && (
-                            <span className="ml-2 text-[var(--color-stone)]/60">
-                              {selectedAdvancedEffortOption.description}
-                            </span>
-                          )}
-                        </span>
-                        <ChevronDown
-                          className={cn(
-                            'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                            advancedEffortDropdownOpen && 'rotate-180'
-                          )}
-                        />
-                      </button>
-
-                      {advancedEffortDropdownOpen && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                          {EFFORT_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={cn(
-                                'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                effortOverride === option.value
-                                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                                  : 'text-[var(--color-stone)]'
-                              )}
-                              onClick={() => {
-                                setEffortOverride(option.value)
-                                setAdvancedEffortDropdownOpen(false)
-                              }}
-                            >
-                              {option.label}
-                              {option.description && (
-                                <span className="ml-2 text-[var(--color-stone)]/60">
-                                  {option.description}
-                                </span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Max Budget Override */}
-                  <div>
-                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                      Max Budget (USD)
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <span className="text-body text-[var(--color-stone)]/60">$</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="Use profile default"
-                        value={maxBudgetOverride}
-                        onChange={(e) => {
-                          const value = e.target.value
-                          if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                            setMaxBudgetOverride(value)
-                          }
-                        }}
-                        className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Task Budget (Token Budget) */}
-                  <div>
-                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                      Task Budget (Tokens)
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="No limit"
-                      value={taskBudgetOverride}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        if (value === '' || /^\d+$/.test(value)) {
-                          setTaskBudgetOverride(value)
-                        }
-                      }}
-                      className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
-                    />
-                    <p className="text-[10px] text-[var(--color-stone)]/40 mt-0.5">
-                      Model paces itself to finish within budget
-                    </p>
-                  </div>
-
-                  {/* Model Transition (only shown for Planning profile) */}
-                  {profile === 'planning' && (
+                    {/* Model Override */}
                     <div>
                       <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
-                        Model Transition
+                        Model Override
                       </label>
                       <div className="relative">
                         <button
                           type="button"
                           className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
-                          onClick={() =>
-                            setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)
-                          }
+                          onClick={() => setAdvancedModelDropdownOpen(!advancedModelDropdownOpen)}
                         >
                           <span
                             className={
-                              modelTransition
+                              modelOverride
                                 ? 'text-[var(--color-paper)]'
                                 : 'text-[var(--color-stone)]/60'
                             }
                           >
-                            {selectedModelTransitionOption?.label || 'None (single model)'}
-                            {selectedModelTransitionOption?.description && modelTransition && (
+                            {selectedAdvancedModelOption?.label || 'Use profile default'}
+                            {selectedAdvancedModelOption?.description && (
                               <span className="ml-2 text-[var(--color-stone)]/60">
-                                {selectedModelTransitionOption.description}
+                                {selectedAdvancedModelOption.description}
                               </span>
                             )}
                           </span>
                           <ChevronDown
                             className={cn(
                               'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
-                              modelTransitionDropdownOpen && 'rotate-180'
+                              advancedModelDropdownOpen && 'rotate-180'
                             )}
                           />
                         </button>
 
-                        {modelTransitionDropdownOpen && (
+                        {advancedModelDropdownOpen && (
                           <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
-                            {MODEL_TRANSITION_OPTIONS.map((option) => (
+                            {MODEL_OPTIONS.map((option) => (
                               <button
                                 key={option.value}
                                 type="button"
                                 className={cn(
                                   'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
-                                  modelTransition === option.value
+                                  modelOverride === option.value
                                     ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
                                     : 'text-[var(--color-stone)]'
                                 )}
                                 onClick={() => {
-                                  setModelTransition(option.value)
-                                  setModelTransitionDropdownOpen(false)
+                                  setModelOverride(option.value)
+                                  setAdvancedModelDropdownOpen(false)
                                 }}
                               >
                                 {option.label}
@@ -1579,39 +1407,280 @@ export function CreateTaskDialog({
                         )}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
 
-            {/* Error */}
-            {error && <p className="text-body text-[var(--color-vermillion)]">{error}</p>}
+                    {/* Thinking Budget Override */}
+                    <div>
+                      <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                        Thinking Budget
+                      </label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                          onClick={() =>
+                            setAdvancedThinkingDropdownOpen(!advancedThinkingDropdownOpen)
+                          }
+                        >
+                          <span
+                            className={
+                              thinkingOverride
+                                ? 'text-[var(--color-paper)]'
+                                : 'text-[var(--color-stone)]/60'
+                            }
+                          >
+                            {selectedAdvancedThinkingOption?.label || 'Use profile default'}
+                            {selectedAdvancedThinkingOption?.description && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {selectedAdvancedThinkingOption.description}
+                              </span>
+                            )}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                              advancedThinkingDropdownOpen && 'rotate-180'
+                            )}
+                          />
+                        </button>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                className="px-4 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!selectedProject || !prompt.trim() || submitting}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-2 text-caption uppercase tracking-widest rounded-sm transition-colors',
-                  selectedProject && prompt.trim() && !submitting
-                    ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                    : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
+                        {advancedThinkingDropdownOpen && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                            {THINKING_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={cn(
+                                  'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                  thinkingOverride === option.value
+                                    ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                    : 'text-[var(--color-stone)]'
+                                )}
+                                onClick={() => {
+                                  setThinkingOverride(option.value)
+                                  setAdvancedThinkingDropdownOpen(false)
+                                }}
+                              >
+                                {option.label}
+                                {option.description && (
+                                  <span className="ml-2 text-[var(--color-stone)]/60">
+                                    {option.description}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Effort Override */}
+                    <div>
+                      <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                        Effort Level
+                      </label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                          onClick={() => setAdvancedEffortDropdownOpen(!advancedEffortDropdownOpen)}
+                        >
+                          <span
+                            className={
+                              effortOverride
+                                ? 'text-[var(--color-paper)]'
+                                : 'text-[var(--color-stone)]/60'
+                            }
+                          >
+                            {selectedAdvancedEffortOption?.label || 'Use profile default'}
+                            {selectedAdvancedEffortOption?.description && (
+                              <span className="ml-2 text-[var(--color-stone)]/60">
+                                {selectedAdvancedEffortOption.description}
+                              </span>
+                            )}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                              advancedEffortDropdownOpen && 'rotate-180'
+                            )}
+                          />
+                        </button>
+
+                        {advancedEffortDropdownOpen && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                            {EFFORT_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={cn(
+                                  'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                  effortOverride === option.value
+                                    ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                    : 'text-[var(--color-stone)]'
+                                )}
+                                onClick={() => {
+                                  setEffortOverride(option.value)
+                                  setAdvancedEffortDropdownOpen(false)
+                                }}
+                              >
+                                {option.label}
+                                {option.description && (
+                                  <span className="ml-2 text-[var(--color-stone)]/60">
+                                    {option.description}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Max Budget Override */}
+                    <div>
+                      <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                        Max Budget (USD)
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <span className="text-body text-[var(--color-stone)]/60">$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="Use profile default"
+                          value={maxBudgetOverride}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                              setMaxBudgetOverride(value)
+                            }
+                          }}
+                          className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Task Budget (Token Budget) */}
+                    <div>
+                      <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                        Task Budget (Tokens)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="No limit"
+                        value={taskBudgetOverride}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (value === '' || /^\d+$/.test(value)) {
+                            setTaskBudgetOverride(value)
+                          }
+                        }}
+                        className="w-full px-2 py-1.5 text-body text-[var(--color-paper)] bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[rgba(163,163,163,0.3)] placeholder:text-[var(--color-stone)]/40"
+                      />
+                      <p className="text-[10px] text-[var(--color-stone)]/40 mt-0.5">
+                        Model paces itself to finish within budget
+                      </p>
+                    </div>
+
+                    {/* Model Transition (only shown for Planning profile) */}
+                    {profile === 'planning' && (
+                      <div>
+                        <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1.5">
+                          Model Transition
+                        </label>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-between px-3 py-2 text-body text-left bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm hover:border-[rgba(163,163,163,0.3)] transition-colors"
+                            onClick={() =>
+                              setModelTransitionDropdownOpen(!modelTransitionDropdownOpen)
+                            }
+                          >
+                            <span
+                              className={
+                                modelTransition
+                                  ? 'text-[var(--color-paper)]'
+                                  : 'text-[var(--color-stone)]/60'
+                              }
+                            >
+                              {selectedModelTransitionOption?.label || 'None (single model)'}
+                              {selectedModelTransitionOption?.description && modelTransition && (
+                                <span className="ml-2 text-[var(--color-stone)]/60">
+                                  {selectedModelTransitionOption.description}
+                                </span>
+                              )}
+                            </span>
+                            <ChevronDown
+                              className={cn(
+                                'w-3 h-3 text-[var(--color-stone)]/60 transition-transform',
+                                modelTransitionDropdownOpen && 'rotate-180'
+                              )}
+                            />
+                          </button>
+
+                          {modelTransitionDropdownOpen && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50">
+                              {MODEL_TRANSITION_OPTIONS.map((option) => (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  className={cn(
+                                    'w-full px-3 py-2 text-left text-body hover:bg-[rgba(163,163,163,0.1)] transition-colors',
+                                    modelTransition === option.value
+                                      ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                                      : 'text-[var(--color-stone)]'
+                                  )}
+                                  onClick={() => {
+                                    setModelTransition(option.value)
+                                    setModelTransitionDropdownOpen(false)
+                                  }}
+                                >
+                                  {option.label}
+                                  {option.description && (
+                                    <span className="ml-2 text-[var(--color-stone)]/60">
+                                      {option.description}
+                                    </span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
-                title="⌘+Enter to submit"
-              >
-                <Play className="w-3 h-3" />
-                {submitting ? 'Starting...' : 'Start'}
-              </button>
-            </div>
-          </form>
+              </div>
+
+              {/* Error */}
+              {error && <p className="text-body text-[var(--color-vermillion)]">{error}</p>}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 text-caption uppercase tracking-widest text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!selectedProject || !prompt.trim() || submitting}
+                  className={cn(
+                    'flex items-center gap-2 px-4 py-2 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                    selectedProject && prompt.trim() && !submitting
+                      ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                      : 'bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/60 cursor-not-allowed'
+                  )}
+                  title="⌘+Enter to submit"
+                >
+                  <Play className="w-3 h-3" />
+                  {submitting ? 'Starting...' : 'Start'}
+                </button>
+              </div>
+            </form>
+          </TooltipProvider>
         )}
       </DialogContent>
     </Dialog>
