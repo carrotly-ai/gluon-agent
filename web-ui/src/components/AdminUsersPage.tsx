@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Check,
+  Key,
   Loader2,
   Plus,
   RefreshCw,
@@ -325,10 +326,11 @@ function UserRow({
           <button
             type="button"
             onClick={onStartResetPassword}
-            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors text-caption uppercase tracking-widest"
+            className="p-1.5 rounded-sm hover:bg-[rgba(163,163,163,0.1)] text-[var(--color-stone)]/80 hover:text-[var(--color-stone)] transition-colors"
+            aria-label="Reset password"
             title="Reset password"
           >
-            <span className="text-[10px]">PW</span>
+            <Key className="w-3.5 h-3.5" />
           </button>
           {!user.disabled && !isMe && (
             <button
