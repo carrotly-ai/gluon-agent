@@ -340,6 +340,8 @@ function AuthenticatedApp() {
     setRunDetailTab,
     settingsTab,
     setSettingsTab,
+    preferencesGroup,
+    setPreferencesGroup,
   } = useRouteSync()
 
   // Keyboard shortcuts
@@ -711,7 +713,12 @@ function AuthenticatedApp() {
         {/* Main */}
         <main className="flex-1 flex flex-col overflow-hidden min-h-0">
           {viewMode === 'settings' ? (
-            <SettingsPage tab={settingsTab} onTabChange={setSettingsTab} />
+            <SettingsPage
+              tab={settingsTab}
+              onTabChange={setSettingsTab}
+              preferencesGroup={preferencesGroup}
+              onPreferencesGroupChange={setPreferencesGroup}
+            />
           ) : viewMode === 'admin-users' ? (
             <AdminUsersGuard />
           ) : viewMode === 'usage' ? (

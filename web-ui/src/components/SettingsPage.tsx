@@ -19,6 +19,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import type { PreferencesGroup } from '@/hooks/useRouteSync'
 import { useTheme } from '@/hooks/useTheme'
 import {
   cloneRepository,
@@ -38,10 +40,61 @@ import {
 import type { FormulaTemplate, Project, ScanResultResponse, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { fetchServerVersion, type VersionInfo } from '@/lib/version'
+import { ConnectedAccountsSection } from './ConnectedAccountsSection'
 import { GitSyncButton } from './GitSyncButton'
+import { ChangePasswordForm } from './UserMenu'
 import { WorkspaceSettingsDialog } from './WorkspaceSettingsDialog'
 
-type Tab = 'workspaces' | 'projects' | 'preferences' | 'formulas'
+type Tab = 'workspaces' | 'projects' | 'account' | 'preferences' | 'formulas'
+
+const PREFERENCES_GROUPS: { id: PreferencesGroup; label: string }[] = [
+  { id: 'agent', label: 'Agent' },
+  { id: 'integrations', label: 'Integrations' },
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'system', label: 'System' },
+]
+
+/**
+ * Jump-nav rail for the Preferences tab. The tab is a long stack of setting
+ * cards; this lets the user jump to a group and highlights the active one.
+ * Driven by the URL-synced `preferencesGroup` so deep links land in place.
+ */
+function PreferencesSubNav({
+  active,
+  onChange,
+}: {
+  active: PreferencesGroup
+  onChange: (group: PreferencesGroup) => void
+}) {
+  return (
+    <nav
+      aria-label="Preferences sections"
+      className="flex flex-wrap gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5"
+    >
+      {PREFERENCES_GROUPS.map(({ id, label }) => (
+        <button
+          key={id}
+          type="button"
+          aria-current={active === id ? 'true' : undefined}
+          className={cn(
+            'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
+            active === id
+              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+              : 'text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
+          )}
+          onClick={() => {
+            onChange(id)
+            document
+              .getElementById(`prefs-${id}`)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  )
+}
 
 type LlmProvider = 'bedrock' | 'anthropic' | 'vertex' | 'foundry'
 
@@ -94,14 +147,24 @@ const LLM_PROVIDER_HINTS: Record<LlmProvider, React.ReactNode> = {
 interface SettingsPageProps {
   tab?: Tab
   onTabChange?: (tab: Tab) => void
+  preferencesGroup?: PreferencesGroup
+  onPreferencesGroupChange?: (group: PreferencesGroup) => void
 }
 
-export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPageProps) {
+export function SettingsPage({
+  tab: controlledTab,
+  onTabChange,
+  preferencesGroup,
+  onPreferencesGroupChange,
+}: SettingsPageProps) {
   const navigate = useNavigate()
   const { theme, preference, setTheme } = useTheme()
+  const { user: currentUser } = useCurrentUser()
   // Use controlled tab if provided, otherwise manage internally
   const tab = controlledTab ?? 'workspaces'
   const setTab = onTabChange ?? (() => {})
+  const prefGroup: PreferencesGroup = preferencesGroup ?? 'agent'
+  const setPrefGroup = onPreferencesGroupChange ?? (() => {})
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -566,6 +629,17 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
             </button>
             <button
               className={cn(
+                'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
+                tab === 'account'
+                  ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+                  : 'text-[var(--color-stone)]/80 hover:text-[var(--color-stone)]'
+              )}
+              onClick={() => setTab('account')}
+            >
+              Account
+            </button>
+            <button
+              className={cn(
                 'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors flex items-center gap-1.5',
                 tab === 'preferences'
                   ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
@@ -918,11 +992,76 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
           </div>
         )}
 
+        {/* Account Tab */}
+        {tab === 'account' && (
+          <div className="space-y-6">
+            {/* Profile */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Profile
+              </h3>
+              {currentUser ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                      Display name
+                    </label>
+                    <p className="text-body text-[var(--color-paper)]">
+                      {currentUser.display_name || currentUser.username}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                      Email
+                    </label>
+                    <p className="text-body text-[var(--color-paper)]">
+                      {currentUser.email || '—'}
+                    </p>
+                  </div>
+                  <p className="text-caption text-[var(--color-stone)]/60 sm:col-span-2">
+                    Ask an admin to change your name or email.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-caption text-[var(--color-stone)]/60">
+                  Profile is only available when authentication is enabled.
+                </p>
+              )}
+            </div>
+
+            {/* Change password */}
+            {currentUser && (
+              <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-2">
+                <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                  Password
+                </h3>
+                <ChangePasswordForm
+                  user={currentUser}
+                  isAdmin={currentUser.role === 'admin'}
+                  onClose={() => {}}
+                />
+              </div>
+            )}
+
+            {/* Connected accounts */}
+            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-2">
+              <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
+                Connected Accounts
+              </h3>
+              <ConnectedAccountsSection />
+            </div>
+          </div>
+        )}
+
         {/* Preferences Tab */}
         {tab === 'preferences' && (
           <div className="space-y-6">
+            <PreferencesSubNav active={prefGroup} onChange={setPrefGroup} />
             {/* LLM Provider */}
-            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+            <div
+              id="prefs-agent"
+              className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4 scroll-mt-4"
+            >
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
                 LLM Provider
               </h3>
@@ -967,7 +1106,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
             </div>
 
             {/* Git (merged card) */}
-            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+            <div
+              id="prefs-integrations"
+              className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4 scroll-mt-4"
+            >
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
                 Git
               </h3>
@@ -1317,7 +1459,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
             </div>
 
             {/* Security */}
-            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+            <div
+              id="prefs-workspace"
+              className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4 scroll-mt-4"
+            >
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
                 Security
               </h3>
@@ -1356,7 +1501,10 @@ export function SettingsPage({ tab: controlledTab, onTabChange }: SettingsPagePr
             </div>
 
             {/* Experimental Features */}
-            <div className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4">
+            <div
+              id="prefs-system"
+              className="p-4 bg-[rgba(163,163,163,0.04)] border border-[rgba(163,163,163,0.1)] rounded-sm space-y-4 scroll-mt-4"
+            >
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
                 Experimental
               </h3>
