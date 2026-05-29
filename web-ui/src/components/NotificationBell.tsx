@@ -61,7 +61,7 @@ function NotificationItem({
               {notification.message}
             </p>
           )}
-          <p className="text-body text-[var(--color-stone)]/60 mt-0.5">{ageLabel}</p>
+          <p className="text-caption text-[var(--color-stone)]/50 mt-0.5">{ageLabel}</p>
         </div>
       </div>
     </button>

@@ -8,6 +8,9 @@ export interface ComboboxOption<T extends string = string> {
   /** Optional muted suffix shown after the label (e.g. a model id or hint). */
   description?: string
   disabled?: boolean
+  /** Optional section label; a non-selectable header is rendered above the first
+   *  option of each new group. Options stay flat for keyboard navigation. */
+  group?: string
 }
 
 interface ComboboxProps<T extends string = string> {
@@ -182,30 +185,42 @@ export function Combobox<T extends string = string>({
           aria-label={label}
           className="absolute top-full left-0 right-0 mt-1 max-h-72 overflow-auto bg-[var(--color-ink)] border border-[rgba(163,163,163,0.15)] rounded-sm shadow-xl z-50"
         >
-          {options.map((option, idx) => (
-            <button
-              key={option.value}
-              type="button"
-              data-cb-index={idx}
-              role="option"
-              aria-selected={option.value === value}
-              disabled={option.disabled}
-              className={cn(
-                'w-full px-3 py-2 text-left text-body transition-colors disabled:opacity-40',
-                option.value === value
-                  ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
-                  : 'text-[var(--color-stone)]',
-                activeIndex === idx && 'bg-[rgba(163,163,163,0.12)]'
-              )}
-              onClick={() => select(idx)}
-              onMouseEnter={() => setActiveIndex(idx)}
-            >
-              {option.label}
-              {option.description && (
-                <span className="ml-2 text-[var(--color-stone)]/60">{option.description}</span>
-              )}
-            </button>
-          ))}
+          {options.map((option, idx) => {
+            const showGroupHeader = option.group && option.group !== options[idx - 1]?.group
+            return (
+              <div key={option.value}>
+                {showGroupHeader && (
+                  <div
+                    role="presentation"
+                    className="px-3 py-1.5 text-caption uppercase tracking-widest text-[var(--color-stone)]/60 bg-[var(--color-void)]"
+                  >
+                    {option.group}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  data-cb-index={idx}
+                  role="option"
+                  aria-selected={option.value === value}
+                  disabled={option.disabled}
+                  className={cn(
+                    'w-full px-3 py-2 text-left text-body transition-colors disabled:opacity-40',
+                    option.value === value
+                      ? 'text-[var(--color-paper)] bg-[rgba(163,163,163,0.08)]'
+                      : 'text-[var(--color-stone)]',
+                    activeIndex === idx && 'bg-[rgba(163,163,163,0.12)]'
+                  )}
+                  onClick={() => select(idx)}
+                  onMouseEnter={() => setActiveIndex(idx)}
+                >
+                  {option.label}
+                  {option.description && (
+                    <span className="ml-2 text-[var(--color-stone)]/60">{option.description}</span>
+                  )}
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
