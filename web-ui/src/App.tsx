@@ -327,6 +327,11 @@ function AuthenticatedApp() {
   // Enhanced connectivity detection for offline overlay
   const { status: connectivityStatus, retryIn, lastChecked, checkNow } = useConnectivity()
 
+  // The full-screen overlay supersedes the thin banner — when it's up, the
+  // banner would render redundantly behind it.
+  const offlineOverlayVisible =
+    connectivityStatus === 'offline' || connectivityStatus === 'backend-unreachable'
+
   // URL-based routing
   const {
     viewMode,
@@ -699,8 +704,8 @@ function AuthenticatedApp() {
           </div>
         </header>
 
-        {/* Offline Banner */}
-        {!online && (
+        {/* Offline Banner — hidden while the full overlay is up to avoid a double render */}
+        {!online && !offlineOverlayVisible && (
           <div className="bg-[var(--color-vermillion)]/10 border-b border-[var(--color-vermillion)]/20 px-4 py-2 flex items-center justify-center gap-2 text-caption text-[var(--color-vermillion)]">
             <WifiOff className="w-3.5 h-3.5" />
             <span>You're offline. Some features may be limited.</span>
@@ -802,7 +807,7 @@ function AuthenticatedApp() {
         )}
 
         {/* Offline overlay - shows when backend is unreachable */}
-        {(connectivityStatus === 'offline' || connectivityStatus === 'backend-unreachable') && (
+        {offlineOverlayVisible && (
           <OfflineOverlay
             status={connectivityStatus}
             retryIn={retryIn}
