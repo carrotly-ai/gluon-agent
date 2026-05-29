@@ -79,39 +79,23 @@ import { cn } from '@/lib/utils'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 
-// Mobile overflow menu for run detail action buttons
-function MobileActionMenu({
-  run,
-  detail,
+// Overflow menu holding tertiary actions (Full screen, Refresh, Archive).
+// Promoted from mobile-only to all widths so the header keeps a single primary
+// action at full weight and pushes low-frequency actions behind one kebab.
+function ActionOverflowMenu({
+  runId,
   isActive,
-  isResumable,
   activeTab,
-  onMerge,
-  onCreatePr,
-  onCancel,
   onArchive,
   onRefresh,
-  onResolveConflicts,
-  merging,
-  creatingPr,
-  cancelling,
   archiving,
   loading,
 }: {
-  run: Run | null
-  detail: RunDetail | null
+  runId: string | undefined
   isActive: boolean
-  isResumable: boolean
   activeTab: string
-  onMerge: () => void
-  onCreatePr: () => void
-  onCancel: () => void
   onArchive: () => void
   onRefresh: () => void
-  onResolveConflicts: () => void
-  merging: boolean
-  creatingPr: boolean
-  cancelling: boolean
   archiving: boolean
   loading: boolean
 }) {
@@ -127,147 +111,61 @@ function MobileActionMenu({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const canMergePr =
-    detail?.pr_status === 'open' &&
-    detail?.pr_mergeable !== 'CONFLICTING' &&
-    detail?.branch_name &&
-    !isActive
-  const canResolve = detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive
-  const canCreatePr =
-    detail?.use_worktree &&
-    detail?.branch_name &&
-    detail?.has_remote &&
-    !detail?.pr_url &&
-    !isActive
-  const canMergeLocal =
-    detail?.use_worktree &&
-    detail?.branch_name &&
-    !detail?.pr_url &&
-    detail?.pr_status !== 'merged' &&
-    !isActive
-
   return (
-    <div className="flex sm:hidden items-center gap-1" ref={menuRef}>
-      <Link
-        to={`/runs/${run?.id}/${activeTab}`}
-        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm"
-        title="Open in full screen"
-      >
-        <Maximize2 className="w-3.5 h-3.5" />
-      </Link>
+    <div className="relative" ref={menuRef}>
       <button
-        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm"
-        onClick={onRefresh}
-        disabled={loading}
-        title="Refresh"
-      >
-        <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-      </button>
-      <div className="relative">
-        <button
-          className={cn(
-            'p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-sm transition-colors',
-            open
-              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-              : 'text-[var(--color-stone)]/50 hover:text-[var(--color-paper)]'
-          )}
-          onClick={() => setOpen((prev) => !prev)}
-          title="More actions"
-        >
-          <MoreVertical className="w-3.5 h-3.5" />
-        </button>
-        {open && (
-          <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
-            {canMergePr && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
-                onClick={() => {
-                  onMerge()
-                  setOpen(false)
-                }}
-                disabled={merging}
-              >
-                <GitMerge className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {merging ? 'Merging...' : 'Merge PR'}
-                </span>
-              </button>
-            )}
-            {canResolve && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-purple-400 hover:bg-[rgba(168,85,247,0.1)] transition-colors"
-                onClick={() => {
-                  onResolveConflicts()
-                  setOpen(false)
-                }}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">Resolve</span>
-              </button>
-            )}
-            {canCreatePr && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
-                onClick={() => {
-                  onCreatePr()
-                  setOpen(false)
-                }}
-                disabled={creatingPr}
-              >
-                <GitPullRequest className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {creatingPr ? 'Creating...' : 'Create PR'}
-                </span>
-              </button>
-            )}
-            {canMergeLocal && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
-                onClick={() => {
-                  onMerge()
-                  setOpen(false)
-                }}
-                disabled={merging}
-              >
-                <GitMerge className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {merging ? 'Merging...' : 'Merge'}
-                </span>
-              </button>
-            )}
-            {isActive && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] transition-colors"
-                onClick={() => {
-                  onCancel()
-                  setOpen(false)
-                }}
-                disabled={cancelling}
-              >
-                <X className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {cancelling ? 'Cancelling...' : 'Cancel'}
-                </span>
-              </button>
-            )}
-            {!isActive && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
-                onClick={() => {
-                  onArchive()
-                  setOpen(false)
-                }}
-                disabled={archiving}
-              >
-                <Archive className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {archiving ? 'Archiving...' : 'Archive'}
-                </span>
-              </button>
-            )}
-          </div>
+        className={cn(
+          'flex items-center justify-center rounded-sm transition-colors',
+          'p-2.5 min-h-[44px] min-w-[44px] sm:p-1.5 sm:min-h-0 sm:min-w-0',
+          open
+            ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+            : 'text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5'
         )}
-      </div>
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="More actions"
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <MoreVertical className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
+          <Link
+            to={`/runs/${runId}/${activeTab}`}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span className="uppercase tracking-widest">Full screen</span>
+          </Link>
+          <button
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+            onClick={() => {
+              onRefresh()
+              setOpen(false)
+            }}
+            disabled={loading}
+          >
+            <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+            <span className="uppercase tracking-widest">Refresh</span>
+          </button>
+          {!isActive && (
+            <button
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+              onClick={() => {
+                onArchive()
+                setOpen(false)
+              }}
+              disabled={archiving}
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span className="uppercase tracking-widest">
+                {archiving ? 'Archiving...' : 'Archive'}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1239,6 +1137,25 @@ Focus on preserving functionality from both sides where possible.`
     }
   }
 
+  // Prefill the follow-up box with a conflict-resolution prompt and scroll to it.
+  // Shared by the secondary "Resolve" action across desktop and mobile.
+  const handleResolveConflicts = useCallback(() => {
+    const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
+
+1. Rebase this branch onto ${detail?.source_branch || 'main'}
+2. For each conflict, understand the intent of both changes and merge them intelligently
+3. After resolving all conflicts, force-push the rebased branch
+4. The PR should become mergeable after this
+
+Focus on preserving the functionality from both sides where possible.`
+    setResumePrompt(conflictPrompt)
+    setTimeout(() => {
+      document
+        .querySelector('textarea[placeholder*="Continue with follow-up"]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+  }, [detail?.source_branch])
+
   // Helper to detect context overflow errors
   const isContextOverflowError = (errorMessage: string | null | undefined): boolean => {
     if (!errorMessage) return false
@@ -1412,6 +1329,69 @@ Focus on preserving functionality from both sides where possible.`
     run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review'
   const hasHistory = sessionHistory.length > 0
 
+  // The single full-weight header action, chosen by context. Everything else
+  // is either a ghost secondary (Resolve) or lives in the overflow kebab.
+  // Priority: Cancel (running) → Merge PR → Create PR → Merge local.
+  const primaryAction: {
+    label: string
+    title: string
+    tone: 'merge' | 'cancel'
+    icon: React.ReactNode
+    busy: boolean
+    onClick: () => void
+  } | null = (() => {
+    if (isActive) {
+      return {
+        label: cancelling ? 'Cancelling...' : 'Cancel',
+        title: 'Cancel this run',
+        tone: 'cancel',
+        icon: <X className="w-3 h-3" />,
+        busy: cancelling,
+        onClick: handleCancel,
+      }
+    }
+    if (
+      detail?.pr_status === 'open' &&
+      detail?.pr_mergeable !== 'CONFLICTING' &&
+      detail?.branch_name
+    ) {
+      return {
+        label: merging ? 'Merging...' : 'Merge',
+        title: 'Merge branch locally and push to remote',
+        tone: 'merge',
+        icon: <GitMerge className="w-3 h-3" />,
+        busy: merging,
+        onClick: handleMerge,
+      }
+    }
+    if (detail?.use_worktree && detail?.branch_name && detail?.has_remote && !detail?.pr_url) {
+      return {
+        label: creatingPr ? 'Creating...' : 'Create PR',
+        title: 'Open a pull request for this branch',
+        tone: 'merge',
+        icon: <GitPullRequest className="w-3 h-3" />,
+        busy: creatingPr,
+        onClick: handleCreatePr,
+      }
+    }
+    if (
+      detail?.use_worktree &&
+      detail?.branch_name &&
+      !detail?.pr_url &&
+      detail?.pr_status !== 'merged'
+    ) {
+      return {
+        label: merging ? 'Merging...' : 'Merge',
+        title: 'Merge branch locally',
+        tone: 'merge',
+        icon: <GitMerge className="w-3 h-3" />,
+        busy: merging,
+        onClick: handleMerge,
+      }
+    }
+    return null
+  })()
+
   // Reset to messages if current tab becomes hidden
   useEffect(() => {
     const hiddenTabs: Record<string, boolean> = {
@@ -1515,162 +1495,54 @@ Focus on preserving functionality from both sides where possible.`
               <div className="hidden sm:block w-px h-4 bg-[var(--color-stone)]/20" />
             )}
 
-            {/* Action buttons — desktop: inline, mobile: overflow menu */}
-            {/* Desktop actions */}
-            <div className="hidden sm:flex items-center gap-1 pr-8">
-              {detail?.pr_status === 'open' &&
-                detail?.pr_mergeable !== 'CONFLICTING' &&
-                detail?.branch_name &&
-                !isActive && (
-                  <button
-                    onClick={handleMerge}
-                    disabled={merging}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors',
-                      merging
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                    )}
-                    title="Merge branch locally and push to remote"
-                  >
-                    <GitMerge className="w-3 h-3" />
-                    <span>{merging ? 'Merging...' : 'Merge'}</span>
-                  </button>
-                )}
+            {/* Actions — one contextual primary at full weight, Resolve as a
+                ghost secondary, everything tertiary behind the overflow kebab.
+                md:pr-8 keeps clear of the absolute close [X] on desktop. */}
+            <div className="flex items-center gap-1.5 md:pr-8">
+              {/* Secondary: Resolve conflicts (ghost) */}
               {detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive && (
                 <button
-                  onClick={() => {
-                    const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
-
-1. Rebase this branch onto ${detail?.source_branch || 'main'}
-2. For each conflict, understand the intent of both changes and merge them intelligently
-3. After resolving all conflicts, force-push the rebased branch
-4. The PR should become mergeable after this
-
-Focus on preserving the functionality from both sides where possible.`
-                    setResumePrompt(conflictPrompt)
-                    setTimeout(() => {
-                      document
-                        .querySelector('textarea[placeholder*="Continue with follow-up"]')
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                    }, 100)
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
+                  onClick={handleResolveConflicts}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors text-purple-400/80 hover:text-purple-400 hover:bg-[rgba(168,85,247,0.1)]"
                   title="Use Claude to resolve merge conflicts"
                 >
                   <Sparkles className="w-3 h-3" />
-                  <span>Resolve</span>
+                  <span className="hidden sm:inline">Resolve</span>
                 </button>
               )}
-              {detail?.use_worktree &&
-                detail?.branch_name &&
-                detail?.has_remote &&
-                !detail?.pr_url &&
-                !isActive && (
-                  <button
-                    onClick={handleCreatePr}
-                    disabled={creatingPr}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors',
-                      creatingPr
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                    )}
-                  >
-                    <GitPullRequest className="w-3 h-3" />
-                    <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
-                  </button>
-                )}
-              {detail?.use_worktree &&
-                detail?.branch_name &&
-                !detail?.pr_url &&
-                detail?.pr_status !== 'merged' &&
-                !isActive && (
-                  <button
-                    onClick={handleMerge}
-                    disabled={merging}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors',
-                      merging
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                    )}
-                    title="Merge branch locally"
-                  >
-                    <GitMerge className="w-3 h-3" />
-                    <span>{merging ? 'Merging...' : 'Merge'}</span>
-                  </button>
-                )}
-              {isActive && (
+
+              {/* Primary: contextual single full-weight action */}
+              {primaryAction && (
                 <button
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] rounded-sm transition-colors"
-                  onClick={handleCancel}
-                  disabled={cancelling}
+                  onClick={primaryAction.onClick}
+                  disabled={primaryAction.busy}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-sm text-body uppercase tracking-widest transition-colors',
+                    'p-2.5 min-h-[44px] min-w-[44px] justify-center sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-1',
+                    primaryAction.busy
+                      ? 'bg-[var(--color-stone)]/15 text-[var(--color-stone)]/50 cursor-wait'
+                      : primaryAction.tone === 'merge'
+                        ? 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                        : 'border border-[var(--color-vermillion)]/30 text-[var(--color-vermillion)] hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)]'
+                  )}
+                  title={primaryAction.title}
                 >
-                  {cancelling ? 'Cancelling...' : 'Cancel'}
+                  {primaryAction.icon}
+                  <span className="hidden sm:inline">{primaryAction.label}</span>
                 </button>
               )}
-              {!isActive && (
-                <button
-                  className="flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] border border-[var(--color-stone)]/15 hover:border-[var(--color-stone)]/30 rounded-sm transition-colors"
-                  onClick={handleArchive}
-                  disabled={archiving}
-                  title="Archive this run"
-                >
-                  <Archive className="w-3 h-3" />
-                  <span>{archiving ? '...' : 'Archive'}</span>
-                </button>
-              )}
-              <Link
-                to={`/runs/${run?.id}/${activeTab}`}
-                className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
-                title="Open in full screen"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-              </Link>
-              <button
-                className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
-                onClick={handleRefresh}
-                disabled={loading}
-                title="Refresh"
-              >
-                <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-              </button>
+
+              {/* Tertiary: Full screen, Refresh, Archive */}
+              <ActionOverflowMenu
+                runId={run?.id}
+                isActive={isActive}
+                activeTab={activeTab}
+                onArchive={handleArchive}
+                onRefresh={handleRefresh}
+                archiving={archiving}
+                loading={loading}
+              />
             </div>
-            {/* Mobile actions: refresh + overflow menu */}
-            <MobileActionMenu
-              run={run}
-              detail={detail}
-              isActive={isActive}
-              isResumable={isResumable}
-              activeTab={activeTab}
-              onMerge={handleMerge}
-              onCreatePr={handleCreatePr}
-              onCancel={handleCancel}
-              onArchive={handleArchive}
-              onRefresh={handleRefresh}
-              onResolveConflicts={() => {
-                const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
-
-1. Rebase this branch onto ${detail?.source_branch || 'main'}
-2. For each conflict, understand the intent of both changes and merge them intelligently
-3. After resolving all conflicts, force-push the rebased branch
-4. The PR should become mergeable after this
-
-Focus on preserving the functionality from both sides where possible.`
-                setResumePrompt(conflictPrompt)
-                setTimeout(() => {
-                  document
-                    .querySelector('textarea[placeholder*="Continue with follow-up"]')
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }, 100)
-              }}
-              merging={merging}
-              creatingPr={creatingPr}
-              cancelling={cancelling}
-              archiving={archiving}
-              loading={loading}
-            />
           </div>
         </div>
 
