@@ -834,7 +834,11 @@ html.light summary:focus-visible {
 }
 
 .offline-overlay__title {
-  font-size: 1.25rem;
+  /* Intentional one-off above the 16px scale ceiling: the offline overlay is a
+     full-screen takeover, so its title anchors the whole viewport rather than a
+     section. 20px is deliberate here — do NOT fold it into text-display. This is
+     the single sanctioned exception noted in the type-scale comment above. */
+  font-size: 1.25rem; /* 20px */
   font-weight: 400;
   color: var(--color-paper);
   margin: 0;
