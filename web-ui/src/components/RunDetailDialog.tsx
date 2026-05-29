@@ -79,39 +79,23 @@ import { cn } from '@/lib/utils'
 import { CommandAutocomplete } from './CommandAutocomplete'
 import { FileAutocomplete } from './FileAutocomplete'
 
-// Mobile overflow menu for run detail action buttons
-function MobileActionMenu({
-  run,
-  detail,
+// Overflow menu holding tertiary actions (Full screen, Refresh, Archive).
+// Promoted from mobile-only to all widths so the header keeps a single primary
+// action at full weight and pushes low-frequency actions behind one kebab.
+function ActionOverflowMenu({
+  runId,
   isActive,
-  isResumable,
   activeTab,
-  onMerge,
-  onCreatePr,
-  onCancel,
   onArchive,
   onRefresh,
-  onResolveConflicts,
-  merging,
-  creatingPr,
-  cancelling,
   archiving,
   loading,
 }: {
-  run: Run | null
-  detail: RunDetail | null
+  runId: string | undefined
   isActive: boolean
-  isResumable: boolean
   activeTab: string
-  onMerge: () => void
-  onCreatePr: () => void
-  onCancel: () => void
   onArchive: () => void
   onRefresh: () => void
-  onResolveConflicts: () => void
-  merging: boolean
-  creatingPr: boolean
-  cancelling: boolean
   archiving: boolean
   loading: boolean
 }) {
@@ -127,147 +111,61 @@ function MobileActionMenu({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const canMergePr =
-    detail?.pr_status === 'open' &&
-    detail?.pr_mergeable !== 'CONFLICTING' &&
-    detail?.branch_name &&
-    !isActive
-  const canResolve = detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive
-  const canCreatePr =
-    detail?.use_worktree &&
-    detail?.branch_name &&
-    detail?.has_remote &&
-    !detail?.pr_url &&
-    !isActive
-  const canMergeLocal =
-    detail?.use_worktree &&
-    detail?.branch_name &&
-    !detail?.pr_url &&
-    detail?.pr_status !== 'merged' &&
-    !isActive
-
   return (
-    <div className="flex sm:hidden items-center gap-1" ref={menuRef}>
-      <Link
-        to={`/runs/${run?.id}/${activeTab}`}
-        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm"
-        title="Open in full screen"
-      >
-        <Maximize2 className="w-3.5 h-3.5" />
-      </Link>
+    <div className="relative" ref={menuRef}>
       <button
-        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm"
-        onClick={onRefresh}
-        disabled={loading}
-        title="Refresh"
-      >
-        <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-      </button>
-      <div className="relative">
-        <button
-          className={cn(
-            'p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-sm transition-colors',
-            open
-              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-              : 'text-[var(--color-stone)]/50 hover:text-[var(--color-paper)]'
-          )}
-          onClick={() => setOpen((prev) => !prev)}
-          title="More actions"
-        >
-          <MoreVertical className="w-3.5 h-3.5" />
-        </button>
-        {open && (
-          <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
-            {canMergePr && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
-                onClick={() => {
-                  onMerge()
-                  setOpen(false)
-                }}
-                disabled={merging}
-              >
-                <GitMerge className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {merging ? 'Merging...' : 'Merge PR'}
-                </span>
-              </button>
-            )}
-            {canResolve && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-purple-400 hover:bg-[rgba(168,85,247,0.1)] transition-colors"
-                onClick={() => {
-                  onResolveConflicts()
-                  setOpen(false)
-                }}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">Resolve</span>
-              </button>
-            )}
-            {canCreatePr && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
-                onClick={() => {
-                  onCreatePr()
-                  setOpen(false)
-                }}
-                disabled={creatingPr}
-              >
-                <GitPullRequest className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {creatingPr ? 'Creating...' : 'Create PR'}
-                </span>
-              </button>
-            )}
-            {canMergeLocal && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-green-400 hover:bg-[rgba(34,197,94,0.1)] transition-colors"
-                onClick={() => {
-                  onMerge()
-                  setOpen(false)
-                }}
-                disabled={merging}
-              >
-                <GitMerge className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {merging ? 'Merging...' : 'Merge'}
-                </span>
-              </button>
-            )}
-            {isActive && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-vermillion)] hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] transition-colors"
-                onClick={() => {
-                  onCancel()
-                  setOpen(false)
-                }}
-                disabled={cancelling}
-              >
-                <X className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {cancelling ? 'Cancelling...' : 'Cancel'}
-                </span>
-              </button>
-            )}
-            {!isActive && (
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
-                onClick={() => {
-                  onArchive()
-                  setOpen(false)
-                }}
-                disabled={archiving}
-              >
-                <Archive className="w-3.5 h-3.5" />
-                <span className="uppercase tracking-widest">
-                  {archiving ? 'Archiving...' : 'Archive'}
-                </span>
-              </button>
-            )}
-          </div>
+        className={cn(
+          'flex items-center justify-center rounded-sm transition-colors',
+          'p-2.5 min-h-[44px] min-w-[44px] sm:p-1.5 sm:min-h-0 sm:min-w-0',
+          open
+            ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
+            : 'text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] hover:bg-[var(--color-paper)]/5'
         )}
-      </div>
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="More actions"
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <MoreVertical className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
+          <Link
+            to={`/runs/${runId}/${activeTab}`}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span className="uppercase tracking-widest">Full screen</span>
+          </Link>
+          <button
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+            onClick={() => {
+              onRefresh()
+              setOpen(false)
+            }}
+            disabled={loading}
+          >
+            <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+            <span className="uppercase tracking-widest">Refresh</span>
+          </button>
+          {!isActive && (
+            <button
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
+              onClick={() => {
+                onArchive()
+                setOpen(false)
+              }}
+              disabled={archiving}
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span className="uppercase tracking-widest">
+                {archiving ? 'Archiving...' : 'Archive'}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -276,7 +174,6 @@ import { LoopProgressTab } from './LoopProgressTab'
 import { QuestionModal } from './QuestionModal'
 import { RunTimeline } from './RunTimeline'
 import { StreamingLogViewer } from './StreamingLogViewer'
-import { TodoTab } from './TodoTab'
 import { ToolBreakdown } from './ToolBreakdown'
 
 type TabType =
@@ -352,6 +249,83 @@ function parseMessages(messagesContent: string): AgentMessage[] {
   return messages
 }
 
+// One-line metadata strip that sits below the prompt. Collapsed it shows the
+// project plus the highest-signal numbers (duration · cost · tools); a chevron
+// expands the full set (date, branch, commit, exit code, stop reason). This
+// replaces both the old desktop meta row and the mobile-only git info row.
+function RunMetaStrip({
+  run,
+  detail,
+  toolCount,
+}: {
+  run: Run | null
+  detail: RunDetail | null
+  toolCount: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  const duration = run?.duration_seconds != null ? formatDuration(run.duration_seconds) : null
+  const cost =
+    detail?.cost_usd != null && detail.cost_usd > 0 ? `$${detail.cost_usd.toFixed(4)}` : null
+  const hasExit = detail?.exit_code !== null && detail?.exit_code !== undefined
+  const commit = detail?.git_commit_sha ? detail.git_commit_sha.slice(0, 7) : null
+
+  return (
+    <div className="mb-4 shrink-0 text-body">
+      {/* Summary line — always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-3 w-full text-left text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]/80 transition-colors"
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Hide run details' : 'Show run details'}
+      >
+        <ChevronRight
+          className={cn(
+            'w-3 h-3 text-[var(--color-stone)]/40 transition-transform shrink-0',
+            expanded && 'rotate-90'
+          )}
+        />
+        <span className="text-[var(--color-paper)]/80 truncate">{run?.project_name}</span>
+        {duration && <span className="text-mono shrink-0">{duration}</span>}
+        {cost && <span className="text-mono text-[var(--color-harvest)] shrink-0">{cost}</span>}
+        {toolCount > 0 && (
+          <span className="text-mono text-[var(--color-sky)] shrink-0">{toolCount} tools</span>
+        )}
+        {detail?.branch_name && (
+          <span className="hidden sm:inline-flex items-center gap-1 text-purple-300/70 shrink-0 min-w-0">
+            <GitBranch className="w-2.5 h-2.5 text-purple-400/70 shrink-0" />
+            <span className="truncate max-w-[140px]">{detail.branch_name}</span>
+          </span>
+        )}
+      </button>
+
+      {/* Expanded detail — full grid */}
+      {expanded && (
+        <div className="mt-2 ml-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[var(--color-stone)]/55">
+          <span>{formatDateWithContext(run?.created_at ?? null)}</span>
+          {detail?.branch_name && (
+            <span className="flex items-center gap-1 text-purple-300/70 sm:hidden">
+              <GitBranch className="w-2.5 h-2.5 text-purple-400/70" />
+              <span className="truncate max-w-[160px]">{detail.branch_name}</span>
+            </span>
+          )}
+          {commit && (
+            <span className="flex items-center gap-1">
+              <GitCommit className="w-2.5 h-2.5" />
+              <span className="text-mono">{commit}</span>
+            </span>
+          )}
+          {hasExit && <span className="text-mono">exit {detail?.exit_code}</span>}
+          {detail?.stop_reason && (
+            <span className="text-mono text-[var(--color-stone)]/50">{detail.stop_reason}</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RunDetailDialog({
   run,
   open,
@@ -367,6 +341,9 @@ export function RunDetailDialog({
     messages: '',
   })
   const [activeTab, setActiveTabInternal] = useState<TabType>(initialTab || 'messages')
+  // Bumped when the Todos tab is clicked → tells StreamingLogViewer to scroll to
+  // and expand the latest TodoWrite in the stream (no duplicate checklist tab).
+  const [todoScrollSignal, setTodoScrollSignal] = useState(0)
 
   // Wrap setActiveTab to notify parent
   const setActiveTab = useCallback(
@@ -376,6 +353,13 @@ export function RunDetailDialog({
     },
     [onTabChange]
   )
+
+  // The Todos tab deep-links into the message stream rather than rendering a
+  // second copy of the checklist. Switch to Messages and bump the scroll signal.
+  const handleTodosDeepLink = useCallback(() => {
+    setActiveTab('messages')
+    setTodoScrollSignal((n) => n + 1)
+  }, [setActiveTab])
 
   // Sync with initialTab when it changes (URL navigation)
   useEffect(() => {
@@ -514,14 +498,21 @@ export function RunDetailDialog({
     const isRunActive = run.status === 'running' || run.status === 'pending'
     if (!isRunActive) return
 
+    // Poll only what the WebSocket does NOT already cover for the open dialog.
+    // The message timeline + live token/cost flow through StreamingLogViewer's
+    // useRunLogStream subscription, so we deliberately omit the messages file
+    // here (re-fetching it raced the WS stream and made counts jitter). What
+    // remains — run detail (status/branch/PR), raw stdout/stderr, commits and
+    // files — has no WS feed for this dialog, so we keep polling it but back
+    // the interval off from 3s to 10s.
     const intervalId = setInterval(async () => {
       try {
         // Only refresh stdout/stderr if they've been loaded or are currently viewed
         const shouldRefreshStdout = !!logs.stdout || activeTab === 'output'
         const shouldRefreshStderr = !!logs.stderr || activeTab === 'errors'
 
-        const [runDetail, stdoutLogs, stderrLogs, messagesLogs, newCommitsData, newFilesData] =
-          await Promise.all([
+        const [runDetail, stdoutLogs, stderrLogs, newCommitsData, newFilesData] = await Promise.all(
+          [
             fetchRun(run.id),
             shouldRefreshStdout
               ? fetchLogs(run.id, 'stdout').catch(() => ({ content: '' }))
@@ -529,25 +520,35 @@ export function RunDetailDialog({
             shouldRefreshStderr
               ? fetchLogs(run.id, 'stderr').catch(() => ({ content: '' }))
               : Promise.resolve(null),
-            fetchLogs(run.id, 'messages').catch(() => ({ content: '' })),
-            // Also refresh commits and files during active runs
+            // Commits and files have no WS feed — keep polling during active runs
             fetchRunCommits(run.id).catch(() => null),
             fetchRunFiles(run.id).catch(() => null),
-          ])
+          ]
+        )
         setDetail(runDetail)
         setLogs((prev) => ({
           stdout: stdoutLogs?.content ?? prev.stdout,
           stderr: stderrLogs?.content ?? prev.stderr,
-          messages: messagesLogs.content || '',
+          // messages stay as last HTTP load; live updates arrive via WebSocket
+          messages: prev.messages,
         }))
         // Update commits and files if fetched successfully
         if (newCommitsData) setCommitsData(newCommitsData)
         if (newFilesData) setFilesData(newFilesData)
         onRunUpdated(runDetail)
+
+        // On the active→terminal transition the WS subscription tears down and
+        // clears streamed messages, so do one final messages fetch to make sure
+        // the completed view holds the full log.
+        const becameInactive = runDetail.status !== 'running' && runDetail.status !== 'pending'
+        if (becameInactive) {
+          const finalMessages = await fetchLogs(run.id, 'messages').catch(() => ({ content: '' }))
+          setLogs((prev) => ({ ...prev, messages: finalMessages.content || prev.messages }))
+        }
       } catch (err) {
         console.error('Auto-refresh failed:', err)
       }
-    }, 3000) // Refresh every 3 seconds
+    }, 10000) // Back off from 3s — WS carries the live stream
 
     return () => clearInterval(intervalId)
   }, [open, run?.id, run?.status, onRunUpdated, run, logs.stdout, logs.stderr, activeTab])
@@ -1239,6 +1240,25 @@ Focus on preserving functionality from both sides where possible.`
     }
   }
 
+  // Prefill the follow-up box with a conflict-resolution prompt and scroll to it.
+  // Shared by the secondary "Resolve" action across desktop and mobile.
+  const handleResolveConflicts = useCallback(() => {
+    const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
+
+1. Rebase this branch onto ${detail?.source_branch || 'main'}
+2. For each conflict, understand the intent of both changes and merge them intelligently
+3. After resolving all conflicts, force-push the rebased branch
+4. The PR should become mergeable after this
+
+Focus on preserving the functionality from both sides where possible.`
+    setResumePrompt(conflictPrompt)
+    setTimeout(() => {
+      document
+        .querySelector('textarea[placeholder*="Continue with follow-up"]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+  }, [detail?.source_branch])
+
   // Helper to detect context overflow errors
   const isContextOverflowError = (errorMessage: string | null | undefined): boolean => {
     if (!errorMessage) return false
@@ -1412,6 +1432,69 @@ Focus on preserving functionality from both sides where possible.`
     run?.status === 'completed' || run?.status === 'failed' || run?.status === 'review'
   const hasHistory = sessionHistory.length > 0
 
+  // The single full-weight header action, chosen by context. Everything else
+  // is either a ghost secondary (Resolve) or lives in the overflow kebab.
+  // Priority: Cancel (running) → Merge PR → Create PR → Merge local.
+  const primaryAction: {
+    label: string
+    title: string
+    tone: 'merge' | 'cancel'
+    icon: React.ReactNode
+    busy: boolean
+    onClick: () => void
+  } | null = (() => {
+    if (isActive) {
+      return {
+        label: cancelling ? 'Cancelling...' : 'Cancel',
+        title: 'Cancel this run',
+        tone: 'cancel',
+        icon: <X className="w-3 h-3" />,
+        busy: cancelling,
+        onClick: handleCancel,
+      }
+    }
+    if (
+      detail?.pr_status === 'open' &&
+      detail?.pr_mergeable !== 'CONFLICTING' &&
+      detail?.branch_name
+    ) {
+      return {
+        label: merging ? 'Merging...' : 'Merge',
+        title: 'Merge branch locally and push to remote',
+        tone: 'merge',
+        icon: <GitMerge className="w-3 h-3" />,
+        busy: merging,
+        onClick: handleMerge,
+      }
+    }
+    if (detail?.use_worktree && detail?.branch_name && detail?.has_remote && !detail?.pr_url) {
+      return {
+        label: creatingPr ? 'Creating...' : 'Create PR',
+        title: 'Open a pull request for this branch',
+        tone: 'merge',
+        icon: <GitPullRequest className="w-3 h-3" />,
+        busy: creatingPr,
+        onClick: handleCreatePr,
+      }
+    }
+    if (
+      detail?.use_worktree &&
+      detail?.branch_name &&
+      !detail?.pr_url &&
+      detail?.pr_status !== 'merged'
+    ) {
+      return {
+        label: merging ? 'Merging...' : 'Merge',
+        title: 'Merge branch locally',
+        tone: 'merge',
+        icon: <GitMerge className="w-3 h-3" />,
+        busy: merging,
+        onClick: handleMerge,
+      }
+    }
+    return null
+  })()
+
   // Reset to messages if current tab becomes hidden
   useEffect(() => {
     const hiddenTabs: Record<string, boolean> = {
@@ -1421,12 +1504,14 @@ Focus on preserving functionality from both sides where possible.`
       ),
       files: !(detail?.branch_name && (filesData?.file_count ?? detail?.file_count ?? 0) > 0),
       attachments: attachments.length === 0,
-      todos: !(todosData && todosData.todo_count > 0),
+      // Todos is no longer a destination tab — it deep-links into the stream.
+      // Coerce any lingering /todos deep link (or stale URL) back to messages.
+      todos: true,
     }
     if (hiddenTabs[activeTab]) {
       setActiveTab('messages')
     }
-  }, [activeTab, hasErrors, detail, commitsData, filesData, attachments, todosData, setActiveTab])
+  }, [activeTab, hasErrors, detail, commitsData, filesData, attachments, setActiveTab])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1515,245 +1600,108 @@ Focus on preserving functionality from both sides where possible.`
               <div className="hidden sm:block w-px h-4 bg-[var(--color-stone)]/20" />
             )}
 
-            {/* Action buttons — desktop: inline, mobile: overflow menu */}
-            {/* Desktop actions */}
-            <div className="hidden sm:flex items-center gap-1 pr-8">
-              {detail?.pr_status === 'open' &&
-                detail?.pr_mergeable !== 'CONFLICTING' &&
-                detail?.branch_name &&
-                !isActive && (
-                  <button
-                    onClick={handleMerge}
-                    disabled={merging}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors',
-                      merging
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                    )}
-                    title="Merge branch locally and push to remote"
-                  >
-                    <GitMerge className="w-3 h-3" />
-                    <span>{merging ? 'Merging...' : 'Merge'}</span>
-                  </button>
-                )}
+            {/* Actions — one contextual primary at full weight, Resolve as a
+                ghost secondary, everything tertiary behind the overflow kebab.
+                md:pr-8 keeps clear of the absolute close [X] on desktop. */}
+            <div className="flex items-center gap-1.5 md:pr-8">
+              {/* Secondary: Resolve conflicts (ghost) */}
               {detail?.pr_mergeable === 'CONFLICTING' && isResumable && !isActive && (
                 <button
-                  onClick={() => {
-                    const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
-
-1. Rebase this branch onto ${detail?.source_branch || 'main'}
-2. For each conflict, understand the intent of both changes and merge them intelligently
-3. After resolving all conflicts, force-push the rebased branch
-4. The PR should become mergeable after this
-
-Focus on preserving the functionality from both sides where possible.`
-                    setResumePrompt(conflictPrompt)
-                    setTimeout(() => {
-                      document
-                        .querySelector('textarea[placeholder*="Continue with follow-up"]')
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                    }, 100)
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors bg-[rgba(168,85,247,0.15)] border border-[rgba(168,85,247,0.3)] text-purple-400 hover:bg-[rgba(168,85,247,0.25)]"
+                  onClick={handleResolveConflicts}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors text-purple-400/80 hover:text-purple-400 hover:bg-[rgba(168,85,247,0.1)]"
                   title="Use Claude to resolve merge conflicts"
                 >
                   <Sparkles className="w-3 h-3" />
-                  <span>Resolve</span>
+                  <span className="hidden sm:inline">Resolve</span>
                 </button>
               )}
-              {detail?.use_worktree &&
-                detail?.branch_name &&
-                detail?.has_remote &&
-                !detail?.pr_url &&
-                !isActive && (
-                  <button
-                    onClick={handleCreatePr}
-                    disabled={creatingPr}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors',
-                      creatingPr
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                    )}
-                  >
-                    <GitPullRequest className="w-3 h-3" />
-                    <span>{creatingPr ? 'Creating...' : 'Create PR'}</span>
-                  </button>
-                )}
-              {detail?.use_worktree &&
-                detail?.branch_name &&
-                !detail?.pr_url &&
-                detail?.pr_status !== 'merged' &&
-                !isActive && (
-                  <button
-                    onClick={handleMerge}
-                    disabled={merging}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest rounded-sm transition-colors',
-                      merging
-                        ? 'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]/50 cursor-wait'
-                        : 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
-                    )}
-                    title="Merge branch locally"
-                  >
-                    <GitMerge className="w-3 h-3" />
-                    <span>{merging ? 'Merging...' : 'Merge'}</span>
-                  </button>
-                )}
-              {isActive && (
+
+              {/* Primary: contextual single full-weight action */}
+              {primaryAction && (
                 <button
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-body uppercase tracking-widest text-[var(--color-vermillion)] hover:text-[var(--color-vermillion)] border border-[var(--color-vermillion)]/30 hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)] rounded-sm transition-colors"
-                  onClick={handleCancel}
-                  disabled={cancelling}
+                  onClick={primaryAction.onClick}
+                  disabled={primaryAction.busy}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-sm text-body uppercase tracking-widest transition-colors',
+                    'p-2.5 min-h-[44px] min-w-[44px] justify-center sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-1',
+                    primaryAction.busy
+                      ? 'bg-[var(--color-stone)]/15 text-[var(--color-stone)]/50 cursor-wait'
+                      : primaryAction.tone === 'merge'
+                        ? 'bg-[rgba(34,197,94,0.15)] border border-[rgba(34,197,94,0.3)] text-green-400 hover:bg-[rgba(34,197,94,0.25)]'
+                        : 'border border-[var(--color-vermillion)]/30 text-[var(--color-vermillion)] hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)]'
+                  )}
+                  title={primaryAction.title}
                 >
-                  {cancelling ? 'Cancelling...' : 'Cancel'}
+                  {primaryAction.icon}
+                  <span className="hidden sm:inline">{primaryAction.label}</span>
                 </button>
               )}
-              {!isActive && (
-                <button
-                  className="flex items-center gap-1.5 px-2 py-1 text-body uppercase tracking-widest text-[var(--color-stone)]/60 hover:text-[var(--color-stone)] border border-[var(--color-stone)]/15 hover:border-[var(--color-stone)]/30 rounded-sm transition-colors"
-                  onClick={handleArchive}
-                  disabled={archiving}
-                  title="Archive this run"
-                >
-                  <Archive className="w-3 h-3" />
-                  <span>{archiving ? '...' : 'Archive'}</span>
-                </button>
-              )}
-              <Link
-                to={`/runs/${run?.id}/${activeTab}`}
-                className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
-                title="Open in full screen"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-              </Link>
-              <button
-                className="p-1.5 text-[var(--color-stone)]/50 hover:text-[var(--color-paper)] transition-colors rounded-sm hover:bg-[var(--color-paper)]/5"
-                onClick={handleRefresh}
-                disabled={loading}
-                title="Refresh"
-              >
-                <RotateCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-              </button>
+
+              {/* Tertiary: Full screen, Refresh, Archive */}
+              <ActionOverflowMenu
+                runId={run?.id}
+                isActive={isActive}
+                activeTab={activeTab}
+                onArchive={handleArchive}
+                onRefresh={handleRefresh}
+                archiving={archiving}
+                loading={loading}
+              />
             </div>
-            {/* Mobile actions: refresh + overflow menu */}
-            <MobileActionMenu
-              run={run}
-              detail={detail}
-              isActive={isActive}
-              isResumable={isResumable}
-              activeTab={activeTab}
-              onMerge={handleMerge}
-              onCreatePr={handleCreatePr}
-              onCancel={handleCancel}
-              onArchive={handleArchive}
-              onRefresh={handleRefresh}
-              onResolveConflicts={() => {
-                const conflictPrompt = `The PR for this branch has merge conflicts. Please resolve them:
-
-1. Rebase this branch onto ${detail?.source_branch || 'main'}
-2. For each conflict, understand the intent of both changes and merge them intelligently
-3. After resolving all conflicts, force-push the rebased branch
-4. The PR should become mergeable after this
-
-Focus on preserving the functionality from both sides where possible.`
-                setResumePrompt(conflictPrompt)
-                setTimeout(() => {
-                  document
-                    .querySelector('textarea[placeholder*="Continue with follow-up"]')
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }, 100)
-              }}
-              merging={merging}
-              creatingPr={creatingPr}
-              cancelling={cancelling}
-              archiving={archiving}
-              loading={loading}
-            />
           </div>
         </div>
 
         {/* Main Content */}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <div className="p-4 sm:p-5 flex flex-col flex-1 min-h-0">
-            {/* Project + Meta Row */}
-            <div className="flex items-center gap-4 text-body text-[var(--color-stone)]/60 mb-4 shrink-0 flex-wrap">
-              <span className="text-[var(--color-paper)]/80">{run?.project_name}</span>
-              <span className="hidden sm:inline">
-                {formatDateWithContext(run?.created_at ?? null)}
-              </span>
-              {run?.duration_seconds !== null && (
-                <span className="text-mono">{formatDuration(run?.duration_seconds ?? null)}</span>
-              )}
-              {detail?.exit_code !== null && detail?.exit_code !== undefined && (
-                <span className="text-mono">exit {detail?.exit_code}</span>
-              )}
-              {detail?.stop_reason && (
-                <span className="text-mono text-[var(--color-stone)]/50">{detail.stop_reason}</span>
-              )}
-              {detail?.cost_usd != null && detail.cost_usd > 0 && (
-                <span className="text-mono text-[var(--color-harvest)]">
-                  ${detail.cost_usd.toFixed(4)}
-                </span>
-              )}
-              {/* Tool count - calculated from messages */}
-              {(() => {
-                const toolCount = parseMessages(logs.messages).filter(
-                  (m) => m.type === 'tool_use'
-                ).length
-                return toolCount > 0 ? (
-                  <span className="text-mono text-[var(--color-sky)]">{toolCount} tools</span>
-                ) : null
-              })()}
+            {/* Prompt — leads the surface, directly below the header */}
+            <div className="mb-3 shrink-0">
+              <div className="max-h-24 overflow-y-auto pr-2 scrollbar-thin">
+                <p className="text-body text-[var(--color-paper)] leading-relaxed font-light">
+                  {run?.prompt}
+                </p>
+              </div>
             </div>
 
-            {/* Git Info Row - show on mobile only (desktop shows in header) */}
-            {(detail?.branch_name || detail?.pr_number) && (
-              <div className="flex sm:hidden items-center gap-3 text-body mb-4 shrink-0 flex-wrap">
-                {detail.branch_name && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] rounded-sm">
-                    <GitBranch className="w-3 h-3 text-purple-400" />
-                    <span className="text-purple-300">{detail.branch_name}</span>
-                  </div>
+            {/* Mobile PR link — desktop carries the PR badge in the header */}
+            {detail?.pr_number && detail?.pr_url && (
+              <a
+                href={detail.pr_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'sm:hidden flex items-center gap-1.5 px-2 py-1 mb-3 self-start rounded-sm text-body transition-colors',
+                  detail.pr_mergeable === 'CONFLICTING' &&
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
+                  detail.pr_mergeable !== 'CONFLICTING' &&
+                    detail.pr_status === 'open' &&
+                    'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
+                  detail.pr_status === 'merged' &&
+                    'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
+                  detail.pr_status === 'closed' &&
+                    'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
+                  detail.pr_status === 'draft' &&
+                    'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
                 )}
-                {detail.git_commit_sha && (
-                  <div className="flex items-center gap-1.5 text-[var(--color-stone)]/60">
-                    <GitCommit className="w-3 h-3" />
-                    <span className="text-mono">{detail.git_commit_sha.slice(0, 7)}</span>
-                  </div>
+              >
+                <GitPullRequest className="w-3 h-3" />
+                <span>#{detail.pr_number}</span>
+                {detail.pr_mergeable === 'CONFLICTING' ? (
+                  <span className="uppercase text-red-400">Conflicts</span>
+                ) : (
+                  <span className="uppercase">{detail.pr_status}</span>
                 )}
-                {detail.pr_number && detail.pr_url && (
-                  <a
-                    href={detail.pr_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                      'flex items-center gap-1.5 px-2 py-1 rounded-sm transition-colors',
-                      detail.pr_mergeable === 'CONFLICTING' &&
-                        'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400 hover:bg-[rgba(239,68,68,0.15)]',
-                      detail.pr_mergeable !== 'CONFLICTING' &&
-                        detail.pr_status === 'open' &&
-                        'bg-[rgba(34,197,94,0.1)] border border-[rgba(34,197,94,0.2)] text-green-400 hover:bg-[rgba(34,197,94,0.15)]',
-                      detail.pr_status === 'merged' &&
-                        'bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)] text-purple-400',
-                      detail.pr_status === 'closed' &&
-                        'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-red-400',
-                      detail.pr_status === 'draft' &&
-                        'bg-[rgba(163,163,163,0.1)] border border-[rgba(163,163,163,0.2)] text-[var(--color-stone)]'
-                    )}
-                  >
-                    <span>PR #{detail.pr_number}</span>
-                    {detail.pr_mergeable === 'CONFLICTING' ? (
-                      <span className="text-body uppercase text-red-400">CONFLICTS</span>
-                    ) : (
-                      <span className="text-body uppercase">{detail.pr_status}</span>
-                    )}
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                )}
-              </div>
+                <ExternalLink className="w-2.5 h-2.5" />
+              </a>
             )}
+
+            {/* Collapsed metadata strip — duration / cost / tools, expandable */}
+            <RunMetaStrip
+              run={run}
+              detail={detail}
+              toolCount={parseMessages(logs.messages).filter((m) => m.type === 'tool_use').length}
+            />
+
             {/* PR creation error */}
             {prError && (
               <div className="mb-4 p-2 bg-[rgb(var(--color-vermillion-rgb)/0.08)] border border-[rgb(var(--color-vermillion-rgb)/0.2)] rounded-sm shrink-0">
@@ -1766,17 +1714,6 @@ Focus on preserving the functionality from both sides where possible.`
                 <p className="text-body text-[var(--color-vermillion)]">{mergeError}</p>
               </div>
             )}
-
-            {/* Prompt - Constrained height with scroll */}
-            <div className="mb-4 shrink-0">
-              <div className="flex items-start justify-between gap-3">
-                <div className="max-h-24 overflow-y-auto flex-1 pr-2 scrollbar-thin">
-                  <p className="text-body text-[var(--color-paper)] leading-relaxed font-light">
-                    {run?.prompt}
-                  </p>
-                </div>
-              </div>
-            </div>
 
             {/* Error Message - Prominent if exists */}
             {run?.error_message && (
@@ -1995,13 +1932,9 @@ Focus on preserving the functionality from both sides where possible.`
                   )}
                   {todosData && todosData.todo_count > 0 && (
                     <button
-                      className={cn(
-                        'px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5',
-                        activeTab === 'todos'
-                          ? 'bg-[var(--color-paper)]/8 text-[var(--color-paper)]'
-                          : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-                      )}
-                      onClick={() => setActiveTab('todos')}
+                      className="px-2.5 py-1 text-body uppercase tracking-widest transition-colors rounded-sm shrink-0 flex items-center gap-1.5 text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]"
+                      onClick={handleTodosDeepLink}
+                      title="Jump to the latest checklist in the message stream"
                     >
                       <ListChecks className="w-3 h-3" />
                       Todos
@@ -2089,6 +2022,7 @@ Focus on preserving the functionality from both sides where possible.`
                         runId={run?.id ?? null}
                         runStatus={(run?.status ?? 'pending') as RunStatus}
                         initialMessages={parseMessages(logs.messages)}
+                        scrollToTodoSignal={todoScrollSignal}
                       />
                     )}
                   </div>
@@ -2577,7 +2511,6 @@ Focus on preserving the functionality from both sides where possible.`
                     }}
                   />
                 )}
-                {activeTab === 'todos' && detail && <TodoTab run={detail} />}
                 {activeTab === 'tools' && (
                   <div className="flex-1 overflow-auto">
                     <ToolBreakdown
@@ -2873,19 +2806,20 @@ Focus on preserving the functionality from both sides where possible.`
                     truncated={filesTruncated}
                   />
                   {isActive ? (
-                    /* Active task - show Queue and Send Now buttons */
+                    /* Active task — Queue is the safe default (primary), Send Now
+                       cancels in-flight work so it reads as a warned secondary. */
                     <div className="flex gap-1.5 shrink-0 self-start">
                       <button
                         className={cn(
                           'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
                           'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:gap-1.5',
                           resumePrompt.trim() && !queuing && !resuming
-                            ? 'bg-[var(--color-stone)]/20 text-[var(--color-paper)] hover:bg-[var(--color-stone)]/30'
-                            : 'bg-[var(--color-stone)]/10 text-[var(--color-stone)]/40 cursor-not-allowed'
+                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
+                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
                         )}
                         onClick={handleQueueFollowup}
                         disabled={!resumePrompt.trim() || queuing || resuming}
-                        title={queuing ? 'Queueing...' : 'Add to queue'}
+                        title="Add after the current task finishes"
                       >
                         <Clock className="w-3 h-3" />
                         <span className="hidden sm:inline">
@@ -2897,12 +2831,12 @@ Focus on preserving the functionality from both sides where possible.`
                           'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors',
                           'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:gap-1.5',
                           resumePrompt.trim() && !resuming && !queuing
-                            ? 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90'
-                            : 'bg-[var(--color-stone)]/20 text-[var(--color-stone)]/50 cursor-not-allowed'
+                            ? 'border border-[var(--color-vermillion)]/30 text-[var(--color-vermillion)] hover:border-[var(--color-vermillion)]/50 hover:bg-[rgb(var(--color-vermillion-rgb)/0.1)]'
+                            : 'border border-[var(--color-stone)]/15 text-[var(--color-stone)]/40 cursor-not-allowed'
                         )}
                         onClick={handleSendNow}
                         disabled={!resumePrompt.trim() || resuming || queuing}
-                        title="Cancel current task and send immediately"
+                        title="Cancel the current task and run this instead"
                       >
                         <Play className="w-3 h-3" />
                         <span className="hidden sm:inline">
@@ -2911,7 +2845,7 @@ Focus on preserving the functionality from both sides where possible.`
                       </button>
                     </div>
                   ) : (
-                    /* Not active - show single Resume button */
+                    /* Not active — single Resume button continues this session */
                     <button
                       className={cn(
                         'flex items-center justify-center rounded-sm text-body uppercase tracking-widest transition-colors shrink-0 self-start',
@@ -2922,7 +2856,7 @@ Focus on preserving the functionality from both sides where possible.`
                       )}
                       onClick={handleResume}
                       disabled={!resumePrompt.trim() || resuming}
-                      title={resuming ? 'Resuming...' : 'Resume'}
+                      title="Continue this session"
                     >
                       <Play className="w-3 h-3" />
                       <span className="hidden sm:inline">
@@ -2931,6 +2865,15 @@ Focus on preserving the functionality from both sides where possible.`
                     </button>
                   )}
                 </div>
+                {/* Inline hint disambiguating the two active-task verbs */}
+                {isActive && (
+                  <p className="text-caption text-[var(--color-stone)]/45 mt-2 leading-relaxed">
+                    <span className="text-[var(--color-stone)]/60">Queue</span> runs after the
+                    current task finishes.{' '}
+                    <span className="text-[var(--color-vermillion)]/70">Send Now</span> cancels it
+                    and runs this instead.
+                  </p>
+                )}
                 {resumeError && (
                   <p className="text-body text-[var(--color-vermillion)] mt-2">{resumeError}</p>
                 )}
