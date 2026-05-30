@@ -135,6 +135,30 @@ absolutely-positioned `<div>` select — those skip keyboard and ARIA. **Do:**
 use this; it's what `ProjectFilter`-style pickers and every dropdown in
 `CreateTaskDialog` now share.
 
+## `<SaveableSetting>`
+
+Card chrome around a single labelled control with optional inline Save +
+state pill (Saving… / Saved, auto-dismiss 2s). Adopted in `SettingsPage` for
+the Git author-identity and Vercel API-token settings.
+
+```tsx
+<SaveableSetting
+  label="Author Identity"
+  description="Name and email used for commits."
+  dirty={value !== savedValue}
+  saving={savingKey === 'git_identity'}
+  saved={savedKey === 'git_identity'}
+  onSave={save}
+>
+  <input value={value} onChange={(e) => setValue(e.target.value)} />
+</SaveableSetting>
+```
+
+Pass `flush` to drop the card chrome when nesting inside an existing section
+card (keeps just the label + pill + control + Save). **Don't:** scatter
+bespoke Saving/Saved feedback per setting. **Do:** use this one; `onSave` is
+optional — omit it for autosave controls (the pill still reports status).
+
 ## `<DataPage>` / `<DataPage.Body>`
 
 Composition shell for list-style pages. Just enforces rhythm — no logic.

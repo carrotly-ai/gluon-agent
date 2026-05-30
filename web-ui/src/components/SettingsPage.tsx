@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { SaveableSetting } from '@/components/ui/SaveableSetting'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import type { PreferencesGroup } from '@/hooks/useRouteSync'
 import { useTheme } from '@/hooks/useTheme'
@@ -1141,57 +1142,42 @@ export function SettingsPage({
 
               <div className="border-t border-[rgba(163,163,163,0.08)]" />
 
-              <div>
-                <p className="text-title text-[var(--color-paper)]">Author Identity</p>
-                <p className="text-caption text-[var(--color-stone)]/70 mt-1">
-                  Configure the name and email used for commits made by Gluon.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    value={gitUserName}
-                    onChange={(e) => setGitUserName(e.target.value)}
-                    placeholder="Your Name"
-                    className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
-                  />
-                </div>
-                <div>
-                  <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={gitUserEmail}
-                    onChange={(e) => setGitUserEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleSaveGitIdentity}
-                disabled={savingKey === 'git_identity' || !gitIdentityDirty}
-                className={cn(
-                  'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
-                  savedKey === 'git_identity'
-                    ? 'bg-[var(--color-jade)] text-white'
-                    : 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90',
-                  'disabled:opacity-50'
-                )}
+              <SaveableSetting
+                flush
+                label="Author Identity"
+                description="Configure the name and email used for commits made by Gluon."
+                dirty={gitIdentityDirty}
+                saving={savingKey === 'git_identity'}
+                saved={savedKey === 'git_identity'}
+                onSave={handleSaveGitIdentity}
               >
-                {savedKey === 'git_identity' && <Check className="w-3 h-3 inline mr-1" />}
-                {savingKey === 'git_identity'
-                  ? 'Saving...'
-                  : savedKey === 'git_identity'
-                    ? 'Saved'
-                    : 'Save'}
-              </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      value={gitUserName}
+                      onChange={(e) => setGitUserName(e.target.value)}
+                      placeholder="Your Name"
+                      className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={gitUserEmail}
+                      onChange={(e) => setGitUserEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                    />
+                  </div>
+                </div>
+              </SaveableSetting>
             </div>
 
             {/* Agent Configuration */}
@@ -1286,51 +1272,34 @@ export function SettingsPage({
                 </button>
               </div>
               {vercelCliEnabled && (
-                <div className="pl-0 space-y-3">
-                  <div>
-                    <label className="block text-caption uppercase tracking-widest text-[var(--color-stone)]/80 mb-1">
-                      API Token
-                    </label>
-                    <input
-                      type="password"
-                      value={vercelToken}
-                      onChange={(e) => {
-                        setVercelToken(e.target.value)
-                        setVercelTestResult(null)
-                      }}
-                      placeholder={
-                        vercelTokenFromEnv
-                          ? 'Using token from environment (VERCEL_TOKEN)'
-                          : 'Enter your Vercel API token'
-                      }
-                      className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
-                    />
-                    {!vercelToken && vercelTokenFromEnv && (
-                      <p className="text-caption text-[var(--color-sky)]/80 mt-1">
-                        Using token from environment variable
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSaveVercelToken}
-                      disabled={savingKey === 'vercel_token' || !vercelTokenDirty}
-                      className={cn(
-                        'px-3 py-1.5 text-caption uppercase tracking-widest rounded-sm transition-colors',
-                        savedKey === 'vercel_token'
-                          ? 'bg-[var(--color-jade)] text-white'
-                          : 'bg-[var(--color-paper)] text-[var(--color-void)] hover:opacity-90',
-                        'disabled:opacity-50'
-                      )}
-                    >
-                      {savedKey === 'vercel_token' && <Check className="w-3 h-3 inline mr-1" />}
-                      {savingKey === 'vercel_token'
-                        ? 'Saving...'
-                        : savedKey === 'vercel_token'
-                          ? 'Saved'
-                          : 'Save'}
-                    </button>
+                <SaveableSetting
+                  flush
+                  label="API Token"
+                  dirty={vercelTokenDirty}
+                  saving={savingKey === 'vercel_token'}
+                  saved={savedKey === 'vercel_token'}
+                  onSave={handleSaveVercelToken}
+                >
+                  <input
+                    type="password"
+                    value={vercelToken}
+                    onChange={(e) => {
+                      setVercelToken(e.target.value)
+                      setVercelTestResult(null)
+                    }}
+                    placeholder={
+                      vercelTokenFromEnv
+                        ? 'Using token from environment (VERCEL_TOKEN)'
+                        : 'Enter your Vercel API token'
+                    }
+                    className="w-full px-3 py-2 text-body bg-[var(--color-void)] border border-[rgba(163,163,163,0.15)] rounded-sm focus:outline-none focus:border-[var(--color-paper)]/30"
+                  />
+                  {!vercelToken && vercelTokenFromEnv && (
+                    <p className="text-caption text-[var(--color-sky)]/80 mt-1">
+                      Using token from environment variable
+                    </p>
+                  )}
+                  <div className="mt-2 flex justify-end">
                     <button
                       type="button"
                       onClick={handleTestVercelToken}
@@ -1366,7 +1335,7 @@ export function SettingsPage({
                       )}
                     </button>
                   </div>
-                </div>
+                </SaveableSetting>
               )}
             </div>
 
