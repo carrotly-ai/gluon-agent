@@ -21,6 +21,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from claude_agent_sdk import EffortLevel
+
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.agent_hooks import ScreenshotCollector, TodoCollector
 from gluon.git_manager import GitManager
@@ -548,7 +550,7 @@ class TaskRunner:
         force_planning: bool | None = None,
         agent_teams: bool | None = None,
         model_transition: str | None = None,
-        effort: str | None = None,
+        effort: EffortLevel | None = None,
         task_budget: int | None = None,
         enable_prehydration: bool = True,
         blueprint_enabled: bool = True,

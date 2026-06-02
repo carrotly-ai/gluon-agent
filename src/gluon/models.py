@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from claude_agent_sdk import EffortLevel
 from pydantic import BaseModel, Field
 
 
@@ -352,7 +353,7 @@ def resolve_task_options(
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     force_planning: bool | None = None,
-    effort: str | None = None,
+    effort: EffortLevel | None = None,
     task_budget: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -376,7 +377,7 @@ def resolve_task_options(
         - max_turns: int | None
         - max_budget_usd: float | None
         - force_planning: bool
-        - effort: str | None
+        - effort: EffortLevel | None
         - task_budget: int | None
     """
     # Resolve profile enum
