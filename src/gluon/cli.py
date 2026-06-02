@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 import anyio
 import typer
+from claude_agent_sdk import EffortLevel
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
@@ -1007,7 +1008,7 @@ def run(
         typer.Option("--thinking", help="Thinking budget: none/low/medium/high/ultrathink/adaptive"),
     ] = None,
     effort: Annotated[
-        str | None,
+        EffortLevel | None,
         typer.Option("--effort", help="Reasoning effort: low/medium/high/xhigh/max"),
     ] = None,
     planning: Annotated[bool, typer.Option("--planning", help="Force planning mode")] = False,

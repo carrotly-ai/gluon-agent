@@ -20,7 +20,7 @@ from gluon.store import GluonStore
 from gluon.transport import TransportContext, TransportResponse
 
 if TYPE_CHECKING:
-    pass
+    from claude_agent_sdk import EffortLevel
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +287,7 @@ class GluonBotCore:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         force_planning: bool | None = None,
-        effort: str | None = None,
+        effort: EffortLevel | None = None,
         task_budget: int | None = None,
     ) -> None:
         """Execute a Gluon task with streaming updates.

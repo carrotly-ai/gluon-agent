@@ -30,6 +30,8 @@ from gluon.store import GluonStore
 from gluon.worktree import WorktreeError, WorktreeManager, is_git_repository
 
 if TYPE_CHECKING:
+    from claude_agent_sdk import EffortLevel
+
     from gluon.git_manager import GitManager
     from gluon.notifier import NotificationDispatcher
 
@@ -638,7 +640,7 @@ class Orchestrator:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         force_planning: bool | None = None,
-        effort: str | None = None,
+        effort: EffortLevel | None = None,
         task_budget: int | None = None,
         agent_id: str | None = None,
         approval_policy: Any = None,  # models.ApprovalPolicy, defaults to PERMISSIVE

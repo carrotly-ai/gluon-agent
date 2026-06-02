@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from claude_agent_sdk import EffortLevel
 from pydantic import BaseModel, Field
 
 
@@ -154,7 +155,7 @@ class CreateRunRequest(BaseModel):
         default=None,
         description="Override thinking budget: none/low/medium/high/ultrathink/adaptive",
     )
-    effort_override: str | None = Field(
+    effort_override: EffortLevel | None = Field(
         default=None,
         description="Override reasoning effort: low/medium/high/xhigh/max",
     )
