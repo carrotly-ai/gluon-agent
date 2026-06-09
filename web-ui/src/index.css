@@ -692,6 +692,49 @@ html.light summary:focus-visible {
   }
 }
 
+/* Head tilt - a curious "listening" lean while searching */
+@keyframes head-tilt {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30%,
+  60% {
+    transform: rotate(-5deg);
+  }
+}
+
+/* Scan-line sweeping across the eye visor */
+@keyframes scan-sweep {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.45;
+  }
+  85% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+}
+
+/* Ground shadow scales subtly with the float for depth */
+@keyframes shadow-float {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.18;
+  }
+  50% {
+    transform: scaleX(0.82);
+    opacity: 0.1;
+  }
+}
+
 /* Loading dots animation */
 @keyframes dot-bounce {
   0%,
@@ -714,6 +757,13 @@ html.light summary:focus-visible {
     transform-origin: center center;
   }
 
+  /* Ground shadow breathes with the float */
+  .robot-shadow {
+    transform-origin: center center;
+    transform-box: fill-box;
+    animation: shadow-float 3s ease-in-out infinite;
+  }
+
   /* Eye blinking */
   .eye {
     transform-origin: center center;
@@ -732,6 +782,16 @@ html.light summary:focus-visible {
   /* Chest indicator */
   .chest-indicator {
     animation: chest-pulse 2s ease-in-out infinite;
+  }
+
+  /* Head tilts about the neck (bottom-center of the head) */
+  .head {
+    transform-origin: 50px 58px;
+  }
+
+  /* Scan-line hidden by default; enabled per active state */
+  .scan-line {
+    opacity: 0;
   }
 }
 
@@ -756,6 +816,16 @@ html.light summary:focus-visible {
   .arm--left {
     transform-origin: 15px 66px;
     animation: arm-wave 1.5s ease-in-out infinite;
+  }
+
+  /* Curious head-tilt while actively searching */
+  .head {
+    animation: head-tilt 4s ease-in-out infinite;
+  }
+
+  /* Scan-line sweeps across the visor */
+  .scan-line {
+    animation: scan-sweep 2s ease-in-out infinite;
   }
 }
 
@@ -783,6 +853,11 @@ html.light summary:focus-visible {
 
   .signal-ring--3 {
     animation-delay: 0.6s;
+  }
+
+  /* Faster, hopeful scan while reconnecting */
+  .scan-line {
+    animation: scan-sweep 1.3s ease-in-out infinite;
   }
 }
 
