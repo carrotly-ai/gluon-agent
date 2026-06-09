@@ -206,6 +206,9 @@ interface AgentMessage {
     | 'notification'
     | 'thinking'
     | 'tool_result'
+    | 'server_tool_use'
+    | 'server_tool_result'
+    | 'todos_updated'
     | 'task_started'
     | 'task_progress'
     | 'task_notification'
@@ -219,6 +222,8 @@ interface AgentMessage {
     original_name?: string
     size_bytes?: number
     reasoning?: string
+    /** Set on tool_result messages when the tool call failed */
+    is_error?: boolean
     // Usage message fields (emitted with type="usage")
     final?: boolean
     input_tokens?: number
@@ -1381,6 +1386,19 @@ export function StreamingLogViewer({
       if (msg.type === 'system' && msg.content === 'task_progress') return false
       // Filter out task_updated noise (system messages with no useful content)
       if (msg.type === 'system' && msg.content === 'task_updated') return false
+      // Tool results carry no display value here — the tool card already shows the
+      // action, and genuine failures surface as `error` messages. They'd otherwise
+      // render as empty rows under the catch-all SystemMessage. (Keep error results.)
+      if (
+        (msg.type === 'tool_result' || msg.type === 'server_tool_result') &&
+        !msg.metadata?.is_error
+      ) {
+        return false
+      }
+      // Todo-progress pings ("3/48 completed") fire on every TodoWrite/TaskUpdate
+      // call — often many in a row with no change. The live todo state is shown in
+      // the expandable TodoWrite tool card and the task checklist, so drop these.
+      if (msg.type === 'todos_updated') return false
       // Create unique key from timestamp + type + content preview
       // This handles the race condition between HTTP fetch and WebSocket streaming
       const contentPreview = msg.content?.slice(0, 100) || ''
