@@ -10,17 +10,19 @@ from enum import StrEnum
 class ModelTier(StrEnum):
     """Model tiers for different task complexities."""
 
+    OPUS_48 = "opus-4.8"
+    OPUS_47 = "opus-4.7"
     OPUS_46 = "opus-4.6"
-    OPUS_45 = "opus-4.5"
     SONNET = "sonnet"
     HAIKU = "haiku"
 
 
 # UI model name aliases (maps UI names to tier names)
 MODEL_ALIASES = {
+    "claude-opus-4.8": ModelTier.OPUS_48,
+    "claude-opus-4.7": ModelTier.OPUS_47,
     "claude-opus-4.6": ModelTier.OPUS_46,
-    "claude-opus-4.5": ModelTier.OPUS_45,
-    "opus": ModelTier.OPUS_46,
+    "opus": ModelTier.OPUS_48,
     "claude-sonnet-4.6": ModelTier.SONNET,
     "claude-sonnet-4.5": ModelTier.SONNET,
     "claude-haiku-4.5": ModelTier.HAIKU,
@@ -29,14 +31,15 @@ MODEL_ALIASES = {
 # Fallback tier mapping: model → next tier down for graceful degradation
 # When primary model hits rate limits or is unavailable, SDK falls back automatically
 FALLBACK_TIERS: dict[ModelTier, ModelTier | None] = {
+    ModelTier.OPUS_48: ModelTier.SONNET,
+    ModelTier.OPUS_47: ModelTier.SONNET,
     ModelTier.OPUS_46: ModelTier.SONNET,
-    ModelTier.OPUS_45: ModelTier.SONNET,
     ModelTier.SONNET: ModelTier.HAIKU,
     ModelTier.HAIKU: None,  # No fallback for cheapest model
 }
 
 # Default model for general tasks
-DEFAULT_MODEL = ModelTier.SONNET
+DEFAULT_MODEL = ModelTier.OPUS_48
 
 
 def _get_model_ids() -> dict[ModelTier, str]:
@@ -92,7 +95,7 @@ def get_model_id(tier: ModelTier | str) -> str:
     Delegates to the active LLM provider for model ID resolution.
 
     Args:
-        tier: Model tier (opus/sonnet/haiku), UI name (claude-opus-4.5), or ModelTier enum
+        tier: Model tier (opus/sonnet/haiku), UI name (claude-opus-4.8), or ModelTier enum
 
     Returns:
         Full provider-specific model ID

@@ -992,7 +992,7 @@ def run(
     prompt: Annotated[str, typer.Argument(help="Prompt for Claude")],
     new_session: Annotated[bool, typer.Option("--new", "-n", help="Force new session")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
-    model: Annotated[str | None, typer.Option("--model", "-m", help="Model: opus-4.6/opus-4.5/sonnet/haiku")] = None,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model: opus-4.8/4.7/4.6/sonnet/haiku")] = None,
     background: Annotated[bool, typer.Option("--background", "-b", help="Run in background")] = False,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Execute in isolated Git worktree")] = False,
     ralph: Annotated[bool, typer.Option("--ralph", "-r", help="Enable ralph loop mode")] = False,
@@ -1236,7 +1236,7 @@ def resume(
     project: Annotated[str, typer.Argument(help="Project name or ID")],
     prompt: Annotated[str | None, typer.Argument(help="Optional follow-up prompt")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show final result")] = False,
-    model: Annotated[str | None, typer.Option("--model", "-m", help="Model: opus-4.6/opus-4.5/sonnet/haiku")] = None,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model: opus-4.8/4.7/4.6/sonnet/haiku")] = None,
 ):
     """Resume the last session for a project."""
     orchestrator = get_orchestrator()

@@ -394,10 +394,12 @@ async def _edit_question_message(interaction, question, selected_labels: list[st
 
 # Model aliases for convenience
 MODEL_ALIASES: dict[str, str] = {
-    "opus": "claude-opus-4.5",
+    "opus": "claude-opus-4.8",
     "sonnet": "claude-sonnet-4.6",
     "haiku": "claude-haiku-4.5",
-    "claude-opus-4.5": "claude-opus-4.5",
+    "claude-opus-4.8": "claude-opus-4.8",
+    "claude-opus-4.7": "claude-opus-4.7",
+    "claude-opus-4.6": "claude-opus-4.6",
     "claude-sonnet-4.6": "claude-sonnet-4.6",
     "claude-sonnet-4.5": "claude-sonnet-4.6",
     "claude-haiku-4.5": "claude-haiku-4.5",
@@ -416,7 +418,7 @@ def parse_model_flag(text: str) -> tuple[str, str | None]:
         Tuple of (cleaned_prompt, model_name or None)
 
     Examples:
-        "fix the bug --model opus" -> ("fix the bug", "claude-opus-4.5")
+        "fix the bug --model opus" -> ("fix the bug", "claude-opus-4.8")
         "fix the bug" -> ("fix the bug", None)
     """
     # Match --model or -m followed by model name
@@ -519,7 +521,7 @@ def parse_channel_topic(topic: str | None) -> dict[str, str | None]:
         Dict with 'project', 'model', and 'agent' keys (values may be None)
 
     Examples:
-        "--project foo --model opus" -> {"project": "foo", "model": "claude-opus-4.5", "agent": None}
+        "--project foo --model opus" -> {"project": "foo", "model": "claude-opus-4.8", "agent": None}
         "--project foo --agent researcher" -> {"project": "foo", "model": None, "agent": "researcher"}
         "Regular topic" -> {"project": None, "model": None, "agent": None}
     """
@@ -1208,7 +1210,8 @@ class DiscordTransport(Transport):
         """Handle the models command - list available models."""
         text = (
             "**Available Models:**\n"
-            "- `opus` / `claude-opus-4.5` - Highest quality, best for complex reasoning\n"
+            "- `opus` / `claude-opus-4.8` - Highest quality, best for complex reasoning\n"
+            "- `claude-opus-4.7` / `claude-opus-4.6` - Previous Opus generations\n"
             "- `sonnet` / `claude-sonnet-4.6` - Fast, high-quality (default)\n"
             "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost\n\n"
             "**Usage:** `@gluon <task> --model opus`\n"

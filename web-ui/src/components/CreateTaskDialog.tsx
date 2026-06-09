@@ -65,24 +65,25 @@ const PROFILE_OPTIONS = [
   {
     value: 'deep',
     label: 'Deep',
-    description: 'Opus 4.6 - Maximum reasoning (default)',
-    model: 'opus-4.6',
-    summary: 'Opus 4.6 — maximum reasoning. Best for hard or ambiguous work (default).',
+    description: 'Opus 4.8 - Maximum reasoning (default)',
+    model: 'opus-4.8',
+    summary: 'Opus 4.8 — maximum reasoning. Best for hard or ambiguous work (default).',
   },
   {
     value: 'planning',
     label: 'Planning',
-    description: 'Opus 4.6 - Plan before executing',
-    model: 'opus-4.6',
-    summary: 'Opus 4.6 — drafts a plan and waits for approval before making changes.',
+    description: 'Opus 4.8 - Plan before executing',
+    model: 'opus-4.8',
+    summary: 'Opus 4.8 — drafts a plan and waits for approval before making changes.',
   },
 ]
 
 // Model options for advanced override
 const MODEL_OPTIONS = [
   { value: '', label: 'Use profile default', description: '' },
-  { value: 'opus-4.6', label: 'Opus 4.6', description: 'Highest quality (default)' },
-  { value: 'opus-4.5', label: 'Opus 4.5', description: 'Previous generation' },
+  { value: 'opus-4.8', label: 'Opus 4.8', description: 'Highest quality (default)' },
+  { value: 'opus-4.7', label: 'Opus 4.7', description: 'Previous generation' },
+  { value: 'opus-4.6', label: 'Opus 4.6', description: 'Previous generation' },
   { value: 'sonnet', label: 'Sonnet 4.6', description: 'Balanced' },
   { value: 'haiku', label: 'Haiku 4.5', description: 'Fastest' },
 ]

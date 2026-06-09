@@ -125,7 +125,7 @@ When running tasks via natural language, you can specify the model:
 
 | Model | Best For | Syntax |
 |-------|----------|--------|
-| `opus-4.6` (default) | Complex reasoning, architecture decisions, large refactors | "Use opus to fix the auth system" |
+| `opus-4.8` (default) | Complex reasoning, architecture decisions, large refactors | "Use opus to fix the auth system" |
 | `sonnet` | Balanced performance/cost, most tasks | "Run a task on myapp with sonnet" |
 | `haiku` | Simple tasks, bug fixes, documentation | "Fix this typo in haiku" |
 
