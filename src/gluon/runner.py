@@ -188,6 +188,36 @@ def auto_detect_kind(prompt: str) -> str:
     return "build"
 
 
+def _build_pr_instructions(branch_name: str, base_branch: str) -> str:
+    """Instruct the agent to open its own pull request before finishing.
+
+    The agent has full context for *why* each change was made — far more than a
+    post-hoc diff summary — so it writes a much better PR than the rescue path
+    in ``git_manager.push_branch_and_create_pr``. That rescue path only fires
+    when no PR exists for the branch (e.g. the agent crashed mid-task).
+    """
+    return f"""
+PULL REQUEST — REQUIRED before you finish:
+After committing, open a pull request with the GitHub CLI:
+  `gh pr create --base {base_branch} --head {branch_name} --title "<title>" --body "<body>"`
+(Skip only if a PR for this branch already exists — then just confirm it.)
+
+Write it for a human reviewer, not as a restatement of your task prompt:
+- TITLE: a Conventional Commit summary of what actually changed
+  (e.g. "fix(forms): validate required fields server-side"), <=72 chars.
+  Do NOT use the raw task prompt as the title.
+- BODY (GitHub-flavored markdown):
+  - `## Summary` — 1-3 sentences on what changed and why.
+  - Group changes under `##` headings by theme (e.g. bug fixes, validation,
+    UX, tests, CI). Use bullets that name the specific files / functions /
+    fields touched and the effect of each change. Reference code in
+    `backticks`. Link any issues this closes with `Closes #N`.
+  - `## Test plan` — checklist of how it was validated (lint/types/tests/build).
+Base the description on your ACTUAL diff (`git diff {base_branch}...HEAD`),
+not on what you intended to do.
+"""
+
+
 def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
     """Update the agent's last_active_at timestamp on run start. Best-effort."""
     try:
@@ -1148,6 +1178,9 @@ class TaskRunner:
                 # Build prompt with worktree context if applicable
                 effective_prompt = run.prompt
                 if run.use_worktree and run.branch_name:
+                    _auto_pr = self.store.resolve_setting("auto_create_pr", "true", workspace_id) == "true"
+                    base_branch = run.source_branch or "main"
+                    pr_instructions = _build_pr_instructions(run.branch_name, base_branch) if _auto_pr else ""
                     worktree_context = f"""[WORKTREE CONTEXT]
 You are working in an isolated git worktree on branch '{run.branch_name}'.
 This worktree is temporary and may be cleaned up after your session.
@@ -1156,7 +1189,7 @@ IMPORTANT: Commit all your changes before completing your task.
 Use descriptive commit messages summarizing what was done.
 The system will auto-commit any uncommitted changes as a safety net,
 but explicit commits with good messages are preferred.
-[END WORKTREE CONTEXT]
+{pr_instructions}[END WORKTREE CONTEXT]
 
 """
                     effective_prompt = worktree_context + run.prompt
@@ -1475,9 +1508,19 @@ but explicit commits with good messages are preferred.
                                     stderr_file.write(f"Warning: Auto-commit failed: {commit_err}\n")
                                     stderr_file.flush()
 
-                                # Push branch and create PR if enabled
-                                if auto_create_pr:
+                                # Rescue PR: only if the agent didn't already open
+                                # one itself (preferred — it writes a far better
+                                # description). run.pr_url is populated by
+                                # capture_run_git_info above via `gh pr view`.
+                                if auto_create_pr and run.pr_url:
+                                    stdout_file.write(f"✓ PR created by agent: {run.pr_url}\n")
+                                    stdout_file.flush()
+                                elif auto_create_pr:
                                     try:
+                                        stdout_file.write(
+                                            "\nNo PR found for branch — creating rescue PR (agent did not open one)\n"
+                                        )
+                                        stdout_file.flush()
                                         pr_result = await self.git_manager.push_branch_and_create_pr(
                                             project_path=working_path,
                                             branch_name=run.branch_name,
@@ -2670,8 +2713,11 @@ but explicit commits with good messages are preferred.
                         with open(stdout_path, "a") as f:
                             f.write(f"Warning: Auto-commit failed: {commit_err}\n")
 
-                    # Push and create PR
-                    if auto_create_pr:
+                    # Rescue PR — skip if the agent already opened one (preferred).
+                    if auto_create_pr and updated_run.pr_url:
+                        with open(stdout_path, "a") as f:
+                            f.write(f"✓ PR created by agent: {updated_run.pr_url}\n")
+                    elif auto_create_pr:
                         try:
                             pr_result = await self.git_manager.push_branch_and_create_pr(
                                 project_path=working_path,

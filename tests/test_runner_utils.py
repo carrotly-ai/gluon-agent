@@ -6,7 +6,38 @@ import json
 import pytest
 
 from gluon.models import RunStatus
-from gluon.runner import TaskRunner, format_duration, format_run_status
+from gluon.runner import (
+    TaskRunner,
+    _build_pr_instructions,
+    format_duration,
+    format_run_status,
+)
+
+
+class TestBuildPrInstructions:
+    """The worktree PR instructions injected into the agent prompt."""
+
+    def test_includes_gh_command_with_base_and_head(self):
+        out = _build_pr_instructions("gluon-task/abc123", "develop")
+        assert "gh pr create" in out
+        assert "--base develop" in out
+        assert "--head gluon-task/abc123" in out
+
+    def test_directs_semantic_title_not_raw_prompt(self):
+        out = _build_pr_instructions("b", "main")
+        # Must steer away from using the prompt as the title
+        assert "Conventional Commit" in out
+        assert "Do NOT use the raw task prompt as the title" in out
+
+    def test_requires_summary_and_test_plan_sections(self):
+        out = _build_pr_instructions("b", "main")
+        assert "## Summary" in out
+        assert "## Test plan" in out
+
+    def test_grounds_description_in_actual_diff(self):
+        out = _build_pr_instructions("b", "main")
+        assert "git diff main...HEAD" in out
+
 
 # ---------------------------------------------------------------------------
 # format_duration
