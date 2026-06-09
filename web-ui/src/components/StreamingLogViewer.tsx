@@ -225,6 +225,7 @@ interface AgentMessage {
     output_tokens?: number
     cache_read?: number
     cache_create?: number
+    context_used?: number | null
     context_window?: number | null
     model?: string
     [key: string]: unknown
@@ -1110,11 +1111,29 @@ interface ContextUsageData {
   output_tokens: number
   cache_read: number
   cache_create: number
+  /** Live context occupancy (latest turn's full input); null if unknown */
+  context_used: number | null
+  /** Max context window for the model; null if the provider didn't report it */
+  context_window: number | null
   model: string | null
 }
 
+/**
+ * Resolve the context-window size for the occupancy bar.
+ *
+ * Prefer the value the SDK reported (`contextWindow` from model_usage). Some
+ * providers (Bedrock/Vertex/Foundry) don't always populate it, so fall back to
+ * the known per-tier window: 1M when the 1M-context beta is clearly in play
+ * (occupancy already exceeds the standard 200k), otherwise the standard 200k.
+ */
+function resolveContextWindow(contextWindow: number | null, contextUsed: number | null): number {
+  if (contextWindow && contextWindow > 0) return contextWindow
+  if (contextUsed && contextUsed > 200_000) return 1_000_000
+  return 200_000
+}
+
 function SessionTokensFooter({ data }: { data: ContextUsageData }) {
-  const { input_tokens, output_tokens, cache_read, cache_create, model } = data
+  const { input_tokens, output_tokens, cache_read, cache_create, context_used, model } = data
 
   // input_tokens may or may not include cache tokens depending on SDK version.
   // Derive fresh input safely, then reconstruct the true total.
@@ -1124,14 +1143,45 @@ function SessionTokensFooter({ data }: { data: ContextUsageData }) {
   const cacheHitRate = totalInput > 0 ? (cache_read / totalInput) * 100 : 0
   const shortModel = model?.replace(/^(global\.)?anthropic\./, '').replace(/-v\d+.*$/, '') ?? null
 
+  // Live context occupancy — distinct from the cumulative throughput above.
+  const contextWindow = resolveContextWindow(data.context_window, context_used)
+  const used = context_used ?? null
+  const usedPct = used !== null ? Math.min(100, (used / contextWindow) * 100) : null
+  // Pressure colour: calm sky → amber past 70% → red past 90%.
+  const barColor =
+    usedPct === null
+      ? 'var(--color-stone)'
+      : usedPct >= 90
+        ? 'var(--color-rose, #fb5555)'
+        : usedPct >= 70
+          ? 'var(--color-amber, #f5a623)'
+          : 'var(--color-sky)'
+
   return (
-    <div className="shrink-0 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-void)]/80 px-3 py-1.5">
+    <div className="shrink-0 border-t border-[rgba(163,163,163,0.08)] bg-[var(--color-void)]/80 px-3 py-1.5 space-y-1.5">
+      {/* Context occupancy bar — how full the live window is right now */}
+      {usedPct !== null && (
+        <div className="flex items-center gap-2 text-body" title="Live context window usage">
+          <span className="text-[var(--color-stone)]/40 shrink-0">Context</span>
+          <div className="relative h-1.5 flex-1 min-w-[80px] rounded-full bg-[rgba(163,163,163,0.12)] overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out"
+              style={{ width: `${usedPct}%`, backgroundColor: barColor }}
+            />
+          </div>
+          <span className="text-[var(--color-stone)]/60 tabular-nums shrink-0">
+            {formatTokenCount(used ?? 0)}/{formatTokenCount(contextWindow)} · {Math.round(usedPct)}%
+          </span>
+        </div>
+      )}
+
+      {/* Cumulative throughput + cost (secondary) */}
       <div className="flex items-center gap-3 flex-wrap text-body">
         <span className="text-[var(--color-stone)]/40">Session</span>
         {shortModel && <span className="text-[var(--color-stone)]/50">{shortModel}</span>}
         <span
           className="text-[var(--color-stone)]/60 tabular-nums"
-          title="Total tokens (input + output)"
+          title="Total tokens billed this session (input + output, cumulative)"
         >
           {formatTokenCount(totalTokens)} total
         </span>
@@ -1477,6 +1527,8 @@ export function StreamingLogViewer({
         output_tokens: tokens.output_tokens,
         cache_read: tokens.cache_read,
         cache_create: tokens.cache_create,
+        context_used: tokens.context_used,
+        context_window: tokens.context_window,
         model: tokens.model,
       }
     }
@@ -1489,6 +1541,8 @@ export function StreamingLogViewer({
           output_tokens: msg.metadata.output_tokens || 0,
           cache_read: msg.metadata.cache_read || 0,
           cache_create: msg.metadata.cache_create || 0,
+          context_used: msg.metadata.context_used ?? null,
+          context_window: msg.metadata.context_window ?? null,
           model: msg.metadata.model || null,
         }
       }

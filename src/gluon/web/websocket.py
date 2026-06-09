@@ -295,6 +295,7 @@ class WebSocketManager:
         input_tokens: int,
         output_tokens: int,
         estimated_cost_usd: float,
+        context_used: int | None = None,
         context_window: int | None = None,
         cache_read: int = 0,
         cache_create: int = 0,
@@ -307,6 +308,7 @@ class WebSocketManager:
             input_tokens: Total input tokens used
             output_tokens: Total output tokens used
             estimated_cost_usd: Estimated cost in USD
+            context_used: Live context occupancy (latest turn's full input)
             context_window: Max context window size (from model_usage)
             cache_read: Prompt-cache read tokens
             cache_create: Prompt-cache create tokens
@@ -321,6 +323,8 @@ class WebSocketManager:
             "cache_read": cache_read,
             "cache_create": cache_create,
         }
+        if context_used is not None:
+            message["context_used"] = context_used
         if context_window is not None:
             message["context_window"] = context_window
         if model is not None:
