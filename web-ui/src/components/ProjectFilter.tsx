@@ -33,7 +33,11 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const grouped = groupProjectsByWorkspace(projects)
+  // Memoize so `grouped` (and the `flatItems` below) keep a stable identity
+  // across the parent's polling re-renders. Without this, every poll tick
+  // produced a fresh Map → new flatItems → the seed effect re-ran and reset
+  // the keyboard cursor, scrolling the open dropdown back to the top.
+  const grouped = useMemo(() => groupProjectsByWorkspace(projects), [projects])
 
   // Flat list of selectable filters for keyboard navigation. The order
   // mirrors the visible DOM order so ArrowDown moves the highlight one row
@@ -52,13 +56,18 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
     return items
   }, [grouped])
 
-  // When the dropdown opens, seed the keyboard cursor on the current filter.
+  // Seed the keyboard cursor on the current filter, but ONLY on the
+  // closed→open transition. Depending on `filter`/`flatItems` here would
+  // re-seed (and scroll to top) on every parent poll while the menu is open.
+  const wasOpenRef = useRef(false)
   useEffect(() => {
-    if (!open) return
-    const currentIdx = flatItems.findIndex(
-      (item) => item.filter.type === filter.type && item.filter.value === filter.value
-    )
-    setActiveIndex(currentIdx >= 0 ? currentIdx : 0)
+    if (open && !wasOpenRef.current) {
+      const currentIdx = flatItems.findIndex(
+        (item) => item.filter.type === filter.type && item.filter.value === filter.value
+      )
+      setActiveIndex(currentIdx >= 0 ? currentIdx : 0)
+    }
+    wasOpenRef.current = open
   }, [open, filter, flatItems])
 
   // Keep the highlighted row in view as the user arrows through.

@@ -547,9 +547,12 @@ export function ListViewPage({
         if (sortMode === 'created') {
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         }
-        // project: name then activity
+        // project: name, then active runs first, then most-recent activity
         const byProject = a.project_name.localeCompare(b.project_name)
         if (byProject !== 0) return byProject
+        const aActive = a.status === 'running' || a.status === 'pending'
+        const bActive = b.status === 'running' || b.status === 'pending'
+        if (aActive !== bActive) return aActive ? -1 : 1
         return lastActivityTs(b) - lastActivityTs(a)
       })
       return cloned
@@ -575,7 +578,11 @@ export function ListViewPage({
         needsAttention.push(r)
         continue
       }
-      if (r.status === 'running' || r.status === 'pending') {
+      // In "Project" sort mode the user wants everything grouped under its
+      // project, so running/pending tasks stay with their project instead of
+      // being hoisted into a single global "Running" section. In activity/
+      // created modes the cross-cutting Running section is the useful view.
+      if ((r.status === 'running' || r.status === 'pending') && sortMode !== 'project') {
         running.push(r)
         continue
       }
