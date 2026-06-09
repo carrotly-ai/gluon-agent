@@ -21,6 +21,8 @@ export interface RunTokens {
   estimated_cost_usd: number
   cache_read: number
   cache_create: number
+  /** Live context occupancy (latest turn's full input) */
+  context_used: number | null
   context_window: number | null
   model: string | null
 }
@@ -113,6 +115,7 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
               estimated_cost_usd: tok.estimated_cost_usd,
               cache_read: tok.cache_read ?? 0,
               cache_create: tok.cache_create ?? 0,
+              context_used: tok.context_used ?? null,
               context_window: tok.context_window ?? null,
               model: tok.model ?? null,
             })

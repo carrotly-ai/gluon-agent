@@ -1323,6 +1323,7 @@ but explicit commits with good messages are preferred.
                                     "output_tokens": um.get("output_tokens", 0),
                                     "cache_read": um.get("cache_read", 0),
                                     "cache_create": um.get("cache_create", 0),
+                                    "context_used": um.get("context_used"),
                                     "context_window": um.get("context_window"),
                                     "model": um.get("model"),
                                     "estimated_cost_usd": run.cost_usd or 0,

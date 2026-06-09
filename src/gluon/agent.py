@@ -1100,6 +1100,15 @@ class GluonAgent:
                                 _acc_output_tokens += turn_usage.get("output_tokens", 0)
                                 _acc_cache_read += turn_usage.get("cache_read_input_tokens", 0)
                                 _acc_cache_create += turn_usage.get("cache_creation_input_tokens", 0)
+                                # Live context occupancy: each request sends the WHOLE
+                                # context as input, so this turn's input + cache reflects
+                                # the current window fill (unlike the cumulative totals
+                                # above, which only ever grow). Take the latest, not a sum.
+                                _context_used = (
+                                    turn_usage.get("input_tokens", 0)
+                                    + turn_usage.get("cache_read_input_tokens", 0)
+                                    + turn_usage.get("cache_creation_input_tokens", 0)
+                                )
                                 yield AgentMessage(
                                     type="usage",
                                     content="",
@@ -1108,6 +1117,7 @@ class GluonAgent:
                                         "output_tokens": _acc_output_tokens,
                                         "cache_read": _acc_cache_read,
                                         "cache_create": _acc_cache_create,
+                                        "context_used": _context_used,
                                         "context_window": _context_window,
                                         "model": model_used,
                                     },
@@ -1129,6 +1139,13 @@ class GluonAgent:
                                 if cw:
                                     _context_window = cw
                                 break
+                            # Final context occupancy from the last turn's full input
+                            # (input + both cache buckets). See the per-turn note above.
+                            _final_context_used = (
+                                (input_tokens or 0)
+                                + usage.get("cache_read_input_tokens", 0)
+                                + usage.get("cache_creation_input_tokens", 0)
+                            )
                             # Emit final usage with confirmed context_window
                             yield AgentMessage(
                                 type="usage",
@@ -1138,6 +1155,7 @@ class GluonAgent:
                                     "output_tokens": output_tokens or _acc_output_tokens,
                                     "cache_read": _acc_cache_read,
                                     "cache_create": _acc_cache_create,
+                                    "context_used": _final_context_used or None,
                                     "context_window": _context_window,
                                     "model": model_used,
                                     "model_usage": {k: dict(v) for k, v in model_usage.items()}

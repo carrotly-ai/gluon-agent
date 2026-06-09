@@ -672,6 +672,7 @@ export interface TokenUpdateMessage extends WebSocketMessage {
   estimated_cost_usd: number
   cache_read?: number
   cache_create?: number
+  context_used?: number | null
   context_window?: number | null
   model?: string | null
 }
