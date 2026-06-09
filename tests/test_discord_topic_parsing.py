@@ -30,7 +30,7 @@ class TestParseChannelTopic:
 
     def test_model_opus(self):
         result = parse_channel_topic("--model opus")
-        assert result["model"] == "claude-opus-4.5"
+        assert result["model"] == "claude-opus-4.8"
 
     def test_unknown_model_returns_none(self):
         result = parse_channel_topic("--model unknown-model")
@@ -44,7 +44,7 @@ class TestParseChannelTopic:
     def test_short_forms(self):
         result = parse_channel_topic("-p bar -m opus")
         assert result["project"] == "bar"
-        assert result["model"] == "claude-opus-4.5"
+        assert result["model"] == "claude-opus-4.8"
 
     def test_extra_text_around_flags(self):
         result = parse_channel_topic("Dev channel --model haiku for testing")

@@ -111,7 +111,7 @@ gluon status                              # Show overall status
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--background` | `-b` | Run in background, return immediately |
-| `--model <tier>` | `-m` | Model tier: `opus-4.6`/`opus-4.5`/`sonnet`/`haiku` |
+| `--model <tier>` | `-m` | Model tier: `opus-4.8`/`opus-4.7`/`opus-4.6`/`sonnet`/`haiku` |
 | `--worktree` | `-w` | Execute in an isolated git worktree branch |
 | `--ralph` | `-r` | Enable [Ralph Loop](RALPH-LOOP.md) (autonomous mode) |
 | `--max-loops <n>` | | Max loop iterations in Ralph mode (default: 50) |
@@ -128,10 +128,11 @@ gluon status                              # Show overall status
 | Tier | Model | Use Case |
 |------|-------|----------|
 | `haiku` | claude-haiku-4.5 | Fast, economical tasks |
-| `sonnet` | claude-sonnet-4.6 | Balanced performance (default) |
-| `opus-4.6` | claude-opus-4.6 | Complex, demanding tasks (latest, default opus) |
-| `opus-4.5` | claude-opus-4.5 | Previous generation Opus |
-| `opus` | claude-opus-4.6 | Alias for opus-4.6 |
+| `sonnet` | claude-sonnet-4.6 | Balanced performance |
+| `opus-4.6` | claude-opus-4.6 | Previous generation Opus |
+| `opus-4.7` | claude-opus-4.7 | Previous generation Opus |
+| `opus-4.8` | claude-opus-4.8 | Complex, demanding tasks (latest, default) |
+| `opus` | claude-opus-4.8 | Alias for opus-4.8 |
 
 ### Task Profiles
 
@@ -141,8 +142,8 @@ Pre-configured combinations of model, thinking budget, and planning mode:
 |---------|-------|----------|----------|----------|
 | `quick` | Haiku | None | No | Typos, simple fixes |
 | `standard` | Sonnet | 10K tokens | No | Most coding tasks (default) |
-| `deep` | Opus 4.6 | 32K tokens | No | Complex refactoring |
-| `planning` | Opus 4.6 | 16K tokens | Yes | Multi-step tasks requiring approval |
+| `deep` | Opus 4.8 | 32K tokens | No | Complex refactoring |
+| `planning` | Opus 4.8 | 16K tokens | Yes | Multi-step tasks requiring approval |
 
 ### Examples
 

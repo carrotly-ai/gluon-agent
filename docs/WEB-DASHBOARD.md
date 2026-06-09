@@ -142,12 +142,12 @@ The "New Task" dialog provides a powerful interface for creating tasks with adva
 |---------|-------|----------|
 | Quick | Haiku 4.5 | Fast responses, low cost |
 | Standard | Sonnet 4.6 | Balanced quality/speed (default) |
-| Deep | Opus 4.6 | Maximum reasoning, complex tasks |
-| Planning | Opus 4.6 | Plan before execution mode |
+| Deep | Opus 4.8 | Maximum reasoning, complex tasks |
+| Planning | Opus 4.8 | Plan before execution mode |
 
 **Advanced Options** (Override defaults):
 
-- **Model Override** - Force specific model (opus-4.6, opus-4.5, sonnet, haiku)
+- **Model Override** - Force specific model (opus-4.8, opus-4.7, opus-4.6, sonnet, haiku)
 - **Thinking Budget** - Extended thinking tokens (none, low 4k, medium 10k, high 16k, ultrathink 32k)
 - **Max Budget (USD)** - Override profile cost limit
 

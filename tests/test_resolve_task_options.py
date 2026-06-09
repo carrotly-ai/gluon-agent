@@ -53,13 +53,13 @@ class TestProfileResolution:
 
     def test_deep_profile(self):
         result = resolve_task_options(profile=TaskProfile.DEEP)
-        assert result["model"] == "opus-4.6"
+        assert result["model"] == "opus-4.8"
         assert result["max_thinking_tokens"] == -1  # adaptive
         assert result["effort"] == "high"
 
     def test_planning_profile(self):
         result = resolve_task_options(profile=TaskProfile.PLANNING)
-        assert result["model"] == "opus-4.6"
+        assert result["model"] == "opus-4.8"
         assert result["force_planning"] is True
         assert result["effort"] == "high"
 
@@ -84,7 +84,7 @@ class TestProfileFromString:
 
     def test_mixed_case_profile_string(self):
         result = resolve_task_options(profile="Deep")
-        assert result["model"] == "opus-4.6"
+        assert result["model"] == "opus-4.8"
 
 
 class TestModelOverride:
@@ -262,7 +262,7 @@ class TestRoleBasedProfiles:
 
     def test_research_profile(self):
         result = resolve_task_options(profile=TaskProfile.RESEARCH)
-        assert result["model"] == "opus-4.6"
+        assert result["model"] == "opus-4.8"
         assert result["max_thinking_tokens"] == THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH]
         assert result["effort"] == "high"
 

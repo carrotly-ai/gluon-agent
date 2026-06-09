@@ -30,14 +30,20 @@ class TestGetModelId:
     def test_tier_name_opus_46(self):
         assert get_model_id("opus-4.6") == MODEL_IDS[ModelTier.OPUS_46]
 
-    def test_tier_name_opus_45(self):
-        assert get_model_id("opus-4.5") == MODEL_IDS[ModelTier.OPUS_45]
+    def test_tier_name_opus_48(self):
+        assert get_model_id("opus-4.8") == MODEL_IDS[ModelTier.OPUS_48]
+
+    def test_tier_name_opus_47(self):
+        assert get_model_id("opus-4.7") == MODEL_IDS[ModelTier.OPUS_47]
 
     def test_ui_alias_claude_opus_46(self):
         assert get_model_id("claude-opus-4.6") == MODEL_IDS[ModelTier.OPUS_46]
 
-    def test_ui_alias_claude_opus_45(self):
-        assert get_model_id("claude-opus-4.5") == MODEL_IDS[ModelTier.OPUS_45]
+    def test_ui_alias_claude_opus_48(self):
+        assert get_model_id("claude-opus-4.8") == MODEL_IDS[ModelTier.OPUS_48]
+
+    def test_ui_alias_claude_opus_47(self):
+        assert get_model_id("claude-opus-4.7") == MODEL_IDS[ModelTier.OPUS_47]
 
     def test_ui_alias_claude_sonnet_46(self):
         assert get_model_id("claude-sonnet-4.6") == MODEL_IDS[ModelTier.SONNET]
@@ -96,8 +102,12 @@ class TestGetFallbackModelId:
         result = get_fallback_model_id(ModelTier.OPUS_46)
         assert result == MODEL_IDS[ModelTier.SONNET]
 
-    def test_opus_45_falls_back_to_sonnet(self):
-        result = get_fallback_model_id(ModelTier.OPUS_45)
+    def test_opus_48_falls_back_to_sonnet(self):
+        result = get_fallback_model_id(ModelTier.OPUS_48)
+        assert result == MODEL_IDS[ModelTier.SONNET]
+
+    def test_opus_47_falls_back_to_sonnet(self):
+        result = get_fallback_model_id(ModelTier.OPUS_47)
         assert result == MODEL_IDS[ModelTier.SONNET]
 
     def test_sonnet_falls_back_to_haiku(self):
@@ -118,7 +128,7 @@ class TestGetFallbackModelId:
         assert result == MODEL_IDS[ModelTier.HAIKU]
 
     def test_ui_alias_input(self):
-        result = get_fallback_model_id("claude-opus-4.5")
+        result = get_fallback_model_id("claude-opus-4.8")
         assert result == MODEL_IDS[ModelTier.SONNET]
 
     def test_unknown_model_returns_none(self):
@@ -146,8 +156,8 @@ class TestModelAliasesConsistency:
     def test_sonnet_45_and_46_map_to_same_tier(self):
         assert MODEL_ALIASES["claude-sonnet-4.5"] == MODEL_ALIASES["claude-sonnet-4.6"]
 
-    def test_opus_alias_maps_to_opus_46(self):
-        assert MODEL_ALIASES["opus"] == ModelTier.OPUS_46
+    def test_opus_alias_maps_to_opus_48(self):
+        assert MODEL_ALIASES["opus"] == ModelTier.OPUS_48
 
     def test_all_aliases_map_to_valid_tiers(self):
         for alias, tier in MODEL_ALIASES.items():

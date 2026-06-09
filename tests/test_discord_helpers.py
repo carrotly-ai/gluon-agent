@@ -73,7 +73,7 @@ class TestParseModelFlag:
     def test_model_flag_long(self):
         """Test --model flag."""
         cleaned, model = parse_model_flag("fix bug --model opus")
-        assert model == "claude-opus-4.5"
+        assert model == "claude-opus-4.8"
         assert cleaned == "fix bug"
 
     def test_model_flag_short(self):
@@ -106,10 +106,10 @@ class TestParseModelFlag:
         assert model == "claude-sonnet-4.6"
         assert cleaned == "fix bug"
 
-    def test_opus_shorthand_resolves_to_45(self):
-        """Test --model opus resolves to claude-opus-4.5."""
+    def test_opus_shorthand_resolves_to_48(self):
+        """Test --model opus resolves to claude-opus-4.8."""
         cleaned, model = parse_model_flag("fix bug --model opus")
-        assert model == "claude-opus-4.5"
+        assert model == "claude-opus-4.8"
         assert cleaned == "fix bug"
 
     def test_claude_sonnet_45_alias_maps_to_46(self):

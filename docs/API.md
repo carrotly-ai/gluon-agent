@@ -321,8 +321,8 @@ class CircuitState(str, Enum):
 class TaskProfile(str, Enum):
     QUICK = "quick"           # Haiku, no thinking
     STANDARD = "standard"     # Sonnet, 10K thinking tokens
-    DEEP = "deep"             # Opus 4.6, 32K thinking tokens
-    PLANNING = "planning"     # Opus 4.6, 16K thinking, force planning
+    DEEP = "deep"             # Opus 4.8, 32K thinking tokens
+    PLANNING = "planning"     # Opus 4.8, 16K thinking, force planning
 ```
 
 ### ThinkingBudget

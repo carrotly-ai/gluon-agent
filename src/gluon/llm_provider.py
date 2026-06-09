@@ -97,7 +97,7 @@ class LLMProviderConfig(ABC):
         """Resolve a model tier or alias to this provider's model ID.
 
         Args:
-            tier: Model tier (opus/sonnet/haiku), UI name (claude-opus-4.5),
+            tier: Model tier (opus/sonnet/haiku), UI name (claude-opus-4.8),
                   or ModelTier enum
 
         Returns:
@@ -170,9 +170,10 @@ class LLMProviderConfig(ABC):
     def describe_models(self) -> str:
         """Get a human-readable description of available models."""
         return """Available models:
-- opus-4.6 : Claude Opus 4.6 - Latest, most capable (default opus)
-- opus-4.5 : Claude Opus 4.5 - Previous generation
-- sonnet   : Claude Sonnet 4.6 - Balanced performance (default)
+- opus-4.8 : Claude Opus 4.8 - Latest, most capable (default)
+- opus-4.7 : Claude Opus 4.7 - Previous generation
+- opus-4.6 : Claude Opus 4.6 - Previous generation
+- sonnet   : Claude Sonnet 4.6 - Balanced performance
 - haiku    : Claude Haiku 4.5 - Fast and efficient, for simple tasks"""
 
 
@@ -193,8 +194,9 @@ class BedrockProvider(LLMProviderConfig):
     """AWS Bedrock provider."""
 
     MODELS = {
+        ModelTier.OPUS_48: "global.anthropic.claude-opus-4-8",
+        ModelTier.OPUS_47: "global.anthropic.claude-opus-4-7",
         ModelTier.OPUS_46: "global.anthropic.claude-opus-4-6-v1",
-        ModelTier.OPUS_45: "global.anthropic.claude-opus-4-5-20251101-v1:0",
         ModelTier.SONNET: "global.anthropic.claude-sonnet-4-6",
         ModelTier.HAIKU: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
     }
@@ -248,8 +250,9 @@ class AnthropicProvider(LLMProviderConfig):
     """Direct Anthropic API / Claude CLI subscription provider."""
 
     MODELS = {
+        ModelTier.OPUS_48: "claude-opus-4-8",
+        ModelTier.OPUS_47: "claude-opus-4-7",
         ModelTier.OPUS_46: "claude-opus-4-6",
-        ModelTier.OPUS_45: "claude-opus-4-5-20251101",
         ModelTier.SONNET: "claude-sonnet-4-6",
         ModelTier.HAIKU: "claude-haiku-4-5-20251001",
     }
@@ -307,9 +310,10 @@ class VertexProvider(LLMProviderConfig):
     """
 
     MODELS = {
-        # Opus 4.6 and Sonnet 4.6 resolve to "latest" aliases on Vertex (no @date)
+        # Opus and Sonnet resolve to "latest" aliases on Vertex (no @date)
+        ModelTier.OPUS_48: "claude-opus-4-8",
+        ModelTier.OPUS_47: "claude-opus-4-7",
         ModelTier.OPUS_46: "claude-opus-4-6",
-        ModelTier.OPUS_45: "claude-opus-4-5@20251101",
         ModelTier.SONNET: "claude-sonnet-4-6",
         # Haiku 4.5 on Vertex is published as the dated variant
         ModelTier.HAIKU: "claude-haiku-4-5@20251001",
@@ -368,6 +372,7 @@ class VertexProvider(LLMProviderConfig):
                 "VERTEX_REGION_CLAUDE_4_5_SONNET",
                 "VERTEX_REGION_CLAUDE_4_6_OPUS",
                 "VERTEX_REGION_CLAUDE_4_7_OPUS",
+                "VERTEX_REGION_CLAUDE_4_8_OPUS",
             ),
         )
         return env
@@ -394,13 +399,14 @@ class FoundryProvider(LLMProviderConfig):
       (``https://{resource}.services.ai.azure.com/anthropic``)
 
     Model IDs on Foundry match the deployment names you create in the
-    Foundry portal (default: ``claude-opus-4-7``, ``claude-sonnet-4-6``,
+    Foundry portal (default: ``claude-opus-4-8``, ``claude-sonnet-4-6``,
     ``claude-haiku-4-5``).
     """
 
     MODELS = {
+        ModelTier.OPUS_48: "claude-opus-4-8",
+        ModelTier.OPUS_47: "claude-opus-4-7",
         ModelTier.OPUS_46: "claude-opus-4-6",
-        ModelTier.OPUS_45: "claude-opus-4-5",
         ModelTier.SONNET: "claude-sonnet-4-6",
         ModelTier.HAIKU: "claude-haiku-4-5",
     }

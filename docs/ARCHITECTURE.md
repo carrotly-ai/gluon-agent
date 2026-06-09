@@ -189,7 +189,7 @@ The **Ralph Loop** enables autonomous multi-iteration task execution with safety
 ### Model Configuration & Task Profiles
 
 - **ModelTier** (`models_config.py`) - Model selection:
-  - OPUS_46, OPUS_45, SONNET, HAIKU tiers
+  - OPUS_48, OPUS_47, OPUS_46, SONNET, HAIKU tiers
   - AWS Bedrock model ID mappings
   - UI aliases for user-friendly names
 

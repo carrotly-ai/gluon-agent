@@ -289,7 +289,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "description": "Balanced performance (default)",
     },
     TaskProfile.DEEP: {
-        "model": "opus-4.6",
+        "model": "opus-4.8",
         "max_thinking_tokens": -1,
         "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,
@@ -298,7 +298,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "description": "Maximum reasoning for complex tasks",
     },
     TaskProfile.PLANNING: {
-        "model": "opus-4.6",
+        "model": "opus-4.8",
         "max_thinking_tokens": -1,
         "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,
@@ -334,7 +334,7 @@ TASK_PROFILES: dict[TaskProfile, dict[str, Any]] = {
         "description": "Code restructuring with deep reasoning",
     },
     TaskProfile.RESEARCH: {
-        "model": "opus-4.6",
+        "model": "opus-4.8",
         "max_thinking_tokens": THINKING_BUDGET_TOKENS[ThinkingBudget.HIGH],
         "max_turns": 5000,
         "max_budget_usd": DEFAULT_BUDGET_USD,

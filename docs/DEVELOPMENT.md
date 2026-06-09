@@ -24,7 +24,7 @@ gluon-agent/
 ├── src/gluon/
 │   ├── __init__.py          # Package version
 │   ├── models.py            # Pydantic models (Workspace, Project, Session, ExecutionRun, etc.)
-│   ├── models_config.py     # Model tier configuration (Opus 4.6/4.5, Sonnet, Haiku)
+│   ├── models_config.py     # Model tier configuration (Opus 4.8/4.7/4.6, Sonnet, Haiku)
 │   ├── store.py             # SQLite persistence layer with auto-migrations
 │   ├── agent.py             # Claude Agent SDK wrapper
 │   ├── core.py              # Orchestrator (business logic)
@@ -435,9 +435,10 @@ print(describe_models())
 ```
 
 Available tiers:
-- `opus-4.6` - Latest Opus (most capable, default for complex tasks)
-- `opus-4.5` - Previous Opus generation
-- `sonnet` - Balanced performance (default for general tasks)
+- `opus-4.8` - Latest Opus (most capable, default)
+- `opus-4.7` - Previous Opus generation
+- `opus-4.6` - Previous Opus generation
+- `sonnet` - Balanced performance
 - `haiku` - Fast and lightweight (for simple tasks)
 
 ### 10. Managing Log Cleanup and Retention

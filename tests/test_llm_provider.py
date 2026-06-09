@@ -84,9 +84,9 @@ class TestBedrockProvider:
         fallback = provider.get_fallback_model_id(provider.MODELS[ModelTier.OPUS_46])
         assert fallback == provider.MODELS[ModelTier.SONNET]
 
-    def test_fallback_opus_45_to_sonnet(self):
+    def test_fallback_opus_48_to_sonnet(self):
         provider = BedrockProvider()
-        fallback = provider.get_fallback_model_id(provider.MODELS[ModelTier.OPUS_45])
+        fallback = provider.get_fallback_model_id(provider.MODELS[ModelTier.OPUS_48])
         assert fallback == provider.MODELS[ModelTier.SONNET]
 
     def test_fallback_sonnet_to_haiku(self):
@@ -170,7 +170,7 @@ class TestAnthropicProvider:
 
     def test_fallback_opus_45_to_sonnet(self):
         provider = AnthropicProvider()
-        fallback = provider.get_fallback_model_id(provider.MODELS[ModelTier.OPUS_45])
+        fallback = provider.get_fallback_model_id(provider.MODELS[ModelTier.OPUS_48])
         assert fallback == provider.MODELS[ModelTier.SONNET]
 
     def test_fallback_sonnet_to_haiku(self):
