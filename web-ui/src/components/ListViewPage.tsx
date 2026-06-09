@@ -468,9 +468,12 @@ export function ListViewPage({
   const [snoozeAnchor, setSnoozeAnchor] = useState<DOMRect | null>(null)
   const [forkDialogFor, setForkDialogFor] = useState<Run | null>(null)
 
-  // Per-instance viewer state
+  // Per-instance viewer state. messagesByRun is STATE (not a ref) so that when
+  // the async log fetch populates it, StreamingLogViewer re-renders with the
+  // real messages — including the final `usage` message the context-usage
+  // footer needs. A ref here meant the footer never appeared in the list view.
   const [openedRunIds, setOpenedRunIds] = useState<Set<string>>(new Set())
-  const messagesCache = useRef<Map<string, AgentMessage[]>>(new Map())
+  const [messagesByRun, setMessagesByRun] = useState<Map<string, AgentMessage[]>>(new Map())
 
   // Action states
   const [resumePrompt, setResumePrompt] = useState('')
@@ -689,7 +692,7 @@ export function ListViewPage({
         if (cancelled) return
         setDetail(runDetail)
         const parsed = parseMessages(messagesLog.content || '')
-        messagesCache.current.set(selectedRunId, parsed)
+        setMessagesByRun((prev) => new Map(prev).set(selectedRunId, parsed))
         setFilesData(files)
         setLoadingDetail(false)
       })
@@ -713,7 +716,9 @@ export function ListViewPage({
           fetchLogs(selectedRunId, 'messages').catch(() => ({ content: '' })),
         ])
         setDetail(runDetail)
-        messagesCache.current.set(selectedRunId, parseMessages(messagesLog.content || ''))
+        setMessagesByRun((prev) =>
+          new Map(prev).set(selectedRunId, parseMessages(messagesLog.content || ''))
+        )
         onRunUpdate(runDetail)
       } catch {
         // ignore
@@ -926,10 +931,20 @@ Focus on preserving the functionality from both sides where possible.`
       const next = new Set<string>()
       for (const id of prev) {
         if (runIds.has(id)) next.add(id)
-        else messagesCache.current.delete(id)
       }
-      if (next.size === prev.size) return prev
-      return next
+      return next.size === prev.size ? prev : next
+    })
+    // Drop cached messages for runs that no longer exist.
+    setMessagesByRun((prev) => {
+      let changed = false
+      const next = new Map(prev)
+      for (const id of prev.keys()) {
+        if (!runIds.has(id)) {
+          next.delete(id)
+          changed = true
+        }
+      }
+      return changed ? next : prev
     })
   }, [runs])
 
@@ -1361,7 +1376,7 @@ Focus on preserving the functionality from both sides where possible.`
                     <StreamingLogViewer
                       runId={openedId}
                       runStatus={(run.status ?? 'pending') as RunStatus}
-                      initialMessages={messagesCache.current.get(openedId) || []}
+                      initialMessages={messagesByRun.get(openedId) || []}
                     />
                   </div>
                 )

@@ -1126,15 +1126,19 @@ interface ContextUsageData {
 /**
  * Resolve the context-window size for the occupancy bar.
  *
- * Prefer the value the SDK reported (`contextWindow` from model_usage). Some
- * providers (Bedrock/Vertex/Foundry) don't always populate it, so fall back to
- * the known per-tier window: 1M when the 1M-context beta is clearly in play
- * (occupancy already exceeds the standard 200k), otherwise the standard 200k.
+ * Prefer the value the SDK reported (`contextWindow` from model_usage), but
+ * never let it be smaller than what's actually in the window: some providers
+ * (Bedrock/Vertex/Foundry) report the standard 200k even when the 1M-context
+ * beta is active, which would peg the bar at 100% / >window. So if usage
+ * exceeds the reported (or default) window, escalate to the next known tier
+ * (1M). Falls back to 200k when nothing is reported and usage is small.
  */
 function resolveContextWindow(contextWindow: number | null, contextUsed: number | null): number {
-  if (contextWindow && contextWindow > 0) return contextWindow
-  if (contextUsed && contextUsed > 200_000) return 1_000_000
-  return 200_000
+  const reported = contextWindow && contextWindow > 0 ? contextWindow : 200_000
+  // If we're already using more than the reported window, the report is stale/
+  // wrong (1M beta not reflected) — use the larger 1M tier.
+  if (contextUsed && contextUsed > reported) return 1_000_000
+  return reported
 }
 
 function SessionTokensFooter({ data }: { data: ContextUsageData }) {
