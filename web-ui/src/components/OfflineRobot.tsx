@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { cn } from '@/lib/utils'
 
 export type RobotState = 'searching' | 'waiting' | 'reconnecting'
@@ -11,130 +12,186 @@ interface OfflineRobotProps {
   className?: string
 }
 
+// Heights preserve the viewBox aspect ratio (100 × 136 → 1.36×).
 const sizeMap = {
-  sm: { width: 100, height: 120 },
-  md: { width: 150, height: 180 },
-  lg: { width: 200, height: 240 },
+  sm: { width: 100, height: 136 },
+  md: { width: 150, height: 204 },
+  lg: { width: 200, height: 272 },
 }
 
 /**
  * Minimal monochrome robot for offline states.
- * Clean geometric design matching Tokyo-minimal aesthetic.
+ *
+ * "Refined Humanoid" — keeps the familiar humanoid silhouette but polished:
+ * softer rounded head/body, an eye visor with a sweeping scan-line, expressive
+ * blink, antenna signal waves, a gentle head-tilt + arm-wave when searching,
+ * and a pulsing chest indicator. Clean geometric design matching the
+ * Tokyo-minimal aesthetic.
  */
 export function OfflineRobot({ state = 'searching', size = 'md', className }: OfflineRobotProps) {
   const { width, height } = sizeMap[size]
+  // Unique clip id so multiple robots on one page don't collide.
+  const rawId = useId()
+  const visorClipId = `visor-clip-${rawId.replace(/:/g, '')}`
 
   return (
     <svg
-      viewBox="0 0 100 120"
+      // Top padding (−16) gives the antenna ball + signal rings room to float
+      // and pulse without being clipped by the canvas edge.
+      viewBox="0 -16 100 136"
       width={width}
       height={height}
       className={cn('offline-robot', `offline-robot--${state}`, className)}
       aria-label="Offline robot character"
       role="img"
     >
+      <defs>
+        {/* Clip the scan-line so it only sweeps within the eye visor */}
+        <clipPath id={visorClipId}>
+          <rect x="30" y="28" width="40" height="18" rx="9" />
+        </clipPath>
+      </defs>
+
+      {/* Soft ground shadow — scales subtly with the float for depth */}
+      <ellipse
+        cx="50"
+        cy="116"
+        rx="26"
+        ry="3.5"
+        fill="var(--color-void)"
+        opacity="0.18"
+        className="robot-shadow"
+      />
+
       {/* Main robot group with floating animation */}
       <g className="robot-body">
-        {/* Antenna */}
-        <g className="antenna">
-          {/* Antenna pole */}
-          <line
-            x1="50"
-            y1="20"
-            x2="50"
-            y2="8"
+        {/* Head + antenna tilt together for a "listening" head-tilt */}
+        <g className="head">
+          {/* Antenna */}
+          <g className="antenna">
+            {/* Antenna pole */}
+            <line
+              x1="50"
+              y1="20"
+              x2="50"
+              y2="8"
+              stroke="var(--color-stone)"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+
+            {/* Antenna ball */}
+            <circle
+              cx="50"
+              cy="6"
+              r="4"
+              fill="var(--color-paper)"
+              stroke="var(--color-stone)"
+              strokeWidth="1.5"
+              className="antenna-ball"
+            />
+
+            {/* Signal rings */}
+            <circle
+              cx="50"
+              cy="6"
+              r="8"
+              fill="none"
+              stroke="var(--color-stone)"
+              strokeWidth="1"
+              className="signal-ring signal-ring--1"
+              opacity="0"
+            />
+            <circle
+              cx="50"
+              cy="6"
+              r="14"
+              fill="none"
+              stroke="var(--color-stone)"
+              strokeWidth="0.75"
+              className="signal-ring signal-ring--2"
+              opacity="0"
+            />
+            <circle
+              cx="50"
+              cy="6"
+              r="20"
+              fill="none"
+              stroke="var(--color-stone)"
+              strokeWidth="0.5"
+              className="signal-ring signal-ring--3"
+              opacity="0"
+            />
+          </g>
+
+          {/* Head - softer rounded rectangle */}
+          <rect
+            x="25"
+            y="20"
+            width="50"
+            height="38"
+            rx="10"
+            fill="var(--color-ink)"
+            stroke="var(--color-stone)"
+            strokeWidth="1.5"
+          />
+
+          {/* Eye visor - houses the eyes and the sweeping scan-line */}
+          <rect
+            x="30"
+            y="28"
+            width="40"
+            height="18"
+            rx="9"
+            fill="var(--color-void)"
+            opacity="0.55"
+          />
+
+          {/* Eyes - simple geometric circles */}
+          <g className="eyes">
+            <circle cx="38" cy="37" r="5" fill="var(--color-paper)" className="eye eye--left" />
+            <circle cx="62" cy="37" r="5" fill="var(--color-paper)" className="eye eye--right" />
+
+            {/* Pupils */}
+            <circle cx="38" cy="37" r="2" fill="var(--color-void)" />
+            <circle cx="62" cy="37" r="2" fill="var(--color-void)" />
+          </g>
+
+          {/* Scan-line sweeping across the visor (searching/reconnecting) */}
+          <g clipPath={`url(#${visorClipId})`}>
+            <rect
+              x="28"
+              y="28"
+              width="6"
+              height="18"
+              fill="var(--color-sky)"
+              opacity="0.35"
+              className="scan-line"
+            />
+          </g>
+
+          {/* Mouth - minimal line or arc */}
+          <path
+            d={
+              state === 'reconnecting'
+                ? 'M 42 50 Q 50 54 58 50' // Subtle smile
+                : 'M 44 51 L 56 51' // Neutral
+            }
             stroke="var(--color-stone)"
             strokeWidth="2"
             strokeLinecap="round"
-          />
-
-          {/* Antenna ball */}
-          <circle
-            cx="50"
-            cy="6"
-            r="4"
-            fill="var(--color-paper)"
-            stroke="var(--color-stone)"
-            strokeWidth="1.5"
-            className="antenna-ball"
-          />
-
-          {/* Signal rings */}
-          <circle
-            cx="50"
-            cy="6"
-            r="8"
             fill="none"
-            stroke="var(--color-stone)"
-            strokeWidth="1"
-            className="signal-ring signal-ring--1"
-            opacity="0"
-          />
-          <circle
-            cx="50"
-            cy="6"
-            r="14"
-            fill="none"
-            stroke="var(--color-stone)"
-            strokeWidth="0.75"
-            className="signal-ring signal-ring--2"
-            opacity="0"
-          />
-          <circle
-            cx="50"
-            cy="6"
-            r="20"
-            fill="none"
-            stroke="var(--color-stone)"
-            strokeWidth="0.5"
-            className="signal-ring signal-ring--3"
-            opacity="0"
+            className="mouth"
           />
         </g>
 
-        {/* Head - rounded rectangle */}
-        <rect
-          x="25"
-          y="20"
-          width="50"
-          height="38"
-          rx="6"
-          fill="var(--color-ink)"
-          stroke="var(--color-stone)"
-          strokeWidth="1.5"
-        />
-
-        {/* Eyes - simple geometric circles */}
-        <g className="eyes">
-          <circle cx="38" cy="36" r="5" fill="var(--color-paper)" className="eye eye--left" />
-          <circle cx="62" cy="36" r="5" fill="var(--color-paper)" className="eye eye--right" />
-
-          {/* Pupils */}
-          <circle cx="38" cy="36" r="2" fill="var(--color-void)" />
-          <circle cx="62" cy="36" r="2" fill="var(--color-void)" />
-        </g>
-
-        {/* Mouth - minimal line or arc */}
-        <path
-          d={
-            state === 'reconnecting'
-              ? 'M 42 48 Q 50 52 58 48' // Subtle smile
-              : 'M 44 49 L 56 49' // Neutral
-          }
-          stroke="var(--color-stone)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          fill="none"
-          className="mouth"
-        />
-
-        {/* Body - simple rectangle */}
+        {/* Body - softer rounded rectangle */}
         <rect
           x="22"
           y="62"
           width="56"
           height="42"
-          rx="4"
+          rx="8"
           fill="var(--color-ink)"
           stroke="var(--color-stone)"
           strokeWidth="1.5"
