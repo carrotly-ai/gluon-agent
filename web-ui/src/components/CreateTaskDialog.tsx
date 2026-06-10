@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { CommandAutocomplete } from '@/components/CommandAutocomplete'
 import { FileAutocomplete } from '@/components/FileAutocomplete'
 import { Combobox } from '@/components/ui/Combobox'
@@ -682,7 +683,13 @@ export function CreateTaskDialog({
             return null
           })
         )
-        await Promise.all(uploadPromises)
+        const results = await Promise.all(uploadPromises)
+        const failedCount = results.filter((r) => r === null).length
+        if (failedCount > 0) {
+          toast.error(
+            `Task created, but ${failedCount} of ${pendingImages.length} image(s) failed to attach`
+          )
+        }
       }
 
       onTaskCreated()

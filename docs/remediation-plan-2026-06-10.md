@@ -182,25 +182,25 @@
 
 > **PR:** `fix(web-ui): add error boundary and surface silent mutation failures`
 
-- [ ] **[P2] No React error boundary anywhere — one render error white-screens the dashboard** — [web-ui/src/main.tsx:10](web-ui/src/main.tsx#L10)
+- [x] **[P2] No React error boundary anywhere — one render error white-screens the dashboard** — [web-ui/src/main.tsx:10](web-ui/src/main.tsx#L10)
   - **Fix:** Wrap `<Routes>` (and ideally each route element / the run dialog) in an error boundary (`react-error-boundary` or a small class component) with a "something broke — reload" fallback that logs.
   - **Done when:** a thrown error in one component shows a fallback, not a blank app.
-- [ ] **[P1] Work-queue edit cancels the existing item before creating its replacement** — [web-ui/src/components/WorkQueuePage.tsx:143](web-ui/src/components/WorkQueuePage.tsx#L143)
+- [x] **[P1] Work-queue edit cancels the existing item before creating its replacement** — [web-ui/src/components/WorkQueuePage.tsx:143](web-ui/src/components/WorkQueuePage.tsx#L143)
   - **Fix:** Reverse the order (add the replacement first, cancel the old item only after success); surface failures via `toast.error`/inline error.
   - **Done when:** a failed re-create never destroys the original item; failures are visible.
-- [ ] **[P2] QuestionModal submit failure gives zero feedback while the run stays blocked** — [web-ui/src/components/QuestionModal.tsx:97](web-ui/src/components/QuestionModal.tsx#L97)
+- [x] **[P2] QuestionModal submit failure gives zero feedback while the run stays blocked** — [web-ui/src/components/QuestionModal.tsx:97](web-ui/src/components/QuestionModal.tsx#L97)
   - **Fix:** Inline error + `toast.error` on failure, keeping the selection so the user can retry before expiry.
   - **Done when:** a failed answer submit shows an error and preserves the choice.
-- [ ] **[P2] Kanban drag status update fails silently (card snaps back)** — [web-ui/src/components/KanbanBoard.tsx:290](web-ui/src/components/KanbanBoard.tsx#L290)
+- [x] **[P2] Kanban drag status update fails silently (card snaps back)** — [web-ui/src/components/KanbanBoard.tsx:290](web-ui/src/components/KanbanBoard.tsx#L290)
   - **Fix:** `toast.error` with the `ApiError` detail when `updateRunStatus` fails; subtle toast for disallowed transitions.
   - **Done when:** the snap-back is explained to the user.
-- [ ] **[P2] Merge-queue retry/cancel and load failures invisible** — [web-ui/src/components/MergeQueuePage.tsx:67](web-ui/src/components/MergeQueuePage.tsx#L67)
+- [x] **[P2] Merge-queue retry/cancel and load failures invisible** — [web-ui/src/components/MergeQueuePage.tsx:67](web-ui/src/components/MergeQueuePage.tsx#L67)
   - **Fix:** `toast.error`/inline banner for retry/cancel failures and an error state for `load()` failures.
   - **Done when:** all three failure paths show feedback.
-- [ ] **[P3] Image attachments silently dropped when upload fails after task creation** — [web-ui/src/components/CreateTaskDialog.tsx:681](web-ui/src/components/CreateTaskDialog.tsx#L681)
+- [x] **[P3] Image attachments silently dropped when upload fails after task creation** — [web-ui/src/components/CreateTaskDialog.tsx:681](web-ui/src/components/CreateTaskDialog.tsx#L681)
   - **Fix:** Collect nulls from `Promise.all`; if any upload failed, `toast.error` "Task created but N of M images failed to attach".
   - **Done when:** partial upload failure is reported, not swallowed.
-- [ ] **[P3] Stop-loop action fails silently and ignores `success=false`** — [web-ui/src/App.tsx:521](web-ui/src/App.tsx#L521)
+- [x] **[P3] Stop-loop action fails silently and ignores `success=false`** — [web-ui/src/App.tsx:521](web-ui/src/App.tsx#L521)
   - **Fix:** `toast.success` on success, `toast.error` on rejection or `response.success === false`, matching `handleCancelRun`.
   - **Done when:** stop-loop outcomes are surfaced.
 

@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { cancelMerge, fetchMergeQueue, retryMerge } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { MergeQueueEntry, MergeQueueStatus } from '@/lib/types'
@@ -47,7 +48,9 @@ export function MergeQueuePage() {
       })
       setEntries(data.entries)
     } catch (err) {
+      // Stable id so the 15s refresh loop doesn't stack duplicate toasts.
       console.error('Failed to load merge queue:', err)
+      toast.error('Could not load the merge queue', { id: 'merge-queue-load' })
     } finally {
       setLoading(false)
     }
@@ -65,6 +68,7 @@ export function MergeQueuePage() {
       setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
     } catch (err) {
       console.error('Failed to retry merge:', err)
+      toast.error(err instanceof Error ? err.message : 'Failed to retry merge')
     }
   }
 
@@ -74,6 +78,7 @@ export function MergeQueuePage() {
       setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
     } catch (err) {
       console.error('Failed to cancel merge:', err)
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel merge')
     }
   }
 

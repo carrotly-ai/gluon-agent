@@ -14,6 +14,7 @@ import {
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import React, { useCallback, useState } from 'react'
+import { toast } from 'sonner'
 import { PullToRefresh } from '@/components/PullToRefresh'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { updateRunStatus } from '@/lib/api'
@@ -287,7 +288,10 @@ export function KanbanBoard({
         const response = await updateRunStatus(runId, targetColumn)
         onRunUpdate?.(response.run)
       } catch (err) {
+        // The card snaps back on failure; explain why instead of leaving it
+        // looking like nothing happened.
         console.error('Failed to update run status:', err)
+        toast.error(err instanceof Error ? err.message : 'Could not move the run')
       }
     },
     [runs, onRunUpdate]
