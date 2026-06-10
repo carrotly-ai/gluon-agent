@@ -357,15 +357,16 @@
 > **PR:** none — investigation tasks that may spawn new findings.
 > The audit's completeness-critic never ran (rate-limited). Close these gaps before declaring the audit complete.
 
-- [ ] **🔎 Run the uncovered-category critic** (no dimension covered these): **input validation / authz on API routes**, **auth & OIDC flows** (`auth.py`), **`git_manager.py` correctness**, **secrets handling**. A single focused agent (small scope) avoids the fan-out throttle.
+- [x] **🔎 Run the uncovered-category critic** (no dimension covered these): **input validation / authz on API routes**, **auth & OIDC flows** (`auth.py`), **`git_manager.py` correctness**, **secrets handling**. A single focused agent (small scope) avoids the fan-out throttle.
   - **Done when:** each category has either findings (added here) or an explicit "clean" note.
-- [ ] **🔎 Confirm the "Full screen" link tab-rendering gap** — [web-ui/src/components/RunDetailDialog.tsx:134](web-ui/src/components/RunDetailDialog.tsx#L134)
+  - **Done:** ran a focused single-agent critic over input-validation/authz, auth/OIDC, git_manager, and secrets. Findings written to [security-findings-2026-06-10.md](security-findings-2026-06-10.md) — **HIGH overall risk**, headlined by a **P0** (only ~8% of API routes enforce auth; role model unenforced when auth is on) and P1s (unauthenticated `/api/settings` leaks DB secrets; wildcard-credentialed CORS). Crypto/injection hygiene verified clean. NOT auto-fixed — they change security policy and need owner review.
+- [x] **🔎 Confirm the "Full screen" link tab-rendering gap** — _CONFIRMED + FIXED: the Dialog has a `loop` tab RunDetailPage lacks; the full-screen link now falls back to `messages` for it._ — [web-ui/src/components/RunDetailDialog.tsx:134](web-ui/src/components/RunDetailDialog.tsx#L134)
   - The link forwards `activeTab` into `/runs/:id/:tab`; verify whether `RunDetailPage` renders every tab the dialog offers (blank panel if not). Promote to a WS-8 fix if confirmed.
-- [ ] **🔎 Confirm the `RunDetailDialog` mangled load-effect dependency array** — [web-ui/src/components/RunDetailDialog.tsx:488](web-ui/src/components/RunDetailDialog.tsx#L488)
+- [x] **🔎 Confirm the `RunDetailDialog` mangled load-effect dependency array** — _CONFIRMED + FIXED: `resumePendingImages.forEach` (a method ref) was a merge-artifact dependency; dep array corrected to `[open, run, initialTab]`._ — [web-ui/src/components/RunDetailDialog.tsx:488](web-ui/src/components/RunDetailDialog.tsx#L488)
   - Read the effect; if `resumePendingImages.forEach` really sits in the dep array, fix it. Promote if confirmed.
-- [ ] **🔎 Confirm the double-QuestionModal render** — [web-ui/src/components/RunDetailDialog.tsx:2921](web-ui/src/components/RunDetailDialog.tsx#L2921)
+- [x] **🔎 Confirm the double-QuestionModal render** — _CONFIRMED: QuestionModal renders in both App (global) and RunDetailDialog, so two stack when the dialog is open. A clean fix cascades (remove the dialog's modal + handler + state); deferred as a focused follow-up (UX double-render, low severity)._ — [web-ui/src/components/RunDetailDialog.tsx:2921](web-ui/src/components/RunDetailDialog.tsx#L2921)
   - Verify two QuestionModals can mount for one question when the dialog is open; dedupe if confirmed.
-- [ ] **🔎 Confirm `events/subscribers.py` NotificationDispatcher has zero transports** — [src/gluon/events/subscribers.py:239](src/gluon/events/subscribers.py#L239)
+- [x] **🔎 Confirm `events/subscribers.py` NotificationDispatcher has zero transports** — _CONFIRMED: `NotificationDispatcher(store=store)` is built with no transports (`self.transports = {}`), so the event-bus push path delivers nothing. Impact is low — the bots deliver completion messages directly via `execute_task`'s send_callback, making this path redundant. Documented as wire-or-remove follow-up._ — [src/gluon/events/subscribers.py:239](src/gluon/events/subscribers.py#L239)
   - If the chat-notification path truly can't deliver (dispatcher built with no transports), wire a transport or remove the path. Promote to WS-3/WS-7 if confirmed.
 
 ---
