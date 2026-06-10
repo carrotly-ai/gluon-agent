@@ -231,6 +231,10 @@ def _get_git_ahead_behind(project_path: str | Path) -> tuple[int | None, int | N
 # workspace-scoped operations.
 _workspace_env_lock = asyncio.Lock()
 
+# Holds references to fire-and-forget background tasks so the event loop's weak
+# reference does not let them be garbage-collected mid-execution.
+_background_tasks: set[asyncio.Task] = set()
+
 
 @asynccontextmanager
 async def _workspace_env(store: GluonStore, workspace_id: str | None):
@@ -702,9 +706,21 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 detail=f"Run is not active (status: {run.status.value})",
             )
 
-        success = await runner.cancel(run.id)
+        try:
+            success = await runner.cancel(run.id)
+        except Exception as e:
+            logger.error("Error cancelling run %s: %s", run.id[:8], e, exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"An error occurred while cancelling run {run.id[:8]}; check server logs.",
+            ) from e
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to cancel run")
+            # cancel() returns False when the run is no longer cancellable (e.g.
+            # it just finished or was never running in this process).
+            raise HTTPException(
+                status_code=409,
+                detail=f"Run {run.id[:8]} could not be cancelled (it may have already finished).",
+            )
 
         # Refresh and return updated run
         updated_run = store.get_run(run.id)
@@ -1049,7 +1065,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                 await ws_manager.broadcast_run_update(target_run, project_name)
 
         # Schedule recovery to run in background
-        asyncio.create_task(_run_recovery())
+        _recovery_task = asyncio.create_task(_run_recovery())
+        _background_tasks.add(_recovery_task)
+        _recovery_task.add_done_callback(_background_tasks.discard)
 
         # Broadcast initial update
         project_lookup = get_project_lookup()
@@ -3626,7 +3644,11 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                     "error": pr_result.get("error", "Failed to create PR"),
                 }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to create PR: {e}")
+            logger.error("Failed to create PR for run %s: %s", run.id[:8], e, exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create a PR for run {run.id[:8]}; check server logs.",
+            ) from e
 
     @app.post("/api/runs/{run_id}/merge")
     async def merge_run_branch(run_id: str) -> dict:
@@ -3699,7 +3721,11 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
                     "conflicting_files": merge_result.get("conflicting_files", []),
                 }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to merge: {e}")
+            logger.error("Failed to merge run %s: %s", run.id[:8], e, exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to merge run {run.id[:8]}; check server logs.",
+            ) from e
 
     # ========== Image Attachments API (Phase 10.1) ==========
 
@@ -4199,8 +4225,11 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             async with _workspace_env(store, project.workspace_id):
                 status = await git_manager.refresh_status(project)
         except Exception as e:
-            logger.error(f"Failed to refresh git status for {project.name}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to refresh git status: {e}")
+            logger.error(f"Failed to refresh git status for {project.name}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to refresh git status for project '{project.name}'; check server logs.",
+            ) from e
 
         # Compute derived fields
         is_diverged = status.commits_ahead > 0 and status.commits_behind > 0

@@ -180,7 +180,10 @@ def project_remove(
     if orchestrator.remove_project(name):
         console.print(f"[green]✓[/green] Project '{project.name}' removed")
     else:
-        console.print("[red]Error:[/red] Failed to remove project")
+        console.print(
+            f"[red]Error:[/red] Could not remove project '{project.name}'. "
+            "It may have active runs or be in use — cancel any running tasks and try again."
+        )
         raise typer.Exit(1)
 
 

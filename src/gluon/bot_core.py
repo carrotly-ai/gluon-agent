@@ -69,6 +69,7 @@ class GluonBotCore:
 
         # State management (transport-agnostic)
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+        self.max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._max_history_per_user = 10
 
@@ -162,7 +163,9 @@ class GluonBotCore:
 
     def is_at_capacity(self) -> bool:
         """Check if we're at the concurrent task limit."""
-        return self.get_active_run_count() >= self._semaphore._value
+        # Compare against the configured maximum, not the semaphore's remaining
+        # permits (_value), which decreases as tasks acquire it.
+        return self.get_active_run_count() >= self.max_concurrent
 
     def register_task(self, run_id: str, task: asyncio.Task[Any]) -> None:
         """Register an active asyncio task."""
@@ -499,9 +502,14 @@ class GluonBotCore:
             # Return pending task if any
             return self.chat_agent.get_pending_task()
 
-        except Exception as e:
+        except Exception:
+            # The raw exception is logged above; show the user something
+            # actionable rather than leaking internal error text.
             logger.exception("Error processing natural language")
-            await send_callback(ctx, TransportResponse(text=f"Error: {e}"))
+            await send_callback(
+                ctx,
+                TransportResponse(text="⚠️ Sorry, something went wrong handling that message. Please try again."),
+            )
             return None
 
     # ========== Command Helpers ==========
