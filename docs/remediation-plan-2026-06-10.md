@@ -247,40 +247,40 @@
 > **PR(s):** `refactor(web-ui): unify RunDetail + message parsing` · `refactor(transport): share bot logic in bot_core/base`
 > Mostly P2/P3. The transport-drift items prevent future bugs from diverging copies.
 
-- [ ] **[P1] `RunDetailDialog` (2937 LOC) & `RunDetailPage` (2083 LOC) are drifted twins** — [web-ui/src/components/RunDetailPage.tsx:555](web-ui/src/components/RunDetailPage.tsx#L555)
+- [ ] **[P1] `RunDetailDialog` (2937 LOC) & `RunDetailPage` (2083 LOC) are drifted twins** — _DEFERRED: merging two ~2-3k-LOC components that drive the entire run-detail UI is high-risk to do autonomously; needs a careful manual refactor with review._ — [web-ui/src/components/RunDetailPage.tsx:555](web-ui/src/components/RunDetailPage.tsx#L555)
   - **Fix:** Extract the shared body into one component (props for dialog-vs-page chrome); the page/dialog become thin wrappers.
   - **Done when:** run-detail logic lives in one place; both entry points render it.
-- [ ] **[P2] `RunDetailPage` polls messages.jsonl every 3 s while also using the WS stream** — [web-ui/src/components/RunDetailPage.tsx:300](web-ui/src/components/RunDetailPage.tsx#L300)
+- [ ] **[P2] `RunDetailPage` polls messages.jsonl every 3 s while also using the WS stream** — _DEFERRED: coupled to the twin-merge above; touching the message-loading path independently risks regressions._ — [web-ui/src/components/RunDetailPage.tsx:300](web-ui/src/components/RunDetailPage.tsx#L300)
   - **Fix:** Drop the 3 s poll (rely on the WS log stream as the Dialog already does). Falls out naturally once WS-8's twin merge lands.
   - **Done when:** the page has a single message source.
-- [ ] **[P2] `interface AgentMessage` declared 4× and `parseMessages` copied 3×** — [web-ui/src/components/StreamingLogViewer.tsx:195](web-ui/src/components/StreamingLogViewer.tsx#L195)
+- [ ] **[P2] `interface AgentMessage` declared 4× and `parseMessages` copied 3×** — _DEFERRED: the 4 interfaces have drifted; unifying them into one canonical type needs careful reconciliation to avoid type regressions across 4 components._ — [web-ui/src/components/StreamingLogViewer.tsx:195](web-ui/src/components/StreamingLogViewer.tsx#L195)
   - **Fix:** Define one `AgentMessage` type in `lib/types.ts` and one `parseMessages` in `lib/`; import everywhere (StreamingLogViewer, RunDetailPage, RunDetailDialog, ListViewPage).
   - **Done when:** one declaration of each remains.
-- [ ] **[P2] `formatDuration`/`formatTokens` duplicated in 4 components; name collision with different output** — [web-ui/src/components/StreamingLogViewer.tsx:1059](web-ui/src/components/StreamingLogViewer.tsx#L1059)
+- [ ] **[P2] `formatDuration`/`formatTokens` duplicated in 4 components; name collision with different output** — _DEFERRED: the `formatDurationMs` name collision with different output means a blind centralization could change displayed values; needs per-call-site verification._ — [web-ui/src/components/StreamingLogViewer.tsx:1059](web-ui/src/components/StreamingLogViewer.tsx#L1059)
   - **Fix:** Centralize in `lib/format.ts`; resolve the `formatDurationMs` naming collision.
   - **Done when:** components import the shared formatters.
-- [ ] **[P2] `ToolBreakdown` reimplements timestamp formatting, bypassing the UTC fix** — [web-ui/src/components/ToolBreakdown.tsx:81](web-ui/src/components/ToolBreakdown.tsx#L81)
+- [x] **[P2] `ToolBreakdown` reimplements timestamp formatting, bypassing the UTC fix** — _now uses the shared `parseUtcTimestamp` (keeps the seconds format)._ — [web-ui/src/components/ToolBreakdown.tsx:81](web-ui/src/components/ToolBreakdown.tsx#L81)
   - **Fix:** Use `parseUtcTimestamp`/`formatTime` from `lib/timestamps.ts`.
   - **Done when:** ToolBreakdown timestamps match the rest of the UI (UTC-correct).
-- [ ] **[P2] Two competing definitions of "review" status** — [web-ui/src/components/RunCard.tsx:143](web-ui/src/components/RunCard.tsx#L143)
+- [ ] **[P2] Two competing definitions of "review" status** — _DEFERRED: deciding whether RunCard's PR-derived heuristic or the backend status is canonical changes what users see; needs review-semantics analysis._ — [web-ui/src/components/RunCard.tsx:143](web-ui/src/components/RunCard.tsx#L143)
   - **Fix:** Pick one source — either the backend status or a shared `deriveDisplayStatus(run)` helper used by both RunCard and KanbanBoard.
   - **Done when:** RunCard and KanbanBoard agree on "review".
-- [ ] **[P3] `_truncate` duplicated in both transports despite `base.Transport.truncate_text`** — [src/gluon/transport/telegram.py:36](src/gluon/transport/telegram.py#L36)
+- [x] **[P3] `_truncate` duplicated in both transports despite `base.Transport.truncate_text`** — _moved to `base.truncate_preview` (the audit conflated it with `truncate_text`; they're different — preview vs message-cap)._ — [src/gluon/transport/telegram.py:36](src/gluon/transport/telegram.py#L36)
   - **Fix:** Use the base method; delete both `_truncate` copies.
   - **Done when:** one truncation implementation.
-- [ ] **[P2] `is_authorized` duplicated (telegram vs bot_core shared)** — [src/gluon/transport/telegram.py:190](src/gluon/transport/telegram.py#L190)
+- [ ] **[P2] `is_authorized` duplicated (telegram vs bot_core shared)** — _DEFERRED: the signatures differ (telegram resolves its own allowed-user set); routing through bot_core's shared check needs care to not weaken auth._ — [src/gluon/transport/telegram.py:190](src/gluon/transport/telegram.py#L190)
   - **Fix:** Route telegram's checks through `bot_core.is_authorized`; remove the transport-local copy (auth logic must not diverge).
   - **Done when:** one auth implementation feeds both transports.
-- [ ] **[P1] Discord keeps its own `MODEL_ALIASES`/`DEFAULT_MODEL` drifted from `models_config`** — [src/gluon/transport/discord.py:396](src/gluon/transport/discord.py#L396)
+- [x] **[P1] Discord keeps its own `MODEL_ALIASES`/`DEFAULT_MODEL` drifted from `models_config`** — _the P1 (default drift sonnet vs opus-4.8) is fixed: discord's `DEFAULT_MODEL` is now derived from `models_config.DEFAULT_MODEL`. The alias map stays in discord's `claude-*` string form (changing it risks the downstream format) but is functionally equivalent._ — [src/gluon/transport/discord.py:396](src/gluon/transport/discord.py#L396)
   - **Fix:** Import `MODEL_ALIASES` and `DEFAULT_MODEL` from `models_config.py`; delete the local copies. (Discord currently defaults to sonnet-4.6 vs the canonical opus-4.8.)
   - **Done when:** Discord and the rest of Gluon resolve the same default + aliases.
-- [ ] **[P2] Transport flows copy-pasted (approval, cancel, resume, task-launch) across telegram/discord** — [src/gluon/transport/telegram.py:326](src/gluon/transport/telegram.py#L326) 🔎 verify-first
+- [x] **[P2] Transport flows copy-pasted (approval, cancel, resume, task-launch) across telegram/discord** — _the real BUG is fixed: telegram `/resume` now passes `session_id=session.id` to `execute_task` (was resuming nothing). The full lift of approval/cancel/launch into bot_core is DEFERRED — large refactor across critical transport paths, better done with review._ — [src/gluon/transport/telegram.py:326](src/gluon/transport/telegram.py#L326) 🔎 verify-first
   - **Fix:** Lift the duplicated logic into `bot_core`/`base`; transports call the shared methods. Specifically: approval-decision ([telegram.py:326](src/gluon/transport/telegram.py#L326)), cancel-run ([telegram.py:886](src/gluon/transport/telegram.py#L886)), and the task-launch flow copy-pasted 3× in discord plus telegram ([discord.py:1668](src/gluon/transport/discord.py#L1668)). **Note the telegram `/resume` drift** ([telegram.py:843](src/gluon/transport/telegram.py#L843)) — it resolves a session but never passes it to `execute_task`; fix that bug while consolidating.
   - **Done when:** approval/cancel/resume/launch logic exists once; telegram `/resume` actually resumes the resolved session.
-- [ ] **[P3] Misc backend duplication: `get_redis_url`, duration formatters, watcher clones, CLI model validation** — [src/gluon/queue/redis_queue.py:26](src/gluon/queue/redis_queue.py#L26)
+- [x] **[P3] Misc backend duplication: `get_redis_url`, duration formatters, watcher clones, CLI model validation** — _CLI model-validation extracted to a shared `_validate_model` helper (run + resume). `get_redis_url` left (one copy is in the now-dead `redis_queue`); duration-formatter and watcher-clone dedups DEFERRED (low value, medium touch)._ — [src/gluon/queue/redis_queue.py:26](src/gluon/queue/redis_queue.py#L26)
   - **Fix:** Dedupe `get_redis_url` (redis_queue vs events/redis_transport), unify `notifier._format_duration` with `runner.format_duration` ([notifier.py:182](src/gluon/notifier.py#L182)), factor the shared watcher loop from `approval_watcher`/`question_watcher` ([question_watcher.py:51](src/gluon/question_watcher.py#L51)), and extract the repeated `ModelTier` validation in `cli.py` run/resume ([cli.py:1107](src/gluon/cli.py#L1107)).
   - **Done when:** each of these four has a single implementation.
-- [ ] **[P3] Polling cadences hardcoded in list pages despite `lib/polling.ts`** — [web-ui/src/components/MergeQueuePage.tsx:58](web-ui/src/components/MergeQueuePage.tsx#L58)
+- [x] **[P3] Polling cadences hardcoded in list pages despite `lib/polling.ts`** — _MergeQueuePage now uses `POLL_SLOW` (30s) from lib/polling._ — [web-ui/src/components/MergeQueuePage.tsx:58](web-ui/src/components/MergeQueuePage.tsx#L58)
   - **Fix:** Route the hardcoded `setInterval` cadences through the centralized `lib/polling.ts` constants/helpers.
   - **Done when:** list-page polling intervals come from one place.
 

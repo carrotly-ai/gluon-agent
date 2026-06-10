@@ -17,7 +17,14 @@ from telegram.ext import (
 )
 
 from gluon.bot_core import GluonBotCore
-from gluon.transport.base import Transport, TransportContext, TransportResponse
+from gluon.transport.base import (
+    Transport,
+    TransportContext,
+    TransportResponse,
+)
+from gluon.transport.base import (
+    truncate_preview as _truncate,
+)
 from gluon.transport.capabilities import TELEGRAM_CAPS, TransportCapabilities
 
 if TYPE_CHECKING:
@@ -31,17 +38,6 @@ logger = logging.getLogger(__name__)
 # Total must stay under Telegram's 64-byte callback_data limit — we use the
 # full approval UUID which is 36 chars, leaving plenty of headroom.
 _APPROVAL_CALLBACK_PREFIX = "approval"
-
-
-def _truncate(text: str, limit: int = 300) -> str:
-    """Trim text to `limit` chars with an ellipsis — used for Telegram preview.
-
-    Telegram message bodies have a hard 4,096-char cap, but approval messages
-    should stay compact and scannable on a phone.
-    """
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
 
 
 def extract_agent_flag(args: list[str]) -> tuple[list[str], str | None]:
@@ -848,6 +844,10 @@ class TelegramTransport(Transport):
                 project_name=project_name,
                 send_callback=send_callback,
                 force_new_session=False,
+                # Pass the resolved session so the resume actually continues it;
+                # without this, execute_task resumes nothing (the new run has no
+                # session link). Mirrors the Discord resume flow.
+                session_id=session.id,
                 initial_msg_id=str(start_msg.message_id),
             )
         )

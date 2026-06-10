@@ -17,7 +17,15 @@ except ImportError:
 
 from gluon.bot_core import GluonBotCore
 from gluon.core import ProjectNotFoundError
-from gluon.transport.base import Transport, TransportContext, TransportResponse
+from gluon.models_config import DEFAULT_MODEL as _CANONICAL_DEFAULT_MODEL
+from gluon.transport.base import (
+    Transport,
+    TransportContext,
+    TransportResponse,
+)
+from gluon.transport.base import (
+    truncate_preview as _truncate,
+)
 from gluon.transport.capabilities import DISCORD_CAPS, TransportCapabilities
 
 if TYPE_CHECKING:
@@ -33,13 +41,6 @@ _APPROVAL_CUSTOM_ID_PREFIX = "approval"
 
 # Select-menu custom_id format: "question:<uuid>" — fits Discord's 100-char limit
 _QUESTION_CUSTOM_ID_PREFIX = "question"
-
-
-def _truncate(text: str, limit: int = 300) -> str:
-    """Trim text with an ellipsis for embed fields."""
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
 
 
 def format_approval_embed(approval: PendingApproval):
@@ -405,7 +406,9 @@ MODEL_ALIASES: dict[str, str] = {
     "claude-haiku-4.5": "claude-haiku-4.5",
 }
 
-DEFAULT_MODEL = "claude-sonnet-4.6"
+# Derived from the shared config so Discord can't drift from the rest of Gluon
+# (which defaults to opus-4.8). Discord uses the "claude-<tier>" string form.
+DEFAULT_MODEL = f"claude-{_CANONICAL_DEFAULT_MODEL.value}"
 
 
 def parse_model_flag(text: str) -> tuple[str, str | None]:

@@ -99,6 +99,25 @@ app.add_typer(user_app, name="user")
 console = Console()
 
 
+def _validate_model(model: str | None) -> ModelTier | None:
+    """Resolve a ``--model`` value (alias or tier name) to a ModelTier.
+
+    Prints an error + the model list and exits on an invalid value. Shared by
+    the ``run`` and ``resume`` commands.
+    """
+    if not model:
+        return None
+    model_lower = model.lower()
+    if model_lower in MODEL_ALIASES:
+        return MODEL_ALIASES[model_lower]
+    try:
+        return ModelTier(model_lower)
+    except ValueError:
+        console.print(f"[red]Error:[/red] Invalid model: {model}")
+        console.print(describe_models())
+        raise typer.Exit(1) from None
+
+
 def get_orchestrator() -> Orchestrator:
     """Get orchestrator instance."""
     return Orchestrator()
@@ -1108,18 +1127,7 @@ def run(
         console.print(f"[dim]Hard cap:[/dim] max {max_duration} minute(s) wall-clock")
 
     # Validate model if provided
-    model_tier: ModelTier | None = None
-    if model:
-        model_lower = model.lower()
-        if model_lower in MODEL_ALIASES:
-            model_tier = MODEL_ALIASES[model_lower]
-        else:
-            try:
-                model_tier = ModelTier(model_lower)
-            except ValueError:
-                console.print(f"[red]Error:[/red] Invalid model: {model}")
-                console.print(describe_models())
-                raise typer.Exit(1)
+    model_tier: ModelTier | None = _validate_model(model)
 
     # Background execution mode
     if background:
@@ -1251,18 +1259,7 @@ def resume(
         raise typer.Exit(1)
 
     # Validate model if provided
-    model_tier: ModelTier | None = None
-    if model:
-        model_lower = model.lower()
-        if model_lower in MODEL_ALIASES:
-            model_tier = MODEL_ALIASES[model_lower]
-        else:
-            try:
-                model_tier = ModelTier(model_lower)
-            except ValueError:
-                console.print(f"[red]Error:[/red] Invalid model: {model}")
-                console.print(describe_models())
-                raise typer.Exit(1)
+    model_tier: ModelTier | None = _validate_model(model)
 
     async def _resume():
         result: AgentResult | None = None
