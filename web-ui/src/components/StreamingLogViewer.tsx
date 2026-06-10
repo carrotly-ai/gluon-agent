@@ -36,6 +36,7 @@ import remarkGfm from 'remark-gfm'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { useNotifications } from '@/hooks/useNotifications'
 import { type RunProgress, type RunTokens, useRunLogStream } from '@/hooks/useRunLogStream'
+import type { AgentMessage } from '@/lib/agentMessage'
 import { getImageFileUrl } from '@/lib/api'
 import { formatMessageTime } from '@/lib/timestamps'
 import type { RunStatus } from '@/lib/types'
@@ -190,54 +191,6 @@ function formatToolInputFull(input: unknown): { key: string; value: string }[] {
 
 // Message filter types
 type MessageFilter = 'all' | 'tool_use' | 'text' | 'error'
-
-// Convert AgentMessageData to the format MessagesPanel expects
-interface AgentMessage {
-  timestamp: string
-  type:
-    | 'text'
-    | 'tool_use'
-    | 'system'
-    | 'error'
-    | 'result'
-    | 'user'
-    | 'screenshot'
-    | 'mcp_status'
-    | 'notification'
-    | 'thinking'
-    | 'tool_result'
-    | 'server_tool_use'
-    | 'server_tool_result'
-    | 'todos_updated'
-    | 'task_started'
-    | 'task_progress'
-    | 'task_notification'
-    | 'usage'
-    | 'hook_event'
-    | 'rate_limit'
-  content: string
-  metadata?: {
-    tool?: string
-    tool_id?: string
-    input?: unknown
-    image_id?: string
-    original_name?: string
-    size_bytes?: number
-    reasoning?: string
-    /** Set on tool_result messages when the tool call failed */
-    is_error?: boolean
-    // Usage message fields (emitted with type="usage")
-    final?: boolean
-    input_tokens?: number
-    output_tokens?: number
-    cache_read?: number
-    cache_create?: number
-    context_used?: number | null
-    context_window?: number | null
-    model?: string
-    [key: string]: unknown
-  }
-}
 
 // RALPH_STATUS block parser and renderer
 interface RalphStatusData {
@@ -1042,7 +995,7 @@ function TaskChecklist({
               </span>
               {task.durationMs != null && (
                 <span className="text-body text-[var(--color-stone)]/40 tabular-nums shrink-0">
-                  {formatDurationMs(task.durationMs)}
+                  {formatElapsedMs(task.durationMs)}
                 </span>
               )}
               {task.totalTokens != null && (
@@ -1058,7 +1011,11 @@ function TaskChecklist({
   )
 }
 
-function formatDurationMs(ms: number): string {
+// Distinct from `lib/format`'s `formatDurationMs`: this renders sub-second
+// precision (`523ms`, `5.2s`, `2m3s`) for per-tool timing deltas, where the
+// canonical second-resolution formatter would collapse to `0s`/`5s`. Named
+// differently on purpose so the two don't get conflated.
+function formatElapsedMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   const secs = ms / 1000
   if (secs < 60) return `${secs.toFixed(1)}s`

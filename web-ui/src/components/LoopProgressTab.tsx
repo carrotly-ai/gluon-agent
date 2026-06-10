@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { fetchRalphIterations, stopLoop } from '@/lib/api'
+import { formatDuration, formatTokens } from '@/lib/format'
 import type { CircuitState, RalphIteration, RalphIterationsResponse, RunDetail } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -34,20 +35,6 @@ function getCircuitStateColor(state: CircuitState): string {
     default:
       return 'text-[var(--color-stone)]/60'
   }
-}
-
-function formatDuration(seconds: number | null): string {
-  if (seconds === null) return '-'
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
-  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
-}
-
-function formatTokens(tokens: number | null): string {
-  if (tokens === null || tokens === undefined) return '-'
-  if (tokens < 1000) return `${tokens}`
-  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}k`
-  return `${(tokens / 1000000).toFixed(2)}M`
 }
 
 // Compact safety badge component with tooltip
