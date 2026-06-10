@@ -1848,7 +1848,15 @@ def serve(
         try:
             import uvicorn
 
+            # The web dashboard binds 0.0.0.0 below; refuse to expose it
+            # unauthenticated to the network.
+            from gluon.auth import insecure_bind_error
             from gluon.web import create_app
+
+            bind_error = insecure_bind_error("0.0.0.0")
+            if bind_error:
+                console.print(f"[red]Error:[/red] {bind_error}")
+                raise typer.Exit(1)
 
             # Share the bot's notifier so web-submitted runs and event-bus
             # question escalation reach the same Telegram/Discord transports.
@@ -2141,6 +2149,14 @@ def web(
             f"[red]Error:[/red] Web dashboard dependency not installed (missing: [yellow]{missing}[/yellow])."
         )
         console.print("Install with: [cyan]pip install 'gluon-agent[web]'[/cyan]")
+        raise typer.Exit(1)
+
+    # Refuse to expose an unauthenticated dashboard to the network.
+    from gluon.auth import insecure_bind_error
+
+    bind_error = insecure_bind_error(host)
+    if bind_error:
+        console.print(f"[red]Error:[/red] {bind_error}")
         raise typer.Exit(1)
 
     console.print("[bold]Starting Gluon Web Dashboard...[/bold]")

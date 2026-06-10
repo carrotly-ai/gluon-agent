@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import subprocess
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -274,6 +276,37 @@ def _redact_setting(key: str, value: str) -> str:
     return value
 
 
+class _SlidingWindowLimiter:
+    """In-memory per-key sliding-window rate limiter.
+
+    Used to blunt brute-force against unauthenticated auth endpoints. Per-app
+    (not a global singleton) so test apps don't share state. Adequate for a
+    single-process self-hosted dashboard; a multi-replica deployment behind a
+    load balancer should rate-limit at the proxy.
+    """
+
+    def __init__(self, max_events: int, window_secs: float) -> None:
+        self._max = max_events
+        self._window = window_secs
+        self._hits: dict[str, deque[float]] = defaultdict(deque)
+
+    def allow(self, key: str, now: float | None = None) -> bool:
+        """Record an attempt for ``key``; return False if it exceeds the budget."""
+        t = time.monotonic() if now is None else now
+        dq = self._hits[key]
+        cutoff = t - self._window
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        if len(dq) >= self._max:
+            return False
+        dq.append(t)
+        # Opportunistically drop the bucket if it's the only (now-stale) entry —
+        # keeps the dict from growing unbounded across many one-off IPs.
+        if not dq:
+            self._hits.pop(key, None)
+        return True
+
+
 def create_app(
     store: GluonStore | None = None,
     notifier: NotificationDispatcher | None = None,
@@ -375,7 +408,37 @@ def create_app(
                 status_code=403,
             )
         request.state.current_user = user
-        return await call_next(request)
+        response = await call_next(request)
+        # Audit trail: record authorized privileged mutations (operator+) so
+        # multi-user actions are attributable. Viewer self-service writes
+        # (notifications, own password) are intentionally excluded as noise.
+        if request.method in _mutating_methods and _role_rank(required) >= _role_rank(_UserRole.OPERATOR):
+            try:
+                store.log_activity(
+                    actor=user.username,
+                    action=f"{request.method} {path}",
+                    result=str(response.status_code),
+                    metadata={"ip": request.client.host if request.client else None},
+                )
+            except Exception:
+                logger.debug("audit log write failed", exc_info=True)
+        return response
+
+    @app.middleware("http")
+    async def _security_headers(request, call_next):
+        """Attach defensive response headers to every response.
+
+        Declared after the auth gate so it wraps it — the headers land on the
+        gate's 401/403 JSON responses too. HSTS is only emitted over HTTPS (it's
+        meaningless and can lock out dev on plain HTTP).
+        """
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        if request.url.scheme == "https":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+        return response
 
     # Starlette SessionMiddleware — needed by Authlib's OIDC client to carry
     # state + nonce between the redirect and callback. Mounted unconditionally
@@ -432,6 +495,15 @@ def create_app(
 
     current_user_dep = make_current_user_dependency(store)
     require_admin = make_require_role(store, UserRole.ADMIN)
+
+    # Per-IP throttle on the unauthenticated/credential endpoints to blunt
+    # password and link-code brute force. Per-app so test apps don't share it.
+    _auth_limiter = _SlidingWindowLimiter(max_events=10, window_secs=60.0)
+
+    def _rate_limit_auth(request: Request) -> None:
+        ip = request.client.host if request.client else "unknown"
+        if not _auth_limiter.allow(f"{request.url.path}:{ip}"):
+            raise HTTPException(status_code=429, detail="Too many attempts; wait a minute and try again.")
 
     # Build project lookup helper
     def get_project_lookup() -> dict[str, str]:
@@ -1968,7 +2040,7 @@ def create_app(
             last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
         )
 
-    @app.post("/api/auth/login", response_model=LoginResponse)
+    @app.post("/api/auth/login", response_model=LoginResponse, dependencies=[Depends(_rate_limit_auth)])
     async def auth_login(
         body: LoginRequest,
         request: Request,
@@ -2225,7 +2297,11 @@ def create_app(
 
     _valid_link_transports = ("telegram", "discord")
 
-    @app.post("/api/auth/link-codes", response_model=LinkCodeResponse)
+    @app.post(
+        "/api/auth/link-codes",
+        response_model=LinkCodeResponse,
+        dependencies=[Depends(_rate_limit_auth)],
+    )
     async def create_link_code_endpoint(
         body: CreateLinkCodeRequest,
         user: UserModel = Depends(current_user_dep),

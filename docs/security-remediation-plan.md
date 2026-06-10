@@ -70,17 +70,22 @@ Derived from `docs/AUTH.md` (viewer = read-only · operator = everything except 
 > **PR:** `feat(security): auth-required posture, rate limiting, security headers, audit log`
 > Not strictly blocking, but expected for a public service.
 
-- [ ] **Refuse silent insecure default** (decision locked: refuse) — `src/gluon/cli.py` (`gluon web`) / `create_app`
+- [x] **Refuse silent insecure default** (decision locked: refuse) — `src/gluon/cli.py` (`gluon web` + `serve`) / `auth.py`
   - **Do:** if the server binds a non-loopback host with `GLUON_AUTH_ENABLED=false`, **fail to start** with a clear error unless `GLUON_INSECURE_OK=1` is set. Loopback binds and auth-enabled binds start normally.
-  - **Done when:** `gluon web --host 0.0.0.0` with auth disabled and no override exits non-zero with an explanatory message.
-- [ ] **Rate-limit auth endpoints** — `POST /api/auth/login`, `/api/auth/link-codes`
+  - **Done when:** `gluon web --host 0.0.0.0` with auth disabled and no override exits non-zero with an explanatory message. ✓
+  - **Done:** `auth.insecure_bind_error(host)` / `is_loopback_host(host)` added and called by both `gluon web` and `gluon serve --web`. Docker compose files set `GLUON_INSECURE_OK=1` with a security comment (the container must bind 0.0.0.0 for port publishing; the host port mapping decides exposure). Unit + branch-table tests in `test_security_phase3.py`.
+- [x] **Rate-limit auth endpoints** — `POST /api/auth/login`, `/api/auth/link-codes`
   - **Do:** per-IP throttle (e.g. 5/min) to blunt password/link-code brute force.
-- [ ] **Security headers** — middleware
+  - **Done:** per-app `_SlidingWindowLimiter` (10/min per `path:ip`) wired as a route dependency on both endpoints; returns 429 past budget. Integration + unit tests.
+- [x] **Security headers** — middleware
   - **Do:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` (or CSP `frame-ancestors`), `Referrer-Policy`, and HSTS when served over HTTPS.
-- [ ] **Audit log of privileged actions** — reuse the activity log
+  - **Done:** `_security_headers` middleware sets `nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy: strict-origin-when-cross-origin` on every response (incl. auth-gate 401/403); HSTS only on `https`. Tests assert presence + no-HSTS-on-http.
+- [x] **Audit log of privileged actions** — reuse the activity log
   - **Do:** record `(user_id, action, target, ts)` for destructive/admin routes (delete project, force-push, merge, settings/env-var/webhook/user changes) so multi-user actions are attributable.
-- [ ] **Verify env-var read paths don't leak** — `workspaces/:id/env-vars` GET
+  - **Done:** the auth gate now records `store.log_activity(actor, action="<METHOD> <path>", result=<status>, metadata={ip})` for authorized operator+ mutations (viewer self-service excluded as noise). Tests assert a privileged mutation is logged and a read is not.
+- [x] **Verify env-var read paths don't leak** — `workspaces/:id/env-vars` GET
   - **Do:** confirm values are masked (keys only) on read; the WS-7/audit noted the masked-keys pattern — make sure it's applied consistently.
+  - **Done (verified):** there is no GET that returns env-var values — `WorkspaceResponse.env_var_keys` is documented "values masked" and `get_workspace_detail` doesn't even populate it. Added a regression test asserting a workspace's secret value never appears in the detail response.
 
 ---
 

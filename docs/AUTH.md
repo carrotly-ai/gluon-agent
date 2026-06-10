@@ -488,6 +488,10 @@ To roll back: set `GLUON_AUTH_ENABLED=false` and restart. The login screen disap
 | Chat-account hijacking | `consume_link_code` refuses to bind a chat ID already owned by a different user (`chat_taken`). |
 | Disabled-user bypass | `resolve_session` cleans up sessions on disabled users. Bot transports check `user.disabled` before recording attribution. |
 | Cookie theft | `httpOnly` + `secure` (on HTTPS) + `sameSite=lax`. Server-side rotation on credential change so a stolen cookie loses value if the user notices and resets. |
+| Accidental network exposure | A non-loopback bind (`--host 0.0.0.0`, etc.) with `GLUON_AUTH_ENABLED=false` **refuses to start** unless `GLUON_INSECURE_OK=1` is set (`auth.insecure_bind_error`). Guards both `gluon web` and `gluon serve --web`. |
+| Credential brute-force (network) | Per-IP sliding-window rate limit (10/min) on `POST /api/auth/login` and `/api/auth/link-codes`; returns 429 past budget. |
+| Clickjacking / MIME-sniffing | `_security_headers` middleware sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` on every response, and HSTS when served over HTTPS. |
+| Multi-user accountability | The auth gate writes an audit event (`store.log_activity`: actor, `<METHOD> <path>`, status, IP) for every authorized operator+ mutation, queryable via `list_activities`. |
 
 ---
 
@@ -500,6 +504,8 @@ To roll back: set `GLUON_AUTH_ENABLED=false` and restart. The login screen disap
 | `GLUON_AUTH_ENABLED` | `false` | Master switch. When false, **all** auth is disabled. |
 | `GLUON_AUTH_BACKEND` | `local` | Legacy single-provider selector (CLI uses this; `get_auth_provider()` resolution). |
 | `GLUON_AUTH_SWEEP_INTERVAL_SECS` | `3600` | How often the background task sweeps expired sessions + link codes. |
+| `GLUON_INSECURE_OK` | `false` | Escape hatch: allow a non-loopback bind with auth disabled. Required for Docker (the container binds `0.0.0.0`); the published host port decides real exposure. Prefer enabling auth instead. |
+| `GLUON_ALLOWED_ORIGINS` | `http://localhost:45866` | Comma-separated CORS origin allowlist (credentials stay enabled). |
 
 ### Local provider
 
