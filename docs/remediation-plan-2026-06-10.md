@@ -290,22 +290,22 @@
 
 > **PR:** `fix(web-ui): align TS types and endpoints with the backend`
 
-- [ ] **[P2] Frontend calls `POST /api/sdk-sessions/{id}/resume` — endpoint doesn't exist** — [web-ui/src/lib/api.ts:1121](web-ui/src/lib/api.ts#L1121)
+- [ ] **[P2] Frontend calls `POST /api/sdk-sessions/{id}/resume` — endpoint doesn't exist** — _NOT a drift bug: this is an intentional, documented stub. The frontend (api.ts + SessionBrowserPage) deliberately calls the not-yet-built endpoint and shows an honest "Resume not available yet" message on the 404. Implementing the backend resume route is a FEATURE (the TODO specifies it), deferred._ — [web-ui/src/lib/api.ts:1121](web-ui/src/lib/api.ts#L1121)
   - **Fix:** Add the backend route (resume an SDK session) or remove/redirect the frontend call to the real resume path.
   - **Done when:** the resume call hits a real endpoint (no 404/405).
-- [ ] **[P2] Hard-cap fields (Theme D3) missing from TS types** — [web-ui/src/lib/types.ts:207](web-ui/src/lib/types.ts#L207) 🔎 verify-first
+- [x] **[P2] Hard-cap fields (Theme D3) missing from TS types** — _added `max_tool_calls`, `max_duration_minutes`, `tool_call_count` to the TS `RunDetail` (no `max_total_tokens` exists in the backend)._ — [web-ui/src/lib/types.ts:207](web-ui/src/lib/types.ts#L207) 🔎 verify-first
   - **Fix:** Diff backend `max_cost_usd`/`max_duration_minutes`/`max_total_tokens` (models.py:132/139/181) against TS; add the missing fields to the request/response interfaces.
   - **Done when:** every backend hard-cap field has a TS counterpart.
-- [ ] **[P3] `user_id` attribution naming mismatch** — [web-ui/src/lib/types.ts:15](web-ui/src/lib/types.ts#L15) 🔎 verify-first
+- [x] **[P3] `user_id` attribution naming mismatch** — _added `user_id` to the TS `Run` interface (the audit's `created_by_user_id` was actually a schedule field)._ — [web-ui/src/lib/types.ts:15](web-ui/src/lib/types.ts#L15) 🔎 verify-first
   - **Fix:** Reconcile TS `created_by_user_id` with backend `user_id` (RunResponse:67) — rename one side or map it.
   - **Done when:** the attribution field name matches across the boundary.
-- [ ] **[P3] `AgentMessageData` union is stale (backend emits 5 types it lacks)** — [web-ui/src/lib/types.ts:630](web-ui/src/lib/types.ts#L630)
+- [x] **[P3] `AgentMessageData` union is stale (backend emits 5 types it lacks)** — _added the exact 5: `hook_event`, `rate_limit`, `server_tool_use`, `server_tool_result`, `usage` (and aligned StreamingLogViewer's local copy)._ — [web-ui/src/lib/types.ts:630](web-ui/src/lib/types.ts#L630)
   - **Fix:** Sync the union with the message types the backend actually emits (do alongside WS-8's AgentMessage unification).
   - **Done when:** the union covers all emitted types.
-- [ ] **[P3] TS `Workspace` omits budget/spend fields `WorkspaceResponse` returns** — [web-ui/src/lib/types.ts:788](web-ui/src/lib/types.ts#L788)
+- [x] **[P3] TS `Workspace` omits budget/spend fields `WorkspaceResponse` returns** — _added daily/monthly budget + spend fields._ — [web-ui/src/lib/types.ts:788](web-ui/src/lib/types.ts#L788)
   - **Fix:** Add the budget/spend fields to the TS `Workspace` interface.
   - **Done when:** the TS type matches `WorkspaceResponse`.
-- [ ] **[P3] `QueueFollowupResponse` drops `message_id`** — [web-ui/src/lib/api.ts:229](web-ui/src/lib/api.ts#L229)
+- [x] **[P3] `QueueFollowupResponse` drops `message_id`** — _added `message_id` to the TS response type._ — [web-ui/src/lib/api.ts:229](web-ui/src/lib/api.ts#L229)
   - **Fix:** Add `message_id` to the TS response type.
   - **Done when:** the field is present.
 
