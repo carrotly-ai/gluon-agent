@@ -55,13 +55,13 @@ Derived from `docs/AUTH.md` (viewer = read-only · operator = everything except 
 
 > **PR:** `fix(security): input validation, secure cookies, token handling`
 
-- [ ] **[P2] Validate git refs at the boundary** — `src/gluon/web/api.py` branch routes + `src/gluon/git_manager.py`
+- [x] **[P2] Validate git refs at the boundary** — `src/gluon/web/api.py` branch routes + `src/gluon/git_manager.py`
   - **Do:** reject branch/ref names not matching `^(?!-)[A-Za-z0-9._/-]+$` (no leading dash) in the branch/rebase/force-push request models (Pydantic validator); for `git branch` ops also pass a `--` separator before user refs. (`git checkout <branch>` can't take `--` — rely on the validator there.)
   - **Done when:** a branch named `--upload-pack=…` is rejected with 422 before reaching git.
-- [ ] **[P3] `Secure` flag on the local-login session cookie** — `src/gluon/web/api.py:1912`
+- [x] **[P3] `Secure` flag on the local-login session cookie** — `src/gluon/web/api.py:1912`
   - **Do:** `secure=request.url.scheme == "https"`, mirroring the OIDC callback path.
   - **Done when:** over HTTPS the session cookie carries `Secure`.
-- [ ] **[P3] Pass the Vercel token via env, not argv** — `src/gluon/web/api.py:3340`
+- [x] **[P3] Pass the Vercel token via env, not argv** — `src/gluon/web/api.py:3340`
   - **Do:** invoke `vercel whoami` with `env={**os.environ, "VERCEL_TOKEN": token}` instead of `--token=` in argv; gate the route behind admin (Phase 1 covers the gate).
   - **Done when:** the token no longer appears in `/proc/<pid>/cmdline`.
 

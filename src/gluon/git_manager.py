@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,17 @@ from gluon.models import (
 from gluon.store import GluonStore
 
 logger = logging.getLogger(__name__)
+
+# A git ref/branch name safe to pass as a subprocess argument: no leading dash
+# (would be parsed as a git option — argument injection), no "..", and only
+# characters valid in a branch name.
+_VALID_GIT_REF = re.compile(r"^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$")
+
+
+def _is_valid_ref(name: str | None) -> bool:
+    """True if ``name`` is a syntactically safe git ref/branch name."""
+    return bool(name) and _VALID_GIT_REF.match(name) is not None
+
 
 # Environment configuration
 GIT_ENABLED = os.getenv("GLUON_GIT_ENABLED", "true").lower() == "true"
@@ -1565,6 +1577,10 @@ Run ID: `{run_id}`
         """
         result = {"success": False, "message": "", "conflicts": []}
 
+        if not _is_valid_ref(onto_branch):
+            result["message"] = f"Invalid branch name: {onto_branch!r}"
+            return result
+
         # Check for existing operation
         conflict_state = await self._detect_conflict_state(path)
         if conflict_state["is_rebase_in_progress"] or conflict_state["is_merge_in_progress"]:
@@ -1697,6 +1713,10 @@ Run ID: `{run_id}`
         """
         result = {"success": False, "message": ""}
 
+        if branch is not None and not _is_valid_ref(branch):
+            result["message"] = f"Invalid branch name: {branch!r}"
+            return result
+
         if not branch:
             branch = await self._get_branch(path)
             if not branch:
@@ -1782,7 +1802,11 @@ Run ID: `{run_id}`
         """Rename a branch."""
         result = {"success": False, "message": ""}
 
-        rc, _, stderr = await self._run_git(path, "branch", "-m", old_name, new_name)
+        if not _is_valid_ref(old_name) or not _is_valid_ref(new_name):
+            result["message"] = "Invalid branch name"
+            return result
+
+        rc, _, stderr = await self._run_git(path, "branch", "-m", "--", old_name, new_name)
         if rc != 0:
             result["message"] = f"Failed to rename branch: {stderr}"
             return result
@@ -1795,15 +1819,19 @@ Run ID: `{run_id}`
         """Delete a branch (local or remote)."""
         result = {"success": False, "message": ""}
 
+        if not _is_valid_ref(branch):
+            result["message"] = f"Invalid branch name: {branch!r}"
+            return result
+
         if remote:
             remote_name, _ = await self._get_remote(path)
             if not remote_name:
                 result["message"] = "No remote configured"
                 return result
-            rc, _, stderr = await self._run_git(path, "push", remote_name, "--delete", branch)
+            rc, _, stderr = await self._run_git(path, "push", remote_name, "--delete", "--", branch)
         else:
             flag = "-D" if force else "-d"
-            rc, _, stderr = await self._run_git(path, "branch", flag, branch)
+            rc, _, stderr = await self._run_git(path, "branch", flag, "--", branch)
 
         if rc != 0:
             result["message"] = f"Failed to delete branch: {stderr}"
@@ -1821,6 +1849,10 @@ Run ID: `{run_id}`
         This is equivalent to: git rebase --onto new_base old_base feature_branch
         """
         result = {"success": False, "message": "", "conflicts": []}
+
+        if not _is_valid_ref(feature_branch) or not _is_valid_ref(new_base):
+            result["message"] = "Invalid branch name"
+            return result
 
         # Get current branch to restore later
         current = await self._get_branch(path)

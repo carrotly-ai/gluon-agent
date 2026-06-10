@@ -6,9 +6,43 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from gluon.git_manager import GitManager
+from gluon.git_manager import GitManager, _is_valid_ref
 from gluon.models import GitStatus, GitSyncResult, Project
 from gluon.store import GluonStore
+
+
+class TestRefValidation:
+    """Security: git ref/branch names must be validated before hitting subprocess."""
+
+    def test_valid_refs_accepted(self):
+        for name in ("main", "feature/foo", "v1.2.3", "release-2026", "a/b/c", "gluon-abc123"):
+            assert _is_valid_ref(name), name
+
+    def test_dangerous_refs_rejected(self):
+        for name in ("-D", "--upload-pack=evil", "..", "a..b", "", "foo bar", "$(rm -rf /)", "-rf", "a;b"):
+            assert not _is_valid_ref(name), name
+
+    @pytest.mark.asyncio
+    async def test_delete_branch_rejects_option_like_name(self, git_manager, tmp_path):
+        with patch.object(git_manager, "_run_git", new=AsyncMock()) as mock_git:
+            res = await git_manager.delete_branch(tmp_path, "--force")
+            assert res["success"] is False
+            assert "Invalid" in res["message"]
+            mock_git.assert_not_called()  # never reached git
+
+    @pytest.mark.asyncio
+    async def test_rebase_rejects_option_like_name(self, git_manager, tmp_path):
+        with patch.object(git_manager, "_run_git", new=AsyncMock()) as mock_git:
+            res = await git_manager.rebase_branch(tmp_path, "-x")
+            assert res["success"] is False
+            mock_git.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rename_rejects_option_like_name(self, git_manager, tmp_path):
+        with patch.object(git_manager, "_run_git", new=AsyncMock()) as mock_git:
+            res = await git_manager.rename_branch(tmp_path, "ok", "--evil")
+            assert res["success"] is False
+            mock_git.assert_not_called()
 
 
 @pytest.fixture
