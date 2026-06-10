@@ -35,13 +35,13 @@
 > **PR:** `fix(core): close cross-workspace credential bleed, correct run success reporting & worktree isolation`
 > The three highest-impact correctness bugs. Do these first.
 
-- [ ] **[P1] Cross-workspace `os.environ` credential bleed** — [src/gluon/web/api.py:227](src/gluon/web/api.py#L227)
+- [x] **[P1] Cross-workspace `os.environ` credential bleed** — [src/gluon/web/api.py:227](src/gluon/web/api.py#L227)
   - **Fix:** `_workspace_env` mutates the process-global `os.environ` and is held across `await` (push_branch_and_create_pr @3582, refresh_status @4184). Stop mutating global env: pass workspace env explicitly into the git-manager subprocess calls (`env=` on the subprocess), or serialize workspace git ops behind a per-workspace `asyncio.Lock`. Remove the `@contextmanager` env-swap pattern entirely.
   - **Done when:** no code path mutates `os.environ` while an `await` is pending; a test launching two concurrent git operations for different workspaces shows each subprocess receives only its own workspace's vars.
-- [ ] **[P1] Failed runs reported to users as "✅ Complete"** — [src/gluon/agent.py:1185](src/gluon/agent.py#L1185)
+- [x] **[P1] Failed runs reported to users as "✅ Complete"** — [src/gluon/agent.py:1185](src/gluon/agent.py#L1185)
   - **Fix:** In the `ResultMessage` branch set `success = not msg.is_error` and capture `error_msg = msg.result` (or `msg.errors`) when `is_error` is True, so `AgentResult` and every downstream summary reflect the real outcome.
   - **Done when:** a run terminating with an `is_error=True` ResultMessage yields `AgentResult(success=False, error=…)`, is **not** marked REVIEW, and the bot/UI summary shows failure. Add a regression test feeding an error ResultMessage.
-- [ ] **[P1] Silent worktree-isolation drop** — [src/gluon/runner.py:1085](src/gluon/runner.py#L1085)
+- [x] **[P1] Silent worktree-isolation drop** — [src/gluon/runner.py:1085](src/gluon/runner.py#L1085)
   - **Fix:** On `WorktreeError`, `logger.warning` with run id + reason and write a line to the run's stderr/messages.jsonl. Decide policy: when `use_worktree` was **explicitly requested**, fail the run rather than silently running in the main checkout (match/raise above core.py:761).
   - **Done when:** a forced WorktreeError produces a visible log + run message; explicit-isolation runs do not silently fall back to the primary working tree.
 

@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import subprocess
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
@@ -223,9 +223,22 @@ def _get_git_ahead_behind(project_path: str | Path) -> tuple[int | None, int | N
     return None, None
 
 
-@contextmanager
-def _workspace_env(store: GluonStore, workspace_id: str | None):
-    """Temporarily inject workspace env vars into os.environ for git operations."""
+# Serializes every workspace-scoped git operation. `os.environ` is process-global,
+# so injecting one workspace's vars and yielding across an `await` would let a
+# concurrent request for a different workspace observe (and run git with) those
+# vars — a cross-workspace credential bleed. Holding this lock for the whole
+# inject→run→restore window makes the mutation atomic with respect to other
+# workspace-scoped operations.
+_workspace_env_lock = asyncio.Lock()
+
+
+@asynccontextmanager
+async def _workspace_env(store: GluonStore, workspace_id: str | None):
+    """Temporarily inject workspace env vars into os.environ for git operations.
+
+    Lock-guarded so concurrent requests for different workspaces cannot interleave
+    their mutations of the shared process environment.
+    """
     if not workspace_id:
         yield
         return
@@ -233,16 +246,17 @@ def _workspace_env(store: GluonStore, workspace_id: str | None):
     if not ws_env:
         yield
         return
-    saved = {k: os.environ.get(k) for k in ws_env}
-    os.environ.update(ws_env)
-    try:
-        yield
-    finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+    async with _workspace_env_lock:
+        saved = {k: os.environ.get(k) for k in ws_env}
+        os.environ.update(ws_env)
+        try:
+            yield
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 def create_app(store: GluonStore | None = None) -> FastAPI:
@@ -3577,7 +3591,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         )
 
         try:
-            with _workspace_env(store, project.workspace_id):
+            async with _workspace_env(store, project.workspace_id):
                 pr_result = await git_manager.push_branch_and_create_pr(
                     project_path=working_path,
                     branch_name=run.branch_name,
@@ -3650,7 +3664,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         base_branch = run.source_branch or "main"
 
         try:
-            with _workspace_env(store, project.workspace_id):
+            async with _workspace_env(store, project.workspace_id):
                 merge_result = await git_manager.merge_branch_locally(
                     project_path=project_path,
                     branch_name=run.branch_name,
@@ -4022,7 +4036,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        with _workspace_env(store, project.workspace_id):
+        async with _workspace_env(store, project.workspace_id):
             result = await git_manager.force_push(
                 project.expanded_path,
                 branch=body.branch,
@@ -4112,7 +4126,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        with _workspace_env(store, project.workspace_id):
+        async with _workspace_env(store, project.workspace_id):
             result = await git_manager.delete_branch(project.expanded_path, branch_name, force=force, remote=remote)
 
         return BranchOperationResponse(
@@ -4180,7 +4194,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Refresh status (performs git fetch)
         try:
-            with _workspace_env(store, project.workspace_id):
+            async with _workspace_env(store, project.workspace_id):
                 status = await git_manager.refresh_status(project)
         except Exception as e:
             logger.error(f"Failed to refresh git status for {project.name}: {e}")
@@ -4277,7 +4291,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Execute the action
         try:
-            with _workspace_env(store, project.workspace_id):
+            async with _workspace_env(store, project.workspace_id):
                 if action == "pull":
                     # Cannot pull with uncommitted changes
                     if status.has_uncommitted:

@@ -1082,10 +1082,22 @@ class TaskRunner:
                     run.branch_name = f"gluon-{worktree_run_id}"
                     run.source_branch = worktree_manager.source_branch
                     self.store.update_run(run)
-                except WorktreeError:
-                    # Log warning but continue with main directory
-                    run.use_worktree = False
-                    worktree_manager = None
+                except WorktreeError as e:
+                    # Isolation was explicitly requested (run.use_worktree). Silently
+                    # falling back to the main checkout would let the agent mutate the
+                    # user's primary working tree with no signal — fail loudly instead.
+                    logger.warning(
+                        "Worktree creation failed for run %s in %s: %s — failing the "
+                        "run rather than running unisolated in the main checkout",
+                        run.id[:8],
+                        project.expanded_path,
+                        e,
+                    )
+                    raise WorktreeError(
+                        f"Could not create an isolated worktree for run {run.id[:8]}: {e}. "
+                        "Isolation was requested, so the run was not started in the main "
+                        "checkout. Disable worktree isolation to run here directly."
+                    ) from e
 
         # Capture source branch for non-worktree git repos (worktree path sets it above)
         if not run.source_branch and await is_git_repository(project.expanded_path):

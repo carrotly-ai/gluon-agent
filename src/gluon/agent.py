@@ -1172,6 +1172,16 @@ class GluonAgent:
                                     "name": msg.deferred_tool_use.name,
                                     "input": msg.deferred_tool_use.input,
                                 }
+                            # An error-type ResultMessage (e.g. error_during_execution,
+                            # max-turns) does not raise — without this the run would be
+                            # reported to the user as a success. Reflect the real outcome.
+                            if msg.is_error:
+                                success = False
+                                error_msg = (
+                                    msg.result
+                                    or (str(msg.errors) if msg.errors else None)
+                                    or "Agent ended with an error"
+                                )
                             yield AgentMessage(
                                 type="result",
                                 content=msg.result or "Execution complete",
