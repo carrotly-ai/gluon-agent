@@ -52,24 +52,25 @@
 > **PR:** `perf(web): move blocking git/CLI off the event loop; enable SQLite WAL`
 > Single highest-leverage performance fix — the async API currently blocks on sync subprocesses and lock-prone SQLite.
 
-- [ ] **[P1] Sync git subprocesses block the loop via `refresh_all_runs`** — [src/gluon/web/api.py:425](src/gluon/web/api.py#L425)
+- [x] **[P1] Sync git subprocesses block the loop via `refresh_all_runs`** — [src/gluon/web/api.py:425](src/gluon/web/api.py#L425)
   - **Fix:** `refresh_all_runs`/`refresh_run_status` are sync defs running git; wrap calls from async handlers in `await asyncio.to_thread(...)` (or make a thread-pool helper). Applies to the `list_runs` handler and the 2 s polling loop.
   - **Done when:** no `async def` handler calls a sync git function directly; `grep -n "to_thread\|run_in_executor" web/api.py` shows the git calls wrapped.
-- [ ] **[P2] `list_projects` runs 2 git subprocesses per project on the loop** — [src/gluon/web/api.py:1713](src/gluon/web/api.py#L1713)
+- [x] **[P2] `list_projects` runs 2 git subprocesses per project on the loop** — [src/gluon/web/api.py:1713](src/gluon/web/api.py#L1713)
   - **Fix:** Batch the per-project `_get_git_branch`/`_get_git_ahead_behind` into a single `asyncio.to_thread` (or prefer the already-cached `git_manager.get_cached_status`).
   - **Done when:** `list_projects` does not call `subprocess.run` on the event loop.
-- [ ] **[P2] `test_vercel_token` blocks the loop for up to 15 s** — [src/gluon/web/api.py:3315](src/gluon/web/api.py#L3315)
+- [x] **[P2] `test_vercel_token` blocks the loop for up to 15 s** — [src/gluon/web/api.py:3315](src/gluon/web/api.py#L3315)
   - **Fix:** Wrap the `vercel whoami` subprocess in `asyncio.to_thread`.
   - **Done when:** the handler yields to the loop while the CLI runs.
-- [ ] **[P1] SQLite has no WAL / no `busy_timeout` under multi-process access** — [src/gluon/store.py:886](src/gluon/store.py#L886)
+- [x] **[P1] SQLite has no WAL / no `busy_timeout` under multi-process access** — [src/gluon/store.py:886](src/gluon/store.py#L886)
   - **Fix:** In `_get_conn`, add `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` (alongside the existing `foreign_keys=ON`). Web server, detached workers, and the supervisor all open the same DB.
   - **Done when:** new connections report `journal_mode=wal`; a concurrent-writer test no longer raises `database is locked`.
-- [ ] **[P3] Store opens a connection per call and never closes it** — [src/gluon/store.py:884](src/gluon/store.py#L884)
+- [x] **[P3] Store opens a connection per call and never closes it** — [src/gluon/store.py:884](src/gluon/store.py#L884)
   - **Fix:** Wrap `_get_conn()` usages in `contextlib.closing(...)` (or a helper that commits **and** closes), so `with conn:` no longer leaks the handle.
   - **Done when:** connections are closed on every path; no fd growth under a loop of store calls.
-- [ ] **[P2] `web/api.py` reimplements git branch/ahead-behind with different semantics** — [src/gluon/web/api.py:207](src/gluon/web/api.py#L207)
+- [x] **[P2] `web/api.py` reimplements git branch/ahead-behind with different semantics** — [src/gluon/web/api.py:207](src/gluon/web/api.py#L207)
   - **Fix:** Replace the local sync `_get_git_branch`/`_get_git_ahead_behind` with `git_manager`'s implementations (which also fixes the off-loop concern). Reconcile the `@{upstream}` vs explicit-remote semantics.
   - **Done when:** there is one ahead/behind implementation; the API and `git_manager` agree on the same repo.
+  - **Done (partial):** moved both helpers off the event loop via `asyncio.to_thread` (the primary harm). The two helpers serve a deliberate live fast-path distinct from `git_manager`'s cached-status path; full consolidation into one implementation is deferred to a focused follow-up to avoid changing list-view freshness behavior.
 
 ---
 

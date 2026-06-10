@@ -436,7 +436,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     ) -> list[RunResponse]:
         """List execution runs with optional filters."""
         # Refresh status of active runs
-        runner.refresh_all_runs()
+        await asyncio.to_thread(runner.refresh_all_runs)
 
         # Convert status strings to enum
         statuses = None
@@ -472,7 +472,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         # Refresh status if active
         if run.is_active:
-            runner.refresh_run_status(run)
+            await asyncio.to_thread(runner.refresh_run_status, run)
 
         # Refresh PR status from GitHub if run has an open PR
         # This catches when user merges PR on GitHub website
@@ -1723,9 +1723,10 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             # Use expanded_path for git commands (resolves ${HOME}, ~, etc.)
             expanded = project.expanded_path
 
-            # Get basic git info (fast subprocess calls)
-            git_branch = _get_git_branch(expanded)
-            git_ahead, git_behind = _get_git_ahead_behind(expanded)
+            # Get basic git info — off-loop so the per-project subprocesses don't
+            # block the event loop while iterating every project.
+            git_branch = await asyncio.to_thread(_get_git_branch, expanded)
+            git_ahead, git_behind = await asyncio.to_thread(_get_git_ahead_behind, expanded)
 
             # Get extended git status from cache (no network operations)
             git_uncommitted_count = None
@@ -3326,7 +3327,8 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="No token provided and VERCEL_TOKEN not set")
 
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ["vercel", "whoami", f"--token={token}"],
                 capture_output=True,
                 text=True,
@@ -5661,7 +5663,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         while True:
             try:
                 # Refresh all running runs
-                runner.refresh_all_runs()
+                await asyncio.to_thread(runner.refresh_all_runs)
 
                 # Check all non-archived runs for status changes
                 runs = store.list_runs(limit=100, include_archived=False)

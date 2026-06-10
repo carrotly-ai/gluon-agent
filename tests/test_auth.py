@@ -316,7 +316,8 @@ class TestSessionManagement:
             expires_at=past,
         )
         # Any session created directly with past expiry won't resolve
-        sessions_in_db = [r for r in store._get_conn().execute("SELECT id FROM user_sessions").fetchall()]
+        with store._get_conn() as conn:
+            sessions_in_db = list(conn.execute("SELECT id FROM user_sessions").fetchall())
         assert len(sessions_in_db) == 1
         sid = sessions_in_db[0][0]
         assert resolve_session(store, sid) is None

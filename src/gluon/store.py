@@ -2,6 +2,8 @@
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -881,12 +883,26 @@ class GluonStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """Get database connection with row factory."""
+    @contextmanager
+    def _get_conn(self) -> Iterator[sqlite3.Connection]:
+        """Yield a database connection, committing on success and always closing.
+
+        WAL + busy_timeout let the web server, detached workers and the supervisor
+        share the DB across processes without spurious "database is locked" errors.
+        """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         """Initialize database schema and run migrations."""
