@@ -20,6 +20,7 @@ export interface Run {
   prompt: string
   original_prompt: string | null // Original task prompt (preserved across resumes)
   initiator: string | null
+  user_id: string | null // FK to users(id) — who submitted the run (null pre-auth / SYSTEM_USER)
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -190,6 +191,10 @@ export interface RunDetail extends Run {
   consecutive_same_error?: number
   test_only_loops?: number
   max_cost_usd?: number | null
+  // Hard caps (Theme D3) — present on RunDetailResponse
+  max_tool_calls?: number | null
+  max_duration_minutes?: number | null
+  tool_call_count?: number
   // SDK stop reason
   stop_reason?: string | null
 }
@@ -639,6 +644,12 @@ export interface AgentMessageData {
     | 'task_started'
     | 'task_progress'
     | 'task_notification'
+    // Additional AgentMessage types the backend emits (agent.py)
+    | 'hook_event'
+    | 'rate_limit'
+    | 'server_tool_use'
+    | 'server_tool_result'
+    | 'usage'
   content: string
   metadata?: Record<string, unknown>
   timestamp?: string
@@ -773,6 +784,11 @@ export interface Workspace {
   path: string
   project_count: number
   auto_discover: boolean
+  // Rolling budgets / spend (Theme D2) — present on WorkspaceResponse
+  daily_budget_usd?: number | null
+  monthly_budget_usd?: number | null
+  daily_spend_usd?: number
+  monthly_spend_usd?: number
 }
 
 /** Request to create a new workspace */

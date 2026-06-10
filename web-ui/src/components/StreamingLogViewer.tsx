@@ -213,6 +213,8 @@ interface AgentMessage {
     | 'task_progress'
     | 'task_notification'
     | 'usage'
+    | 'hook_event'
+    | 'rate_limit'
   content: string
   metadata?: {
     tool?: string

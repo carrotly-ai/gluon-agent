@@ -230,6 +230,8 @@ export interface QueueFollowupResponse {
   run_id: string
   action: 'queued' | 'resume_now'
   message: string | null
+  /** ID of the queued message (present when action === 'queued') */
+  message_id: string | null
 }
 
 /** Queue a follow-up message for a running task (will auto-resume after completion) */
