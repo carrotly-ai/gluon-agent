@@ -24,15 +24,15 @@ The codebase has **strong cryptographic and injection hygiene** — parameterize
 **src/gluon/web/api.py:283** — `allow_origins=["*"]` + `allow_credentials=True`. Any site the operator visits can make credentialed cross-origin requests and read responses; combined with P0 this enables drive-by destructive actions. (Starlette reflects the Origin, so the browser `*`+credentials rejection doesn't save you.)
 - **Recommended fix:** explicit origin allowlist (e.g. `GLUON_ALLOWED_ORIGINS`, default `http://localhost:45866`); set `allow_credentials=False` if not needed cross-origin.
 
-### P2 — git branch ops: argument injection via leading-dash names
+### P2 — git branch ops: argument injection via leading-dash names — **FIXED (Phase 2)**
 **src/gluon/git_manager.py** — `delete_branch`/`rename_branch`/`change_base_branch` pass user branch names as positional git args, so a name beginning with `-` is parsed as a git option. No *shell* injection (uniform `create_subprocess_exec`), impact bounded, but unvalidated input → subprocess arg.
 - **Recommended fix:** for `git branch` ops add a `--` separator before user refs; for `git checkout <branch>` (`--` would mean "paths follow"), reject branch names matching a leading `-` (validate `^[A-Za-z0-9._/-]+$` and no leading dash) at the API boundary.
 
-### P3 — Local-login session cookie omits `Secure` under HTTPS
+### P3 — Local-login session cookie omits `Secure` under HTTPS — **FIXED (Phase 2)**
 **src/gluon/web/api.py:1912** sets the session cookie without `secure=`. The OIDC callback already does `secure=request.url.scheme == "https"`.
 - **Recommended fix:** mirror the OIDC path on the local-login cookie.
 
-### P3 — Vercel token passed as a CLI argument (process-list exposure)
+### P3 — Vercel token passed as a CLI argument (process-list exposure) — **FIXED (Phase 2)**
 **src/gluon/web/api.py:3340** — `["vercel","whoami",f"--token={token}"]` exposes the token in `/proc/<pid>/cmdline`. Endpoint also ungated.
 - **Recommended fix:** pass via subprocess `env=` (`VERCEL_TOKEN`) and gate behind admin auth.
 
