@@ -156,88 +156,80 @@ class TestRegisterSubscribers:
         assert "run.completed" in bus._subscribers
         assert "run.failed" in bus._subscribers
         assert "run.review" in bus._subscribers
-        assert "run.cancelled" in bus._subscribers
+        # Question escalation is the only event-bus transport dispatch; terminal
+        # run-status notifications are delivered directly by the orchestrator.
+        assert "question.escalated" in bus._subscribers
+        # run.cancelled no longer has a dedicated subscriber (only the wildcard
+        # websocket broadcaster observes it).
+        assert "run.cancelled" not in bus._subscribers
 
 
-class TestTransportDispatcher:
+class TestQuestionEscalator:
+    """The escalator dispatches over the *shared* notifier's live transports."""
+
     @pytest.mark.asyncio
-    async def test_transport_dispatcher_calls_notify_for_run_completed(self, store: GluonStore):
-        """Test that transport_dispatcher calls NotificationDispatcher.notify() for a run.completed event."""
-        from gluon.events.subscribers import _make_transport_dispatcher
-        from gluon.models import ExecutionRun, RunStatus
+    async def test_noop_without_notifier(self, store: GluonStore):
+        """No shared notifier → graceful no-op (does not touch the store)."""
+        from gluon.events.subscribers import _make_question_escalator
 
-        # Create a real ExecutionRun object
-        run = ExecutionRun(
-            id="run-123",
-            project_id="proj-1",
-            workspace_id="ws-1",
-            prompt="Fix bug",
-            status=RunStatus.COMPLETED,
-            initiator="test-user",
-        )
-
-        dispatcher = _make_transport_dispatcher(store)
-
-        with patch("gluon.notifier.NotificationDispatcher") as mock_notifier_class:
-            mock_instance = MagicMock()
-            mock_instance.notify = AsyncMock()
-            mock_notifier_class.return_value = mock_instance
-
+        escalator = _make_question_escalator(store, None)
+        with patch.object(store, "get_run") as mock_get_run:
             event = _make_event(
-                "run.completed",
+                "question.escalated",
+                category=EventCategory.INTERACTION,
                 run_id="run-123",
-                data={"run": run, "old_status": RunStatus.RUNNING},
+                data={"questions": [{"header": "Q1", "question": "Allow?"}]},
             )
-            await dispatcher(event)
-
-            mock_notifier_class.assert_called_once_with(store=store)
-            mock_instance.notify.assert_called_once_with(run, RunStatus.RUNNING, RunStatus.COMPLETED)
+            await escalator(event)
+            mock_get_run.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_transport_dispatcher_handles_missing_run_gracefully(self, store: GluonStore):
-        """Test that transport_dispatcher handles missing run gracefully."""
-        from gluon.events.subscribers import _make_transport_dispatcher
+    async def test_noop_when_no_transports(self, store: GluonStore):
+        """Notifier present but transport-less → graceful no-op."""
+        from gluon.events.subscribers import _make_question_escalator
+        from gluon.notifier import NotificationDispatcher
 
-        dispatcher = _make_transport_dispatcher(store)
-
-        with patch("gluon.notifier.NotificationDispatcher") as mock_notifier_class:
-            mock_instance = MagicMock()
-            mock_instance.notify = AsyncMock()
-            mock_notifier_class.return_value = mock_instance
-
-            # Event with no "run" key in data
-            event = _make_event("run.completed", run_id="run-123", data={})
-            await dispatcher(event)
-
-            # NotificationDispatcher.notify should not be called
-            mock_instance.notify.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_transport_dispatcher_handles_import_error_gracefully(self, store: GluonStore):
-        """Test that transport_dispatcher handles import error gracefully."""
-        from gluon.events.subscribers import _make_transport_dispatcher
-        from gluon.models import ExecutionRun, RunStatus
-
-        run = ExecutionRun(
-            id="run-123",
-            project_id="proj-1",
-            workspace_id="ws-1",
-            prompt="Fix bug",
-            status=RunStatus.COMPLETED,
-            initiator="test-user",
-        )
-
-        dispatcher = _make_transport_dispatcher(store)
-
-        # Simulate import failure by patching the import
-        with patch("gluon.notifier.NotificationDispatcher", side_effect=ImportError("Notifier unavailable")):
+        notifier = NotificationDispatcher(store=store)  # empty transports
+        escalator = _make_question_escalator(store, notifier)
+        with patch.object(store, "get_run") as mock_get_run:
             event = _make_event(
-                "run.completed",
+                "question.escalated",
+                category=EventCategory.INTERACTION,
                 run_id="run-123",
-                data={"run": run, "old_status": RunStatus.RUNNING},
+                data={"questions": [{"header": "Q1", "question": "Allow?"}]},
             )
-            # Should not raise, just log and return
-            await dispatcher(event)
+            await escalator(event)
+            mock_get_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sends_to_mapped_channel(self, store: GluonStore, tmp_path):
+        """With a live transport + channel mapping, the escalation is sent."""
+        from gluon.events.subscribers import _make_question_escalator
+        from gluon.notifier import NotificationDispatcher
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        project = store.create_project("proj", project_path)
+        run = store.create_run(project.id, "Fix bug", initiator="test-user")
+        store.create_channel_mapping("telegram", "chat-1", project.id, project.name)
+
+        mock_transport = MagicMock()
+        mock_transport.name = "telegram"
+        mock_transport.send = AsyncMock()
+        notifier = NotificationDispatcher(store=store, transports={"telegram": mock_transport})
+
+        escalator = _make_question_escalator(store, notifier)
+        event = _make_event(
+            "question.escalated",
+            category=EventCategory.INTERACTION,
+            run_id=run.id,
+            data={"questions": [{"header": "Perms", "question": "Allow write?"}]},
+        )
+        await escalator(event)
+
+        mock_transport.send.assert_called_once()
+        _ctx, response = mock_transport.send.call_args[0]
+        assert "Perms" in response.text
 
 
 class TestWebSocketBroadcasterRunEvents:

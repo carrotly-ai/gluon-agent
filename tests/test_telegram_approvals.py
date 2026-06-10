@@ -308,11 +308,15 @@ def test_build_approval_keyboard_has_both_buttons():
 
 def _make_transport_stub(allowed_users=None, approval_chat_id=None):
     """Build a TelegramTransport without actually starting the bot."""
+    from gluon.bot_core import GluonBotCore
     from gluon.transport.telegram import TelegramTransport
 
     bot_core = MagicMock()
     # This is fine — we never call bot_core.store from the tests below
     bot_core.store = MagicMock()
+    # TelegramTransport.is_authorized delegates the membership check to the
+    # shared bot_core helper, so wire the real implementation onto the mock.
+    bot_core.is_authorized = GluonBotCore.is_authorized.__get__(bot_core, GluonBotCore)
 
     transport = TelegramTransport(
         token="test-token",

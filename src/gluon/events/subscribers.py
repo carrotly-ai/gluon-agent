@@ -3,7 +3,14 @@
 Three subscribers:
 1. websocket_broadcaster — routes events to WebSocket clients via ws_manager
 2. notification_persister — stores notification-worthy events in DB
-3. transport_dispatcher — sends terminal run events to Telegram/Discord
+3. question_escalator — sends unanswered-question alerts to Telegram/Discord
+
+Terminal run-status notifications (REVIEW/COMPLETED/FAILED/CANCELLED) are *not*
+dispatched here: the orchestrator and task runner already deliver those directly
+via ``NotificationDispatcher.notify`` on the shared notifier (see core.py /
+runner.py). The event bus only handles question escalation, which has no direct
+path — the runner publishes ``question.escalated`` over Redis precisely so this
+process (which holds the live transport instances) can fan it out to channels.
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from gluon.models import (
 )
 
 if TYPE_CHECKING:
+    from gluon.notifier import NotificationDispatcher
     from gluon.store import GluonStore
 
 logger = logging.getLogger(__name__)
@@ -186,35 +194,19 @@ def _make_notification_persister(store: GluonStore):
     return notification_persister
 
 
-def _make_transport_dispatcher(store: GluonStore):
-    """Create a transport dispatcher subscriber bound to a store."""
+def _make_question_escalator(store: GluonStore, notifier: NotificationDispatcher | None):
+    """Create a question escalation subscriber that sends to Telegram/Discord.
 
-    async def transport_dispatcher(event: GluonEvent) -> None:
-        """Route terminal run events to Telegram/Discord via NotificationDispatcher."""
-        try:
-            from gluon.notifier import NotificationDispatcher
-
-            run = event.data.get("run")
-            old_status = event.data.get("old_status")
-            if not run:
-                return
-
-            notifier = NotificationDispatcher(store=store)
-            await notifier.notify(run, old_status, run.status)  # type: ignore[arg-type]
-        except Exception:
-            logger.debug("Transport dispatch failed", exc_info=True)
-
-    return transport_dispatcher
-
-
-def _make_question_escalator(store: GluonStore):
-    """Create a question escalation subscriber that sends to Telegram/Discord."""
+    Dispatches over the *shared* notifier so it reuses the live transport
+    instances registered at startup. With no notifier (or no transports
+    registered — e.g. a headless web server), escalation is a graceful no-op.
+    """
 
     async def question_escalator(event: GluonEvent) -> None:
         """Send unanswered question alert to Telegram/Discord channels."""
+        if notifier is None or not notifier.transports:
+            return
         try:
-            from gluon.notifier import NotificationDispatcher
-
             run_id = event.run_id
             if not run_id:
                 return
@@ -236,7 +228,6 @@ def _make_question_escalator(store: GluonStore):
             ]
             text = "\n".join(lines)
 
-            notifier = NotificationDispatcher(store=store)
             mappings = store.list_channel_mappings_for_project(run.project_id)
             for mapping in mappings:
                 transport = notifier.transports.get(mapping.transport)
@@ -259,11 +250,19 @@ def _make_question_escalator(store: GluonStore):
     return question_escalator
 
 
-def register_subscribers(bus: EventBus, store: GluonStore) -> None:
-    """Register all built-in subscribers on the event bus."""
+def register_subscribers(
+    bus: EventBus,
+    store: GluonStore,
+    notifier: NotificationDispatcher | None = None,
+) -> None:
+    """Register all built-in subscribers on the event bus.
+
+    ``notifier`` is the shared :class:`NotificationDispatcher` that holds the
+    live transport instances; it powers question escalation. When omitted (or
+    transport-less), escalation degrades to a no-op.
+    """
     notification_persister = _make_notification_persister(store)
-    transport_dispatcher = _make_transport_dispatcher(store)
-    question_escalator = _make_question_escalator(store)
+    question_escalator = _make_question_escalator(store, notifier)
 
     # Notification persister — only for notification-worthy events
     bus.subscribe(QUESTION_CREATED, notification_persister)
@@ -275,12 +274,7 @@ def register_subscribers(bus: EventBus, store: GluonStore) -> None:
     # WebSocket broadcaster — all events (registered after persister so notification is attached)
     bus.subscribe("*", websocket_broadcaster)
 
-    # Transport dispatcher — terminal run events
-    bus.subscribe(RUN_COMPLETED, transport_dispatcher)
-    bus.subscribe(RUN_FAILED, transport_dispatcher)
-    bus.subscribe(RUN_CANCELLED, transport_dispatcher)
-
     # Question escalation — send to Telegram/Discord at 3 minute mark
     bus.subscribe(QUESTION_ESCALATED, question_escalator)
 
-    logger.info("Registered event bus subscribers: websocket, notification, transport, escalation")
+    logger.info("Registered event bus subscribers: websocket, notification, escalation")

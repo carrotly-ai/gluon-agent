@@ -274,12 +274,19 @@ def _redact_setting(key: str, value: str) -> str:
     return value
 
 
-def create_app(store: GluonStore | None = None) -> FastAPI:
+def create_app(
+    store: GluonStore | None = None,
+    notifier: NotificationDispatcher | None = None,
+) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
         store: Optional GluonStore instance. If not provided, creates a new one.
                Useful for testing with custom store configurations.
+        notifier: Optional shared NotificationDispatcher. Pass the bot's notifier
+               (which holds live transport instances) so web-submitted runs and
+               event-bus question escalation reach Telegram/Discord. When omitted,
+               a transport-less dispatcher is created and channel delivery no-ops.
     """
     app = FastAPI(
         title="Gluon Web Dashboard",
@@ -404,7 +411,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    notifier = NotificationDispatcher(store=store)
+    notifier = notifier or NotificationDispatcher(store=store)
     orchestrator = Orchestrator(store=store, notifier=notifier)
     runner = TaskRunner(store=store, notifier=notifier)
 
@@ -6170,7 +6177,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         from gluon.events.subscribers import register_subscribers
 
         await event_bus.start()
-        register_subscribers(event_bus, store)
+        register_subscribers(event_bus, store, app.state.notifier)
 
         # Start Redis event transport subscriber — receives events from runner subprocesses
         from gluon.events.redis_transport import RedisEventTransport

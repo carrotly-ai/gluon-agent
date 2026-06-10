@@ -1850,7 +1850,9 @@ def serve(
 
             from gluon.web import create_app
 
-            web_app = create_app()
+            # Share the bot's notifier so web-submitted runs and event-bus
+            # question escalation reach the same Telegram/Discord transports.
+            web_app = create_app(notifier=bot_core.notifier)
 
             # Optional HTTPS via SSL certificates
             ssl_certfile = os.environ.get("GLUON_SSL_CERTFILE")
