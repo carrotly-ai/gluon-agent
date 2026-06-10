@@ -79,22 +79,22 @@
 > **PR:** `fix(web-ui): stop zombie WebSocket reconnects; make run_updated non-destructive`
 > Frontend + backend WS correctness. The two reconnect leaks are P1.
 
-- [ ] **[P1] `useWebSocket` reconnects after intentional disconnect (immortal sockets)** — [web-ui/src/hooks/useWebSocket.ts:42](web-ui/src/hooks/useWebSocket.ts#L42)
+- [x] **[P1] `useWebSocket` reconnects after intentional disconnect (immortal sockets)** — [web-ui/src/hooks/useWebSocket.ts:42](web-ui/src/hooks/useWebSocket.ts#L42)
   - **Fix:** Add an intentional-close flag (or null `ws.onclose`) inside `disconnect()` before calling `close()`, and check it in `onclose` before scheduling the 3 s reconnect.
   - **Done when:** unmounting the hook leaves zero reconnecting sockets (verify in devtools Network/WS and via a StrictMode double-mount).
-- [ ] **[P1] `useRunLogStream` zombie reconnect re-subscribes to the OLD run** — [web-ui/src/hooks/useRunLogStream.ts:161](web-ui/src/hooks/useRunLogStream.ts#L161)
+- [x] **[P1] `useRunLogStream` zombie reconnect re-subscribes to the OLD run** — [web-ui/src/hooks/useRunLogStream.ts:161](web-ui/src/hooks/useRunLogStream.ts#L161)
   - **Fix:** Compare the closure's `runId` against `currentRunIdRef.current` before reconnecting; null the socket's handlers in `disconnect()`; only assign `wsRef.current` if this connect attempt is still current.
   - **Done when:** switching run A→B never opens a socket subscribed to A; B's timeline contains only B's messages.
-- [ ] **[P2] `run_updated` WS payload omits ~15 fields; frontend replaces wholesale** — [src/gluon/web/websocket.py:84](src/gluon/web/websocket.py#L84) + [web-ui/src/hooks/useWebSocket.ts:137](web-ui/src/hooks/useWebSocket.ts#L137)
+- [x] **[P2] `run_updated` WS payload omits ~15 fields; frontend replaces wholesale** — [src/gluon/web/websocket.py:84](src/gluon/web/websocket.py#L84) + [web-ui/src/hooks/useWebSocket.ts:137](web-ui/src/hooks/useWebSocket.ts#L137) — _fixed via option (b): frontend now merges `{...r, ...msg.run}` so omitted fields are preserved._
   - **Fix:** Either (a) serialize the full `RunResponse` shape in `broadcast_run_update` (include `ci_status`, `user_id`, `custom_title`, `snoozed_until`, …), or (b) change the frontend handler to **merge** (`{...r, ...msg.run}`) instead of replace. Prefer (a) for a single source of truth — reuse `run_to_response`.
   - **Done when:** a `run_updated` event no longer blanks `custom_title`/snooze/CI badges in the list.
-- [ ] **[P2] Board goes stale after a WS reconnect (missed events never re-synced)** — [web-ui/src/hooks/useWebSocket.ts:32](web-ui/src/hooks/useWebSocket.ts#L32)
+- [x] **[P2] Board goes stale after a WS reconnect (missed events never re-synced)** — [web-ui/src/hooks/useWebSocket.ts:32](web-ui/src/hooks/useWebSocket.ts#L32)
   - **Fix:** In `useRunsWithWebSocket`, call `fetchRunsData()` on every `connected` false→true transition (skip the first open). Surface or remove the unused `error` field.
   - **Done when:** killing and restoring the socket converges the board to server state without a manual refresh.
-- [ ] **[P2] Backend never sends `loop_progress`/`queue_updated`/`merge_updated` the frontend handles** — [src/gluon/web/websocket.py:191](src/gluon/web/websocket.py#L191)
+- [x] **[P2] Backend never sends `loop_progress`/`queue_updated`/`merge_updated` the frontend handles** — [src/gluon/web/websocket.py:191](src/gluon/web/websocket.py#L191)
   - **Fix:** Decide per channel: wire the `broadcast_*` call into the producing path (Ralph loop / queue / merge-queue mutations) **or** delete the dead broadcaster + its frontend handler. Don't leave half-wired.
   - **Done when:** every `broadcast_*` method either has a caller or is removed along with its TS handler.
-- [ ] **[P3] `useRunsWithWebSocket` bypasses the `fetchJson` client** — [web-ui/src/hooks/useWebSocket.ts:219](web-ui/src/hooks/useWebSocket.ts#L219)
+- [x] **[P3] `useRunsWithWebSocket` bypasses the `fetchJson` client** — [web-ui/src/hooks/useWebSocket.ts:219](web-ui/src/hooks/useWebSocket.ts#L219)
   - **Fix:** Replace the raw `fetch` with `fetchRuns({ limit: 100 })` from `lib/api.ts` so auth/credentials, error-detail extraction, and JSON-parse handling stay consistent.
   - **Done when:** no raw `fetch(` remains in the hook.
 

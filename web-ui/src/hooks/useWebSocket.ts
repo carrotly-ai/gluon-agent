@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { fetchRuns } from '@/lib/api'
 import type {
-  CircuitState,
   NotificationCreatedMessage,
   PendingQuestionsMessage,
   QuestionAnsweredMessage,
@@ -20,12 +20,16 @@ export function useWebSocket(onMessage: MessageHandler) {
   const [state, setState] = useState<WebSocketState>({ connected: false, error: null })
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | undefined>(undefined)
+  // Set while we are intentionally tearing down (unmount / re-connect), so the
+  // socket's async `onclose` does not schedule a reconnect that nothing cancels.
+  const intentionalCloseRef = useRef(false)
 
   const connect = useCallback(() => {
     // Determine WebSocket URL based on current location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws`
 
+    intentionalCloseRef.current = false
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -37,6 +41,9 @@ export function useWebSocket(onMessage: MessageHandler) {
     ws.onclose = (event) => {
       setState({ connected: false, error: null })
       console.log('[WS] Disconnected', event.code)
+
+      // Do not reconnect if this close was intentional (disconnect/unmount).
+      if (intentionalCloseRef.current) return
 
       // Auto-reconnect after 3 seconds
       reconnectTimeoutRef.current = window.setTimeout(() => {
@@ -60,10 +67,14 @@ export function useWebSocket(onMessage: MessageHandler) {
   }, [onMessage])
 
   const disconnect = useCallback(() => {
+    intentionalCloseRef.current = true
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = undefined
     }
     if (wsRef.current) {
+      // Drop the handler too, so a late-firing close event can never re-arm.
+      wsRef.current.onclose = null
       wsRef.current.close()
       wsRef.current = null
     }
@@ -134,7 +145,12 @@ export function useRunsWithWebSocket(handlers?: NotificationHandlers) {
       if (runMessage.run.archived) {
         setRuns((prev) => prev.filter((r) => r.id !== runMessage.run.id))
       } else {
-        setRuns((prev) => prev.map((r) => (r.id === runMessage.run.id ? runMessage.run : r)))
+        // Merge rather than replace: the run_updated payload is a subset of the
+        // full run, so a wholesale replace would blank fields it omits
+        // (custom_title, snooze, ci_status, ...) until the next poll.
+        setRuns((prev) =>
+          prev.map((r) => (r.id === runMessage.run.id ? { ...r, ...runMessage.run } : r))
+        )
       }
       // Browser notification for terminal states when tab not focused
       if (
@@ -147,30 +163,6 @@ export function useRunsWithWebSocket(handlers?: NotificationHandlers) {
           runMessage.run.prompt?.substring(0, 60)
         )
       }
-    } else if (message.type === 'loop_progress') {
-      const loopMessage = message as {
-        type: 'loop_progress'
-        run_id: string
-        loop_count: number
-        max_loops: number
-        circuit_state: CircuitState
-        completion_confidence: number
-        cost_usd: number
-      }
-      setRuns((prev) =>
-        prev.map((r) =>
-          r.id === loopMessage.run_id
-            ? {
-                ...r,
-                loop_count: loopMessage.loop_count,
-                max_loops: loopMessage.max_loops,
-                circuit_state: loopMessage.circuit_state,
-                completion_confidence: loopMessage.completion_confidence,
-                cost_usd: loopMessage.cost_usd,
-              }
-            : r
-        )
-      )
     } else if (message.type === 'step_progress') {
       const stepMessage = message as {
         type: 'step_progress'
@@ -213,12 +205,11 @@ export function useRunsWithWebSocket(handlers?: NotificationHandlers) {
 
   const { connected } = useWebSocket(handleMessage)
 
-  // Fetch runs from API
+  // Fetch runs from API (via the shared client so auth/credentials and error
+  // detail extraction stay consistent).
   const fetchRunsData = useCallback(async () => {
     try {
-      const response = await fetch('/api/runs?limit=100')
-      if (!response.ok) throw new Error('Failed to fetch runs')
-      const data = await response.json()
+      const data = await fetchRuns({ limit: 100 })
       setRuns(data)
       setError(null)
     } catch (err) {
@@ -234,6 +225,19 @@ export function useRunsWithWebSocket(handlers?: NotificationHandlers) {
     }
     load()
   }, [fetchRunsData])
+
+  // Re-sync after a WebSocket reconnect: while the socket was down we may have
+  // missed run_created/run_updated events, so converge to server state on each
+  // reconnect. The very first connect is skipped (the initial load covers it).
+  const hasConnectedRef = useRef(false)
+  useEffect(() => {
+    if (!connected) return
+    if (hasConnectedRef.current) {
+      fetchRunsData()
+    } else {
+      hasConnectedRef.current = true
+    }
+  }, [connected, fetchRunsData])
 
   // Manual refresh function for pull-to-refresh
   const refresh = useCallback(async () => {
