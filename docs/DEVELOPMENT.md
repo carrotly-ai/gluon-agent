@@ -1126,13 +1126,12 @@ pip install 'gluon-agent[all]'
 - Redis connection (for job queue)
 - Environment variables:
   - `GLUON_REDIS_URL` - Redis connection URL (default: redis://localhost:6379/0)
-  - `GLUON_UVICORN_HOST` - Server host (default: 0.0.0.0)
-  - `GLUON_UVICORN_PORT` - Server port (default: 8000)
+- Host/port come from CLI flags, not env vars: `gluon web --host <host> --port <port>` (default port 45866).
 
 ### For Webhooks
 - Webhook secret for signature validation
 - Environment variables:
-  - `GLUON_GITHUB_WEBHOOK_SECRET` - GitHub webhook signing key
+  - `GITHUB_WEBHOOK_SECRET` - GitHub webhook signing key (a single secret for all webhooks; per-webhook secrets are stored in the DB via `gluon webhook add --secret`)
 
 ### Storage & Logging
 - `~/.gluon/gluon.db` - SQLite database (auto-initialized)

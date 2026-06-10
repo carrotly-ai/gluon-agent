@@ -92,7 +92,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
     "gluon.git_manager",
-    "gluon.bot",
     "gluon.transport.telegram",
     "gluon.transport.discord",
     "gluon.agent",

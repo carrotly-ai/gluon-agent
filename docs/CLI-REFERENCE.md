@@ -1,6 +1,8 @@
 # CLI Reference
 
-Complete reference for the `gluon` command-line interface.
+Reference for the `gluon` command-line interface. This document covers the main
+command groups but may lag the code — run `gluon --help` (or `gluon <command>
+--help`) for the authoritative, always-current list of commands and options.
 
 ## Project Management
 
@@ -140,10 +142,14 @@ Pre-configured combinations of model, thinking budget, and planning mode:
 
 | Profile | Model | Thinking | Planning | Best For |
 |---------|-------|----------|----------|----------|
-| `quick` | Haiku | None | No | Typos, simple fixes |
-| `standard` | Sonnet | 10K tokens | No | Most coding tasks (default) |
-| `deep` | Opus 4.8 | 32K tokens | No | Complex refactoring |
-| `planning` | Opus 4.8 | 16K tokens | Yes | Multi-step tasks requiring approval |
+| `quick` | Haiku | Adaptive (effort: low) | No | Typos, simple fixes |
+| `standard` | Sonnet | Adaptive (effort: medium) | No | Most coding tasks (default) |
+| `deep` | Opus 4.8 | Adaptive (effort: high) | No | Complex refactoring |
+| `planning` | Opus 4.8 | Adaptive (effort: high) | Yes | Multi-step tasks requiring approval |
+
+> Profiles use an **adaptive** thinking budget (`max_thinking_tokens` unset — the CLI
+> paces itself by effort level), not a fixed token count. Override per-run with
+> `--thinking <none|low|medium|high|ultrathink>`.
 
 ### Examples
 
@@ -618,7 +624,7 @@ gluon stats
 
 ```bash
 gluon --help       # Show help
-gluon --version    # Show version
+gluon version      # Show version
 ```
 
 ## Exit Codes

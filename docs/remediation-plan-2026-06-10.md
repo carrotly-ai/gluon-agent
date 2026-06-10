@@ -316,37 +316,37 @@
 > **PR:** `docs: fix model table, phantom modules, and env-var names`
 > The README model table is P1 (actively misleads users about the default model).
 
-- [ ] **[P1] README Model Selection table: wrong default/latest + removed `opus-4.5` tier** — [README.md:604](README.md#L604)
+- [x] **[P1] README Model Selection table: wrong default/latest + removed `opus-4.5` tier** — [README.md:604](README.md#L604)
   - **Fix:** Default is **opus-4.8** (not Sonnet); "latest" is **4.8** (not 4.6); remove the `--model opus-4.5` row. Align with CLAUDE.md's five-tier table.
   - **Done when:** the table matches `models_config.py` (`DEFAULT_MODEL = OPUS_48`) and the supported tiers.
-- [ ] **[P1] `docs/API.md` documents a `gluon.bot` module / `GluonBot` / `run_bot()` that don't exist** — [docs/API.md:1516](docs/API.md#L1516)
+- [x] **[P1] `docs/API.md` documents a `gluon.bot` module / `GluonBot` / `run_bot()` that don't exist** — [docs/API.md:1516](docs/API.md#L1516)
   - **Fix:** Replace with the real `bot_core.GluonBotCore` API; remove `GluonBot`/`run_bot`. While in this file, refresh the stale REST listing ([docs/API.md:16](docs/API.md#L16)) to include the 0.12 endpoint groups (schedules, tasks, fork/snooze, approvals, formulas, queues).
   - **Done when:** every class/function in that section exists in code and the REST listing matches the actual routes.
-- [ ] **[P1] CLI task-profile budgets & thinking tokens are off by orders of magnitude** — [src/gluon/cli.py:1061](src/gluon/cli.py#L1061)
+- [x] **[P1] CLI task-profile budgets & thinking tokens are off by orders of magnitude** — [src/gluon/cli.py:1061](src/gluon/cli.py#L1061)
   - **Fix:** Correct the per-profile budget / thinking-token numbers in the CLI `--help` text and `docs/CLI-REFERENCE.md` against the actual profile config.
   - **Done when:** documented profile budgets match the values the code applies.
-- [ ] **[P2] A dozen operational `GLUON_*` env vars are read by code but documented nowhere** — [src/gluon/runner.py:68](src/gluon/runner.py#L68)
+- [x] **[P2] A dozen operational `GLUON_*` env vars are read by code but documented nowhere** — [src/gluon/runner.py:68](src/gluon/runner.py#L68)
   - **Fix:** Inventory the env vars read in `runner.py` (around [:68](src/gluon/runner.py#L68) and [:451](src/gluon/runner.py#L451)) and add them to CLAUDE.md / DEVELOPMENT.md under their real names.
   - **Done when:** every `os.environ`/`getenv` key in `runner.py` appears in the docs (and vice-versa — no phantom vars).
-- [ ] **[P3] CLAUDE.md Key Files table + pyproject mypy override reference deleted `src/gluon/bot.py`** — [CLAUDE.md:166](CLAUDE.md#L166)
+- [x] **[P3] CLAUDE.md Key Files table + pyproject mypy override reference deleted `src/gluon/bot.py`** — [CLAUDE.md:166](CLAUDE.md#L166)
   - **Fix:** Remove the `bot.py` row from CLAUDE.md and the `"gluon.bot"` entry from the pyproject mypy overrides (pyproject.toml:95).
   - **Done when:** no reference to `bot.py` remains.
-- [ ] **[P2] README `.[telegram]` install extra doesn't exist** — [README.md:145](README.md#L145)
+- [x] **[P2] README `.[telegram]` install extra doesn't exist** — [README.md:145](README.md#L145)
   - **Fix:** Telegram deps are in the base install; change the command to plain `uv pip install -e .` (or add a `telegram` extra to pyproject if intended).
   - **Done when:** the documented install command works.
-- [ ] **[P2] DEVELOPMENT.md documents env vars the code never reads + wrong port** — [docs/DEVELOPMENT.md:1129](docs/DEVELOPMENT.md#L1129)
+- [x] **[P2] DEVELOPMENT.md documents env vars the code never reads + wrong port** — [docs/DEVELOPMENT.md:1129](docs/DEVELOPMENT.md#L1129)
   - **Fix:** Remove `GLUON_UVICORN_HOST`/`GLUON_UVICORN_PORT`; fix the webhook-secret name to `GITHUB_WEBHOOK_SECRET` (not `GLUON_GITHUB_WEBHOOK_SECRET`); note host/port come from `gluon web --host/--port` (default 45866).
   - **Done when:** every env var in the doc is actually read by the code under that name.
-- [ ] **[P2] CLI-REFERENCE.md omits ~15 command groups and documents nonexistent `gluon --version`** — [docs/CLI-REFERENCE.md:621](docs/CLI-REFERENCE.md#L621)
+- [x] **[P2] CLI-REFERENCE.md omits ~15 command groups and documents nonexistent `gluon --version`** — [docs/CLI-REFERENCE.md:621](docs/CLI-REFERENCE.md#L621)
   - **Fix:** Change `gluon --version` → `gluon version` (subcommand); add the missing command groups (cross-check against `cli.py` `@app.command`).
   - **Done when:** the reference matches the actual command surface.
-- [ ] **[P2] README custom-formula directories don't match `FormulaLoader` search paths** — [README.md:356](README.md#L356) 🔎 verify-first
+- [x] **[P2] README custom-formula directories don't match `FormulaLoader` search paths** — [README.md:356](README.md#L356) 🔎 verify-first
   - **Fix:** Update README to the real loader paths.
   - **Done when:** documented paths match `FormulaLoader`.
-- [ ] **[P2] CHANGELOG missing v0.12.1 + the v0.11.x patch releases** — [CHANGELOG.md:10](CHANGELOG.md#L10) 🔎 verify-first
+- [x] **[P2] CHANGELOG missing v0.12.1 + the v0.11.x patch releases** — [CHANGELOG.md:10](CHANGELOG.md#L10) 🔎 verify-first
   - **Fix:** Backfill the missing released versions; reconcile "Unreleased" against shipped commits/tags.
   - **Done when:** CHANGELOG covers all released tags.
-- [ ] **[P3] docker-compose comment tells users to set `CLAUDE_CODE_USE_BEDROCK` manually** — [docker-compose.yml:60](docker-compose.yml#L60) 🔎 verify-first
+- [x] **[P3] docker-compose comment tells users to set `CLAUDE_CODE_USE_BEDROCK` manually** — [docker-compose.yml:60](docker-compose.yml#L60) 🔎 verify-first
   - **Fix:** Remove/rewrite the comment to point at the provider abstraction (the provider emits the flag).
   - **Done when:** the comment no longer contradicts the provider rule.
 

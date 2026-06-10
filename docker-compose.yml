@@ -57,7 +57,9 @@ services:
       # Claude configuration
       - CLAUDE_API_KEY
       - CLAUDE_LOG_LEVEL=info
-      # Pass through from .env — set to "1" for Bedrock, unset for direct Anthropic
+      # Legacy passthrough only. Do NOT set this by hand to select a provider —
+      # the LLM provider abstraction (GLUON_LLM_PROVIDER / `gluon provider`)
+      # emits CLAUDE_CODE_USE_* for the Claude Code subprocess itself.
       - CLAUDE_CODE_USE_BEDROCK
 
       # Note: These are loaded from .env via env_file directive above:

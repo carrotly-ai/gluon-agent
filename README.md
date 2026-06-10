@@ -141,10 +141,11 @@ cd gluon-agent
 uv venv
 uv pip install -e .
 
-# Or install with bot support
-uv pip install -e '.[telegram]'      # Telegram bot
+# Telegram bot support is included in the base install above.
+# Optional extras:
 uv pip install -e '.[discord]'       # Discord bot
-uv pip install -e '.[all]'           # All features
+uv pip install -e '.[web]'           # Web dashboard
+uv pip install -e '.[all]'           # All optional features
 ```
 
 **Requirements:** Python 3.12+, [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated, [uv](https://github.com/astral-sh/uv) package manager, credentials for your chosen LLM backend (AWS / GCP / Azure / Anthropic API key), Git, GitHub CLI (`gh`) optional.
@@ -353,7 +354,7 @@ gluon formula validate my-formula.yml
 3. The Kanban board shows a single card with a step progress bar (e.g., "Step 2/4 Implement")
 4. Cost accumulates across all steps on the single run
 
-**Custom formulas:** Place `.yml` files in `src/gluon/formulas/` or a project-level `formulas/` directory.
+**Custom formulas:** Place `.yml` files in `~/.gluon/formulas/` (user-level) or `.gluon/formulas/` (project-level). Built-in formulas ship in `src/gluon/formulas/`.
 
 ### Blueprint Validation
 
@@ -601,10 +602,11 @@ graph TB
 
 | Model | Best For | Flag |
 |-------|----------|------|
-| **Haiku** | Quick fixes, simple tasks | `--model haiku` |
-| **Sonnet** | Most coding tasks (default) | `--model sonnet` |
-| **Opus 4.6** | Complex refactoring, architecture (latest) | `--model opus` |
-| **Opus 4.5** | Previous generation Opus | `--model opus-4.5` |
+| **Haiku 4.5** | Quick fixes, simple tasks | `--model haiku` |
+| **Sonnet 4.6** | Most coding tasks | `--model sonnet` |
+| **Opus 4.6** | Complex refactoring | `--model opus-4.6` |
+| **Opus 4.7** | Complex refactoring, architecture | `--model opus-4.7` |
+| **Opus 4.8** | Complex refactoring, architecture (latest, **default**) | `--model opus` |
 
 ```bash
 gluon run myapp 'Fix typo' --model haiku
