@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 from gluon.resume_coordinator import ResumeCoordinator
@@ -153,17 +154,38 @@ def stop_daemon() -> bool:
 
     try:
         os.kill(pid, signal.SIGTERM)
-        # Wait for process to exit
-        for _ in range(50):  # 5 seconds max
+        # Wait for the process to actually exit (poll up to 5s with a plain
+        # blocking sleep — this is sync code, not an event loop).
+        for _ in range(50):
             try:
                 os.kill(pid, 0)
-                asyncio.get_event_loop().run_until_complete(asyncio.sleep(0.1))
             except ProcessLookupError:
-                break
+                remove_pid_file()
+                return True
+            time.sleep(0.1)
+        # Still alive after SIGTERM — escalate to SIGKILL rather than reporting a
+        # stop that never happened (which would leave an untracked daemon running
+        # and allow a second supervisor to start alongside it).
+        logger.warning("Supervisor pid %s ignored SIGTERM; escalating to SIGKILL", pid)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            remove_pid_file()
+            return True
+        time.sleep(0.2)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            remove_pid_file()
+            return True
+        # Could not stop it — keep the PID file so it stays tracked.
+        logger.error("Failed to stop supervisor pid %s", pid)
+        return False
+    except ProcessLookupError:
         remove_pid_file()
         return True
-    except (ProcessLookupError, PermissionError):
-        remove_pid_file()
+    except PermissionError:
+        logger.error("Not permitted to signal supervisor pid %s", pid)
         return False
 
 

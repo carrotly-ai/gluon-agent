@@ -309,3 +309,29 @@ class TestLifecycle:
     async def test_stop_when_not_running(self, coordinator):
         await coordinator.stop()  # Should not raise
         assert coordinator.is_running is False
+
+
+class TestSupervisionClaim:
+    """WS-4: the atomic claim that prevents two supervisors double-resuming a run."""
+
+    def test_claim_is_exclusive(self, store):
+        from datetime import timedelta
+
+        from gluon.models import utc_now
+
+        run = _seed_review_run(store)
+        cutoff = (utc_now() - timedelta(seconds=30)).isoformat()
+        # First supervisor wins the claim; a concurrent second one loses.
+        assert store.try_claim_supervision_resume(run.id, cutoff) is True
+        assert store.try_claim_supervision_resume(run.id, cutoff) is False
+
+    def test_claim_requires_review_status(self, store):
+        from datetime import timedelta
+
+        from gluon.models import utc_now
+
+        run = _seed_review_run(store)
+        run.status = RunStatus.RUNNING
+        store.update_run(run)
+        cutoff = (utc_now() - timedelta(seconds=30)).isoformat()
+        assert store.try_claim_supervision_resume(run.id, cutoff) is False

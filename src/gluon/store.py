@@ -1,6 +1,7 @@
 """SQLite persistence layer for Gluon Agent."""
 
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -77,6 +78,8 @@ from gluon.models import (
 )
 
 DEFAULT_DB_PATH = Path.home() / ".gluon" / "gluon.db"
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -1030,11 +1033,17 @@ class GluonStore:
                 )
 
             # Run migrations for existing tables
-            for migration in MIGRATIONS:
+            for index, migration in enumerate(MIGRATIONS):
                 try:
                     conn.executescript(migration)
-                except sqlite3.OperationalError:
-                    pass  # Column/table already exists
+                except sqlite3.OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate column" in msg or "already exists" in msg:
+                        continue  # idempotent migration already applied
+                    # A real failure (locked DB, disk I/O, SQL bug in a new
+                    # migration) was previously swallowed, silently leaving the
+                    # schema partially migrated. Surface it instead.
+                    logger.warning("Migration %d failed with an unexpected error: %s", index, e)
 
     # ========== Project CRUD ==========
 
@@ -3367,6 +3376,24 @@ class GluonStore:
     def list_active_runs(self) -> list[ExecutionRun]:
         """List all pending or running execution runs."""
         return self.list_runs(statuses=[RunStatus.PENDING, RunStatus.RUNNING])
+
+    def try_claim_supervision_resume(self, run_id: str, cutoff_iso: str) -> bool:
+        """Atomically claim a REVIEW run for auto-resume.
+
+        Returns True only for the single caller that wins the claim. Prevents the
+        web-server supervisor and the standalone supervisor daemon from resuming
+        the same run concurrently: the conditional UPDATE succeeds only if the run
+        is still REVIEW and has not been resumed since ``cutoff_iso``.
+        """
+        now_iso = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "UPDATE execution_runs SET last_supervision_resume_at = ? "
+                "WHERE id = ? AND status = ? "
+                "AND (last_supervision_resume_at IS NULL OR last_supervision_resume_at < ?)",
+                (now_iso, run_id, RunStatus.REVIEW.value, cutoff_iso),
+            )
+            return cur.rowcount == 1
 
     def update_run(self, run: ExecutionRun) -> None:
         """Update an existing execution run."""

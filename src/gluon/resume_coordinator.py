@@ -6,7 +6,7 @@ auto-resume based on configured policies and safety guards.
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from gluon.models import (
@@ -198,6 +198,14 @@ class ResumeCoordinator:
             trigger: What triggered this resume
         """
         now = datetime.now(UTC)
+
+        # Atomically claim the run so a second supervisor (e.g. the standalone
+        # daemon running alongside the web-server supervisor) cannot resume the
+        # same REVIEW run concurrently. Whoever loses the claim returns here.
+        cutoff_iso = (now - timedelta(seconds=30)).isoformat()
+        if not self.store.try_claim_supervision_resume(run.id, cutoff_iso):
+            logger.info(f"Run {run.id[:8]} already claimed for resume by another supervisor; skipping")
+            return
 
         # Build resume prompt with context
         resume_prompt = self._build_resume_prompt(run, trigger)

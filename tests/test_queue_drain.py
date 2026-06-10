@@ -48,24 +48,16 @@ async def test_drain_skips_project_with_active_run(tmp_path):
     project = _make_project(store, tmp_path, "proj-b")
     store.enqueue_work(project_id=project.id, prompt="Queued work")
 
-    # Seed an active run on this project
+    # Seed an active (RUNNING) run on this project — concurrency control reads
+    # active runs from the store, so this is what the drain must observe.
     active_run = store.create_run(project_id=project.id, prompt="Already running")
     active_run.status = RunStatus.RUNNING
     store.update_run(active_run)
 
     runner = TaskRunner(store=store, config=RunnerConfig(log_path=tmp_path / "logs"))
     runner.submit = AsyncMock()  # type: ignore[method-assign]
-    # Simulate the run being tracked as active
-    import asyncio
 
-    async def _noop() -> None:
-        await asyncio.sleep(0)
-
-    runner._active_tasks[active_run.id] = asyncio.create_task(_noop())
-    try:
-        dispatched = await runner._drain_queue_once()
-    finally:
-        runner._active_tasks[active_run.id].cancel()
+    dispatched = await runner._drain_queue_once()
 
     assert dispatched == 0
     runner.submit.assert_not_called()
@@ -87,17 +79,13 @@ async def test_drain_respects_concurrency_cap(tmp_path):
     )
     runner.submit = AsyncMock()  # type: ignore[method-assign]
 
-    import asyncio
+    # Saturate the cap with one active RUNNING run on a different project.
+    other_project = _make_project(store, tmp_path, "proj-c-other")
+    other_run = store.create_run(project_id=other_project.id, prompt="Running elsewhere")
+    other_run.status = RunStatus.RUNNING
+    store.update_run(other_run)
 
-    # Saturate the cap with one fake active task on a different project
-    async def _noop() -> None:
-        await asyncio.sleep(0)
-
-    runner._active_tasks["some-other-run"] = asyncio.create_task(_noop())
-    try:
-        dispatched = await runner._drain_queue_once()
-    finally:
-        runner._active_tasks["some-other-run"].cancel()
+    dispatched = await runner._drain_queue_once()
 
     assert dispatched == 0
     runner.submit.assert_not_called()

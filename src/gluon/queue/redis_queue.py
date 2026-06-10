@@ -298,15 +298,22 @@ class RedisJobQueue:
 
         try:
             async for message in self._pubsub.listen():
-                if message["type"] == "message":
+                if message["type"] != "message":
+                    continue
+                # Parse per message: a single malformed payload must not raise out
+                # of the loop and permanently kill all update delivery.
+                try:
                     data = json.loads(message["data"])
-                    for handler in self._update_handlers:
-                        try:
-                            result = handler(data)
-                            if asyncio.iscoroutine(result):
-                                await result
-                        except Exception as e:
-                            logger.error(f"Error in update handler: {e}")
+                except Exception:
+                    logger.warning("Skipping malformed pub/sub payload", exc_info=True)
+                    continue
+                for handler in self._update_handlers:
+                    try:
+                        result = handler(data)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception as e:
+                        logger.error(f"Error in update handler: {e}")
         except asyncio.CancelledError:
             pass
         except Exception as e:
