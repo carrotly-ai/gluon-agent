@@ -6032,14 +6032,20 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             try:
                 expired_sessions = store.delete_expired_user_sessions()
                 expired_codes = store.delete_expired_link_codes()
-                if expired_sessions or expired_codes:
+                # TTL'd chat-bot tables had cleanup helpers but no scheduler —
+                # without this they grow unbounded. Same cheap cadence.
+                expired_chat = store.cleanup_expired_chat_history()
+                expired_maps = store.cleanup_expired_message_run_maps()
+                if expired_sessions or expired_codes or expired_chat or expired_maps:
                     logger.info(
-                        "Auth sweep: %d expired sessions, %d expired link codes deleted",
+                        "Auth/TTL sweep: %d sessions, %d link codes, %d chat-history, %d message-run maps deleted",
                         expired_sessions,
                         expired_codes,
+                        expired_chat,
+                        expired_maps,
                     )
             except Exception as e:
-                logger.error(f"Error in auth state sweep: {e}")
+                logger.error(f"Error in auth/TTL sweep: {e}")
             await asyncio.sleep(sweep_interval)
 
     @app.on_event("startup")

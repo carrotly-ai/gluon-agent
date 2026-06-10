@@ -3731,17 +3731,6 @@ class GluonStore:
             schedule_id=row["schedule_id"] if "schedule_id" in keys else None,
         )
 
-    def get_run_by_thread_id(self, thread_id: str) -> ExecutionRun | None:
-        """Get the most recent execution run for a thread ID."""
-        with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM execution_runs WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1",
-                (thread_id,),
-            ).fetchone()
-            if row:
-                return self._row_to_run(row)
-        return None
-
     def get_run_with_project(self, run_id: str) -> tuple[ExecutionRun, Project] | None:
         """Get run and its associated project."""
         run = self.get_run(run_id)

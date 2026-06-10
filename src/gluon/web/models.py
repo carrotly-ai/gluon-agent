@@ -415,50 +415,9 @@ class ProviderResponse(BaseModel):
     models: dict[str, str]  # tier name → provider-specific model ID
 
 
-# WebSocket message types
-
-
-class WebSocketMessage(BaseModel):
-    """Base WebSocket message."""
-
-    type: str
-
-
-class RunUpdatedMessage(WebSocketMessage):
-    """WebSocket message for run status update."""
-
-    type: str = "run_updated"
-    run: RunResponse
-
-
-class RunCreatedMessage(WebSocketMessage):
-    """WebSocket message for new run created."""
-
-    type: str = "run_created"
-    run: RunResponse
-
-
-class LogLineMessage(WebSocketMessage):
-    """WebSocket message for log line."""
-
-    type: str = "log_line"
-    run_id: str
-    stream: str
-    line: str
-
-
-class SubscribeLogsRequest(BaseModel):
-    """WebSocket request to subscribe to run logs."""
-
-    type: str = "subscribe_logs"
-    run_id: str
-
-
-class UnsubscribeLogsRequest(BaseModel):
-    """WebSocket request to unsubscribe from run logs."""
-
-    type: str = "unsubscribe_logs"
-    run_id: str
+# NOTE: WebSocket message/request Pydantic models used to live here, but the
+# WebSocket layer (web/websocket.py) builds and parses plain dicts directly, so
+# the models were unused. Removed to avoid a second, drifting source of truth.
 
 
 # Resume API models

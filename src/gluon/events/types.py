@@ -43,7 +43,6 @@ QUESTION_CREATED = "question.created"
 QUESTION_ANSWERED = "question.answered"
 QUESTION_ESCALATED = "question.escalated"
 QUESTION_EXPIRED = "question.expired"
-TODO_UPDATED = "todo.updated"
 
 # Execution events
 PROGRESS_UPDATE = "progress.update"
@@ -54,7 +53,6 @@ LOOP_PROGRESS = "loop.progress"
 STEP_PROGRESS = "step.progress"
 
 # System events
-ACTIVITY_CREATED = "activity.created"
 QUEUE_UPDATED = "queue.updated"
 MERGE_UPDATED = "merge.updated"
 WITNESS_DECISION = "witness.decision"
