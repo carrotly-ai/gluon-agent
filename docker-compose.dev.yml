@@ -111,6 +111,16 @@ services:
       # Gluon configuration (loaded from env_file, only override if needed)
       - GLUON_GIT_ENABLED=true
 
+      # Security posture for the web dashboard.
+      # The container binds 0.0.0.0 (required for Docker port publishing). With
+      # auth disabled, Gluon refuses that bind unless you opt in here. Keep this
+      # ONLY if the published port (see `ports:`) is bound to localhost and you
+      # trust everyone with host access. For a networked/multi-user deployment,
+      # remove GLUON_INSECURE_OK and instead set GLUON_AUTH_ENABLED=true, then
+      # create a user with `gluon user add <name> --role admin`.
+      - GLUON_INSECURE_OK=1
+      # - GLUON_AUTH_ENABLED=true
+
       # Redis (embedded in container for cross-process event bus)
       - GLUON_REDIS_URL=redis://localhost:6379/0
 

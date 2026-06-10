@@ -57,6 +57,9 @@ nothing would be gained by pretending otherwise.
 """
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
 def is_auth_enabled() -> bool:
     """Return True when ``GLUON_AUTH_ENABLED`` is truthy.
 
@@ -64,7 +67,46 @@ def is_auth_enabled() -> bool:
     Every other value — and unset — resolves to False.
     """
     raw = os.environ.get("GLUON_AUTH_ENABLED", "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    return raw in _TRUTHY
+
+
+# Hosts whose bind only exposes the local machine. An empty string is treated as
+# loopback because uvicorn/socket-activation pass "" to mean localhost.
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+
+
+def is_loopback_host(host: str) -> bool:
+    """True when binding ``host`` only exposes the loopback interface."""
+    h = host.strip().lower()
+    if h in _LOOPBACK_HOSTS:
+        return True
+    # Any 127.0.0.0/8 address is loopback.
+    return h.startswith("127.")
+
+
+def insecure_bind_error(host: str) -> str | None:
+    """Guard against silently serving an unauthenticated dashboard to the network.
+
+    Returns an explanatory error message when binding ``host`` would expose a
+    Gluon server with authentication **disabled** to a non-loopback interface,
+    unless the operator has explicitly opted in with ``GLUON_INSECURE_OK=1``.
+    Returns ``None`` when the bind is safe (loopback, or auth enabled, or the
+    override is set) and the caller should proceed.
+    """
+    if is_loopback_host(host):
+        return None
+    if is_auth_enabled():
+        return None
+    if os.environ.get("GLUON_INSECURE_OK", "").strip().lower() in _TRUTHY:
+        return None
+    return (
+        f"Refusing to bind {host!r} with authentication disabled — this would expose an "
+        "unauthenticated Gluon dashboard (full agent control) to the network.\n"
+        "Fix one of:\n"
+        "  • set GLUON_AUTH_ENABLED=true and create a user (gluon user add …), or\n"
+        "  • bind loopback only (--host 127.0.0.1), or\n"
+        "  • if this is intentional (e.g. behind your own auth proxy), set GLUON_INSECURE_OK=1."
+    )
 
 
 # ---------------------------------------------------------------------------
