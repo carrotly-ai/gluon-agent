@@ -131,7 +131,9 @@ function ActionOverflowMenu({
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1">
           <Link
-            to={`/runs/${runId}/${activeTab}`}
+            // The full-screen page (RunDetailPage) doesn't render the 'loop' tab;
+            // fall back to messages so the link never lands on a blank panel.
+            to={`/runs/${runId}/${activeTab === 'loop' ? 'messages' : activeTab}`}
             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body text-[var(--color-stone)] hover:bg-[var(--color-paper)]/5 transition-colors"
             onClick={() => setOpen(false)}
           >
@@ -485,12 +487,7 @@ export function RunDetailDialog({
       .then((data) => setLogs((prev) => ({ ...prev, messages: data.content || '' })))
       .catch(() => setLogs((prev) => ({ ...prev, messages: '' })))
       .finally(() => setLoadingMessages(false))
-  }, [
-    open,
-    run,
-    initialTab, // Cleanup resume image previews
-    resumePendingImages.forEach,
-  ])
+  }, [open, run, initialTab])
 
   // Auto-refresh for active runs
   useEffect(() => {
