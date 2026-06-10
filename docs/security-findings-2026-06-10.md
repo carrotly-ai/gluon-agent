@@ -12,15 +12,15 @@ The codebase has **strong cryptographic and injection hygiene** — parameterize
 
 ## Findings
 
-### P0 — Mutating/destructive API routes have no auth or role enforcement
+### P0 — Mutating/destructive API routes have no auth or role enforcement — **FIXED (Phase 1)**
 **src/gluon/web/api.py** — ~140 of 159 routes. There is no app-wide auth dependency (`create_app`); only ~12 routes attach `Depends(current_user_dep)`/`require_admin`. Even with `GLUON_AUTH_ENABLED=true`, destructive endpoints are reachable with **no session cookie**, and the `viewer`/`operator`/`admin` role model (docs/AUTH.md) is unenforced. Ungated examples: `DELETE /api/projects/{id}`, `POST .../force-push`, `DELETE /api/branches/{name}`, `PUT /api/settings/{key}`, `PUT/DELETE /api/workspaces/{id}/env-vars`, `POST .../clone|merge|create-pr|rebase`, `POST/DELETE /api/webhooks`.
 - **Recommended fix (owner decision):** add an app-wide auth dependency (`FastAPI(dependencies=[Depends(current_user_dep)])` or a router-level dependency), then layer `make_require_role(store, UserRole.OPERATOR)` on mutating routes and `UserRole.ADMIN` on settings/webhook/env-var routes; leave only `/api/auth/*`, the signature-gated GitHub webhook, and health/version anonymous. One wiring change, not 140 edits. **Needs a decision on the exact per-route role matrix.**
 
-### P1 — Unauthenticated `/api/settings` returns all DB-stored secrets in plaintext
+### P1 — Unauthenticated `/api/settings` returns all DB-stored secrets in plaintext — **FIXED (Phase 1)**
 **src/gluon/web/api.py:3316** → `store.get_all_settings()` returns every key/value unredacted with no auth. The GitHub webhook secret can be stored here (`github_webhook_secret`), so anyone reaching the dashboard port can read it (defeating the webhook HMAC) plus any operator-set tokens.
 - **Recommended fix:** gate behind admin auth (per P0) **and** redact secret-looking keys (`*secret*`, `*token*`, `*password*`, `*_key`) to `"********"`. Never round-trip secret values to clients.
 
-### P1 — CORS allows any origin with credentials
+### P1 — CORS allows any origin with credentials — **FIXED (Phase 1)**
 **src/gluon/web/api.py:283** — `allow_origins=["*"]` + `allow_credentials=True`. Any site the operator visits can make credentialed cross-origin requests and read responses; combined with P0 this enables drive-by destructive actions. (Starlette reflects the Origin, so the browser `*`+credentials rejection doesn't save you.)
 - **Recommended fix:** explicit origin allowlist (e.g. `GLUON_ALLOWED_ORIGINS`, default `http://localhost:45866`); set `allow_credentials=False` if not needed cross-origin.
 

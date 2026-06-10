@@ -153,6 +153,8 @@ graph TB
 
 Implemented as `_role_rank` in `gluon.auth`: `admin = 3, operator = 2, viewer = 1`. `require_role(min=operator)` passes admins and operators, blocks viewers.
 
+**Enforcement is app-wide and fail-closed.** A FastAPI middleware (`create_app`) requires a valid session for every request except an explicit anonymous allowlist (login, OIDC, `/api/auth/me`, `/api/version`, the HMAC-gated GitHub webhook, and the SPA) and requires at least `operator` for mutations (self-service routes — own password, link codes, notifications — stay `viewer`). Admin-only routes (settings, webhooks CRUD, workspace env-vars/budget/settings, user management, `vercel/test`) additionally carry `Depends(require_admin)`. A newly-added route is therefore protected by default. The WebSocket endpoint is gated in its handler (middleware doesn't cover the WS scope). When `GLUON_AUTH_ENABLED=false` the whole gate is a no-op (single-user mode). Allowed cross-origin callers are restricted by `GLUON_ALLOWED_ORIGINS` (default the local dashboard).
+
 | Role | API access | UI access |
 |---|---|---|
 | `admin` | All endpoints, including `/api/users/*` | Everything + `/admin/users` |
