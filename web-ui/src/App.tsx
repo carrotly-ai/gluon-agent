@@ -508,6 +508,7 @@ function AuthenticatedApp() {
       try {
         const response = await stopLoop(run.id)
         if (response.success) {
+          toast.success('Loop stopped')
           // Update will come via WebSocket, but we can optimistically update
           setRuns((prev) =>
             prev.map((r) =>
@@ -516,9 +517,12 @@ function AuthenticatedApp() {
                 : r
             )
           )
+        } else {
+          toast.error(response.message || 'Could not stop the loop')
         }
       } catch (err) {
         console.error('Failed to stop loop:', err)
+        toast.error(err instanceof Error ? err.message : 'Failed to stop the loop')
       }
     },
     [setRuns]

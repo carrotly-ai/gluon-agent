@@ -1,5 +1,6 @@
 import { Check, Clock, GitBranch } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ export function QuestionModal({ runId, questions, onAnswer, onClose }: QuestionM
   const [currentIdx, setCurrentIdx] = useState(0)
   const [selected, setSelected] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null)
   const [run, setRun] = useState<Run | null>(null)
 
@@ -83,6 +85,7 @@ export function QuestionModal({ runId, questions, onAnswer, onClose }: QuestionM
     if (!currentQuestion || selected.length === 0) return
 
     setSubmitting(true)
+    setSubmitError(null)
     try {
       await onAnswer(currentQuestion.id, selected)
       // Move to next question or close
@@ -94,7 +97,13 @@ export function QuestionModal({ runId, questions, onAnswer, onClose }: QuestionM
         onClose()
       }
     } catch (err) {
+      // Keep the selection intact so the user can retry before the question
+      // expires, and surface the failure instead of leaving the run blocked
+      // with no feedback.
       console.error('Failed to submit answer:', err)
+      const message = err instanceof Error ? err.message : 'Failed to submit answer'
+      setSubmitError(message)
+      toast.error(message)
     } finally {
       setSubmitting(false)
     }
@@ -235,6 +244,15 @@ export function QuestionModal({ runId, questions, onAnswer, onClose }: QuestionM
             )
           })}
         </div>
+
+        {submitError && (
+          <p
+            className="text-caption text-[var(--color-vermillion)] bg-[var(--color-vermillion)]/10 rounded-md px-3 py-2"
+            role="alert"
+          >
+            {submitError} — your selection was kept; try again.
+          </p>
+        )}
 
         <DialogFooter className="flex items-center justify-between sm:justify-between gap-4">
           {/* Timer warning */}

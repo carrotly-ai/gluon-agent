@@ -1,5 +1,6 @@
 import { Check, ClipboardList, Pencil, Plus, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { addToQueue, cancelQueueItem, fetchWorkQueue, releaseQueueItem } from '@/lib/api'
 import { POLL_NORMAL } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
@@ -133,20 +134,24 @@ export function WorkQueuePage({ projects }: WorkQueuePageProps) {
     if (!draft.projectId || !draft.prompt.trim()) return
     setAdding(true)
     try {
-      if (draft.id) {
-        // Edit flow: we don't have a PATCH endpoint, so we cancel the
-        // existing pending item and create a new one with the updated
-        // fields. This mirrors how the queue treats edits at the
-        // backend level (the worker only consumes pending items).
-        // TODO(backend): add PATCH /work-queue/{id} so edits don't burn
-        // an id and rewrite history.
-        await cancelQueueItem(draft.id)
-      }
+      // Edit flow: we don't have a PATCH endpoint, so an edit creates a new
+      // item and removes the old one. Create FIRST — only cancel the original
+      // after the replacement succeeds, so a failed re-create never destroys
+      // the existing item.
+      // TODO(backend): add PATCH /work-queue/{id} so edits don't burn an id.
       const item = await addToQueue({
         project_id: draft.projectId,
         prompt: draft.prompt.trim(),
         priority: draft.priority,
       })
+      if (draft.id) {
+        try {
+          await cancelQueueItem(draft.id)
+        } catch (cancelErr) {
+          // The replacement exists; failing to remove the old item is not fatal.
+          console.error('Failed to remove the old queue item after edit:', cancelErr)
+        }
+      }
       setItems((prev) => {
         const filtered = draft.id ? prev.filter((i) => i.id !== draft.id) : prev
         return [item, ...filtered]
@@ -154,6 +159,7 @@ export function WorkQueuePage({ projects }: WorkQueuePageProps) {
       setDraft(null)
     } catch (err) {
       console.error('Failed to save queue item:', err)
+      toast.error(err instanceof Error ? err.message : 'Failed to save queue item')
     } finally {
       setAdding(false)
     }
