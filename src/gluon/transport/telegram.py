@@ -184,15 +184,15 @@ class TelegramTransport(Transport):
         )
 
     def is_authorized(self, user_id: str | int) -> bool:
-        """Check if user is authorized."""
-        if self._allowed_users is None:
-            return True
+        """Check if user is authorized.
 
-        # Handle both formats
+        Adapts the transport-specific int id to the universal `telegram:<id>`
+        form, then defers the membership check to the shared bot_core helper so
+        the auth logic isn't duplicated per transport.
+        """
         if isinstance(user_id, int):
             user_id = f"telegram:{user_id}"
-
-        return user_id in self._allowed_users
+        return self.bot_core.is_authorized(user_id, self._allowed_users)
 
     async def send(
         self,

@@ -3175,15 +3175,6 @@ class GluonStore:
             ).fetchall()
             return [self._row_to_session(row) for row in rows]
 
-    def get_session_with_project(self, session_id: str) -> tuple[Session, Project] | None:
-        """Get session and its associated project."""
-        session = self.get_session(session_id)
-        if session:
-            project = self.get_project(session.project_id)
-            if project:
-                return session, project
-        return None
-
     # ========== Execution Run CRUD ==========
 
     def create_run(
@@ -4415,15 +4406,6 @@ class GluonStore:
                 (project_id,),
             ).fetchall()
             return [self._row_to_channel_mapping(row) for row in rows]
-
-    def delete_channel_mapping(self, transport: str, channel_id: str) -> bool:
-        """Delete a channel mapping."""
-        with self._get_conn() as conn:
-            cursor = conn.execute(
-                "DELETE FROM channel_mappings WHERE transport = ? AND channel_id = ?",
-                (transport, channel_id),
-            )
-            return cursor.rowcount > 0
 
     def _row_to_channel_mapping(self, row: sqlite3.Row) -> ChannelMapping:
         """Convert database row to ChannelMapping model."""
