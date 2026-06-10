@@ -25,7 +25,7 @@ from gluon.core import (
     WorkspaceNotFoundError,
 )
 from gluon.models import expand_path
-from gluon.models_config import ModelTier, get_model_id
+from gluon.models_config import DEFAULT_MODEL, MODEL_ALIASES, ModelTier, get_model_id
 from gluon.runner import TaskRunner, format_duration
 
 SYSTEM_PROMPT = """You are Gluon, an AI orchestrator that manages multiple Claude Code agents \
@@ -90,6 +90,24 @@ When users ask you to do something, use the available tools to help them. Be con
 - WebSearch, WebFetch - Search web and fetch URLs
 
 Always confirm what action you're taking before executing it."""
+
+
+# Models the chat tools accept, for error messages.
+_ACCEPTED_MODELS = "opus, sonnet, haiku, opus-4.8, opus-4.7, opus-4.6"
+
+
+def _resolve_model_tier(model: str) -> ModelTier | None:
+    """Resolve a user-supplied model name (alias like "opus" or a tier name) to a
+    ModelTier, or None if it is not recognized. ``ModelTier("opus")`` raises, so
+    aliases must be consulted first."""
+    model_lower = model.lower()
+    tier = MODEL_ALIASES.get(model_lower)
+    if tier is not None:
+        return tier
+    try:
+        return ModelTier(model_lower)
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -208,19 +226,21 @@ class GluonChatAgent:
             except ProjectNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
-            # Validate model
-            try:
-                ModelTier(model.lower())
-            except ValueError:
+            # Validate + normalize model (accepts aliases like "opus")
+            tier = _resolve_model_tier(model)
+            if tier is None:
                 return {
                     "content": [
                         {
                             "type": "text",
-                            "text": f"Error: Invalid model '{model}'. Use opus/sonnet/haiku. Defaulting to sonnet.",
+                            "text": (
+                                f"Error: unknown model '{model}' — the task was not started. "
+                                f"Accepted models: {_ACCEPTED_MODELS}."
+                            ),
                         }
                     ]
                 }
-                model = "sonnet"
+            model = tier.value
 
             # Store the pending task - actual execution happens in the bot
             self._pending_task = {
@@ -266,11 +286,10 @@ class GluonChatAgent:
             except ProjectNotFoundError as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
-            # Validate model
-            try:
-                ModelTier(model.lower())
-            except ValueError:
-                model = "sonnet"
+            # Validate + normalize model (accepts aliases); fall back to default
+            # rather than silently downgrading an unrecognized name to sonnet.
+            tier = _resolve_model_tier(model)
+            model = (tier or DEFAULT_MODEL).value
 
             # Store the pending task
             self._pending_task = {

@@ -151,28 +151,28 @@
 
 > **PR:** `fix: make error messages actionable and consistent across CLI/bot/API`
 
-- [ ] **[P1] Chat-agent invalid-model error contradicts itself & never starts the task** — [src/gluon/chat_agent.py:219](src/gluon/chat_agent.py#L219)
+- [x] **[P1] Chat-agent invalid-model error contradicts itself & never starts the task** — [src/gluon/chat_agent.py:219](src/gluon/chat_agent.py#L219)
   - **Fix:** Resolve input through `MODEL_ALIASES` before `ModelTier()`; then either actually default to sonnet (remove the early `return`) or change the message to say the task was **not** started and list the exact accepted tiers.
   - **Done when:** passing `opus` works (alias-resolved); the message and behavior agree (no "Defaulting to sonnet" while aborting).
-- [ ] **[P2] Raw exception text leaked in HTTP 500 detail** — [src/gluon/web/api.py:4187](src/gluon/web/api.py#L4187)
+- [x] **[P2] Raw exception text leaked in HTTP 500 detail** — [src/gluon/web/api.py:4187](src/gluon/web/api.py#L4187)
   - **Fix:** Log full exception server-side; return a stable generic detail with identifiers ("Failed to refresh git status for project '<name>'; check server logs"), not internals. Follow the `upload_image` pattern.
   - **Done when:** no handler returns `str(e)`/tracebacks in the response body.
-- [ ] **[P2] Capacity refusal shows remaining permits, not the configured max** — [src/gluon/transport/telegram.py:690](src/gluon/transport/telegram.py#L690)
+- [x] **[P2] Capacity refusal shows remaining permits, not the configured max** — [src/gluon/transport/telegram.py:690](src/gluon/transport/telegram.py#L690)
   - **Fix:** Store `max_concurrent` on `GluonBotCore`; compare active count against it; interpolate "N/MAX runs active" at all five call sites.
   - **Done when:** the message reads e.g. "12/16 runs active", not the leftover-permit count.
-- [ ] **[P2] Cancel endpoint collapses four failure causes into a bare 500** — [src/gluon/web/api.py:693](src/gluon/web/api.py#L693)
+- [x] **[P2] Cancel endpoint collapses four failure causes into a bare 500** — [src/gluon/web/api.py:693](src/gluon/web/api.py#L693)
   - **Fix:** Distinguish not-found (404), not-cancellable/wrong-state (409), and internal error (500 with generic detail + logged cause).
   - **Done when:** each cause maps to a distinct status + message.
-- [ ] **[P3] create-pr/merge endpoints mix three error shapes** — [src/gluon/web/api.py:3610](src/gluon/web/api.py#L3610)
+- [x] **[P3] create-pr/merge endpoints mix three error shapes** — [src/gluon/web/api.py:3610](src/gluon/web/api.py#L3610)
   - **Fix:** Standardize on `HTTPException` with structured detail (use 409 + conflict payload for merge conflicts); reserve 200 for success.
   - **Done when:** all error paths flow through the `ApiError` shape the frontend expects.
-- [ ] **[P2] Chat-agent errors sent to bot users as bare `Error: <raw exception>`** — [src/gluon/bot_core.py:504](src/gluon/bot_core.py#L504) 🔎 verify-first
+- [x] **[P2] Chat-agent errors sent to bot users as bare `Error: <raw exception>`** — [src/gluon/bot_core.py:504](src/gluon/bot_core.py#L504) 🔎 verify-first
   - **Fix:** Wrap with a friendly message + run id; log the raw exception server-side.
   - **Done when:** bot users see an actionable message, not a raw exception string.
-- [ ] **[P3] `Failed to remove project` with no reason** — [src/gluon/cli.py:183](src/gluon/cli.py#L183) 🔎 verify-first
+- [x] **[P3] `Failed to remove project` with no reason** — [src/gluon/cli.py:183](src/gluon/cli.py#L183) 🔎 verify-first
   - **Fix:** Surface why `remove` returned False (not found / has active runs / …).
   - **Done when:** the CLI states the reason.
-- [ ] **[P3] Recovery task created without keeping a reference (GC risk)** — [src/gluon/web/api.py:1038](src/gluon/web/api.py#L1038)
+- [x] **[P3] Recovery task created without keeping a reference (GC risk)** — [src/gluon/web/api.py:1038](src/gluon/web/api.py#L1038)
   - **Fix:** Store the task in a module-level set with `task.add_done_callback(set.discard)`, matching the polling-task pattern.
   - **Done when:** `_run_recovery` can't be garbage-collected mid-execution.
 
