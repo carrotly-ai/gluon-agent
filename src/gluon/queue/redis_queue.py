@@ -1,4 +1,11 @@
-"""Redis-based job queue for distributed task execution."""
+"""Redis-based job queue for distributed task execution.
+
+NOTE (remediation WS-7): ``RedisJobQueue`` has no importers anywhere in the app
+or tests — the distributed worker/job subsystem is not currently wired into the
+runtime (single-process execution goes through ``runner.TaskRunner``). Kept as
+the foundation for a future distributed mode rather than deleted; if distributed
+execution is not on the roadmap this module (and the package) can be removed.
+"""
 
 from __future__ import annotations
 

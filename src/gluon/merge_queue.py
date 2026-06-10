@@ -2,6 +2,15 @@
 
 Processes merges one at a time: test merge (dry-run), then apply merge.
 Handles conflicts with exponential backoff retries.
+
+NOTE (remediation WS-7): ``MergeQueueService`` is currently exercised only by
+``tests/test_merge_queue.py`` — nothing in the running app instantiates it or
+calls ``process_next``. The ``/api/merge-queue`` endpoints and the web-ui page
+operate on the ``merge_queue`` store rows directly; this processor layer is not
+yet wired into the runtime. Kept (not deleted) because it is the intended
+processor for an automated merge queue; wiring it (instantiate + a processor
+loop driven on merge-queue mutations) is tracked as follow-up work. Do not
+assume the merge queue auto-processes entries until that wiring lands.
 """
 
 import logging

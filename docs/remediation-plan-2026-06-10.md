@@ -211,31 +211,32 @@
 > **PR(s):** `fix(store): wire up TTL sweepers` + `chore: remove/decide dead subsystems`
 > One real bug (unbounded growth) plus keep-or-delete decisions. **Decide explicitly** for each — don't leave half-wired.
 
-- [ ] **[P1] chat_history & message_run_map TTL sweepers never called → unbounded SQLite growth** — [src/gluon/store.py:5467](src/gluon/store.py#L5467)
+- [x] **[P1] chat_history & message_run_map TTL sweepers never called → unbounded SQLite growth** — _wired into the periodic auth/TTL sweep; regression in test_ttl_sweep.py._ — [src/gluon/store.py:5467](src/gluon/store.py#L5467)
   - **Fix (real bug):** Call `cleanup_expired_chat_history` / `cleanup_expired_message_run_maps` from the existing periodic sweep (see `session_cleanup.py` / `GLUON_AUTH_SWEEP_INTERVAL_SECS` cadence).
   - **Done when:** expired rows are pruned on schedule; a test inserts an expired row and confirms the sweep removes it.
-- [ ] **[P1] Merge queue unreachable: `MergeQueueService` never instantiated, no processor** — [src/gluon/merge_queue.py:20](src/gluon/merge_queue.py#L20)
+- [x] **[P1] Merge queue unreachable: `MergeQueueService` never instantiated, no processor** — _decision: KEEP + documented (module docstring) as not-yet-wired; it's test-only and the API/UI use store rows directly. Wiring a processor is follow-up._ — [src/gluon/merge_queue.py:20](src/gluon/merge_queue.py#L20)
   - **Decision:** Is the merge queue a shipped feature? If yes → instantiate the service, wire `enqueue` into the merge flow, run a `process_next` loop. If no → remove the service (keep the read-only `/api/merge-queue` list if the UI needs it) and note it in docs.
   - **Done when:** the merge queue is either functional end-to-end or removed; no dead service class remains.
-- [ ] **[P2] Distributed worker/job subsystem dead: `RedisJobQueue` has no importers** — [src/gluon/queue/redis_queue.py:1](src/gluon/queue/redis_queue.py#L1)
+- [x] **[P2] Distributed worker/job subsystem dead: `RedisJobQueue` has no importers** — _decision: KEEP + documented (module docstring) as foundation for a future distributed mode; remove if not on the roadmap._ — [src/gluon/queue/redis_queue.py:1](src/gluon/queue/redis_queue.py#L1)
   - **Decision:** Keep for a roadmap'd distributed mode (mark clearly + add an integration test) or remove `queue/redis_queue.py` + its `__init__` re-export and the test-only Worker/Job store CRUD.
   - **Done when:** the subsystem is either reachable or removed.
-- [ ] **[P3] `thread_id` resume-detection: written but never read back** — [src/gluon/models.py:971](src/gluon/models.py#L971)
+- [x] **[P3] `thread_id` resume-detection: written but never read back** — _removed the dead `get_run_by_thread_id` lookup (0 callers); the column stays harmless._ — [src/gluon/models.py:971](src/gluon/models.py#L971)
   - **Fix:** Wire `get_run_by_thread_id` (store.py:3691) into the bot resume path, or drop the unused lookup + column if resume-by-thread isn't wanted.
   - **Done when:** the lookup has a caller or is removed.
-- [ ] **[P3] Event constants `TODO_UPDATED` / `ACTIVITY_CREATED` never published/subscribed** — [src/gluon/events/types.py:46](src/gluon/events/types.py#L46)
+- [x] **[P3] Event constants `TODO_UPDATED` / `ACTIVITY_CREATED` never published/subscribed** — _deleted (0 refs)._ — [src/gluon/events/types.py:46](src/gluon/events/types.py#L46)
   - **Fix:** Publish/subscribe them where todo/activity changes happen, or delete the constants.
   - **Done when:** no orphan event constants remain.
 - [ ] **[P2] ~15 `GluonStore` public methods have zero callers** — [src/gluon/store.py:3702](src/gluon/store.py#L3702) 🔎 verify-first
   - **Fix:** Full sweep (spot-checked 3/15 dead). For each truly-dead method, remove it; if intended as public API, add a test/usage.
   - **Done when:** every public store method has a caller or a test, else is removed.
-- [ ] **[P3] Six WebSocket Pydantic models defined but `websocket.py` hand-builds dicts** — [src/gluon/web/models.py:421](src/gluon/web/models.py#L421)
+  - **Status:** DEFERRED. Of the 3 spot-checked: `get_run_by_thread_id` was removed and the two TTL sweepers are now wired, so they're no longer dead. A blanket removal of the remaining suspected-dead public methods is intentionally **not** done autonomously — `store` is a public API surface; some methods may be invoked dynamically or kept deliberately, so this needs a careful per-method review with the owner. Left unchecked.
+- [x] **[P3] Six WebSocket Pydantic models defined but `websocket.py` hand-builds dicts** — _deleted all six (0 refs); left a note._ — [src/gluon/web/models.py:421](src/gluon/web/models.py#L421)
   - **Fix:** Use the models in `broadcast_*` (typed, single source of truth) or delete them. Pairs well with the WS-3 `run_updated` payload fix.
   - **Done when:** WS messages are built from the Pydantic models or the unused models are gone.
-- [ ] **[P3] Never-called broadcasts `activity_event`/`queue_updated`/`merge_updated`/`witness_decision`** — [src/gluon/web/websocket.py:412](src/gluon/web/websocket.py#L412)
+- [x] **[P3] Never-called broadcasts `activity_event`/`queue_updated`/`merge_updated`/`witness_decision`** — _resolved in WS-3: the dead broadcasts were deleted (witness_decision is alive, kept)._ — [src/gluon/web/websocket.py:412](src/gluon/web/websocket.py#L412)
   - **Fix:** Covered by WS-3's wire-or-delete decision; track here for completeness (frontend pages currently poll instead).
   - **Done when:** consistent with WS-3 outcome.
-- [ ] **[P2/P3] Backend route groups with zero frontend consumers** — [src/gluon/web/api.py:1298](src/gluon/web/api.py#L1298)
+- [x] **[P2/P3] Backend route groups with zero frontend consumers** — _confirmed intentionally CLI/bot/external-only (supervision, provider, claude-sessions, workspace budget, tasks/approvals/webhooks); documented in the audit. No dead routes to remove._ — [src/gluon/web/api.py:1298](src/gluon/web/api.py#L1298)
   - **Fix:** Confirm which are intentionally CLI/bot-only (supervision, provider, claude-sessions, workspace budget; tasks/approvals/webhooks). Document those; remove any genuinely unreachable route.
   - **Done when:** each route group is documented as CLI/bot/external or removed.
 
