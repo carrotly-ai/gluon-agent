@@ -263,6 +263,17 @@ async def _workspace_env(store: GluonStore, workspace_id: str | None):
                     os.environ[k] = v
 
 
+_SECRET_KEY_MARKERS = ("secret", "token", "password", "passwd", "api_key")
+
+
+def _redact_setting(key: str, value: str) -> str:
+    """Mask secret-looking setting values so they are never returned to clients."""
+    low = key.lower()
+    if value and (any(m in low for m in _SECRET_KEY_MARKERS) or low.endswith("_key")):
+        return "********"
+    return value
+
+
 def create_app(store: GluonStore | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -279,14 +290,85 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
     )
 
-    # Add CORS middleware to handle localhost/IP differences
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    # Shared store — created early because the auth middleware below closes over it.
+    if store is None:
+        store = GluonStore()
+
+    # ---- Middleware (added innermost-first; CORS ends up outermost) ----
+    #
+    # The auth gate is FAIL-CLOSED: with GLUON_AUTH_ENABLED=true, any request
+    # outside the explicit anonymous allowlist must carry a valid session, and
+    # mutations require at least the operator role. A newly-added route is
+    # therefore protected by default. When auth is disabled the gate is a no-op,
+    # so single-user mode is unchanged. RBAC granularity above "operator on
+    # mutations" (e.g. admin-only settings/webhooks/env-vars) is layered on with
+    # per-route `Depends(require_admin)`.
+    import re as _re
+
+    from fastapi.responses import JSONResponse
+
+    from gluon.auth import (
+        SESSION_COOKIE_NAME,
+        _current_user_impl,
+        _role_rank,
+        is_auth_enabled,
     )
+    from gluon.models import UserRole as _UserRole
+
+    # Reachable without authentication. Everything outside /api/ is the SPA
+    # (static assets + client-side routes) and is also anonymous.
+    _anon_api_paths = {
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/me",  # identity/status probe — returns SYSTEM_USER when unauthenticated
+        "/api/auth/providers",
+        "/api/auth/oidc/login",
+        "/api/auth/oidc/callback",
+        "/api/version",
+        "/api/webhooks/github",  # authenticated by HMAC signature, not session
+    }
+    # Mutations any authenticated user may perform on their own account / UI state.
+    _viewer_mutation_patterns = [
+        _re.compile(r"^/api/auth/"),  # link own chat account / unlink
+        _re.compile(r"^/api/users/[^/]+/password$"),  # change own password
+        _re.compile(r"^/api/notifications(/|$)"),  # own notification state
+    ]
+    _mutating_methods = {"POST", "PUT", "DELETE", "PATCH"}
+
+    def _is_anonymous_path(path: str) -> bool:
+        if not path.startswith("/api/"):
+            return True
+        return path in _anon_api_paths
+
+    def _required_role(method: str, path: str) -> _UserRole:
+        if any(p.match(path) for p in _viewer_mutation_patterns):
+            return _UserRole.VIEWER
+        if method in _mutating_methods:
+            return _UserRole.OPERATOR
+        return _UserRole.VIEWER
+
+    @app.middleware("http")
+    async def _auth_gate(request, call_next):
+        # CORS preflight is handled by the outer CORS middleware; single-user
+        # mode skips auth entirely.
+        if request.method == "OPTIONS" or not is_auth_enabled():
+            return await call_next(request)
+        path = request.url.path
+        if _is_anonymous_path(path):
+            return await call_next(request)
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        try:
+            user = _current_user_impl(store, session)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        required = _required_role(request.method, path)
+        if _role_rank(user.role) < _role_rank(required):
+            return JSONResponse(
+                {"detail": f"role '{required.value}' required (you are '{user.role.value}')"},
+                status_code=403,
+            )
+        request.state.current_user = user
+        return await call_next(request)
 
     # Starlette SessionMiddleware — needed by Authlib's OIDC client to carry
     # state + nonce between the redirect and callback. Mounted unconditionally
@@ -302,16 +384,26 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=_oidc_session_secret,
-        # Short max_age — this cookie only carries OAuth state during the
-        # 10-second hop to the IdP and back. Login session uses its own cookie.
         max_age=600,
         same_site="lax",
         https_only=False,  # auto-elevated to true on https requests by Starlette
     )
 
-    # Shared instances
-    if store is None:
-        store = GluonStore()
+    # CORS — added last so it is the OUTERMOST middleware, ensuring even the auth
+    # gate's 401/403 responses carry CORS headers (so the browser can read them).
+    # Origins are an explicit allowlist (default the local dashboard); credentials
+    # stay enabled so a separately-hosted front-end origin can send the cookie.
+    _allowed_origins = [
+        o.strip() for o in os.environ.get("GLUON_ALLOWED_ORIGINS", "http://localhost:45866").split(",") if o.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     notifier = NotificationDispatcher(store=store)
     orchestrator = Orchestrator(store=store, notifier=notifier)
     runner = TaskRunner(store=store, notifier=notifier)
@@ -1846,14 +1938,12 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
     from gluon.auth import (
         DEFAULT_SESSION_TTL_DAYS,
-        SESSION_COOKIE_NAME,
         InvalidCredentialsError,
         UserDisabledError,
         create_session_for_user,
         get_auth_provider,
         get_local_provider,
         get_oidc_provider,
-        is_auth_enabled,
     )
 
     def _user_to_response(u: UserModel) -> UserResponse:
@@ -2969,7 +3059,9 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             monthly_spend_usd=store.get_workspace_monthly_spend(workspace.id),
         )
 
-    @app.put("/api/workspaces/{workspace_id}/budget", response_model=WorkspaceResponse)
+    @app.put(
+        "/api/workspaces/{workspace_id}/budget", response_model=WorkspaceResponse, dependencies=[Depends(require_admin)]
+    )
     async def update_workspace_budget(workspace_id: str, body: UpdateWorkspaceBudgetRequest) -> WorkspaceResponse:
         """Set or clear workspace rolling budgets (Theme D2).
 
@@ -3019,7 +3111,11 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
     # ========== Workspace Settings Endpoints ==========
 
-    @app.get("/api/workspaces/{workspace_id}/settings", response_model=WorkspaceSettingsResponse)
+    @app.get(
+        "/api/workspaces/{workspace_id}/settings",
+        response_model=WorkspaceSettingsResponse,
+        dependencies=[Depends(require_admin)],
+    )
     async def get_workspace_settings(workspace_id: str) -> WorkspaceSettingsResponse:
         """Get workspace settings with global defaults for comparison."""
         workspace = store.get_workspace(workspace_id)
@@ -3039,7 +3135,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             global_defaults=global_defaults,
         )
 
-    @app.put("/api/workspaces/{workspace_id}/settings")
+    @app.put("/api/workspaces/{workspace_id}/settings", dependencies=[Depends(require_admin)])
     async def update_workspace_settings(workspace_id: str, body: dict[str, str]) -> dict:
         """Set one or more workspace setting overrides."""
         workspace = store.get_workspace(workspace_id)
@@ -3053,7 +3149,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         return {"updated": len(body), "workspace_id": workspace.id}
 
-    @app.delete("/api/workspaces/{workspace_id}/settings/{key}")
+    @app.delete("/api/workspaces/{workspace_id}/settings/{key}", dependencies=[Depends(require_admin)])
     async def delete_workspace_setting(workspace_id: str, key: str) -> dict:
         """Remove a single setting override (reverts to global)."""
         workspace = store.get_workspace(workspace_id)
@@ -3063,7 +3159,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         deleted = store.delete_workspace_setting(workspace.id, key)
         return {"deleted": deleted, "key": key, "workspace_id": workspace.id}
 
-    @app.put("/api/workspaces/{workspace_id}/env-vars")
+    @app.put("/api/workspaces/{workspace_id}/env-vars", dependencies=[Depends(require_admin)])
     async def update_workspace_env_vars(workspace_id: str, body: dict[str, str]) -> dict:
         """Set workspace environment variables (auto-prefixed with env.)."""
         workspace = store.get_workspace(workspace_id)
@@ -3075,7 +3171,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
         return {"updated": len(body), "workspace_id": workspace.id}
 
-    @app.delete("/api/workspaces/{workspace_id}/env-vars/{key}")
+    @app.delete("/api/workspaces/{workspace_id}/env-vars/{key}", dependencies=[Depends(require_admin)])
     async def delete_workspace_env_var(workspace_id: str, key: str) -> dict:
         """Remove a workspace environment variable."""
         workspace = store.get_workspace(workspace_id)
@@ -3313,12 +3409,15 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
 
     # ========== Phase 9: Settings API ==========
 
-    @app.get("/api/settings")
+    @app.get("/api/settings", dependencies=[Depends(require_admin)])
     async def get_all_settings() -> dict[str, str]:
         """Get all settings as key-value pairs."""
         from gluon.llm_provider import get_provider
 
         settings = store.get_all_settings()
+        # Never round-trip secret values to the client (even for admins) — show
+        # only that a value is set. Covers e.g. github_webhook_secret, *_token.
+        settings = {k: _redact_setting(k, v) for k, v in settings.items()}
         # Expose whether VERCEL_TOKEN is available from environment (without leaking the value)
         settings["_vercel_token_from_env"] = "true" if os.environ.get("VERCEL_TOKEN") else "false"
 
@@ -3328,7 +3427,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         settings["_llm_provider_supports_cost_tracking"] = str(provider.supports_cost_tracking).lower()
         return settings
 
-    @app.put("/api/settings/{key}")
+    @app.put("/api/settings/{key}", dependencies=[Depends(require_admin)])
     async def update_setting(key: str, body: dict) -> dict[str, str]:
         """Update a single setting value."""
         value = body.get("value")
@@ -3337,7 +3436,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
         store.set_setting(key, str(value))
         return {"key": key, "value": str(value)}
 
-    @app.post("/api/vercel/test")
+    @app.post("/api/vercel/test", dependencies=[Depends(require_admin)])
     async def test_vercel_token(body: dict) -> dict:
         """Test a Vercel API token by calling `vercel whoami`."""
         token = (body.get("token") or "").strip() or os.environ.get("VERCEL_TOKEN", "")
@@ -3521,7 +3620,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             "prompt": prompt[:200] + "..." if len(prompt) > 200 else prompt,
         }
 
-    @app.get("/api/webhooks")
+    @app.get("/api/webhooks", dependencies=[Depends(require_admin)])
     async def list_webhooks() -> list[dict]:
         """List all configured webhooks."""
         configs = store.list_webhook_configs(enabled_only=False)
@@ -3537,7 +3636,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             for c in configs
         ]
 
-    @app.post("/api/webhooks")
+    @app.post("/api/webhooks", dependencies=[Depends(require_admin)])
     async def create_webhook(body: dict) -> dict:
         """Create a new webhook configuration."""
         import secrets
@@ -3573,7 +3672,7 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             "message": "Webhook created. Configure this secret in GitHub webhook settings.",
         }
 
-    @app.delete("/api/webhooks/{webhook_id}")
+    @app.delete("/api/webhooks/{webhook_id}", dependencies=[Depends(require_admin)])
     async def delete_webhook(webhook_id: str) -> dict:
         """Delete a webhook configuration."""
         config = store.get_webhook_config(webhook_id)
@@ -5651,6 +5750,16 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
     @app.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         """WebSocket endpoint for real-time updates."""
+        # The HTTP auth middleware does not cover the WebSocket scope, so gate
+        # the handshake here. No-op in single-user mode.
+        if is_auth_enabled():
+            from gluon.auth import resolve_session
+
+            session = websocket.cookies.get(SESSION_COOKIE_NAME)
+            if not session or resolve_session(store, session) is None:
+                await websocket.close(code=1008)  # policy violation
+                return
+
         await ws_manager.connect(websocket)
 
         try:

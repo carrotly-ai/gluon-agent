@@ -275,7 +275,8 @@ from gluon.core import ProjectNotFoundError, ProjectExistsError, WorkspaceNotFou
 - Both must be set to enable HTTPS; if unset, serves HTTP
 
 **Multi-user auth (D5 — optional, default off):**
-- `GLUON_AUTH_ENABLED` - Set to `true` to require login. When unset/false, Gluon runs in single-user mode and the SYSTEM_USER placeholder is used for all actions. **Single feature flag for both local and OIDC.**
+- `GLUON_AUTH_ENABLED` - Set to `true` to require login. When unset/false, Gluon runs in single-user mode and the SYSTEM_USER placeholder is used for all actions. **Single feature flag for both local and OIDC.** When enabled, an app-wide fail-closed middleware enforces authentication + RBAC on every API route (see `docs/AUTH.md`).
+- `GLUON_ALLOWED_ORIGINS` - Comma-separated CORS origin allowlist for the web dashboard (default `http://localhost:45866`). Only these origins may make credentialed cross-origin requests.
 - `GLUON_AUTH_SWEEP_INTERVAL_SECS` - How often to sweep expired sessions and unconsumed link codes. Default `3600` (1 hour).
 - `GLUON_LOCAL_AUTH_ENABLED` - Default `true`. Set `false` to disable the password endpoint entirely (OIDC-only mode). The CLI still works, so first-admin bootstrap remains available.
 

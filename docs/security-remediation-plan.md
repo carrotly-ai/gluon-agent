@@ -35,19 +35,19 @@ Derived from `docs/AUTH.md` (viewer = read-only · operator = everything except 
 > **PR:** `fix(security): enforce auth/RBAC on all API routes; stop secret leakage; lock down CORS`
 > Nothing ships publicly until this phase is merged.
 
-- [ ] **[P0] App-wide fail-closed authentication middleware** — `src/gluon/web/api.py` (`create_app`)
+- [x] **[P0] App-wide fail-closed authentication middleware** — `src/gluon/web/api.py` (`create_app`)
   - **Do:** add an HTTP middleware that, when `is_auth_enabled()`, resolves the session cookie → user and 401s if absent/invalid, *unless* `request.url.path` matches the anonymous allowlist (compiled prefix/regex set). Short-circuit (pass-through) when auth is disabled. Attach the resolved user to `request.state` so route deps can reuse it.
   - **Done when:** with `GLUON_AUTH_ENABLED=true`, every non-allowlisted route returns 401 without a session cookie; the allowlist routes still work anonymously; with auth disabled, all routes behave exactly as today (SYSTEM_USER).
-- [ ] **[P0] Role dependencies on mutating + admin routes** — `src/gluon/web/api.py`
+- [x] **[P0] Role dependencies on mutating + admin routes** — `src/gluon/web/api.py`
   - **Do:** add `require_operator = make_require_role(store, UserRole.OPERATOR)` and reuse `require_admin`; attach `Depends(require_operator)`/`Depends(require_admin)` per the role matrix above to every POST/PUT/DELETE/PATCH route (and admin GETs like `/api/settings`, `/api/users`).
   - **Done when:** a `viewer` gets 403 on a representative mutating route (e.g. `DELETE /api/projects/{id}`) and on every admin route; an `operator` gets 403 on admin routes but 200 on operational ones.
-- [ ] **[P0] Regression tests for the gate** — `tests/test_api_authz.py` (new)
+- [x] **[P0] Regression tests for the gate** — `tests/test_api_authz.py` (new)
   - **Do:** parametrized tests asserting (a) anonymous → 401 on a sample of each tier's routes; (b) viewer → 403 on operator+admin routes; (c) operator → 403 on admin routes, 200 on operator routes; (d) admin → 200; (e) `GLUON_AUTH_ENABLED=false` → all routes reachable as SYSTEM_USER (single-user mode intact). Include the worst offenders: delete-project, force-push, settings PUT, env-vars, webhooks.
   - **Done when:** the suite fails on the current code and passes after Phase 1.
-- [ ] **[P1] `GET /api/settings` — gate + redact secrets** — `src/gluon/web/api.py:3316`
+- [x] **[P1] `GET /api/settings` — gate + redact secrets** — `src/gluon/web/api.py:3316`
   - **Do:** add `Depends(require_admin)`; redact secret-looking keys (`*secret*`, `*token*`, `*password*`, `*_key`, `*_secret`) to `"********"` (or a `has_value: bool`) before returning. Never round-trip secret values. Apply the same redaction to any other settings/env-var read path.
   - **Done when:** the endpoint requires admin and never returns a real secret value; a test asserts `github_webhook_secret` comes back redacted.
-- [ ] **[P1] Lock down CORS** — `src/gluon/web/api.py:283`
+- [x] **[P1] Lock down CORS** — `src/gluon/web/api.py:283`
   - **Do:** replace `allow_origins=["*"]` with an explicit allowlist from `GLUON_ALLOWED_ORIGINS` (comma-separated; default `http://localhost:45866`). **Keep `allow_credentials=True`** (decision locked) so a separately-hosted front-end origin can still send the session cookie — but it now only works for allowlisted origins.
   - **Done when:** a request with an unlisted `Origin` is not granted `Access-Control-Allow-Origin`; the dashboard origin still works with credentials.
 
