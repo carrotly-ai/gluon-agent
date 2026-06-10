@@ -13,6 +13,12 @@ Base URL: `http://localhost:45866/api`
 
 WebSocket: `ws://localhost:45866/api/ws` (real-time run updates, log streaming)
 
+> The tables below cover the core endpoints but are not exhaustive — newer 0.12
+> route groups (schedules, tasks, fork/snooze, approvals, formulas, queues,
+> SDK/Claude sessions) may not all be listed. The **authoritative, always-current**
+> reference is the auto-generated OpenAPI spec at `/api/docs` (Swagger) and
+> `/api/openapi.json`.
+
 ### Runs
 
 | Method | Path | Description |
@@ -1510,155 +1516,6 @@ The chat agent exposes 40+ MCP tools for comprehensive Gluon operations:
 | `get_usage_by_project` | Get usage broken down by project | None |
 | `get_setting` | Get a configuration setting | `key` |
 | `set_setting` | Set a configuration setting | `key`, `value` |
-
----
-
-## Bot (`gluon.bot`)
-
-### GluonBot
-
-```python
-class GluonBot:
-    def __init__(
-        self,
-        token: str,
-        allowed_users: list[int] | None = None,
-    ):
-        """
-        Initialize Telegram bot.
-
-        Args:
-            token: Telegram bot token
-            allowed_users: List of allowed user IDs (None = all allowed)
-        """
-
-    def build_application(self) -> Application:
-        """Build Telegram application with handlers."""
-
-    async def run_polling(self) -> None:
-        """Run bot with polling."""
-```
-
-### run_bot
-
-```python
-def run_bot(
-    token: str | None = None,
-    allowed_users: list[int] | None = None,
-) -> None:
-    """
-    Run the Gluon Telegram bot.
-
-    Args:
-        token: Bot token (or GLUON_TELEGRAM_TOKEN env var)
-        allowed_users: User IDs (or GLUON_TELEGRAM_USERS env var)
-    """
-```
-
----
-
-## Transport Layer (`gluon.transport`)
-
-### TransportContext
-
-```python
-@dataclass
-class TransportContext:
-    transport: str              # 'telegram', 'discord', etc.
-    user_id: str                # Universal ID: '{transport}:{id}'
-    chat_id: str                # Channel/conversation ID
-    thread_id: str | None       # Thread ID if in thread
-    project_hint: str | None    # Project name from context
-    message_id: str | None      # Triggering message ID
-    raw_data: dict              # Platform-specific metadata
-
-    @property
-    def platform_user_id(self) -> str:
-        """Extract platform-specific user ID."""
-```
-
-### TransportResponse
-
-```python
-@dataclass
-class TransportResponse:
-    text: str                   # Message text
-    thread_id: str | None       # Thread to send into
-    reply_to_id: str | None     # Message to reply to
-    parse_mode: str = "markdown" # 'plain', 'markdown', 'html'
-    editable: bool = False      # May be edited later
-```
-
-### TransportCapabilities
-
-```python
-@dataclass
-class TransportCapabilities:
-    max_message_length: int     # Max chars per message
-    supports_threads: bool      # Can create threads
-    supports_editing: bool      # Can edit sent messages
-    supports_typing: bool       # Can show typing indicator
-    supports_formatting: bool   # Supports markdown/rich text
-```
-
-### Transport (ABC)
-
-```python
-class Transport(ABC):
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Return transport name."""
-
-    @property
-    @abstractmethod
-    def capabilities(self) -> TransportCapabilities:
-        """Return transport capabilities."""
-
-    @abstractmethod
-    async def send(
-        self,
-        ctx: TransportContext,
-        response: TransportResponse,
-    ) -> str:
-        """Send a message and return its ID."""
-
-    @abstractmethod
-    async def edit(
-        self,
-        ctx: TransportContext,
-        message_id: str,
-        response: TransportResponse,
-    ) -> bool:
-        """Edit an existing message. Returns success."""
-
-    @abstractmethod
-    async def send_typing(self, ctx: TransportContext) -> None:
-        """Show typing indicator."""
-
-    async def create_thread(
-        self,
-        ctx: TransportContext,
-        name: str,
-        message_id: str | None = None,
-    ) -> str | None:
-        """Create a thread (optional, returns None if unsupported)."""
-        return None
-
-    @abstractmethod
-    async def start(self) -> None:
-        """Start the transport."""
-
-    @abstractmethod
-    async def stop(self) -> None:
-        """Stop the transport gracefully."""
-
-    def is_authorized(self, user_id: str | int) -> bool:
-        """Check if user is authorized (default: allow all)."""
-
-    def truncate_text(self, text: str) -> str:
-        """Truncate text to max message length."""
-```
 
 ---
 

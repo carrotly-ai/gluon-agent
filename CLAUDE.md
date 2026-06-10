@@ -163,7 +163,6 @@ CLI (cli.py) ──────────────────────�
 | `src/gluon/runner.py` | Background task execution with subprocess management |
 | `src/gluon/chat_agent.py` | Natural language interface using Claude + MCP tools |
 | `src/gluon/cli.py` | Typer CLI commands |
-| `src/gluon/bot.py` | Telegram bot interface (legacy, see bot_core.py) |
 | `src/gluon/bot_core.py` | Transport-agnostic bot business logic |
 | `src/gluon/transport/base.py` | Transport ABC and dataclasses |
 | `src/gluon/transport/telegram.py` | TelegramTransport implementation |
@@ -300,6 +299,17 @@ uv run gluon user add alice --role admin
 uv run gluon user add alice --auth-provider oidc --email alice@org.example --role admin
 ```
 Other user-management commands: `gluon user list / show / disable / enable / set-role / set-password`. Web dashboard's admin user-management screen requires logging in as an existing admin.
+
+**Operational tuning (optional):** these are read by the code but are not required for normal use.
+- `GLUON_DEFAULT_RUN_MAX_COST_USD` — default per-run cost cap in USD (unset = no default cap).
+- `GLUON_QUESTION_TIMEOUT` — seconds before an unanswered AskUserQuestion times out and pauses the run (default `300`).
+- `GLUON_QUESTION_ESCALATE_AT` — seconds before an unanswered question is escalated (default `180`).
+- `GLUON_QUEUE_DRAIN_INTERVAL_SECS` — work-queue drain cadence (default `60`).
+- `GLUON_TASK_SCHEDULES_POLL_SECS` — task-schedule poll cadence (default `30`); `GLUON_SCHEDULES_DISABLED=1` turns the scheduler off.
+- `GLUON_HEARTBEAT_ENABLED` / `GLUON_HEARTBEAT_POLL_SECS` — enable the health heartbeat and its cadence (default `60`).
+- `GLUON_WITNESS_ENABLED` — enable the witness/decision subsystem.
+- `GLUON_TELEGRAM_APPROVAL_CHAT` / `GLUON_DISCORD_APPROVAL_CHANNEL` — route approval prompts to a specific chat/channel.
+- `GLUON_DEV_PORT` — dev-server port passed into the agent subprocess for app-launch tasks.
 
 Data stored at `~/.gluon/gluon.db`
 

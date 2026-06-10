@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes yet._
 
+## [0.12.1]
+
+- Upgrade `claude-agent-sdk` to 0.2.82 (#111).
+- Fix cache-hit-rate calculation and add a project quick-add button (#112).
+- Ignore temporary worktrees in git.
+
+> Note: the `v0.11.1`–`v0.11.11` patch releases were tagged in git but not
+> individually written up here; see `git log v0.11.0..v0.11.11` for their
+> contents (mostly web-ui and runner fixes).
+
 ## [0.12.0] - 2026-05-15
 
 Headline: **Two big new features for managing agents at scale.** A Slack-style **list-view cockpit** that turns the run list into a real attention-management surface (smart groups, search, snooze, fork, custom titles, keyboard nav) for users running 20+ concurrent agents, plus user-defined **Scheduled Tasks** with a friendly recurrence editor (day checkboxes + time picker + IANA timezone) and per-schedule concurrency policy. Spawned schedule runs flow back into the cockpit list view automatically.
