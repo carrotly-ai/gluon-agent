@@ -1995,16 +1995,15 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             ip=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )
-        # Cookie settings: httpOnly + sameSite=lax. `secure` is left off because
-        # the dev dashboard runs on http://localhost; operators deploying with
-        # the `GLUON_SSL_*` envs should reverse-proxy and flip `secure` via
-        # the proxy (we don't have enough context here to know).
+        # httpOnly + sameSite=lax; Secure is set when served over HTTPS (mirrors
+        # the OIDC callback) so the session cookie can't travel in cleartext.
         response.set_cookie(
             key=SESSION_COOKIE_NAME,
             value=session.id,
             max_age=DEFAULT_SESSION_TTL_DAYS * 24 * 3600,
             httponly=True,
             samesite="lax",
+            secure=request.url.scheme == "https",
             path="/",
         )
         return LoginResponse(user=_user_to_response(user))
@@ -3444,12 +3443,15 @@ def create_app(store: GluonStore | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="No token provided and VERCEL_TOKEN not set")
 
         try:
+            # Pass the token via env, not argv, so it doesn't leak through
+            # /proc/<pid>/cmdline or `ps`.
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["vercel", "whoami", f"--token={token}"],
+                ["vercel", "whoami"],
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env={**os.environ, "VERCEL_TOKEN": token},
             )
             if result.returncode == 0:
                 return {"valid": True, "account": result.stdout.strip()}
