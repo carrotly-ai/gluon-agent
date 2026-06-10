@@ -118,6 +118,33 @@ class TestStopReason:
 
 
 # ===========================================================================
+# Test 1a-bis: error-type ResultMessage must not report success (WS-1)
+# ===========================================================================
+
+
+class TestResultMessageError:
+    @pytest.mark.asyncio
+    async def test_error_result_message_marks_failure(self):
+        """An is_error=True ResultMessage must yield AgentResult(success=False)."""
+        msg = _make_result_message()
+        msg.is_error = True
+        msg.result = "error_during_execution"
+        items = await _collect_from_execute([msg])
+
+        agent_results = [i for i in items if isinstance(i, AgentResult)]
+        assert len(agent_results) == 1
+        assert agent_results[0].success is False
+        assert agent_results[0].error == "error_during_execution"
+
+    @pytest.mark.asyncio
+    async def test_successful_result_message_stays_success(self):
+        items = await _collect_from_execute([_make_result_message()])
+        agent_results = [i for i in items if isinstance(i, AgentResult)]
+        assert agent_results[0].success is True
+        assert agent_results[0].error is None
+
+
+# ===========================================================================
 # Test 1b: typed task messages
 # ===========================================================================
 
