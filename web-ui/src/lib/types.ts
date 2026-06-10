@@ -590,15 +590,11 @@ export type WebSocketMessageType =
   | 'agent_message'
   | 'progress'
   | 'token_update'
-  | 'loop_progress'
   | 'step_progress'
   | 'pending_questions'
   | 'question_answered'
   | 'questions_expired'
   | 'todos_updated'
-  | 'activity_event'
-  | 'queue_updated'
-  | 'merge_updated'
   | 'witness_decision'
   | 'notification_created'
   | 'subscribed'
@@ -677,19 +673,6 @@ export interface TokenUpdateMessage extends WebSocketMessage {
   model?: string | null
 }
 
-/** Loop progress update for ralph-enabled runs */
-export interface LoopProgressMessage extends WebSocketMessage {
-  type: 'loop_progress'
-  run_id: string
-  loop_count: number
-  max_loops: number
-  circuit_state: CircuitState
-  completion_confidence: number
-  files_changed: number
-  has_errors: boolean
-  cost_usd: number
-}
-
 export interface SubscribedMessage extends WebSocketMessage {
   type: 'subscribed'
   run_id: string
@@ -717,7 +700,6 @@ export type WSMessage =
   | AgentMessageWSMessage
   | ProgressMessage
   | TokenUpdateMessage
-  | LoopProgressMessage
   | PendingQuestionsMessage
   | QuestionAnsweredMessage
   | NotificationCreatedMessage

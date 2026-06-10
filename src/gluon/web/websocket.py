@@ -188,42 +188,6 @@ class WebSocketManager:
         }
         await self.broadcast(message)
 
-    async def broadcast_loop_progress(
-        self,
-        run_id: str,
-        loop_count: int,
-        max_loops: int,
-        circuit_state: str,
-        completion_confidence: float,
-        cost_usd: float,
-        files_changed: int = 0,
-        has_errors: bool = False,
-    ) -> None:
-        """Broadcast ralph loop progress to all clients.
-
-        Args:
-            run_id: The run ID
-            loop_count: Current iteration number
-            max_loops: Maximum iterations allowed
-            circuit_state: Current circuit breaker state (CLOSED/HALF_OPEN/OPEN)
-            completion_confidence: Confidence that task is complete (0-100)
-            cost_usd: Total cost so far
-            files_changed: Number of files changed in this iteration
-            has_errors: Whether this iteration had errors
-        """
-        message = {
-            "type": "loop_progress",
-            "run_id": run_id,
-            "loop_count": loop_count,
-            "max_loops": max_loops,
-            "circuit_state": circuit_state,
-            "completion_confidence": completion_confidence,
-            "cost_usd": cost_usd,
-            "files_changed": files_changed,
-            "has_errors": has_errors,
-        }
-        await self.broadcast(message)
-
     async def _send_to_subscribers(self, run_id: str, message: dict[str, Any]) -> None:
         """Send a message to all clients subscribed to a specific run."""
         async with self._lock:
@@ -408,61 +372,6 @@ class WebSocketManager:
         }
         await self.broadcast(message)
         await self._send_to_subscribers(run_id, message)
-
-    async def broadcast_activity_event(
-        self,
-        event_id: str,
-        actor: str,
-        action: str,
-        result: str | None = None,
-        message: str | None = None,
-    ) -> None:
-        """Broadcast a new activity event to all clients."""
-        msg = {
-            "type": "activity_event",
-            "event": {
-                "id": event_id,
-                "actor": actor,
-                "action": action,
-                "result": result,
-                "message": message,
-            },
-        }
-        await self.broadcast(msg)
-
-    async def broadcast_queue_updated(
-        self,
-        item_id: str,
-        status: str,
-        project_id: str,
-    ) -> None:
-        """Broadcast a work queue item status change."""
-        msg = {
-            "type": "queue_updated",
-            "item": {
-                "id": item_id,
-                "status": status,
-                "project_id": project_id,
-            },
-        }
-        await self.broadcast(msg)
-
-    async def broadcast_merge_updated(
-        self,
-        entry_id: str,
-        status: str,
-        branch_name: str,
-    ) -> None:
-        """Broadcast a merge queue entry status change."""
-        msg = {
-            "type": "merge_updated",
-            "entry": {
-                "id": entry_id,
-                "status": status,
-                "branch_name": branch_name,
-            },
-        }
-        await self.broadcast(msg)
 
     async def broadcast_witness_decision(
         self,

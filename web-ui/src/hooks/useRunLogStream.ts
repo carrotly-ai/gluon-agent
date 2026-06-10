@@ -64,6 +64,9 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | undefined>(undefined)
   const currentRunIdRef = useRef<string | null>(null)
+  // Set while we intentionally tear down (run switch / unmount), so a late
+  // `onclose` does not reconnect a socket subscribed to the previous run.
+  const intentionalCloseRef = useRef(false)
 
   // Clear messages when run changes
   useEffect(() => {
@@ -143,6 +146,7 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws`
 
+    intentionalCloseRef.current = false
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -157,8 +161,11 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
       setState({ connected: false, subscribed: false })
       console.log('[RunLogStream] Disconnected', event.code)
 
-      // Auto-reconnect if we still have a run to watch
-      if (currentRunIdRef.current) {
+      // Don't reconnect on an intentional close, and only reconnect if this
+      // socket's run is still the one we're watching (guards against a stale
+      // close re-subscribing to a previous run after a run switch).
+      if (intentionalCloseRef.current) return
+      if (currentRunIdRef.current && currentRunIdRef.current === runId) {
         reconnectTimeoutRef.current = window.setTimeout(() => {
           console.log('[RunLogStream] Reconnecting...')
           connect()
@@ -174,6 +181,7 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
   }, [runId, handleMessage])
 
   const disconnect = useCallback(() => {
+    intentionalCloseRef.current = true
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = undefined
@@ -185,6 +193,8 @@ export function useRunLogStream(runId: string | null, options: UseRunLogStreamOp
           JSON.stringify({ type: 'unsubscribe_logs', run_id: currentRunIdRef.current })
         )
       }
+      // Drop the handler so a late-firing close event can never re-arm.
+      wsRef.current.onclose = null
       wsRef.current.close()
       wsRef.current = null
     }
