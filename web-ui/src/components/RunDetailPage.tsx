@@ -28,6 +28,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { parseMessages } from '@/lib/agentMessage'
 import {
   cancelRun,
   createPrForRun,
@@ -49,6 +50,7 @@ import {
   resumeRun,
   uploadAndAttachImage,
 } from '@/lib/api'
+import { formatDuration, formatTokens } from '@/lib/format'
 import { formatDateWithContext, formatRelativeTime } from '@/lib/timestamps'
 import type {
   CommitDetail,
@@ -75,50 +77,6 @@ type TabType = 'output' | 'errors' | 'messages' | 'history' | 'commits' | 'files
 interface ResumePendingImage {
   file: File
   preview: string
-}
-
-function formatDuration(seconds: number | null): string {
-  if (seconds === null) return '-'
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
-  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
-}
-
-function formatTokens(tokens: number | null): string {
-  if (tokens === null || tokens === undefined) return '-'
-  if (tokens < 1000) return `${tokens}`
-  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}k`
-  return `${(tokens / 1000000).toFixed(2)}M`
-}
-
-interface AgentMessage {
-  timestamp: string
-  type: 'text' | 'tool_use' | 'system' | 'error' | 'result' | 'user'
-  content: string
-  metadata?: {
-    tool?: string
-    tool_id?: string
-    input?: unknown
-    session_id?: string
-    cost?: number
-    tokens_in?: number
-    tokens_out?: number
-  }
-}
-
-function parseMessages(messagesContent: string): AgentMessage[] {
-  if (!messagesContent) return []
-  const lines = messagesContent.trim().split('\n')
-  const messages: AgentMessage[] = []
-  for (const line of lines) {
-    if (!line.trim()) continue
-    try {
-      messages.push(JSON.parse(line))
-    } catch {
-      // Skip invalid JSON lines
-    }
-  }
-  return messages
 }
 
 interface RunDetailPageProps {
