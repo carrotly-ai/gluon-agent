@@ -10,6 +10,16 @@ if TYPE_CHECKING:
     from gluon.transport.capabilities import TransportCapabilities
 
 
+def truncate_preview(text: str, limit: int = 300) -> str:
+    """Trim text to ``limit`` chars with an ellipsis, for compact transport
+    previews (approval cards, embed fields). Distinct from
+    ``Transport.truncate_text``, which enforces the full per-message length cap.
+    """
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
 @dataclass
 class TransportContext:
     """Unified context for any transport.

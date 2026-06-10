@@ -11,6 +11,7 @@ import {
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { cancelMerge, fetchMergeQueue, retryMerge } from '@/lib/api'
+import { POLL_SLOW } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { MergeQueueEntry, MergeQueueStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -58,7 +59,7 @@ export function MergeQueuePage() {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 15000)
+    const interval = setInterval(load, POLL_SLOW)
     return () => clearInterval(interval)
   }, [load])
 

@@ -15,6 +15,7 @@
 
 import { Wrench } from 'lucide-react'
 import { useMemo } from 'react'
+import { parseUtcTimestamp } from '@/lib/timestamps'
 
 interface ToolBreakdownProps {
   /** Raw messages.jsonl content (one JSON object per line). */
@@ -79,13 +80,11 @@ function parseToolStats(messages: string): { stats: ToolStat[]; total: number } 
 }
 
 function formatRelativeTime(ts: string | null): string {
-  if (!ts) return ''
-  try {
-    const date = new Date(ts)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return ''
-  }
+  // Use the shared UTC-aware parser so timestamps aren't shifted by the local
+  // timezone (the bug this duplication caused); keep seconds for the breakdown.
+  const date = parseUtcTimestamp(ts)
+  if (!date) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 /**
