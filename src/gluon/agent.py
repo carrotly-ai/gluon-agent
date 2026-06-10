@@ -528,8 +528,14 @@ class GluonAgent:
                     return PermissionResultDeny(
                         message="Question timed out after 5 minutes waiting for user input. The run will be paused.",
                     )
-                except Exception as e:
-                    logger.error(f"Question handler failed: {e}")
+                except Exception:
+                    # Falling through to "allow" here would let the tool proceed
+                    # with no answers, as if the user had been consulted. Deny so
+                    # the run pauses instead of silently continuing.
+                    logger.error("Question handler failed; denying tool use", exc_info=True)
+                    return PermissionResultDeny(
+                        message="Failed to collect an answer for the question. The run will be paused.",
+                    )
 
         # For all other tools (or if no handler), allow immediately
         return PermissionResultAllow(behavior="allow", updated_input=input_data)

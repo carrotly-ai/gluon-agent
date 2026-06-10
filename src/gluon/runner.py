@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -268,7 +269,13 @@ async def _duration_watchdog(
     try:
         await runner.cancel(run_id)
     except Exception:
-        logger.debug("Duration watchdog cancel raised", exc_info=True)
+        # A failed enforcement of a hard safety cap must be visible to operators —
+        # the run keeps spending past its limit otherwise.
+        logger.error(
+            "Duration watchdog failed to cancel run %s after its hard cap fired",
+            run_id[:8],
+            exc_info=True,
+        )
 
 
 # ========== Run Health Assessment ==========
@@ -283,6 +290,26 @@ class RunHealth(StrEnum):
     UNKNOWN = "unknown"  # Not running
 
 
+def reap_if_dead(pid: int) -> int | None:
+    """Reap a zombie child and return its exit code, or None if still running.
+
+    Detached workers are spawned via ``subprocess.Popen`` and never waited on, so
+    a dead worker lingers as a ``<defunct>`` zombie that ``os.kill(pid, 0)`` still
+    reports as alive — defeating crash detection. This reaps such a child (only if
+    it is ours) so liveness checks see the truth. Returns None and never raises if
+    the pid is not our child or is still running.
+    """
+    try:
+        reaped_pid, status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        return None  # not our child, or already reaped elsewhere
+    except OSError:
+        return None
+    if reaped_pid == 0:
+        return None  # still running
+    return os.waitstatus_to_exitcode(status)
+
+
 def assess_run_health(run: ExecutionRun, log_path: Path) -> RunHealth:
     """Assess the health of a running execution based on process and output liveness."""
     if run.status != RunStatus.RUNNING:
@@ -290,6 +317,10 @@ def assess_run_health(run: ExecutionRun, log_path: Path) -> RunHealth:
 
     # Check PID liveness
     if run.pid:
+        # Reap first: a zombie worker would otherwise pass the os.kill(pid, 0)
+        # liveness probe below and never be detected as crashed.
+        if reap_if_dead(run.pid) is not None:
+            return RunHealth.STALLED
         try:
             os.kill(run.pid, 0)
         except ProcessLookupError:
@@ -342,7 +373,6 @@ class TaskRunner:
         self.git_manager = GitManager(self.store)
         self.image_service = ImageStorageService(self.store)
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
-        self._active_tasks: dict[str, asyncio.Task] = {}
 
         # Per-run follow-up queues (process-local, used by multi-turn execute loop)
         self._active_queues: dict[str, asyncio.Queue[str]] = {}
@@ -985,21 +1015,31 @@ class TaskRunner:
         dev_port = str(run_meta.get("dev_port") or random.randint(3100, 3999))
         env["GLUON_DEV_PORT"] = dev_port
 
-        # Spawn detached process
-        # On Unix, use start_new_session to detach from terminal
-        # Redirect stdout/stderr to /dev/null since we capture logs ourselves
-        with open(os.devnull, "w") as devnull:
+        # Spawn detached process (Unix: start_new_session detaches from terminal).
+        # stdout/stderr go to a worker bootstrap log so startup crashes (import
+        # errors, DB-open failures, exceptions escaping _run_task's handler) are
+        # captured instead of vanishing into /dev/null; task output itself is
+        # still captured separately via messages.jsonl.
+        log_dir = self._get_log_dir(run.id)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        worker_log = open(log_dir / "worker.log", "a")
+        devnull_in = open(os.devnull)
+        try:
             proc = subprocess.Popen(
                 cmd,
-                stdout=devnull,
-                stderr=devnull,
-                stdin=devnull,
+                stdout=worker_log,
+                stderr=worker_log,
+                stdin=devnull_in,
                 start_new_session=True,
                 env=env,
             )
             # Store PID in run record
-            run.mark_running(pid=proc.pid, log_path=self._get_log_dir(run.id))
+            run.mark_running(pid=proc.pid, log_path=log_dir)
             self.store.update_run(run)
+        finally:
+            # The child has dup'd the fds; the parent's handles can be closed.
+            worker_log.close()
+            devnull_in.close()
 
     async def _execute_run(self, run: ExecutionRun) -> None:
         """Execute a run with semaphore control."""
@@ -1794,7 +1834,13 @@ but explicit commits with good messages are preferred.
             run.mark_cancelled()
             raise
         except Exception as e:
+            # Preserve the traceback: background workers send stderr to a log file
+            # but the structured cause must reach the logs and the run record too.
+            logger.exception("Run %s failed with an unexpected error", run.id)
+            tb_tail = traceback.format_exc()[-2000:]
             run.mark_failed(str(e), exit_code=1)
+            run.error_message = f"{run.error_message or str(e)}\n\n{tb_tail}"
+            self.store.update_run(run)
         finally:
             # Cancel the hard-cap duration watchdog if the run finished before
             # the cap fired. Safe to call even if already cancelled.
@@ -1841,7 +1887,15 @@ but explicit commits with good messages are preferred.
                             run.error_message or "Unknown error",
                         )
                 except Exception:
-                    logger.debug("Chain reactive dispatch failed", exc_info=True)
+                    # If dispatch of the next step fails, the chain stays RUNNING
+                    # with nothing scheduled — surface it loudly (ERROR, visible at
+                    # the default level) instead of swallowing it at DEBUG.
+                    logger.error(
+                        "Chain reactive dispatch failed for chain %s step %s; chain may stall",
+                        run.chain_id,
+                        run.step_id,
+                        exc_info=True,
+                    )
 
             # Log task completion/failure activity event
             try:
@@ -1909,9 +1963,6 @@ but explicit commits with good messages are preferred.
                 except Exception:
                     logger.debug("Work queue dispatch failed", exc_info=True)
 
-            # Clean up active task tracking
-            if run.id in self._active_tasks:
-                del self._active_tasks[run.id]
             # Ensure queue is removed even on unexpected exit
             self._active_queues.pop(run.id, None)
 
@@ -2019,27 +2070,54 @@ but explicit commits with good messages are preferred.
         if not run.is_active:
             return False
 
-        # Cancel asyncio task if we have it
-        if run_id in self._active_tasks:
-            self._active_tasks[run_id].cancel()
-            try:
-                await self._active_tasks[run_id]
-            except asyncio.CancelledError:
-                pass
-            return True
-
         # Try to kill by PID if running in another process
         if run.pid and run.status == RunStatus.RUNNING:
             try:
-                os.kill(run.pid, signal.SIGTERM)
+                await self._terminate_process_tree(run.pid)
                 run.mark_cancelled()
                 self.store.update_run(run)
                 return True
-            except (ProcessLookupError, PermissionError):
-                # Process already gone or can't kill
-                pass
+            except ProcessLookupError:
+                # Process already gone — reconcile the stale RUNNING row rather
+                # than leaving it RUNNING until the health monitor notices.
+                run.mark_cancelled()
+                self.store.update_run(run)
+                return True
+            except PermissionError:
+                logger.error("Not permitted to cancel run %s (pid %s)", run_id[:8], run.pid)
+                return False
 
         return False
+
+    async def _terminate_process_tree(self, pid: int, escalation_secs: float = 3.0) -> None:
+        """SIGTERM a worker's process group, escalating to SIGKILL if it survives.
+
+        Workers are spawned with ``start_new_session=True`` (they lead their own
+        process group), so signalling only the worker PID would orphan the agent's
+        child processes. Signal the whole group and verify it actually exits.
+        Raises ProcessLookupError if the process is already gone.
+        """
+        pgid = os.getpgid(pid)  # raises ProcessLookupError if already gone
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            os.kill(pid, signal.SIGTERM)
+
+        # Verify the process actually exits; escalate to SIGKILL if it ignores TERM.
+        deadline_ticks = max(1, int(escalation_secs / 0.1))
+        for _ in range(deadline_ticks):
+            await asyncio.sleep(0.1)
+            if reap_if_dead(pid) is not None:
+                return
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+        logger.warning("Run pid %s ignored SIGTERM; escalating to SIGKILL", pid)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
     def get_logs(self, run_id: str, tail: int | None = None) -> dict[str, str]:
         """
@@ -2381,8 +2459,15 @@ but explicit commits with good messages are preferred.
         seen_projects: set[str] = set()
         dispatched = 0
 
+        # Concurrency control is driven by the actual active runs in the store —
+        # workers run as detached subprocesses, not in-process asyncio tasks, so
+        # there is no live task set to count.
+        active_runs = self.store.list_runs(statuses=[RunStatus.RUNNING], limit=1000)
+        active_count = len(active_runs)
+        active_project_ids = {r.project_id for r in active_runs}
+
         # Respect global concurrency cap
-        if len(self._active_tasks) >= self.config.max_concurrent:
+        if active_count >= self.config.max_concurrent:
             return 0
 
         wq = WorkQueueManager(self.store)
@@ -2392,12 +2477,8 @@ but explicit commits with good messages are preferred.
                 continue
             seen_projects.add(item.project_id)
 
-            # Skip if this project already has an active run
-            has_active = any(
-                (self.store.get_run(run_id) and self.store.get_run(run_id).project_id == item.project_id)  # type: ignore[union-attr]
-                for run_id in list(self._active_tasks.keys())
-            )
-            if has_active:
+            # Skip if this project already has an active run (serialize per project)
+            if item.project_id in active_project_ids:
                 continue
 
             claimed = wq.claim_next(item.project_id)
@@ -2415,6 +2496,8 @@ but explicit commits with good messages are preferred.
                 )
                 wq.mark_running(claimed.id, new_run.id)
                 dispatched += 1
+                active_count += 1
+                active_project_ids.add(claimed.project_id)
                 logger.info(
                     "Queue drain dispatched item %s -> run %s (project %s)",
                     claimed.id[:8],
@@ -2429,7 +2512,7 @@ but explicit commits with good messages are preferred.
                 )
                 wq.release(claimed.id)
 
-            if len(self._active_tasks) >= self.config.max_concurrent:
+            if active_count >= self.config.max_concurrent:
                 break
 
         return dispatched
@@ -3023,7 +3106,24 @@ def _run_worker(run_id: str) -> None:
     async def _execute():
         await runner._execute_run(run)
 
-    anyio.run(_execute)
+    try:
+        anyio.run(_execute)
+    except Exception:
+        # Last-resort net for crashes that escape _run_task's own handler (e.g.
+        # setup failures before the task loop). Record them on the run and to the
+        # worker log rather than dying with an opaque non-zero exit.
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        try:
+            fresh = store.get_run(run_id) or run
+            if fresh.status in (RunStatus.PENDING, RunStatus.RUNNING):
+                last_line = tb.strip().splitlines()[-1] if tb.strip() else "worker crashed"
+                fresh.mark_failed(f"Worker crashed: {last_line}", exit_code=1)
+                fresh.error_message = f"{fresh.error_message or last_line}\n\n{tb[-2000:]}"
+                store.update_run(fresh)
+        except Exception:
+            print("Failed to record worker crash on the run", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

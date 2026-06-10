@@ -105,43 +105,43 @@
 > **PR:** `fix(runner): surface worker crashes, reap subprocesses, harden cancel/supervisor`
 > A dozen places where failures vanish. Group by file; each is small.
 
-- [ ] **[P2] Top-level run failure handler discards the traceback** — [src/gluon/runner.py:1784](src/gluon/runner.py#L1784)
+- [x] **[P2] Top-level run failure handler discards the traceback** — [src/gluon/runner.py:1784](src/gluon/runner.py#L1784)
   - **Fix:** `logger.exception("Run %s failed", run.id)` and store `traceback.format_exc()[-2000:]` alongside `str(e)` in `error_message`/metadata.
   - **Done when:** a forced exception in `_run_task` leaves a full traceback in logs and a useful `error_message`.
-- [ ] **[P2] Worker crashes invisible: stderr→/dev/null, no handler in `_run_worker`** — [src/gluon/runner.py:991](src/gluon/runner.py#L991)
+- [x] **[P2] Worker crashes invisible: stderr→/dev/null, no handler in `_run_worker`** — [src/gluon/runner.py:991](src/gluon/runner.py#L991)
   - **Fix:** Redirect worker stderr to `~/.gluon/logs/{run_id}/worker.log`; wrap `_run_worker`'s body in try/except that marks the run FAILED with the traceback before exiting non-zero.
   - **Done when:** an import error / DB-open failure at worker startup produces a log file and a FAILED run, not a silent "Process died".
-- [ ] **[P1] Detached worker subprocesses are never reaped (zombies)** — [src/gluon/runner.py:992](src/gluon/runner.py#L992)
+- [x] **[P1] Detached worker subprocesses are never reaped (zombies)** — [src/gluon/runner.py:992](src/gluon/runner.py#L992)
   - **Fix:** Track spawned PIDs and reap them (periodic `os.waitpid(pid, WNOHANG)` in the health monitor, or a SIGCHLD handler). Use reaped exit status to drive crash detection instead of "process died".
   - **Done when:** completed workers do not linger as `<defunct>`; crash detection uses real exit codes.
-- [ ] **[P2] `cancel()` SIGTERMs only the worker PID, not its process group** — [src/gluon/runner.py:2022](src/gluon/runner.py#L2022)
+- [x] **[P2] `cancel()` SIGTERMs only the worker PID, not its process group** — [src/gluon/runner.py:2022](src/gluon/runner.py#L2022)
   - **Fix:** Since the worker is spawned `start_new_session=True`, send `os.killpg(os.getpgid(pid), SIGTERM)` so the Claude Code child tree dies too.
   - **Done when:** cancelling a run terminates the worker **and** its child `claude` process (verify no orphan via `ps`).
-- [ ] **[P2] `cancel()` marks CANCELLED with no verification/escalation** — [src/gluon/runner.py:2020](src/gluon/runner.py#L2020)
+- [x] **[P2] `cancel()` marks CANCELLED with no verification/escalation** — [src/gluon/runner.py:2020](src/gluon/runner.py#L2020)
   - **Fix:** After SIGTERM, poll the PID briefly and escalate to SIGKILL if still alive before marking cancelled; on `ProcessLookupError`, reconcile the stale run instead of `pass`.
   - **Done when:** a worker that ignores SIGTERM is SIGKILLed; an already-dead run is reconciled, not left RUNNING.
-- [ ] **[P2] `_active_tasks` is never populated → concurrency cap is a no-op** — [src/gluon/runner.py:2373](src/gluon/runner.py#L2373)
+- [x] **[P2] `_active_tasks` is never populated → concurrency cap is a no-op** — [src/gluon/runner.py:2373](src/gluon/runner.py#L2373)
   - **Fix:** Either populate `_active_tasks` on spawn and clear on completion so the `max_concurrent` check works, or delete the dead dict + checks and document that concurrency is enforced by the transport semaphore. Don't leave a safety mechanism that silently does nothing.
   - **Done when:** the runner-level cap either enforces `max_concurrent` or is removed with a comment pointing to the real limiter.
-- [ ] **[P2] Duration hard-cap enforcement failure swallowed at DEBUG** — [src/gluon/runner.py:268](src/gluon/runner.py#L268)
+- [x] **[P2] Duration hard-cap enforcement failure swallowed at DEBUG** — [src/gluon/runner.py:268](src/gluon/runner.py#L268)
   - **Fix:** Log at ERROR with `exc_info`, persist the enforcement failure to the run (error_message/activity log), optionally retry the cancel once.
   - **Done when:** a watchdog cancel failure is visible at INFO and auditable on the run.
-- [ ] **[P2] Chain step dispatch failure swallowed at DEBUG → chain stalls forever** — [src/gluon/runner.py:1831](src/gluon/runner.py#L1831)
+- [x] **[P2] Chain step dispatch failure swallowed at DEBUG → chain stalls forever** — [src/gluon/runner.py:1831](src/gluon/runner.py#L1831)
   - **Fix:** Log at ERROR, record dispatch-failed on the chain row so the UI can show a stalled chain; add a sweeper that re-dispatches RUNNING chains with no active step.
   - **Done when:** a dispatch exception surfaces and the chain does not hang invisibly in RUNNING.
-- [ ] **[P2] Question handler failure falls through to `PermissionResultAllow`** — [src/gluon/agent.py:531](src/gluon/agent.py#L531)
+- [x] **[P2] Question handler failure falls through to `PermissionResultAllow`** — [src/gluon/agent.py:531](src/gluon/agent.py#L531)
   - **Fix:** Return `PermissionResultDeny` (mirror the TimeoutError branch) when the AskUserQuestion handler errors; log with `exc_info=True`.
   - **Done when:** a handler exception denies the tool (does not auto-allow with the original input) — add a regression test.
-- [ ] **[P2] Migrations swallow all `sqlite3.OperationalError`** — [src/gluon/store.py:1017](src/gluon/store.py#L1017)
+- [x] **[P2] Migrations swallow all `sqlite3.OperationalError`** — [src/gluon/store.py:1017](src/gluon/store.py#L1017)
   - **Fix:** Only swallow "duplicate column name"/"already exists"; log other OperationalErrors at WARNING with the migration index. Prefer splitting `executescript` into single statements so a partial run can't be silently truncated.
   - **Done when:** a deliberately-broken migration logs loudly and does not leave a partially-migrated schema unnoticed.
-- [ ] **[P2] Redis job-update listener dies permanently on one malformed message** — [src/gluon/queue/redis_queue.py:302](src/gluon/queue/redis_queue.py#L302)
+- [x] **[P2] Redis job-update listener dies permanently on one malformed message** — [src/gluon/queue/redis_queue.py:302](src/gluon/queue/redis_queue.py#L302)
   - **Fix:** Move `json.loads` inside a per-message try/except (skip bad payloads); wrap the listen loop in reconnect-with-backoff. Apply the same to `events/redis_transport.py:121`.
   - **Done when:** a single bad pub/sub payload is skipped and delivery continues; a dropped connection reconnects.
-- [ ] **[P2] `stop_daemon()` reports success even if the daemon never exits** — [src/gluon/supervisor_daemon.py:154](src/gluon/supervisor_daemon.py#L154)
+- [x] **[P2] `stop_daemon()` reports success even if the daemon never exits** — [src/gluon/supervisor_daemon.py:154](src/gluon/supervisor_daemon.py#L154)
   - **Fix:** Use `time.sleep(0.1)` (not `run_until_complete`); after the wait, re-check the PID — if alive, escalate to SIGKILL or `return False` **without** removing the PID file. (Covers the P3 busy-wait at :160 too.)
   - **Done when:** a daemon that ignores SIGTERM is not reported stopped, and the PID file is retained until it truly exits.
-- [ ] **[P2] Supervisor double-resume race (no claim between read and resume)** — [src/gluon/resume_coordinator.py:109](src/gluon/resume_coordinator.py#L109)
+- [x] **[P2] Supervisor double-resume race (no claim between read and resume)** — [src/gluon/resume_coordinator.py:109](src/gluon/resume_coordinator.py#L109)
   - **Fix:** Atomically claim a REVIEW run before resuming (compare-and-set the status / a `supervised_at` lock column) so the web-server supervisor and standalone daemon can't both pick it up.
   - **Done when:** two supervisors running together resume each eligible run exactly once.
 
