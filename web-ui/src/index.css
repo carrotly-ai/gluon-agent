@@ -353,10 +353,12 @@ html.light summary:focus-visible {
   align-self: stretch;
 }
 
-/* Desktop: flexible columns that scale proportionately */
-@media (min-width: 768px) {
+/* Desktop: flexible columns that scale proportionately.
+   Gated at lg (1024px) — below this the board uses the single-column tab
+   layout, so fixed-width columns never overflow narrow/tablet viewports. */
+@media (min-width: 1024px) {
   .column {
-    min-width: 260px;
+    min-width: 220px;
     flex: 1 1 0%;
   }
 }
@@ -434,8 +436,8 @@ html.light summary:focus-visible {
   overflow: hidden;
 }
 
-/* Mobile: tabs at top, single column view */
-@media (max-width: 767px) {
+/* Mobile + tablet: tabs at top, single column view (up to lg/1024px) */
+@media (max-width: 1023px) {
   .kanban-tabs {
     display: flex;
     overflow-x: auto;
@@ -500,8 +502,8 @@ html.light summary:focus-visible {
   }
 }
 
-/* Desktop: horizontal columns */
-@media (min-width: 768px) {
+/* Desktop: horizontal columns (lg/1024px and up) */
+@media (min-width: 1024px) {
   .kanban-tabs {
     display: none;
   }
@@ -513,6 +515,25 @@ html.light summary:focus-visible {
     flex: 1;
     min-height: 0;
     -webkit-overflow-scrolling: touch;
+    /* Discoverable horizontal scroll affordance for when many columns
+       (e.g. Active/Review/Done/Failed/Cancelled/Queue) exceed the viewport
+       width — otherwise the overlay scrollbar hides and the overflow is
+       invisible on macOS. */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(163, 163, 163, 0.25) transparent;
+  }
+
+  .kanban-columns::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .kanban-columns::-webkit-scrollbar-thumb {
+    background: rgba(163, 163, 163, 0.2);
+    border-radius: 4px;
+  }
+
+  .kanban-columns::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .kanban-column-mobile {

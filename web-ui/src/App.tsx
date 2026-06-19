@@ -115,62 +115,40 @@ function MobileNavMenu({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Mobile primary: Board / List / Queue / Usage. Everything else
-  // (Merge, Activity, Sessions, Schedules, Settings) lives in the hamburger
-  // so the always-tappable row stays at 4 icons + menu.
-  const MOBILE_PRIMARY: { mode: ViewMode; icon: typeof Activity; title: string }[] = [
-    { mode: 'board', icon: LayoutGrid, title: 'Board view' },
-    { mode: 'list', icon: List, title: 'List view' },
-    { mode: 'queue', icon: ListTodo, title: 'Work Queue' },
-    { mode: 'usage', icon: BarChart3, title: 'Usage' },
+  // On phones the entire view-switcher collapses into a single hamburger so the
+  // header fits narrow viewports. Primary daily-use views sit at the top of the
+  // menu, secondary/config views below — every view is one tap away.
+  const ALL_NAV: { mode: ViewMode; icon: typeof Activity; label: string }[] = [
+    { mode: 'board', icon: LayoutGrid, label: 'Board' },
+    { mode: 'list', icon: List, label: 'List' },
+    { mode: 'queue', icon: ListTodo, label: 'Work Queue' },
+    { mode: 'usage', icon: BarChart3, label: 'Usage' },
+    ...MOBILE_SECONDARY_NAV_ITEMS,
   ]
-  const isSecondaryActive = MOBILE_SECONDARY_NAV_ITEMS.some((item) => item.mode === viewMode)
 
   return (
-    <div className="md:hidden relative" ref={menuRef}>
-      <div className="flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
-        {MOBILE_PRIMARY.map(({ mode, icon: Icon, title }) => (
-          <button
-            key={mode}
-            className={cn(
-              'min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-sm transition-colors',
-              viewMode === mode
-                ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-                : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-            )}
-            onClick={() => {
-              onViewChange(mode)
-              setOpen(false)
-            }}
-            title={title}
-            aria-label={title}
-            aria-current={viewMode === mode ? 'page' : undefined}
-          >
-            <Icon className="w-3.5 h-3.5" />
-          </button>
-        ))}
-        <button
-          className={cn(
-            'min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-sm transition-colors',
-            open || isSecondaryActive
-              ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
-              : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
-          )}
-          onClick={() => setOpen((prev) => !prev)}
-          title="More views"
-          aria-label="More views"
-          aria-expanded={open}
-          aria-haspopup="menu"
-        >
-          <Menu className="w-3.5 h-3.5" />
-        </button>
-      </div>
+    <div className="lg:hidden relative" ref={menuRef}>
+      <button
+        className={cn(
+          'min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-sm transition-colors bg-[rgba(163,163,163,0.06)]',
+          open
+            ? 'text-[var(--color-paper)]'
+            : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
+        )}
+        onClick={() => setOpen((prev) => !prev)}
+        title="Menu"
+        aria-label="Menu"
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1"
+          className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-[rgba(163,163,163,0.15)] bg-[var(--color-ink)] shadow-xl py-1"
           role="menu"
         >
-          {MOBILE_SECONDARY_NAV_ITEMS.map(({ mode, icon: Icon, label }) => (
+          {ALL_NAV.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
               role="menuitem"
@@ -576,9 +554,9 @@ function AuthenticatedApp() {
       <div className="min-h-screen flex flex-col">
         {/* Header */}
         <header className="border-b border-[rgba(163,163,163,0.1)] shrink-0">
-          <div className="flex items-center justify-between px-4 sm:px-6 h-12 sm:h-14">
+          <div className="flex items-center justify-between px-3 sm:px-6 h-12 sm:h-14">
             {/* Left - wordmark + filter + new + stats */}
-            <div className="flex items-center gap-3 sm:gap-5">
+            <div className="flex items-center gap-2 sm:gap-5">
               <button
                 className="text-title font-normal tracking-[0.1em] text-[var(--color-paper)] hover:opacity-80 transition-opacity"
                 title={semver ? `Gluon v${semver}` : undefined}
@@ -643,12 +621,12 @@ function AuthenticatedApp() {
             </div>
 
             {/* Right - view toggle + theme + connection pulse */}
-            <div className="flex items-center gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               {/* View Toggle - Desktop: primary daily-use views + overflow dropdown.
                   Settings is intentionally NOT in this group — it lives as a
                   separate gear icon next to the user menu (lower-frequency,
                   config-style action). */}
-              <div className="hidden md:flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
+              <div className="hidden lg:flex items-center gap-0.5 bg-[rgba(163,163,163,0.06)] rounded-sm p-0.5">
                 {(
                   [
                     { mode: 'board', icon: LayoutGrid, label: 'Board' },
@@ -683,7 +661,7 @@ function AuthenticatedApp() {
               <button
                 type="button"
                 className={cn(
-                  'hidden md:flex p-1.5 rounded-sm transition-colors',
+                  'hidden lg:flex p-1.5 rounded-sm transition-colors',
                   viewMode === 'settings'
                     ? 'bg-[var(--color-paper)]/10 text-[var(--color-paper)]'
                     : 'text-[var(--color-stone)]/60 hover:text-[var(--color-stone)]'
