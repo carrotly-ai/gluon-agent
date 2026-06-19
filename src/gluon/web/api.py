@@ -365,6 +365,7 @@ def create_app(
         "/api/auth/oidc/login",
         "/api/auth/oidc/callback",
         "/api/version",
+        "/api/health",  # container liveness probe — no auth so the healthcheck works
         "/api/webhooks/github",  # authenticated by HMAC signature, not session
     }
     # Mutations any authenticated user may perform on their own account / UI state.
@@ -2617,6 +2618,17 @@ def create_app(
         """Get application version info for update checking."""
         info = _get_version_info()
         return VersionResponse(**info)
+
+    @app.get("/api/health")
+    async def get_health() -> dict[str, str]:
+        """Liveness probe for the container healthcheck.
+
+        Intentionally a pure liveness check: a 200 means the event loop is
+        responsive. It deliberately does NOT touch the DB or other subsystems —
+        a readiness-style check here could flap and trigger restart loops on
+        transient load. Reachable without auth (see the anonymous allowlist).
+        """
+        return {"status": "ok"}
 
     # ========== Slash Commands ==========
 

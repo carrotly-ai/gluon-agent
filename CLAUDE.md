@@ -302,6 +302,7 @@ uv run gluon user add alice --auth-provider oidc --email alice@org.example --rol
 Other user-management commands: `gluon user list / show / disable / enable / set-role / set-password`. Web dashboard's admin user-management screen requires logging in as an existing admin.
 
 **Operational tuning (optional):** these are read by the code but are not required for normal use.
+- `GLUON_MAX_CONCURRENT_RUNS` — max simultaneously-executing runs per container (default `3`). Each run is a heavy subprocess tree, so keep this conservative; overshooting can saturate the host VM. Excess runs queue on the semaphore rather than being rejected.
 - `GLUON_DEFAULT_RUN_MAX_COST_USD` — default per-run cost cap in USD (unset = no default cap).
 - `GLUON_QUESTION_TIMEOUT` — seconds before an unanswered AskUserQuestion times out and pauses the run (default `300`).
 - `GLUON_QUESTION_ESCALATE_AT` — seconds before an unanswered question is escalated (default `180`).

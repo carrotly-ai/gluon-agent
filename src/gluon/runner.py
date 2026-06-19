@@ -16,7 +16,7 @@ import sys
 import time
 import traceback
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -343,11 +343,26 @@ def assess_run_health(run: ExecutionRun, log_path: Path) -> RunHealth:
     return RunHealth.HEALTHY  # No log yet = just started
 
 
+def _default_max_concurrent() -> int:
+    """Default cap on simultaneously-executing runs.
+
+    Each run is a heavyweight subprocess tree (a Claude Code worker plus its
+    git/node children), so a single container cannot sustain many at once —
+    overshooting can saturate the host VM. Defaults to a conservative 3; override
+    with GLUON_MAX_CONCURRENT_RUNS. Excess runs queue on the semaphore until a
+    slot frees rather than being rejected.
+    """
+    try:
+        return max(1, int(os.environ.get("GLUON_MAX_CONCURRENT_RUNS", "3")))
+    except ValueError:
+        return 3
+
+
 @dataclass
 class RunnerConfig:
     """Configuration for the task runner."""
 
-    max_concurrent: int = 16  # Max parallel runs
+    max_concurrent: int = field(default_factory=_default_max_concurrent)  # Max parallel runs
     log_path: Path = DEFAULT_LOG_PATH
 
 
@@ -1015,7 +1030,17 @@ class TaskRunner:
         dev_port = str(run_meta.get("dev_port") or random.randint(3100, 3999))
         env["GLUON_DEV_PORT"] = dev_port
 
-        # Spawn detached process (Unix: start_new_session detaches from terminal).
+        # Spawn detached process (Unix: start_new_session detaches from terminal
+        # AND makes the worker a process-group leader, so _terminate_process_tree
+        # can SIGTERM/SIGKILL the whole tree — agent, node, git children — instead
+        # of orphaning them on cancel.
+        #
+        # Reaping of descendants that outlive a *naturally* finished worker (e.g.
+        # git children reparented after the worker exits) depends on PID 1 being a
+        # real init reaper: the compose files set `init: true` so tini reaps them.
+        # Without that, those grandchildren accumulate as <defunct> zombies and can
+        # exhaust the process table. Do not drop `init: true` from compose.
+        #
         # stdout/stderr go to a worker bootstrap log so startup crashes (import
         # errors, DB-open failures, exceptions escaping _run_task's handler) are
         # captured instead of vanishing into /dev/null; task output itself is
