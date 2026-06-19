@@ -951,9 +951,14 @@ export function SettingsPage({
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         {project.git_branch && (
-                          <div className="flex items-center gap-1.5 text-caption text-[var(--color-stone)]/80">
-                            <GitBranch className="w-3 h-3" />
-                            <span>{project.git_branch}</span>
+                          <div className="flex items-center gap-1.5 text-caption text-[var(--color-stone)]/80 min-w-0">
+                            <GitBranch className="w-3 h-3 shrink-0" />
+                            {/* Cap the branch name so a long branch (e.g.
+                                feat/long-feature-name) can't squeeze the project
+                                name/path out of the row on narrow screens. */}
+                            <span className="truncate max-w-[100px] sm:max-w-[160px]">
+                              {project.git_branch}
+                            </span>
                           </div>
                         )}
                         <div onClick={(e) => e.stopPropagation()}>
