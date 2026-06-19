@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
@@ -45,7 +46,7 @@ class GluonBotCore:
         store: GluonStore | None = None,
         orchestrator: Orchestrator | None = None,
         git_manager: GitManager | None = None,
-        max_concurrent: int = 16,
+        max_concurrent: int | None = None,
         notifier: NotificationDispatcher | None = None,
     ):
         """Initialize the bot core.
@@ -69,6 +70,13 @@ class GluonBotCore:
 
         # State management (transport-agnostic)
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+        # Default to the same env-driven cap as the runner (GLUON_MAX_CONCURRENT_RUNS,
+        # default 3) so the bot gate and the runner semaphore stay aligned.
+        if max_concurrent is None:
+            try:
+                max_concurrent = max(1, int(os.environ.get("GLUON_MAX_CONCURRENT_RUNS", "3")))
+            except ValueError:
+                max_concurrent = 3
         self.max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._max_history_per_user = 10
