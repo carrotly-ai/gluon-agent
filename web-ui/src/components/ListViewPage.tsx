@@ -1,6 +1,7 @@
 import {
   Archive,
   ArchiveRestore,
+  ArrowLeft,
   Beaker,
   Bell,
   Bug,
@@ -620,7 +621,21 @@ export function ListViewPage({
     return out
   }, [sections, collapsedSections])
 
-  // Auto-select first visible run if none selected
+  // Two-pane (md+) auto-selects a run so the detail pane is never empty. On
+  // mobile the layout is single-pane, so we must NOT auto-select — the user
+  // lands on the list and taps into a run (otherwise "back to list" would
+  // immediately bounce back to a re-selected detail).
+  const [isTwoPane, setIsTwoPane] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const handler = (e: MediaQueryListEvent) => setIsTwoPane(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  // Auto-select first visible run if none selected (two-pane only)
   useEffect(() => {
     if (selectedRunId) {
       const stillVisible = flatVisibleRuns.some((r) => r.id === selectedRunId)
@@ -628,10 +643,10 @@ export function ListViewPage({
       const stillExists = runs.some((r) => r.id === selectedRunId)
       if (stillExists) return
     }
-    if (flatVisibleRuns.length > 0) {
+    if (isTwoPane && flatVisibleRuns.length > 0) {
       setSelectedRunId(flatVisibleRuns[0].id)
     }
-  }, [flatVisibleRuns, selectedRunId, runs])
+  }, [flatVisibleRuns, selectedRunId, runs, isTwoPane])
 
   // Fetch detail + messages when selection changes
   useEffect(() => {
@@ -985,8 +1000,17 @@ Focus on preserving the functionality from both sides where possible.`
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* Left sidebar */}
-      <div className="w-64 lg:w-72 xl:w-80 shrink-0 border-r border-[rgba(163,163,163,0.1)] flex flex-col overflow-hidden">
+      {/* Left sidebar — full width on mobile (single-pane master-detail),
+          fixed width alongside the detail pane from md up. */}
+      <div
+        className={cn(
+          'shrink-0 border-r border-[rgba(163,163,163,0.1)] flex-col overflow-hidden',
+          'w-full md:w-64 lg:w-72 xl:w-80',
+          // Mobile: hide the list once a run is selected so the detail pane
+          // takes over the full width; always visible from md up.
+          selectedRunId ? 'hidden md:flex' : 'flex'
+        )}
+      >
         {/* Sidebar header — search + sort + density */}
         <div className="shrink-0 border-b border-[rgba(163,163,163,0.06)] px-2 py-1.5 flex items-center gap-1.5">
           <div className="flex-1 relative">
@@ -1288,8 +1312,14 @@ Focus on preserving the functionality from both sides where possible.`
         </div>
       </div>
 
-      {/* Right panel — messages + action bar + footer */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      {/* Right panel — messages + action bar + footer. On mobile it only
+          appears once a run is selected (single-pane); always shown from md up. */}
+      <div
+        className={cn(
+          'flex-1 flex-col overflow-hidden min-w-0',
+          selectedRunId ? 'flex' : 'hidden md:flex'
+        )}
+      >
         {!selectedRun ? (
           <div className="flex items-center justify-center h-full text-[var(--color-stone)]/40 text-body">
             Select a session to view
@@ -1303,6 +1333,16 @@ Focus on preserving the functionality from both sides where possible.`
             {/* Header: title editor + parent fork link */}
             {selectedRun && (
               <div className="shrink-0 px-3 py-1.5 border-b border-[rgba(163,163,163,0.06)] flex items-center gap-3 min-w-0">
+                {/* Mobile: return to the list (single-pane navigation). */}
+                <button
+                  type="button"
+                  className="md:hidden shrink-0 -ml-1 p-1 text-[var(--color-stone)]/60 hover:text-[var(--color-paper)] transition-colors"
+                  onClick={() => setSelectedRunId(null)}
+                  title="Back to list"
+                  aria-label="Back to list"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
                 <InlineTitleEditor
                   value={selectedRun.custom_title ?? null}
                   placeholder={selectedRun.prompt.slice(0, 80)}

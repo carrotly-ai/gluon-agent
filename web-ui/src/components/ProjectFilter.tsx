@@ -147,13 +147,16 @@ export function ProjectFilter({ filter, onFilterChange }: ProjectFilterProps) {
       <button
         ref={triggerRef}
         type="button"
-        className="flex items-center gap-2 px-3 py-1.5 text-caption text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors bg-[rgba(163,163,163,0.05)] hover:bg-[rgba(163,163,163,0.1)] rounded-sm border border-[rgba(163,163,163,0.1)]"
+        className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 text-caption text-[var(--color-stone)] hover:text-[var(--color-paper)] transition-colors bg-[rgba(163,163,163,0.05)] hover:bg-[rgba(163,163,163,0.1)] rounded-sm border border-[rgba(163,163,163,0.1)]"
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Project filter: ${getDisplayLabel()}`}
       >
-        <span className="max-w-[120px] sm:max-w-[180px] truncate">{getDisplayLabel()}</span>
+        {/* Phones: icon-only to keep the header within narrow viewports.
+            ≥sm: show the selected filter label. */}
+        <FolderOpen className="w-3.5 h-3.5 shrink-0 sm:hidden" />
+        <span className="hidden sm:inline max-w-[180px] truncate">{getDisplayLabel()}</span>
         <ChevronDown className={cn('w-3 h-3 transition-transform', open && 'rotate-180')} />
       </button>
 

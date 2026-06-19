@@ -129,7 +129,7 @@ function DroppableColumn({
       )}
     >
       {/* Header - hidden on mobile */}
-      <div className="column-header hidden md:flex">
+      <div className="column-header hidden lg:flex">
         <div className={cn('mark', status === 'review' ? 'mark-review' : `mark-${status}`)} />
         <span className="column-title">{label}</span>
         <span className="column-count">{runs.length}</span>
@@ -317,7 +317,7 @@ export function KanbanBoard({
     >
       <div className="kanban-container">
         {/* Mobile: Tab navigation */}
-        <div className="kanban-tabs md:hidden">
+        <div className="kanban-tabs lg:hidden">
           {COLUMNS.filter(
             ({ status, alwaysVisible }) => alwaysVisible || runsByColumn[status].length > 0
           ).map(({ status, label }) => (
@@ -339,7 +339,7 @@ export function KanbanBoard({
         </div>
 
         {/* Mobile: Single column view with pull-to-refresh (no DnD on mobile) */}
-        <div className="kanban-column-mobile md:hidden">
+        <div className="kanban-column-mobile lg:hidden">
           <PullToRefresh
             onRefresh={onRefresh || (async () => {})}
             disabled={!onRefresh || !!activeRun}
