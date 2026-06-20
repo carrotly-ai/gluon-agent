@@ -968,6 +968,14 @@ def run_readiness(verify_cmd: str | None) -> str:
     return "gated" if verify_cmd else "gateless"
 
 
+# Combined hard ceiling across BOTH automatic resume paths (PR-monitor comment/CI
+# resumes increment `auto_resume_count`; supervisor resumes increment
+# `supervision_auto_resume_count`). Either path refuses once the SUM reaches this,
+# preventing the two caps from compounding into a runaway loop. User-queued
+# follow-ups (`_handle_queued_followup`) are not auto-resumes and stay uncapped.
+MAX_TOTAL_AUTO_RESUMES = 8
+
+
 class ExecutionRun(BaseModel):
     """A background execution run of a Claude Code task."""
 

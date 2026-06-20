@@ -69,7 +69,7 @@ Items 1–17 done (11 shipped, 6 were deferred). Owner answered via AskUserQuest
 - [x] **#158 witness recovery half** — removed `execute_action` + `_send_nudge`/`_recent_nudge_exists`/`_record_nudge_outcome` + `LOOPING_NUDGE_PROMPT`/`NUDGE_COOLDOWN_SECS` (0 prod callers) + the 5 `test_execute_action_*` tests. Kept `classify`/`suggest_action`/`_read_recent_output`/`_invoke_haiku` + the `RecoveryAction` enum (incl ESCALATE — a stored model value; suggest_action never emits it but keeping the member avoids deserialization risk). Suite 2223 passed.
 
 **P1 removals complete (#155-158).** Next — the two scoped fixes:
-- [ ] **#164 auto-resume ceiling = 8** (behavior change + test).
+- [x] **#164 auto-resume ceiling = 8** — added `MAX_TOTAL_AUTO_RESUMES = 8` to `models.py`; both auto paths refuse BEFORE resuming once `auto_resume_count + supervision_auto_resume_count >= 8`. PR-monitor: new guard in `should_monitor_run` (the single gate fronting both `auto_resume_for_comment`/`auto_resume_for_ci_failure`). Supervisor: early-return at the top of `_execute_resume` (single chokepoint after the policy decision). Per-trigger caps (`MAX_AUTO_RESUMES=5`, `SupervisionConfig.max_auto_resumes=5`) left intact — this ADDS a combined ceiling, doesn't replace them. `_handle_queued_followup` (user-queued) stays uncapped. New `tests/test_auto_resume_ceiling.py` (5 tests): each path blocks AT the ceiling even below its per-trigger cap, allows just below it, and the per-trigger cap still fires independently. Suite 2228 passed.
 - [ ] **#163 Telegram QuestionWatcher** (feature + test).
 Then P3 refactors #161 → #162 → #165 → #166.
 P2 fixes: #164 ceiling=8 (+test) → #163 Telegram question flow (+test).

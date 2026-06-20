@@ -4,7 +4,7 @@ import logging
 import re
 
 from gluon.git_manager import GitManager
-from gluon.models import ExecutionRun, RunStatus
+from gluon.models import MAX_TOTAL_AUTO_RESUMES, ExecutionRun, RunStatus
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 
@@ -324,6 +324,12 @@ class PRMonitorService:
             return False
 
         if (run.auto_resume_count or 0) >= MAX_AUTO_RESUMES:
+            return False
+
+        # Combined hard ceiling shared with the supervisor path: refuse once the
+        # PR-monitor and supervisor resume counts together reach the cap, so the
+        # two per-trigger caps cannot compound into a runaway loop.
+        if (run.auto_resume_count or 0) + (run.supervision_auto_resume_count or 0) >= MAX_TOTAL_AUTO_RESUMES:
             return False
 
         return True

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from gluon.models import (
+    MAX_TOTAL_AUTO_RESUMES,
     ExecutionRun,
     RunStatus,
     SupervisionDecision,
@@ -197,6 +198,16 @@ class ResumeCoordinator:
             decision: PolicyDecision that triggered resume
             trigger: What triggered this resume
         """
+        # Combined hard ceiling shared with the PR-monitor path: refuse once the
+        # supervisor and PR-monitor resume counts together reach the cap, so the
+        # two per-trigger caps cannot compound into a runaway loop.
+        if (run.auto_resume_count or 0) + (run.supervision_auto_resume_count or 0) >= MAX_TOTAL_AUTO_RESUMES:
+            logger.info(
+                f"Run {run.id[:8]} hit combined auto-resume ceiling "
+                f"({MAX_TOTAL_AUTO_RESUMES}); skipping supervision resume"
+            )
+            return
+
         now = datetime.now(UTC)
 
         # Atomically claim the run so a second supervisor (e.g. the standalone
