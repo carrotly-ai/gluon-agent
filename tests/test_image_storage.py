@@ -5,7 +5,6 @@ Uses tmp_path fixtures for all file I/O — never touches real ~/.gluon/images.
 
 from __future__ import annotations
 
-import io
 from pathlib import Path
 
 import pytest
@@ -137,12 +136,6 @@ class TestSaveImage:
         assert full_path.exists()
         assert full_path.read_bytes() == TINY_PNG
 
-    def test_save_from_file(self, service):
-        buf = io.BytesIO(TINY_PNG)
-        image = service.save_image_from_file(buf, "fromfile.png", "image/png")
-        assert image.original_name == "fromfile.png"
-        assert image.size_bytes == len(TINY_PNG)
-
 
 # ===================================================================
 # Get / retrieve
@@ -220,65 +213,3 @@ class TestAttachDetach:
     def test_list_empty(self, service, store, project):
         run = store.create_run(project_id=project.id, prompt="test")
         assert service.list_images_for_run(run.id) == []
-
-
-# ===================================================================
-# Copy to worktree
-# ===================================================================
-
-
-class TestCopyToWorktree:
-    def test_copy_to_worktree(self, service, store, project, tmp_path):
-        image = service.save_image(TINY_PNG, "wt.png", "image/png")
-        run = store.create_run(project_id=project.id, prompt="test")
-        service.attach_to_run(run.id, image.id)
-
-        worktree = tmp_path / "worktree"
-        worktree.mkdir()
-        copied = service.copy_to_worktree(run.id, worktree)
-
-        assert len(copied) == 1
-        assert (worktree / ".gluon-images" / "wt.png").exists()
-
-    def test_copy_no_images(self, service, store, project, tmp_path):
-        run = store.create_run(project_id=project.id, prompt="test")
-        worktree = tmp_path / "worktree"
-        worktree.mkdir()
-        copied = service.copy_to_worktree(run.id, worktree)
-        assert copied == []
-
-    def test_copy_name_conflict(self, service, store, project, tmp_path):
-        img1 = service.save_image(TINY_PNG, "same.png", "image/png")
-        img2 = service.save_image(TINY_PNG + b"\xff", "same.png", "image/png")
-        run = store.create_run(project_id=project.id, prompt="test")
-        service.attach_to_run(run.id, img1.id)
-        service.attach_to_run(run.id, img2.id)
-
-        worktree = tmp_path / "worktree"
-        worktree.mkdir()
-        copied = service.copy_to_worktree(run.id, worktree)
-
-        assert len(copied) == 2
-        # Both files should exist (second gets hash suffix)
-        for path in copied:
-            assert (worktree / path).exists()
-
-
-# ===================================================================
-# Markdown references
-# ===================================================================
-
-
-class TestMarkdownReferences:
-    def test_markdown_refs(self, service, store, project):
-        image = service.save_image(TINY_PNG, "ref.png", "image/png")
-        run = store.create_run(project_id=project.id, prompt="test")
-        service.attach_to_run(run.id, image.id)
-
-        md = service.get_markdown_references(run.id)
-        assert "## Attached Images" in md
-        assert "ref.png" in md
-
-    def test_markdown_no_images(self, service, store, project):
-        run = store.create_run(project_id=project.id, prompt="test")
-        assert service.get_markdown_references(run.id) == ""

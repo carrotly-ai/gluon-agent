@@ -133,41 +133,6 @@ async def run_test(
     return result
 
 
-async def run_validation(
-    working_dir: Path,
-    lint_cmd: str | None,
-    test_cmd: str | None,
-    timeout_secs: int = 300,
-) -> list[StepResult]:
-    """Run lint then test steps. Skip if command is None."""
-    results: list[StepResult] = []
-
-    if lint_cmd:
-        result = await _run_step("lint", lint_cmd, working_dir, timeout_secs)
-        results.append(result)
-        status = "PASS" if result.passed else "FAIL"
-        logger.info("Blueprint lint: %s (exit=%s, %.1fs)", status, result.exit_code, result.duration_secs)
-
-    if test_cmd:
-        result = await _run_step("test", test_cmd, working_dir, timeout_secs)
-        if not result.passed:
-            output_lower = result.output.lower()
-            if any(p in output_lower for p in _NO_TESTS_PATTERNS):
-                logger.info("Blueprint test: SKIP (no tests found, treating as pass)")
-                result = StepResult(
-                    name="test",
-                    passed=True,
-                    exit_code=result.exit_code,
-                    output="No tests found — skipped validation",
-                    duration_secs=result.duration_secs,
-                )
-        results.append(result)
-        status = "PASS" if result.passed else "FAIL"
-        logger.info("Blueprint test: %s (exit=%s, %.1fs)", status, result.exit_code, result.duration_secs)
-
-    return results
-
-
 def build_feedback_prompt(results: list[StepResult]) -> str:
     """Build a retry prompt from failed validation steps."""
     parts = [
