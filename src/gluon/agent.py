@@ -1506,7 +1506,6 @@ Continue the original task, picking up where the previous session left off.
 Focus on what still needs to be done.
 """
 
-        print(f"[AGENT] resume_with_fresh_context called, working_dir={working_dir}", flush=True)
         logger.info("Starting fresh session for context overflow recovery")
 
         # Yield a system message indicating recovery

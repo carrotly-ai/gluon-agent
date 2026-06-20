@@ -14,7 +14,7 @@ Green = no NEW ruff/mypy errors in touched files, no NEW test failures.
 
 ### Tier 1 — quick wins
 - [x] **1. Latent bugs** `[bug/high/low]` — fix `formula run` (`anyio.from_thread.run`→`anyio.run`); wire `WorkQueueManager` finalization (`_finalize_queue_item`) so queue items stop leaking in RUNNING. +4 regression tests. *(commit: see below)*
-- [ ] **2. Debug prints** `[low/trivial/none]` — remove 9×`[RECOVERY]` (`api.py`) + 1×`[AGENT]` (`agent.py`).
+- [x] **2. Debug prints** `[low/trivial/none]` — removed 9×`[RECOVERY]` (`api.py` `_run_recovery`) + 1×`[AGENT]` (`agent.py`) + a redundant `traceback.print_exc()`; all sat beside `logger.*` calls so logging behavior is unchanged.
 - [ ] **3. Leaf dead code (Clusters E–J)** `[med/low/very-low]` — re-grep each symbol before deletion; delete test-only symbols + their tests together.
 - [ ] **4. web-ui dead exports** `[med/low/very-low]` — ~30 dead `api.ts` fns + 12 orphan types + `POLL_FAST` + stale TODOs (§7). *(advanced-git api.ts clients → DEFER, see issues)*
 - [ ] **5. store `in keys` guards** `[low/low/low]` — drop obsolete guards in `_row_to_run`/`update_run` (§2).
@@ -51,4 +51,4 @@ do not delete `compute_next_fire` (ValueError contract); do not remove `GLUON_RE
 (feed the LIVE event bus).
 
 ## NEXT STEPS
-SETUP done → item 1 (latent bugs) committed. Next: **item 2 — remove debug prints** (`api.py` ×9, `agent.py` ×1).
+Items 1–2 done. Next: **item 3 — leaf dead code (Clusters E–J)** — re-grep each symbol to reconfirm 0 refs before deleting; delete test-only symbols with their tests. Start with the lowest-risk leaves (websocket `broadcast_todos_updated`/`stream_log_line`, `agent.execute_simple`, `search_commands`, image-storage wrappers).

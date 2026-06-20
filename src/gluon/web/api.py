@@ -1155,7 +1155,6 @@ def create_app(
         # Start recovery in background
         async def _run_recovery():
             try:
-                print(f"[RECOVERY] Starting recovery for run {target_run.id} in {working_dir}", flush=True)
                 logger.info(f"Starting recovery for run {target_run.id} in {working_dir}")
 
                 # Set recovering flag at start
@@ -1173,17 +1172,14 @@ def create_app(
                 result = None
                 item_count = 0
 
-                print("[RECOVERY] About to iterate agent.resume_with_fresh_context", flush=True)
                 async for item in agent.resume_with_fresh_context(
                     recovery_state=recovery_state,
                     working_dir=working_dir,
                 ):
                     item_count += 1
-                    print(f"[RECOVERY] Item {item_count}: {type(item).__name__}", flush=True)
                     from gluon.agent import AgentResult
 
                     if isinstance(item, AgentResult):
-                        print(f"[RECOVERY] Got AgentResult: success={item.success}", flush=True)
                         result = item
                     else:
                         # Broadcast progress every 5 items
@@ -1191,8 +1187,6 @@ def create_app(
                             target_run.recovery_item_count = item_count
                             store.update_run(target_run)
                             await ws_manager.broadcast_run_update(target_run, project_name)
-
-                print(f"[RECOVERY] Finished iteration, got {item_count} items", flush=True)
 
                 # Clear recovering flag at end
                 target_run.is_recovering = False
@@ -1209,17 +1203,14 @@ def create_app(
 
                     if result.success:
                         target_run.status = RunStatus.REVIEW
-                        print(f"[RECOVERY] Completed successfully for run {target_run.id}", flush=True)
                         logger.info(f"Recovery completed successfully for run {target_run.id}")
                     else:
                         target_run.status = RunStatus.FAILED
                         target_run.error_message = result.error
-                        print(f"[RECOVERY] Failed for run {target_run.id}: {result.error}", flush=True)
                         logger.warning(f"Recovery failed for run {target_run.id}: {result.error}")
                 else:
                     target_run.status = RunStatus.FAILED
                     target_run.error_message = "Recovery produced no result"
-                    print(f"[RECOVERY] No result for run {target_run.id}", flush=True)
                     logger.error(f"Recovery for run {target_run.id} produced no AgentResult")
 
                 store.update_run(target_run)
@@ -1228,10 +1219,6 @@ def create_app(
                 await ws_manager.broadcast_run_update(target_run, project_name)
 
             except Exception as e:
-                print(f"[RECOVERY] Exception for run {target_run.id}: {e}", flush=True)
-                import traceback
-
-                traceback.print_exc()
                 logger.exception(f"Recovery failed for run {target_run.id}: {e}")
                 target_run.is_recovering = False
                 target_run.recovery_item_count = 0
