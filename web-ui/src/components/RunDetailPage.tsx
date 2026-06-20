@@ -45,7 +45,6 @@ import {
   fetchRunFiles,
   fetchSessionHistory,
   getImageFileUrl,
-  mergeRunBranch,
   queueFollowup,
   resumeRun,
   uploadAndAttachImage,
@@ -344,8 +343,9 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   }, [detail?.project_id])
 
   // Shared run actions (#165). Page owns its run state (setRun), has an
-  // optional onRunUpdated, and shows no cancel toast.
-  const { handleCancel, handleCreatePr } = useRunActions({
+  // optional onRunUpdated, shows no cancel toast, and does not scroll on a
+  // merge conflict (no onMergeConflict).
+  const { handleCancel, handleCreatePr, handleMerge } = useRunActions({
     run,
     onRunUpdated,
     setRun,
@@ -353,6 +353,10 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
     setCancelling,
     setCreatingPr,
     setPrError,
+    setMerging,
+    setMergeError,
+    setResumePrompt,
+    sourceBranch: detail?.source_branch,
     cancelToasts: false,
   })
 
@@ -726,55 +730,6 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       } finally {
         setLoadingFileDiff(null)
       }
-    }
-  }
-
-  const handleMerge = async () => {
-    if (!run) return
-    setMerging(true)
-    setMergeError(null)
-    try {
-      const result = await mergeRunBranch(run.id)
-      if (result.success) {
-        const updatedDetail = await fetchRun(run.id)
-        setDetail(updatedDetail)
-        setRun(updatedDetail)
-        onRunUpdated?.(updatedDetail)
-        toast.success('Branch merged successfully', {
-          description: `Merged into ${detail?.source_branch || 'main'}`,
-        })
-      } else if (
-        result.has_conflicts &&
-        result.conflicting_files &&
-        result.conflicting_files.length > 0
-      ) {
-        const filesStr = result.conflicting_files.slice(0, 10).join('\n- ')
-        const moreCount =
-          result.conflicting_files.length > 10 ? result.conflicting_files.length - 10 : 0
-        const conflictPrompt = `The merge has conflicts that need to be resolved. Please fix these merge conflicts:
-
-Conflicting files:
-- ${filesStr}${moreCount > 0 ? `\n- ... and ${moreCount} more files` : ''}
-
-Steps to resolve:
-1. In the worktree, run: git merge ${detail?.source_branch || 'main'}
-2. Resolve each conflict by understanding both changes and merging them appropriately
-3. After resolving all conflicts, commit the merge
-4. Push the changes
-
-Focus on preserving functionality from both sides where possible.`
-
-        setResumePrompt(conflictPrompt)
-        setMergeError(
-          `Merge conflicts in ${result.conflicting_files.length} file(s). Use the resume prompt below to have Claude resolve them.`
-        )
-      } else {
-        setMergeError(result.error || 'Failed to merge branch')
-      }
-    } catch (err) {
-      setMergeError(err instanceof Error ? err.message : 'Failed to merge branch')
-    } finally {
-      setMerging(false)
     }
   }
 

@@ -8,11 +8,12 @@ vi.mock('@/lib/api', () => ({
   cancelRun: vi.fn(),
   createPrForRun: vi.fn(),
   fetchRun: vi.fn(),
+  mergeRunBranch: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { toast } from 'sonner'
-import { cancelRun, createPrForRun, fetchRun } from '@/lib/api'
+import { cancelRun, createPrForRun, fetchRun, mergeRunBranch } from '@/lib/api'
 
 const RUN = { id: 'run-123' } as Run
 const DETAIL = { id: 'run-123', pr_number: 42, pr_url: 'https://x/pr/42' } as RunDetail
@@ -24,6 +25,9 @@ function makeOptions(overrides: Partial<Parameters<typeof useRunActions>[0]> = {
     setCancelling: vi.fn(),
     setCreatingPr: vi.fn(),
     setPrError: vi.fn(),
+    setMerging: vi.fn(),
+    setMergeError: vi.fn(),
+    setResumePrompt: vi.fn(),
     ...overrides,
   }
 }
@@ -126,5 +130,78 @@ describe('useRunActions.handleCreatePr', () => {
 
     expect(opts.setPrError).toHaveBeenLastCalledWith('network')
     expect(opts.setCreatingPr).toHaveBeenLastCalledWith(false)
+  })
+})
+
+describe('useRunActions.handleMerge', () => {
+  it('success: refreshes detail, reports up, toasts (both variants)', async () => {
+    vi.mocked(mergeRunBranch).mockResolvedValue({ success: true } as never)
+    vi.mocked(fetchRun).mockResolvedValue(DETAIL)
+    const setRun = vi.fn()
+    const onRunUpdated = vi.fn()
+    const opts = makeOptions({ setRun, onRunUpdated, sourceBranch: 'develop' })
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleMerge()
+
+    expect(opts.setDetail).toHaveBeenCalledWith(DETAIL)
+    expect(setRun).toHaveBeenCalledWith(DETAIL)
+    expect(onRunUpdated).toHaveBeenCalledWith(DETAIL)
+    expect(toast.success).toHaveBeenCalledWith(
+      'Branch merged successfully',
+      expect.objectContaining({ description: 'Merged into develop' })
+    )
+    expect(opts.setMergeError).toHaveBeenNthCalledWith(1, null)
+    expect(opts.setMerging).toHaveBeenLastCalledWith(false)
+  })
+
+  it('conflict: sets resume prompt + error and fires onMergeConflict (dialog-only)', async () => {
+    vi.mocked(mergeRunBranch).mockResolvedValue({
+      success: false,
+      has_conflicts: true,
+      conflicting_files: ['a.ts', 'b.ts'],
+    } as never)
+    const onMergeConflict = vi.fn()
+    const opts = makeOptions({ onMergeConflict, sourceBranch: 'main' })
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleMerge()
+
+    const prompt = vi.mocked(opts.setResumePrompt).mock.calls[0][0] as string
+    expect(prompt).toContain('a.ts')
+    expect(prompt).toContain('git merge main')
+    expect(opts.setMergeError).toHaveBeenLastCalledWith(expect.stringContaining('2 file(s)'))
+    expect(onMergeConflict).toHaveBeenCalledOnce()
+    expect(fetchRun).not.toHaveBeenCalled()
+  })
+
+  it('conflict without onMergeConflict (page variant) does not throw', async () => {
+    vi.mocked(mergeRunBranch).mockResolvedValue({
+      success: false,
+      has_conflicts: true,
+      conflicting_files: ['x.ts'],
+    } as never)
+    const opts = makeOptions()
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleMerge()
+    expect(opts.setResumePrompt).toHaveBeenCalledOnce()
+  })
+
+  it('plain failure: sets mergeError, no resume prompt', async () => {
+    vi.mocked(mergeRunBranch).mockResolvedValue({ success: false, error: 'merge blocked' } as never)
+    const opts = makeOptions()
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleMerge()
+    expect(opts.setMergeError).toHaveBeenLastCalledWith('merge blocked')
+    expect(opts.setResumePrompt).not.toHaveBeenCalled()
+  })
+
+  it('no-ops when run is null', async () => {
+    const opts = makeOptions({ run: null })
+    const { result } = renderHook(() => useRunActions(opts))
+    await result.current.handleMerge()
+    expect(mergeRunBranch).not.toHaveBeenCalled()
   })
 })
