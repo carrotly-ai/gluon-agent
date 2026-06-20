@@ -58,7 +58,6 @@ from gluon.web.models import (
     BranchListResponse,
     BranchOperationResponse,
     BranchResponse,
-    ChangeBaseBranchRequest,
     ChangePasswordRequest,
     ClaudeSessionInfo,
     ClaudeSessionListResponse,
@@ -81,9 +80,6 @@ from gluon.web.models import (
     EditQueuedMessageRequest,
     FileChangeResponse,
     FileDiffResponse,
-    ForcePushCheckResponse,
-    ForcePushRequest,
-    ForcePushResponse,
     ForkRunRequest,
     FormulaListResponse,
     FormulaRunRequest,
@@ -126,7 +122,6 @@ from gluon.web.models import (
     RebaseResponse,
     RecoverRunRequest,
     RecoverRunResponse,
-    RenameBranchRequest,
     ResolveConflictRequest,
     ResolveConflictResponse,
     ResumeRunRequest,
@@ -4139,56 +4134,6 @@ def create_app(
             message=result["message"],
         )
 
-    @app.post("/api/projects/{project_id}/rebase/skip", response_model=RebaseResponse)
-    async def skip_rebase_commit(project_id: str) -> RebaseResponse:
-        """
-        Skip the current commit during rebase.
-        """
-        project = _resolve_project_or_404(project_id)
-
-        result = await git_manager.rebase_skip(project.expanded_path)
-
-        return RebaseResponse(
-            success=result["success"],
-            message=result["message"],
-            conflicts=result.get("conflicts", []),
-        )
-
-    @app.get("/api/projects/{project_id}/force-push-check", response_model=ForcePushCheckResponse)
-    async def check_force_push_needed(project_id: str, branch: str | None = None) -> ForcePushCheckResponse:
-        """
-        Check if a force push would be required for the current branch.
-        """
-        project = _resolve_project_or_404(project_id)
-
-        result = await git_manager.check_force_push_needed(project.expanded_path, branch)
-
-        return ForcePushCheckResponse(
-            needed=result["needed"],
-            commits_to_delete=result["commits_to_delete"],
-            reason=result["reason"],
-        )
-
-    @app.post("/api/projects/{project_id}/force-push", response_model=ForcePushResponse)
-    async def force_push(project_id: str, body: ForcePushRequest) -> ForcePushResponse:
-        """
-        Force push to remote. Use with caution!
-        Defaults to --force-with-lease for safety.
-        """
-        project = _resolve_project_or_404(project_id)
-
-        async with _workspace_env(store, project.workspace_id):
-            result = await git_manager.force_push(
-                project.expanded_path,
-                branch=body.branch,
-                force_with_lease=body.force_with_lease,
-            )
-
-        return ForcePushResponse(
-            success=result["success"],
-            message=result["message"],
-        )
-
     @app.get("/api/projects/{project_id}/branches", response_model=BranchListResponse)
     async def list_branches(project_id: str) -> BranchListResponse:
         """
@@ -4216,35 +4161,6 @@ def create_app(
                 for b in branches
             ],
             current_branch=current_branch,
-        )
-
-    @app.post("/api/projects/{project_id}/branches/rename", response_model=BranchOperationResponse)
-    async def rename_branch(project_id: str, body: RenameBranchRequest) -> BranchOperationResponse:
-        """
-        Rename a branch.
-        """
-        project = _resolve_project_or_404(project_id)
-
-        result = await git_manager.rename_branch(project.expanded_path, body.old_name, body.new_name)
-
-        return BranchOperationResponse(
-            success=result["success"],
-            message=result["message"],
-        )
-
-    @app.post("/api/projects/{project_id}/branches/change-base", response_model=BranchOperationResponse)
-    async def change_branch_base(project_id: str, body: ChangeBaseBranchRequest) -> BranchOperationResponse:
-        """
-        Change the base of a feature branch by rebasing onto a new base.
-        """
-        project = _resolve_project_or_404(project_id)
-
-        result = await git_manager.change_base_branch(project.expanded_path, body.feature_branch, body.new_base)
-
-        return BranchOperationResponse(
-            success=result["success"],
-            message=result["message"],
-            conflicts=result.get("conflicts", []),
         )
 
     @app.delete("/api/projects/{project_id}/branches/{branch_name}", response_model=BranchOperationResponse)

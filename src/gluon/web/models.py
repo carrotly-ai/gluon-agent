@@ -838,28 +838,6 @@ class RebaseResponse(BaseModel):
     conflicts: list[str] = Field(default_factory=list, description="List of conflicted files if any")
 
 
-class ForcePushCheckResponse(BaseModel):
-    """Response model for force push check."""
-
-    needed: bool = Field(description="Whether force push is required")
-    commits_to_delete: int = Field(default=0, description="Number of commits that would be deleted on remote")
-    reason: str = Field(default="", description="Explanation")
-
-
-class ForcePushRequest(BaseModel):
-    """Request model for force push."""
-
-    branch: str | None = Field(default=None, description="Branch to force push (default: current)")
-    force_with_lease: bool = Field(default=True, description="Use --force-with-lease for safety")
-
-
-class ForcePushResponse(BaseModel):
-    """Response model for force push."""
-
-    success: bool
-    message: str
-
-
 class BranchResponse(BaseModel):
     """Response model for a branch."""
 
@@ -875,20 +853,6 @@ class BranchListResponse(BaseModel):
 
     branches: list[BranchResponse]
     current_branch: str | None = None
-
-
-class RenameBranchRequest(BaseModel):
-    """Request model for renaming a branch."""
-
-    old_name: str
-    new_name: str
-
-
-class ChangeBaseBranchRequest(BaseModel):
-    """Request model for changing a branch's base."""
-
-    feature_branch: str = Field(description="Branch to rebase")
-    new_base: str = Field(description="New base branch")
 
 
 class BranchOperationResponse(BaseModel):

@@ -1659,109 +1659,6 @@ Run ID: `{run_id}`
         result["message"] = "Rebase aborted"
         return result
 
-    async def rebase_skip(self, path: Path) -> dict:
-        """Skip the current commit during rebase."""
-        result = {"success": False, "message": "", "conflicts": []}
-
-        rc, _, stderr = await self._run_git(path, "rebase", "--skip")
-        if rc != 0:
-            if "conflict" in stderr.lower():
-                conflict_state = await self._detect_conflict_state(path)
-                result["conflicts"] = conflict_state["conflicted_files"]
-                result["message"] = f"More conflicts after skip: {len(result['conflicts'])} file(s)"
-            else:
-                result["message"] = f"Rebase skip failed: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = "Skipped commit"
-        return result
-
-    # ========== Force Push Operations ==========
-
-    async def check_force_push_needed(self, path: Path, branch: str | None = None) -> dict:
-        """
-        Check if a force push would be needed to push the current branch.
-
-        Returns dict with: needed, commits_to_delete, reason
-        """
-        result = {"needed": False, "commits_to_delete": 0, "reason": ""}
-
-        if not branch:
-            branch = await self._get_branch(path)
-            if not branch:
-                result["reason"] = "Not on a branch"
-                return result
-
-        remote, _ = await self._get_remote(path)
-        if not remote:
-            result["reason"] = "No remote configured"
-            return result
-
-        # Fetch latest
-        await self._run_git(path, "fetch", remote, "--quiet")
-
-        # Check if remote branch exists
-        rc, _, _ = await self._run_git(path, "rev-parse", "--verify", f"{remote}/{branch}")
-        if rc != 0:
-            result["reason"] = "Remote branch doesn't exist (new branch)"
-            return result
-
-        # Get commits that would be deleted on remote
-        # These are commits in remote that are not ancestors of local
-        rc, stdout, _ = await self._run_git(path, "rev-list", f"HEAD..{remote}/{branch}", "--count")
-        if rc == 0 and stdout:
-            try:
-                commits_to_delete = int(stdout.strip())
-                if commits_to_delete > 0:
-                    result["needed"] = True
-                    result["commits_to_delete"] = commits_to_delete
-                    result["reason"] = f"Would delete {commits_to_delete} commit(s) from remote"
-            except ValueError:
-                pass
-
-        return result
-
-    async def force_push(self, path: Path, branch: str | None = None, force_with_lease: bool = True) -> dict:
-        """
-        Force push to remote.
-
-        Args:
-            path: Repository path
-            branch: Branch to push (default: current)
-            force_with_lease: Use --force-with-lease for safety (default: True)
-
-        Returns dict with: success, message
-        """
-        result = {"success": False, "message": ""}
-
-        if branch is not None and not _is_valid_ref(branch):
-            result["message"] = f"Invalid branch name: {branch!r}"
-            return result
-
-        if not branch:
-            branch = await self._get_branch(path)
-            if not branch:
-                result["message"] = "Not on a branch"
-                return result
-
-        remote, _ = await self._get_remote(path)
-        if not remote:
-            result["message"] = "No remote configured"
-            return result
-
-        force_flag = "--force-with-lease" if force_with_lease else "--force"
-        rc, _, stderr = await self._run_git(path, "push", force_flag, remote, branch)
-        if rc != 0:
-            result["message"] = f"Force push failed: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = f"Force pushed {branch} to {remote}"
-        return result
-
-    # ========== Branch Management ==========
-
     async def list_branches(self, path: Path, remote: bool = False) -> list[dict[str, str | bool | int | None]]:
         """
         List branches in the repository.
@@ -1820,23 +1717,6 @@ Run ID: `{run_id}`
 
         return branches
 
-    async def rename_branch(self, path: Path, old_name: str, new_name: str) -> dict:
-        """Rename a branch."""
-        result = {"success": False, "message": ""}
-
-        if not _is_valid_ref(old_name) or not _is_valid_ref(new_name):
-            result["message"] = "Invalid branch name"
-            return result
-
-        rc, _, stderr = await self._run_git(path, "branch", "-m", "--", old_name, new_name)
-        if rc != 0:
-            result["message"] = f"Failed to rename branch: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = f"Renamed {old_name} to {new_name}"
-        return result
-
     async def delete_branch(self, path: Path, branch: str, force: bool = False, remote: bool = False) -> dict:
         """Delete a branch (local or remote)."""
         result = {"success": False, "message": ""}
@@ -1863,53 +1743,6 @@ Run ID: `{run_id}`
         location = "remote" if remote else "local"
         result["message"] = f"Deleted {location} branch {branch}"
         return result
-
-    async def change_base_branch(self, path: Path, feature_branch: str, new_base: str) -> dict:
-        """
-        Change the base of a feature branch by rebasing onto a new base.
-
-        This is equivalent to: git rebase --onto new_base old_base feature_branch
-        """
-        result = {"success": False, "message": "", "conflicts": []}
-
-        if not _is_valid_ref(feature_branch) or not _is_valid_ref(new_base):
-            result["message"] = "Invalid branch name"
-            return result
-
-        # Get current branch to restore later
-        current = await self._get_branch(path)
-
-        # Checkout feature branch
-        rc, _, stderr = await self._run_git(path, "checkout", feature_branch)
-        if rc != 0:
-            result["message"] = f"Failed to checkout {feature_branch}: {stderr}"
-            return result
-
-        # Find merge base (old base)
-        rc, old_base, _ = await self._run_git(path, "merge-base", feature_branch, new_base)
-        if rc != 0:
-            result["message"] = "Could not find common ancestor"
-            # Restore original branch
-            if current:
-                await self._run_git(path, "checkout", current)
-            return result
-
-        # Rebase onto new base
-        rc, _, stderr = await self._run_git(path, "rebase", "--onto", new_base, old_base.strip(), feature_branch)
-        if rc != 0:
-            if "conflict" in stderr.lower():
-                conflict_state = await self._detect_conflict_state(path)
-                result["conflicts"] = conflict_state["conflicted_files"]
-                result["message"] = f"Rebase conflict: {len(result['conflicts'])} file(s)"
-            else:
-                result["message"] = f"Rebase failed: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = f"Rebased {feature_branch} onto {new_base}"
-        return result
-
-    # ========== PR Comment and Check Run Methods ==========
 
     async def get_pr_comments(self, path: Path, pr_number: int) -> list[dict]:
         """
