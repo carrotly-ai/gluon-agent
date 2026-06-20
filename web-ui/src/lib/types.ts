@@ -311,11 +311,6 @@ export interface SystemStatus {
   total_runs: number
 }
 
-/** Request body for resuming a run */
-export interface ResumeRunRequest {
-  prompt: string
-}
-
 /** Response from resume operation (in-place resume) */
 export interface ResumeRunResponse {
   run_id: string // Same run continues
@@ -324,11 +319,6 @@ export interface ResumeRunResponse {
   // Backward compatibility (deprecated, same as run_id)
   original_run_id?: string
   new_run_id?: string
-}
-
-/** Request body for recovering a run from context overflow */
-export interface RecoverRunRequest {
-  fresh?: boolean
 }
 
 /** Response from recover operation */
@@ -352,12 +342,6 @@ export interface SessionHistoryResponse {
 export interface UpdateRunRequest {
   custom_title?: string | null
   kind?: RunKind | null
-}
-
-/** POST /api/runs/{id}/snooze — set or clear a run's snooze deadline. */
-export interface SnoozeRunRequest {
-  /** ISO datetime when the run should reappear; null clears the snooze. */
-  until: string | null
 }
 
 /** POST /api/runs/{id}/fork — fork an existing run's Claude session. */
@@ -732,12 +716,6 @@ export type KanbanColumn = keyof typeof KANBAN_COLUMNS
 
 // ========== Status Transition Types (Phase 7.2 Drag-and-Drop) ==========
 
-/** Request to update run status via drag-and-drop */
-export interface UpdateStatusRequest {
-  status: RunStatus
-  reason?: string
-}
-
 /** Response from status update */
 export interface UpdateStatusResponse {
   run: Run
@@ -804,11 +782,6 @@ export interface ScanResultResponse {
   projects_found: number
   projects_added: string[]
   projects_removed: string[]
-}
-
-/** Request to clone a GitHub repository into a workspace */
-export interface CloneRepositoryRequest {
-  github_url: string
 }
 
 /** Response from clone operation */
@@ -1011,21 +984,10 @@ export interface ConflictDiff {
   merged: string | null
 }
 
-/** Request to resolve a conflict */
-export interface ResolveConflictRequest {
-  file_path: string
-  resolution: 'ours' | 'theirs' | 'resolved'
-}
-
 /** Response from conflict resolution */
 export interface ResolveConflictResponse {
   success: boolean
   message: string
-}
-
-/** Request to start a rebase */
-export interface RebaseRequest {
-  onto_branch: string
 }
 
 /** Response from rebase operations */
@@ -1040,12 +1002,6 @@ export interface ForcePushCheckResponse {
   needed: boolean
   commits_to_delete: number
   reason: string
-}
-
-/** Request for force push */
-export interface ForcePushRequest {
-  branch?: string
-  force_with_lease?: boolean
 }
 
 /** Response from force push */
@@ -1067,18 +1023,6 @@ export interface Branch {
 export interface BranchListResponse {
   branches: Branch[]
   current_branch: string | null
-}
-
-/** Request to rename a branch */
-export interface RenameBranchRequest {
-  old_name: string
-  new_name: string
-}
-
-/** Request to change branch base */
-export interface ChangeBaseBranchRequest {
-  feature_branch: string
-  new_base: string
 }
 
 /** Generic branch operation response */
@@ -1107,12 +1051,6 @@ export interface GitStatusInfo {
   has_operation_in_progress: boolean
   operation_type: 'rebase' | 'merge' | 'cherry_pick' | null
   last_fetch_at: string | null
-}
-
-/** Request for git sync operation */
-export interface GitSyncRequest {
-  action: 'auto' | 'pull' | 'push' | 'fetch'
-  force?: boolean
 }
 
 /** Response from git sync operation */
@@ -1207,17 +1145,6 @@ export interface RunTodosResponse {
   in_progress_count: number
   pending_count: number
   captured_at: string | null
-}
-
-/** WebSocket message for todo updates */
-export interface TodosUpdatedMessage extends WebSocketMessage {
-  type: 'todos_updated'
-  run_id: string
-  todos: TodoItem[]
-  todo_count: number
-  completed_count: number
-  in_progress_count: number
-  pending_count: number
 }
 
 // ========== Slash Command Types ==========
