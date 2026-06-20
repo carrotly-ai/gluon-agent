@@ -607,6 +607,34 @@ class UsageSummaryResponse(BaseModel):
     total_runs: int = Field(description="All-time run count")
 
 
+class GateabilityBucket(BaseModel):
+    """Loop-effectiveness metrics (I5) for one bucket of runs."""
+
+    runs: int = Field(description="Total runs in this bucket")
+    pr_producing: int = Field(description="Runs that opened a PR")
+    accepted: int = Field(description="Runs whose PR was merged (accepted changes)")
+    acceptance_rate: float = Field(description="accepted / pr_producing (0 if none)")
+    cost_usd: float = Field(description="Total cost in USD for this bucket")
+    cost_per_accepted_usd: float | None = Field(default=None, description="cost_usd / accepted; null when 0 accepted")
+
+
+class LoopEffectivenessKind(GateabilityBucket):
+    """Per-`kind` effectiveness row."""
+
+    kind: str = Field(description="Run kind: research/build/docs/bug/review/chore")
+
+
+class LoopEffectivenessResponse(BaseModel):
+    """Loop-effectiveness (I5): acceptance rate + cost-per-accepted-change, split by
+    whether the work `kind` is objectively gateable. North-star metrics live in
+    `gateable` (acceptance_rate, cost_per_accepted_usd)."""
+
+    overall: GateabilityBucket
+    gateable: GateabilityBucket = Field(description="Code-producing kinds (build/bug/chore)")
+    gateless: GateabilityBucket = Field(description="Judgment-call kinds (research/docs/review)")
+    by_kind: list[LoopEffectivenessKind] = Field(default_factory=list)
+
+
 class ProjectUsageResponse(BaseModel):
     """Response model for usage by project."""
 

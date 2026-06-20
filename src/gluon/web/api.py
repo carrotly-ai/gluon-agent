@@ -100,6 +100,7 @@ from gluon.web.models import (
     LoginRequest,
     LoginResponse,
     LogResponse,
+    LoopEffectivenessResponse,
     MeResponse,
     MergeQueueEntryResponse,
     MergeQueueListResponse,
@@ -3463,6 +3464,12 @@ def create_app(
 
         data = store.get_usage_by_project(since=since_dt, until=until_dt)
         return [ProjectUsageResponse(**item) for item in data]
+
+    @app.get("/api/usage/effectiveness", response_model=LoopEffectivenessResponse)
+    async def get_loop_effectiveness() -> LoopEffectivenessResponse:
+        """Loop-effectiveness (I5): acceptance rate + cost-per-accepted-change,
+        split by whether the work kind is objectively gateable. Read-only."""
+        return LoopEffectivenessResponse(**store.get_loop_effectiveness())
 
     @app.get("/api/usage/by-day", response_model=list[DailyUsageResponse])
     async def get_usage_by_day(

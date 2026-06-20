@@ -951,6 +951,22 @@ class Session(BaseModel):
         self.updated_at = utc_now()
 
 
+# Loop-engineering: which run `kind`s are "gateable" — i.e. an objective
+# test/lint/build can verify "done". Code-producing kinds are gateable; research,
+# docs, and review produce judgment-call outputs with no objective gate. A NULL
+# kind is treated as gateable (auto_detect_kind defaults to "build"). This is a
+# coarse proxy used for the I5 effectiveness metric; per-run "gated" (Step 1+)
+# means a `verify_cmd` is actually configured.
+GATEABLE_KINDS: frozenset[str] = frozenset({"build", "bug", "chore"})
+
+
+def is_gateable_kind(kind: str | None) -> bool:
+    """True if a run of this `kind` can be verified by an objective gate."""
+    if kind is None:
+        return True  # auto_detect_kind defaults to "build" (gateable)
+    return kind in GATEABLE_KINDS
+
+
 class ExecutionRun(BaseModel):
     """A background execution run of a Claude Code task."""
 

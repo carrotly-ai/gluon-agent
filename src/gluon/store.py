@@ -4480,6 +4480,69 @@ class GluonStore:
             "total_runs": total_row["runs"],
         }
 
+    def get_loop_effectiveness(self) -> dict:
+        """Loop-effectiveness metrics (I5): acceptance rate and cost-per-accepted-
+        change, overall and split by gateability of the run ``kind``.
+
+        - accepted    = ``pr_status == 'merged'``
+        - pr-producing = ``pr_number IS NOT NULL``
+        - gateable/gateless split via :func:`gluon.models.is_gateable_kind`.
+
+        Read-only over existing data; no behavior change.
+        """
+        from gluon.models import is_gateable_kind
+
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    kind,
+                    COUNT(*) AS runs,
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                    COALESCE(SUM(CASE WHEN pr_number IS NOT NULL THEN 1 ELSE 0 END), 0) AS pr_producing,
+                    COALESCE(SUM(CASE WHEN pr_status = 'merged' THEN 1 ELSE 0 END), 0) AS accepted
+                FROM execution_runs
+                GROUP BY kind
+                """
+            ).fetchall()
+
+        def _empty() -> dict:
+            return {"runs": 0, "pr_producing": 0, "accepted": 0, "cost_usd": 0.0}
+
+        overall, gateable, gateless = _empty(), _empty(), _empty()
+        by_kind: dict[str, dict] = {}
+
+        for row in rows:
+            kind = row["kind"]
+            raw = {
+                "runs": int(row["runs"]),
+                "pr_producing": int(row["pr_producing"]),
+                "accepted": int(row["accepted"]),
+                "cost_usd": float(row["cost_usd"]),
+            }
+            by_kind[kind or "build"] = raw
+            for bucket in (overall, gateable if is_gateable_kind(kind) else gateless):
+                for key in raw:
+                    bucket[key] += raw[key]
+
+        def _finalize(b: dict) -> dict:
+            accepted, pr_producing = b["accepted"], b["pr_producing"]
+            return {
+                "runs": b["runs"],
+                "pr_producing": pr_producing,
+                "accepted": accepted,
+                "acceptance_rate": (accepted / pr_producing) if pr_producing else 0.0,
+                "cost_usd": round(b["cost_usd"], 6),
+                "cost_per_accepted_usd": (round(b["cost_usd"] / accepted, 6) if accepted else None),
+            }
+
+        return {
+            "overall": _finalize(overall),
+            "gateable": _finalize(gateable),
+            "gateless": _finalize(gateless),
+            "by_kind": [{"kind": k, **_finalize(by_kind[k])} for k in sorted(by_kind)],
+        }
+
     def get_usage_by_project(
         self,
         since: datetime | None = None,
