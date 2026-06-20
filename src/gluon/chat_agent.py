@@ -138,6 +138,11 @@ class GluonChatAgent:
     def __init__(self, orchestrator: Orchestrator | None = None):
         self.orchestrator = orchestrator or Orchestrator()
         self._pending_task: dict[str, Any] | None = None
+        # MCP tools/server are stateless (the tool closures capture only
+        # self.orchestrator, stable across messages), so build them once and
+        # reuse instead of rebuilding all 41 closures + the server per message.
+        self._mcp_server: Any = None
+        self._mcp_tool_names: list[str] = []
 
     def _create_tools(self):
         """Create MCP tools for Gluon operations."""
@@ -1757,6 +1762,20 @@ class GluonChatAgent:
             list_claude_sessions,
         ]
 
+    def _get_mcp_server(self):
+        """Build the MCP tool server once and cache it.
+
+        The tool closures from ``_create_tools`` capture only
+        ``self.orchestrator`` (stable across messages), so rebuilding them on
+        every ``chat()`` call was pure waste. ``allowed_tools`` is derived from
+        the registered tool names so the allowlist can't drift from the tools.
+        """
+        if self._mcp_server is None:
+            tools = self._create_tools()
+            self._mcp_tool_names = [f"mcp__gluon__{t.name}" for t in tools]
+            self._mcp_server = create_sdk_mcp_server(name="gluon-tools", version="1.0.0", tools=tools)
+        return self._mcp_server
+
     async def chat(
         self,
         message: str,
@@ -1794,12 +1813,7 @@ class GluonChatAgent:
 
         full_message += message
 
-        tools = self._create_tools()
-        server = create_sdk_mcp_server(
-            name="gluon-tools",
-            version="1.0.0",
-            tools=tools,
-        )
+        server = self._get_mcp_server()
 
         # Find Claude CLI path
         cli_path = find_claude_cli()
@@ -1826,54 +1840,9 @@ class GluonChatAgent:
                 "BashOutput",
                 "WebSearch",
                 "WebFetch",
-                # Gluon MCP tools
-                "mcp__gluon__list_projects",
-                "mcp__gluon__list_sessions",
-                "mcp__gluon__get_status",
-                "mcp__gluon__run_task",
-                "mcp__gluon__resume_session",
-                "mcp__gluon__add_workspace",
-                "mcp__gluon__list_workspaces",
-                "mcp__gluon__scan_workspace",
-                "mcp__gluon__list_runs",
-                "mcp__gluon__cancel_run",
-                "mcp__gluon__get_git_status",
-                "mcp__gluon__git_sync",
-                "mcp__gluon__git_push",
-                "mcp__gluon__git_fetch",
-                # New tools
-                "mcp__gluon__get_run",
-                "mcp__gluon__get_logs",
-                "mcp__gluon__add_project",
-                "mcp__gluon__get_usage",
-                "mcp__gluon__create_pr",
-                # Agent workflow tools (inspect & merge)
-                "mcp__gluon__get_run_commits",
-                "mcp__gluon__get_run_files",
-                "mcp__gluon__get_file_diff",
-                "mcp__gluon__merge_branch",
-                "mcp__gluon__check_conflicts",
-                # Phase 1: High Priority Tools
-                "mcp__gluon__archive_run",
-                "mcp__gluon__list_branches",
-                "mcp__gluon__delete_branch",
-                "mcp__gluon__upload_image",
-                # Phase 2: Medium Priority Tools
-                "mcp__gluon__remove_project",
-                "mcp__gluon__remove_workspace",
-                "mcp__gluon__list_workspace_projects",
-                "mcp__gluon__get_usage_by_project",
-                "mcp__gluon__get_setting",
-                "mcp__gluon__set_setting",
-                "mcp__gluon__rebase_branch",
-                "mcp__gluon__rebase_continue",
-                "mcp__gluon__rebase_abort",
-                "mcp__gluon__list_run_images",
-                # Conflict Resolution Tools
-                "mcp__gluon__get_conflict_diff",
-                "mcp__gluon__resolve_conflict",
-                # Claude Session Explorer (C4)
-                "mcp__gluon__list_claude_sessions",
+                # Gluon MCP tools — derived from the registered @tool names so the
+                # allowlist can't drift from the tool set (was a hand-synced list).
+                *self._mcp_tool_names,
             ],
             max_turns=3,
             model=haiku_model,
