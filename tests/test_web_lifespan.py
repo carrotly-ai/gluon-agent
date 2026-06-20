@@ -31,10 +31,16 @@ def test_no_on_event_handlers_remain():
 
 
 def test_lifespan_context_is_wired():
-    """A custom lifespan context manager is configured on the app."""
+    """A custom lifespan context manager is configured on the app.
+
+    Including APIRouters makes Starlette merge our `lifespan` with the routers'
+    default lifespans into a `merged_lifespan` wrapper — either name confirms a
+    real (non-default) lifespan is wired; the behavioral test below proves it
+    actually runs our startup/shutdown.
+    """
     app = _make_app()
     assert app.router.lifespan_context is not None
-    assert getattr(app.router.lifespan_context, "__name__", "") == "lifespan"
+    assert getattr(app.router.lifespan_context, "__name__", "") in ("lifespan", "merged_lifespan")
 
 
 def test_lifespan_runs_startup_and_shutdown(monkeypatch):

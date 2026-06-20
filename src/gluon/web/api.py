@@ -135,10 +135,7 @@ from gluon.web.models import (
     RunUsageItemResponse,
     ScanResultResponse,
     # SDK Session Browser models
-    SDKSessionResponse,
-    SessionDetailResponse,
     SessionHistoryResponse,
-    SessionMessageResponse,
     # Slash Command models
     SlashCommandResponse,
     SlashCommandsResponse,
@@ -181,6 +178,7 @@ from gluon.web.models import (
     WorkspaceResponse,
     WorkspaceSettingsResponse,
 )
+from gluon.web.routers import sdk_sessions
 from gluon.web.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -344,6 +342,11 @@ def create_app(
     # Shared store — created early because the auth middleware below closes over it.
     if store is None:
         store = GluonStore()
+    # Expose on app.state so extracted APIRouters can inject it via Depends (#162).
+    app.state.store = store
+    # Per-domain routers extracted from this closure (#162 STEP B). They stay
+    # behind the same fail-closed auth middleware (paths unchanged).
+    app.include_router(sdk_sessions.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -5833,121 +5836,6 @@ def create_app(
             except asyncio.CancelledError:
                 pass
             logger.info(f"Stopped {name} background task")
-
-    # ========== SDK Session Browser ==========
-
-    @app.get("/api/sdk-sessions", response_model=list[SDKSessionResponse])
-    async def list_sdk_sessions(
-        directory: Annotated[str | None, Query(description="Project directory to filter sessions")] = None,
-        limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    ) -> list[SDKSessionResponse]:
-        """List all Claude SDK sessions from the local filesystem."""
-        try:
-            from claude_agent_sdk import list_sessions
-
-            sessions = list_sessions(
-                directory=directory,
-                limit=limit,
-                include_worktrees=True,
-            )
-        except Exception as e:
-            logger.warning("Failed to list SDK sessions: %s", e)
-            return []
-
-        # Build lookup of claude_session_id -> run_ids for cross-referencing
-        session_to_runs: dict[str, list[str]] = {}
-        try:
-            all_runs = store.list_runs(limit=500)
-            for r in all_runs:
-                if r.claude_session_id:
-                    session_to_runs.setdefault(r.claude_session_id, []).append(r.id)
-        except Exception as e:
-            logger.warning("Failed to load runs for session cross-reference: %s", e)
-
-        result: list[SDKSessionResponse] = []
-        for s in sessions:
-            result.append(
-                SDKSessionResponse(
-                    session_id=s.session_id,
-                    summary=s.summary,
-                    last_modified=s.last_modified,
-                    file_size=s.file_size,
-                    custom_title=s.custom_title,
-                    first_prompt=s.first_prompt,
-                    git_branch=s.git_branch,
-                    cwd=s.cwd,
-                    linked_run_ids=session_to_runs.get(s.session_id, []),
-                )
-            )
-
-        return result
-
-    @app.get("/api/sdk-sessions/{session_id}", response_model=SessionDetailResponse)
-    async def get_sdk_session(
-        session_id: str,
-        directory: Annotated[str | None, Query(description="Project directory")] = None,
-        limit: Annotated[int, Query(ge=1, le=500)] = 50,
-        offset: Annotated[int, Query(ge=0)] = 0,
-    ) -> SessionDetailResponse:
-        """Get session detail with messages from Claude SDK."""
-        try:
-            from claude_agent_sdk import get_session_messages, list_sessions
-
-            # Get session info
-            sessions = list_sessions(directory=directory, limit=200, include_worktrees=True)
-            session_info = next((s for s in sessions if s.session_id == session_id), None)
-            if not session_info:
-                raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-
-            # Get messages
-            messages = get_session_messages(
-                session_id=session_id,
-                directory=directory,
-                limit=limit,
-                offset=offset,
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning("Failed to get SDK session %s: %s", session_id, e)
-            raise HTTPException(status_code=500, detail=f"Failed to read session: {e}")
-
-        # Cross-reference linked runs
-        linked_run_ids: list[str] = []
-        try:
-            all_runs = store.list_runs(limit=500)
-            linked_run_ids = [r.id for r in all_runs if r.claude_session_id == session_id]
-        except Exception as e:
-            logger.warning("Failed to load runs for session cross-reference: %s", e)
-
-        session_resp = SDKSessionResponse(
-            session_id=session_info.session_id,
-            summary=session_info.summary,
-            last_modified=session_info.last_modified,
-            file_size=session_info.file_size,
-            custom_title=session_info.custom_title,
-            first_prompt=session_info.first_prompt,
-            git_branch=session_info.git_branch,
-            cwd=session_info.cwd,
-            linked_run_ids=linked_run_ids,
-        )
-
-        message_responses = [
-            SessionMessageResponse(
-                type=m.type,
-                uuid=m.uuid,
-                session_id=m.session_id,
-                message=m.message,
-                parent_tool_use_id=m.parent_tool_use_id,
-            )
-            for m in messages
-        ]
-
-        return SessionDetailResponse(
-            session=session_resp,
-            messages=message_responses,
-            total_messages=len(message_responses),
-        )
 
     # ========== Claude Session Explorer (C4) ==========
     #
