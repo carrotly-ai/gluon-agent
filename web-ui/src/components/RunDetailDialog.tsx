@@ -31,12 +31,12 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { useRunActions } from '@/hooks/useRunActions'
 import { parseMessages } from '@/lib/agentMessage'
 import {
   answerQuestion,
   archiveRun,
   cancelRun,
-  createPrForRun,
   deleteQueuedMessage,
   editQueuedMessage,
   fetchCommands,
@@ -605,20 +605,17 @@ export function RunDetailDialog({
     }
   }, [logs.messages, logs.stdout, activeTab])
 
-  const handleCancel = async () => {
-    if (!run) return
-    setCancelling(true)
-    try {
-      const updated = await cancelRun(run.id)
-      onRunUpdated(updated)
-      toast.success('Run cancelled')
-    } catch (err) {
-      console.error('Failed to cancel run:', err)
-      toast.error('Failed to cancel run')
-    } finally {
-      setCancelling(false)
-    }
-  }
+  // Shared run actions (#165). Dialog keeps run as a prop (no setRun), a
+  // required onRunUpdated, and the cancel toast.
+  const { handleCancel, handleCreatePr } = useRunActions({
+    run,
+    onRunUpdated,
+    setDetail,
+    setCancelling,
+    setCreatingPr,
+    setPrError,
+    cancelToasts: true,
+  })
 
   const handleArchive = async () => {
     if (!run) return
@@ -1109,34 +1106,6 @@ export function RunDetailDialog({
   }
 
   // handleArchive removed - Archive button currently disabled
-
-  const handleCreatePr = async () => {
-    if (!run) return
-    setCreatingPr(true)
-    setPrError(null)
-    try {
-      const result = await createPrForRun(run.id)
-      if (result.success && result.pr_url) {
-        // Refresh the run details to get updated PR info
-        const updatedDetail = await fetchRun(run.id)
-        setDetail(updatedDetail)
-        onRunUpdated(updatedDetail)
-        toast.success('Pull request created', {
-          description: `PR #${updatedDetail.pr_number} opened`,
-          action: {
-            label: 'View',
-            onClick: () => window.open(result.pr_url, '_blank'),
-          },
-        })
-      } else {
-        setPrError(result.error || 'Failed to create PR')
-      }
-    } catch (err) {
-      setPrError(err instanceof Error ? err.message : 'Failed to create PR')
-    } finally {
-      setCreatingPr(false)
-    }
-  }
 
   const handleMerge = async () => {
     if (!run) return

@@ -27,11 +27,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { useRunActions } from '@/hooks/useRunActions'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { parseMessages } from '@/lib/agentMessage'
 import {
   cancelRun,
-  createPrForRun,
   deleteQueuedMessage,
   editQueuedMessage,
   fetchCommands,
@@ -343,19 +343,18 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       .finally(() => setFilesLoading(false))
   }, [detail?.project_id])
 
-  const handleCancel = async () => {
-    if (!run) return
-    setCancelling(true)
-    try {
-      const updated = await cancelRun(run.id)
-      setRun(updated)
-      onRunUpdated?.(updated)
-    } catch (err) {
-      console.error('Failed to cancel run:', err)
-    } finally {
-      setCancelling(false)
-    }
-  }
+  // Shared run actions (#165). Page owns its run state (setRun), has an
+  // optional onRunUpdated, and shows no cancel toast.
+  const { handleCancel, handleCreatePr } = useRunActions({
+    run,
+    onRunUpdated,
+    setRun,
+    setDetail,
+    setCancelling,
+    setCreatingPr,
+    setPrError,
+    cancelToasts: false,
+  })
 
   const handleRefresh = async () => {
     if (!runId) return
@@ -727,34 +726,6 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       } finally {
         setLoadingFileDiff(null)
       }
-    }
-  }
-
-  const handleCreatePr = async () => {
-    if (!run) return
-    setCreatingPr(true)
-    setPrError(null)
-    try {
-      const result = await createPrForRun(run.id)
-      if (result.success && result.pr_url) {
-        const updatedDetail = await fetchRun(run.id)
-        setDetail(updatedDetail)
-        setRun(updatedDetail)
-        onRunUpdated?.(updatedDetail)
-        toast.success('Pull request created', {
-          description: `PR #${updatedDetail.pr_number} opened`,
-          action: {
-            label: 'View',
-            onClick: () => window.open(result.pr_url, '_blank'),
-          },
-        })
-      } else {
-        setPrError(result.error || 'Failed to create PR')
-      }
-    } catch (err) {
-      setPrError(err instanceof Error ? err.message : 'Failed to create PR')
-    } finally {
-      setCreatingPr(false)
     }
   }
 
