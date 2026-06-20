@@ -99,6 +99,10 @@ class RalphManager:
         # self-declared done, stash the gate output here so the next iteration's
         # prompt tells the agent to fix it (instead of re-declaring done).
         self._last_gate_failure: str | None = None
+        # Whether the objective gate has ever passed for this run. A gated run
+        # (verify_cmd set) that ends WITHOUT this becoming True hit its caps without
+        # passing — the handoff PR is marked draft (item A).
+        self._gate_passed: bool = False
 
         # Planning phase tracking for force_planning + ralph_mode
         # When True, planning is complete and agent should execute, not re-plan
@@ -127,6 +131,7 @@ class RalphManager:
         result = run_gate(self.run.verify_cmd, self.working_dir)
         if result.passed:
             self._last_gate_failure = None
+            self._gate_passed = True
             return True, f"{exit_reason}; verify_cmd passed"
         logger.info(
             "verify_cmd did not pass for run %s — self-report claimed done but the "
@@ -250,7 +255,24 @@ class RalphManager:
             self._disable_supervision(f"Max loops ({self.run.max_loops}) reached")
             self._sync_run_state()
 
+        # Loop-engineering item A: flag a gated run that ended without the gate passing.
+        if self._flag_gate_outcome():
+            self._sync_run_state()
+
         return self.run
+
+    def _flag_gate_outcome(self) -> bool:
+        """Record on ``run.metadata`` whether a *gated* run ended without the
+        objective gate ever passing (it hit its caps without success) → the
+        handoff PR should be marked DRAFT. Returns True if the flag was set.
+        No-op for gateless runs and gated runs that passed. (item A)
+        """
+        if self.run.verify_cmd and not self._gate_passed:
+            md = dict(self.run.metadata or {})
+            md["gate_not_passed"] = True
+            self.run.metadata = md
+            return True
+        return False
 
     async def _execute_iteration(self) -> RalphLoopIteration:
         """Execute a single loop iteration.

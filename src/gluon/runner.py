@@ -2696,6 +2696,39 @@ but explicit commits with good messages are preferred.
 
         return last_tool
 
+    async def _mark_pr_gate_not_passed(
+        self, run: ExecutionRun, path: Path, stdout_path: Path, *, convert: bool
+    ) -> None:
+        """Loop-engineering item A: a *gated* ralph run that ended without its
+        objective gate passing → mark the handoff PR as DRAFT + comment, so it
+        doesn't look "ready". ``convert``: the PR is already open (agent-created)
+        and must be converted; False when we just created it as a draft. Best-effort.
+        """
+        pr_number = run.pr_number
+        if pr_number is None and run.pr_url and "/pull/" in run.pr_url:
+            try:
+                pr_number = int(run.pr_url.rsplit("/pull/", 1)[-1].split("/")[0])
+            except ValueError:
+                pr_number = None
+        if pr_number is None:
+            return
+        try:
+            if convert:
+                await self.git_manager.convert_pr_to_draft(path, pr_number)
+                run.pr_status = "draft"
+            await self.git_manager.post_pr_comment(
+                path,
+                pr_number,
+                f"⚠️ **Objective gate did not pass.** This gated ralph run hit its loop/cost "
+                f"limit without `{run.verify_cmd}` exiting 0, so it's marked **draft** "
+                "(self-report claimed done but the gate is red). Fix the failure before marking ready.",
+            )
+            with open(stdout_path, "a") as f:
+                f.write(f"⚠ Gate not passed — PR #{pr_number} marked draft\n")
+        except Exception as e:
+            with open(stdout_path, "a") as f:
+                f.write(f"Warning: failed to mark PR draft: {e}\n")
+
     async def _run_ralph_loop(
         self,
         run: ExecutionRun,
@@ -2823,6 +2856,8 @@ but explicit commits with good messages are preferred.
 
                 # Auto-commit and create PR for worktree runs
                 auto_create_pr = self.store.resolve_setting("auto_create_pr", "true", workspace_id) == "true"
+                # item A: a gated run that exhausted its caps without the gate passing.
+                gate_not_passed = bool((updated_run.metadata or {}).get("gate_not_passed"))
                 if updated_run.use_worktree and updated_run.branch_name:
                     # Auto-commit uncommitted changes
                     try:
@@ -2848,6 +2883,8 @@ but explicit commits with good messages are preferred.
                     if auto_create_pr and updated_run.pr_url:
                         with open(stdout_path, "a") as f:
                             f.write(f"✓ PR created by agent: {updated_run.pr_url}\n")
+                        if gate_not_passed:
+                            await self._mark_pr_gate_not_passed(updated_run, working_path, stdout_path, convert=True)
                     elif auto_create_pr:
                         try:
                             pr_result = await self.git_manager.push_branch_and_create_pr(
@@ -2856,6 +2893,7 @@ but explicit commits with good messages are preferred.
                                 prompt=updated_run.prompt,
                                 run_id=updated_run.id,
                                 base_branch=updated_run.source_branch,
+                                draft=gate_not_passed,
                             )
                             if pr_result.get("pushed"):
                                 with open(stdout_path, "a") as f:
@@ -2867,6 +2905,11 @@ but explicit commits with good messages are preferred.
                                 with open(stdout_path, "a") as f:
                                     f.write(f"✓ Created PR: {updated_run.pr_url}\n")
                                 self.store.update_run(updated_run)
+                                if gate_not_passed:
+                                    # PR already created as a draft; just add the comment.
+                                    await self._mark_pr_gate_not_passed(
+                                        updated_run, working_path, stdout_path, convert=False
+                                    )
                             elif pr_result.get("error"):
                                 with open(stdout_path, "a") as f:
                                     f.write(f"Warning: PR creation: {pr_result['error']}\n")

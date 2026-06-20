@@ -581,6 +581,7 @@ class GitManager:
         prompt: str,
         run_id: str,
         base_branch: str | None = None,
+        draft: bool = False,
     ) -> dict:
         """
         Push branch to remote and create a PR for worktree runs.
@@ -649,6 +650,8 @@ Run ID: `{run_id}`
             ]
             if base_branch:
                 gh_args.extend(["--base", base_branch])
+            if draft:
+                gh_args.append("--draft")
             proc = await asyncio.create_subprocess_exec(
                 *gh_args,
                 cwd=project_path,
@@ -675,8 +678,8 @@ Run ID: `{run_id}`
                         result["pr_number"] = int(pr_url.split("/pull/")[-1])
                     except ValueError:
                         pass
-                result["pr_status"] = "open"
-                logger.info(f"Created PR: {pr_url}")
+                result["pr_status"] = "draft" if draft else "open"
+                logger.info(f"Created {'draft ' if draft else ''}PR: {pr_url}")
 
         except FileNotFoundError:
             result["error"] = "GitHub CLI (gh) not installed"
@@ -2096,4 +2099,32 @@ Run ID: `{run_id}`
 
         except (FileNotFoundError, Exception) as e:
             logger.warning(f"Error posting PR comment: {e}")
+            return False
+
+    async def convert_pr_to_draft(self, path: Path, pr_number: int) -> bool:
+        """Convert an open PR to draft (``gh pr ready <n> --undo``).
+
+        Used by the loop-engineering handoff (item A): when a gated ralph run hits
+        its caps without the objective gate passing, an already-open PR is marked
+        draft to signal "not actually done". Best-effort; returns False on failure.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "pr",
+                "ready",
+                str(pr_number),
+                "--undo",
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                logger.warning(f"Failed to convert PR #{pr_number} to draft: {stderr.decode()}")
+                return False
+            logger.info(f"Converted PR #{pr_number} to draft")
+            return True
+        except OSError as e:
+            logger.warning(f"Failed to convert PR #{pr_number} to draft: {e}")
             return False

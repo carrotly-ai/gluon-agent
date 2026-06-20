@@ -6,7 +6,7 @@ authority; *gateless* runs are unchanged (non-regression).
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from gluon.gate import GateResult, run_gate
 from gluon.models import ExecutionRun, RunStatus
@@ -101,3 +101,50 @@ def test_gate_failure_injected_into_loop_prompt(tmp_path: Path) -> None:
     prompt = mgr._build_loop_prompt(2)
     assert "OBJECTIVE GATE FAILED" in prompt
     assert "AssertionError: boom" in prompt
+
+
+# --- item A: gate-outcome flag + draft-PR handoff ---
+
+
+def test_flag_gate_outcome_gated_not_passed(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path, verify_cmd="pytest")
+    mgr._gate_passed = False
+    assert mgr._flag_gate_outcome() is True
+    assert mgr.run.metadata is not None and mgr.run.metadata["gate_not_passed"] is True
+
+
+def test_flag_gate_outcome_gated_passed(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path, verify_cmd="pytest")
+    mgr._gate_passed = True
+    assert mgr._flag_gate_outcome() is False
+    assert not (mgr.run.metadata or {}).get("gate_not_passed")
+
+
+def test_flag_gate_outcome_gateless(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path, verify_cmd=None)
+    assert mgr._flag_gate_outcome() is False
+    assert not (mgr.run.metadata or {}).get("gate_not_passed")
+
+
+async def test_mark_pr_gate_not_passed_converts_and_comments(tmp_path: Path) -> None:
+    from gluon.runner import TaskRunner
+    from gluon.store import GluonStore
+
+    runner = TaskRunner(store=GluonStore(tmp_path / "t.db"))
+    runner.git_manager = MagicMock()
+    runner.git_manager.convert_pr_to_draft = AsyncMock(return_value=True)
+    runner.git_manager.post_pr_comment = AsyncMock(return_value=True)
+
+    run = ExecutionRun(
+        id="r",
+        project_id="p",
+        prompt="x",
+        verify_cmd="pytest",
+        pr_url="https://github.com/o/repo/pull/42",
+    )
+    await runner._mark_pr_gate_not_passed(run, tmp_path, tmp_path / "out.log", convert=True)
+
+    runner.git_manager.convert_pr_to_draft.assert_awaited_once()
+    assert runner.git_manager.convert_pr_to_draft.await_args.args[1] == 42  # pr_number parsed
+    runner.git_manager.post_pr_comment.assert_awaited_once()
+    assert run.pr_status == "draft"
