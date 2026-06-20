@@ -1134,27 +1134,3 @@ class TelegramTransport(Transport):
                     )
                 )
                 self.bot_core.register_task(run.id, task)
-
-
-async def run_telegram_transport(
-    token: str,
-    bot_core: GluonBotCore,
-    allowed_users: list[int] | None = None,
-) -> None:
-    """Run the Telegram transport until interrupted.
-
-    Args:
-        token: Telegram bot token
-        bot_core: Bot core instance
-        allowed_users: List of allowed Telegram user IDs
-    """
-    transport = TelegramTransport(token, bot_core, allowed_users)
-    await transport.start()
-
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await transport.stop()

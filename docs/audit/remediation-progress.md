@@ -15,7 +15,10 @@ Green = no NEW ruff/mypy errors in touched files, no NEW test failures.
 ### Tier 1 — quick wins
 - [x] **1. Latent bugs** `[bug/high/low]` — fix `formula run` (`anyio.from_thread.run`→`anyio.run`); wire `WorkQueueManager` finalization (`_finalize_queue_item`) so queue items stop leaking in RUNNING. +4 regression tests. *(commit: see below)*
 - [x] **2. Debug prints** `[low/trivial/none]` — removed 9×`[RECOVERY]` (`api.py` `_run_recovery`) + 1×`[AGENT]` (`agent.py`) + a redundant `traceback.print_exc()`; all sat beside `logger.*` calls so logging behavior is unchanged.
-- [ ] **3. Leaf dead code (Clusters E–J)** `[med/low/very-low]` — re-grep each symbol before deletion; delete test-only symbols + their tests together.
+- [~] **3. Leaf dead code (Clusters E–J)** `[med/low/very-low]` — re-grep each symbol before deletion; delete test-only symbols + their tests together.
+  - [x] **3A — prod-only zero-caller deletes**: websocket `stream_log_line`/`broadcast_todos_updated`; `agent.execute_simple`; resume_coordinator singleton (`_coordinator`+get/set/start/stop); `transport.get_telegram_transport`; capabilities `SLACK_CAPS`/`CLI_CAPS`; `models.Project.is_workspace_managed` + `ImageAttachment.to_markdown`; `commands.search_commands`; `run_telegram_transport`/`run_discord_transport`; runner `supervisor`/`supervisor_running` props. Gate green (2320 passed).
+  - [ ] **3B — test-only symbols + their tests**: image_storage `copy_to_worktree`/`get_markdown_references`/`save_image_from_file`; `blueprint.run_validation`; `policies.should_auto_resume`; `recurrence.cron_to_recurrence`; `bot_core.resolve_project`/`get_task`.
+  - [ ] **3C — misc + needs-care**: `MODEL_IDS`/`_ModelIDsProxy`, store `SCHEMA` constant, `events/types` EXECUTION/SYSTEM, `circuit_breaker.last_output_length` (write-only field — read method first), capability boolean fields, `scheduler.TaskStatus` re-export, `cli recover --wait`, RedisEventTransport publisher trio. **SKIP `STALLED_THRESHOLD`** (live at health_monitor.py:142 — misleading-value fix, not a deletion).
 - [ ] **4. web-ui dead exports** `[med/low/very-low]` — ~30 dead `api.ts` fns + 12 orphan types + `POLL_FAST` + stale TODOs (§7). *(advanced-git api.ts clients → DEFER, see issues)*
 - [ ] **5. store `in keys` guards** `[low/low/low]` — drop obsolete guards in `_row_to_run`/`update_run` (§2).
 
@@ -51,4 +54,4 @@ do not delete `compute_next_fire` (ValueError contract); do not remove `GLUON_RE
 (feed the LIVE event bus).
 
 ## NEXT STEPS
-Items 1–2 done. Next: **item 3 — leaf dead code (Clusters E–J)** — re-grep each symbol to reconfirm 0 refs before deleting; delete test-only symbols with their tests. Start with the lowest-risk leaves (websocket `broadcast_todos_updated`/`stream_log_line`, `agent.execute_simple`, `search_commands`, image-storage wrappers).
+Items 1–2 done; item 3 sub-batch A done (13 prod-only dead symbols removed). Next: **item 3B — test-only dead symbols + their tests** (image_storage `copy_to_worktree`/`get_markdown_references`/`save_image_from_file`; `blueprint.run_validation`; `policies.should_auto_resume`; `recurrence.cron_to_recurrence`; `bot_core.resolve_project`/`get_task`) — delete each symbol together with the tests that exercise it.

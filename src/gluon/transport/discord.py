@@ -1796,21 +1796,3 @@ class DiscordTransport(Transport):
 
         task = asyncio.create_task(execute_task())
         self.bot_core.register_task(run.id, task)
-
-
-async def run_discord_transport(
-    token: str,
-    guild_id: int,
-    bot_core: GluonBotCore,
-    allowed_users: list[int] | None = None,
-) -> None:
-    """Run the Discord transport until interrupted.
-
-    Args:
-        token: Discord bot token
-        guild_id: Discord guild (server) ID
-        bot_core: Bot core instance
-        allowed_users: List of allowed Discord user IDs
-    """
-    transport = DiscordTransport(token, guild_id, bot_core, allowed_users)
-    await transport.start()

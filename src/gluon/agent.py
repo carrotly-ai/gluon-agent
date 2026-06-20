@@ -1402,36 +1402,6 @@ class GluonAgent:
             stop_reason=stop_reason,
         )
 
-    async def execute_simple(
-        self,
-        working_dir: Path,
-        prompt: str | MultimodalPrompt,
-        resume_session_id: str | None = None,
-        images: list[Path] | None = None,
-        fork_session: bool = True,
-    ) -> AgentResult:
-        """
-        Execute a prompt and return only the final result.
-
-        This is a simpler interface that doesn't stream messages.
-        """
-        result: AgentResult | None = None
-
-        async for item in self.execute(working_dir, prompt, resume_session_id, images, fork_session):
-            if isinstance(item, AgentResult):
-                result = item
-
-        if result is None:
-            return AgentResult(
-                claude_session_id=None,
-                total_cost_usd=0.0,
-                total_turns=0,
-                success=False,
-                error="No result received from agent",
-            )
-
-        return result
-
     async def resume_with_fresh_context(
         self,
         recovery_state: dict[str, Any],

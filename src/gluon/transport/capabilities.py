@@ -54,25 +54,3 @@ DISCORD_CAPS = TransportCapabilities(
     supports_embeds=True,
     supports_buttons=True,
 )
-
-# Slack capabilities (for future use)
-SLACK_CAPS = TransportCapabilities(
-    max_message_length=40000,
-    supports_threads=True,
-    supports_editing=True,
-    supports_reactions=True,
-    supports_typing=True,
-    supports_embeds=True,  # Blocks
-    supports_buttons=True,
-)
-
-# CLI/Terminal capabilities (for testing)
-CLI_CAPS = TransportCapabilities(
-    max_message_length=100000,  # Effectively unlimited
-    supports_threads=False,
-    supports_editing=False,
-    supports_reactions=False,
-    supports_typing=False,
-    supports_embeds=False,
-    supports_buttons=False,
-)

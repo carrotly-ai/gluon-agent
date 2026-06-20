@@ -2573,16 +2573,6 @@ but explicit commits with good messages are preferred.
 
         return dispatched
 
-    @property
-    def supervisor(self) -> ResumeCoordinator | None:
-        """Get the supervision coordinator instance."""
-        return self._supervisor
-
-    @property
-    def supervisor_running(self) -> bool:
-        """Check if supervisor is running."""
-        return self._supervisor is not None and self._supervisor.is_running
-
     async def evaluate_supervision(self, run_id: str) -> dict | None:
         """Manually trigger supervision evaluation for a run.
 

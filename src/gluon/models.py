@@ -906,11 +906,6 @@ class Project(BaseModel):
             expanded = expanded.resolve()
         return expanded
 
-    @property
-    def is_workspace_managed(self) -> bool:
-        """Check if this project is managed by a workspace."""
-        return self.workspace_id is not None
-
 
 class Session(BaseModel):
     """A Claude Code session associated with a project."""
@@ -1697,10 +1692,6 @@ class ImageAttachment(BaseModel):
     def full_path(self) -> Path:
         """Get full path to image file in storage."""
         return Path.home() / ".gluon" / "images" / self.file_path
-
-    def to_markdown(self) -> str:
-        """Return markdown image reference."""
-        return f"![{self.original_name}]({self.file_path})"
 
 
 # ========== Distributed Worker Models ==========

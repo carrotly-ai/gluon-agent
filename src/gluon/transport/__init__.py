@@ -21,10 +21,3 @@ __all__ = [
     "TELEGRAM_CAPS",
     "DISCORD_CAPS",
 ]
-
-
-def get_telegram_transport():
-    """Lazy import TelegramTransport to avoid circular imports."""
-    from gluon.transport.telegram import TelegramTransport
-
-    return TelegramTransport
