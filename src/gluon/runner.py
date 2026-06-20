@@ -1472,12 +1472,7 @@ but explicit commits with good messages are preferred.
                             if run.use_worktree and run.branch_name and item.success:
                                 # Safety net: auto-commit any uncommitted changes
                                 try:
-                                    prompt_preview = run.prompt[:60]
-                                    ellipsis = "..." if len(run.prompt) > 60 else ""
-                                    commit_msg = (
-                                        f"chore: {prompt_preview}{ellipsis}\n\n"
-                                        f"Auto-committed by Gluon Agent\nRun ID: {run.id}"
-                                    )
+                                    commit_msg = _auto_commit_message(run.prompt, run.id)
                                     commit_result = await self.git_manager.auto_commit_changes(
                                         path=working_path,
                                         message=commit_msg,
@@ -2785,11 +2780,8 @@ but explicit commits with good messages are preferred.
                 if updated_run.use_worktree and updated_run.branch_name:
                     # Auto-commit uncommitted changes
                     try:
-                        prompt_preview = updated_run.prompt[:60]
-                        ellipsis = "..." if len(updated_run.prompt) > 60 else ""
-                        commit_msg = (
-                            f"chore: {prompt_preview}{ellipsis}\n\n"
-                            f"Auto-committed by Gluon Agent (Ralph Loop)\nRun ID: {updated_run.id}"
+                        commit_msg = _auto_commit_message(
+                            updated_run.prompt, updated_run.id, "Gluon Agent (Ralph Loop)"
                         )
                         commit_result = await self.git_manager.auto_commit_changes(
                             path=working_path,
@@ -3059,6 +3051,19 @@ but explicit commits with good messages are preferred.
 
 
 # Utility functions for CLI
+
+
+def _auto_commit_message(prompt: str, run_id: str, label: str = "Gluon Agent") -> str:
+    """Build the safety-net auto-commit message for a worktree run (#161).
+
+    Shared by ``_run_task`` and ``_run_ralph_loop`` — the only difference between
+    the two call sites was the label ("Gluon Agent" vs "Gluon Agent (Ralph
+    Loop)"). Pure (no I/O), so it is unit-tested directly. The rest of the two
+    finalization tails diverge on several axes and are NOT folded here (see #161).
+    """
+    preview = prompt[:60]
+    ellipsis = "..." if len(prompt) > 60 else ""
+    return f"chore: {preview}{ellipsis}\n\nAuto-committed by {label}\nRun ID: {run_id}"
 
 
 def format_duration(seconds: float | None) -> str:
