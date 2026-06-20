@@ -69,13 +69,31 @@ breaking the large share of Gluon's work (research/docs/review) that has no gate
   `fetchLoopEffectiveness`, "Loop Effectiveness" panel (gateable vs gateless), hidden until
   there are runs, graceful `.catch → null`. biome + build green. (Runtime screenshot pending a
   container rebuild from this branch — the running image predates the backend endpoint.)
-- [~] Step 1 — I4 warn-only:
-  - [x] core: `ExecutionRun.verify_cmd` + `run_readiness`; additive migration; `create_run`
-    persistence + `_row_to_run`; `RunResponse.verify_cmd`/`readiness`; ralph-start log line;
-    tests (incl. non-regression). Full suite 2302 passed.
-  - [ ] setters: `gluon run --verify-cmd` CLI flag + `CreateRunRequest.verify_cmd` → `runner.submit` → `create_run`.
+- [x] Step 1 — I4 warn-only (FULLY DONE):
+  - core: `ExecutionRun.verify_cmd` + `run_readiness`; additive migration; `create_run`
+    persistence + `_row_to_run`; `RunResponse.verify_cmd`/`readiness`; ralph-start log line.
+  - setters: `gluon run --verify-cmd` + `CreateRunRequest.verify_cmd` → `runner.submit` → `create_run`.
+  - tests/test_verify_cmd_readiness.py (helper, persistence, API exposure, API setter forward, non-regression). Full suite 2303 passed.
 - [ ] Step 2 — I1 objective gate
 - [ ] Step 3 — completion_detector demotion
+
+## Step 2 — I1 objective gate (DESIGN — to validate next iteration; design-heaviest)
+When `run.verify_cmd` is set, the ralph loop must treat `verify_cmd` exit-0 as the
+authoritative "done", overriding self-report. Plan:
+1. A small reusable helper (e.g. `gluon/gate.py`) `run_gate(cmd, cwd, timeout) -> (passed, output)`
+   that runs the command (subprocess, timeout) and returns exit-0 == passed.
+2. In the ralph loop body (runner._run_ralph_loop / ralph_manager), after each iteration:
+   if gated, run the gate in a CLEAN checkout of the run's worktree/branch (validate how the
+   worktree is created — git_manager); exit the loop only when the gate passes. RALPH_STATUS
+   EXIT_SIGNAL becomes a *progress hint* (logged), not the exit authority, when gated.
+3. Gateless (no verify_cmd): unchanged today, but ensure the bound exists — cap iterations/cost
+   (max_loops/max_cost already exist) → on exhaustion open a DRAFT PR + hand off (validate the
+   PR-creation path in git_manager; "draft" flag). Never refuse / never infinite-loop.
+VALIDATE against: completion_detector.py (where EXIT_SIGNAL is treated as authority — the
+demotion seam), the ralph loop body (where it decides to continue/stop + iteration accounting),
+and git_manager (worktree checkout + `gh pr create --draft`). **If the clean-checkout or
+draft-handoff mechanics require a big refactor or are genuinely ambiguous, STOP and escalate
+options in the PR rather than guessing** (per guardrails).
 
 ## Step 1 — I4 warn-only (DESIGN — to validate next iteration)
 Add a `verify_cmd: str | None` field to `ExecutionRun` (additive migration in store.py
@@ -86,8 +104,10 @@ exit-criteria change. Validate against: ExecutionRun fields, create_run signatur
 the MIGRATIONS list pattern, RunResponse, and the ralph start path in runner.py.
 
 ## NEXT STEPS
-Finish Step 1 setters so users can actually set `verify_cmd`: add `CreateRunRequest.verify_cmd`
-(web/models.py) → thread through `runner.submit` (add param) → `store.create_run(verify_cmd=...)`,
-and a `gluon run --verify-cmd` CLI flag (cli.py). Ground against runner.submit's signature +
-how it calls create_run, and the CLI run command. Add tests (API create with verify_cmd round-trips
-to the run record). Then Step 2 (I1 objective gate).
+Step 2 (I1 objective gate). FIRST ground the design (Step 2 section above) against
+completion_detector.py, the ralph loop body (runner._run_ralph_loop / ralph_manager), and
+git_manager (worktree clean checkout + draft PR). Write the validated design into this doc.
+If the clean-checkout/draft-handoff mechanics are ambiguous or require a big refactor, STOP and
+escalate options in the PR (do not guess). Otherwise implement the reusable gate helper +
+gated-exit override + gateless cap→draft→handoff, opt-in, with a non-regression test that
+verify_cmd=None behaves exactly as today.
