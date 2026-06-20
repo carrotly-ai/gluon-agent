@@ -3520,20 +3520,19 @@ class GluonStore:
 
     def _row_to_run(self, row: sqlite3.Row) -> ExecutionRun:
         """Convert database row to ExecutionRun model."""
-        keys = row.keys()
         return ExecutionRun(
             id=row["id"],
             session_id=row["session_id"],
-            claude_session_id=row["claude_session_id"] if "claude_session_id" in keys else None,
+            claude_session_id=row["claude_session_id"],
             project_id=row["project_id"],
-            agent_id=row["agent_id"] if "agent_id" in keys else None,
+            agent_id=row["agent_id"],
             pid=row["pid"],
             status=RunStatus(row["status"]),
             prompt=row["prompt"],
-            original_prompt=row["original_prompt"] if "original_prompt" in keys else None,
-            initiator=row["initiator"] if "initiator" in keys else None,
-            user_id=row["user_id"] if "user_id" in keys else None,
-            thread_id=row["thread_id"] if "thread_id" in keys else None,
+            original_prompt=row["original_prompt"],
+            initiator=row["initiator"],
+            user_id=row["user_id"],
+            thread_id=row["thread_id"],
             created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
             started_at=_parse_datetime(row["started_at"]),
             completed_at=_parse_datetime(row["completed_at"]),
@@ -3541,147 +3540,101 @@ class GluonStore:
             log_path=Path(row["log_path"]) if row["log_path"] else None,
             error_message=row["error_message"],
             # Cost tracking
-            cost_usd=row["cost_usd"] if "cost_usd" in keys else None,
-            input_tokens=row["input_tokens"] if "input_tokens" in keys else None,
-            output_tokens=row["output_tokens"] if "output_tokens" in keys else None,
-            model_used=row["model_used"] if "model_used" in keys else None,
+            cost_usd=row["cost_usd"],
+            input_tokens=row["input_tokens"],
+            output_tokens=row["output_tokens"],
+            model_used=row["model_used"],
             # Git/worktree tracking
-            branch_name=row["branch_name"] if "branch_name" in keys else None,
-            source_branch=row["source_branch"] if "source_branch" in keys else None,
-            worktree_path=row["worktree_path"] if "worktree_path" in keys else None,
-            use_worktree=bool(row["use_worktree"])
-            if "use_worktree" in keys and row["use_worktree"] is not None
-            else False,
-            git_commit_sha=row["git_commit_sha"] if "git_commit_sha" in keys else None,
-            pr_number=row["pr_number"] if "pr_number" in keys else None,
-            pr_url=row["pr_url"] if "pr_url" in keys else None,
-            pr_status=row["pr_status"] if "pr_status" in keys else None,
-            pr_mergeable=row["pr_mergeable"] if "pr_mergeable" in keys else None,
-            ci_status=row["ci_status"] if "ci_status" in keys else None,
+            branch_name=row["branch_name"],
+            source_branch=row["source_branch"],
+            worktree_path=row["worktree_path"],
+            use_worktree=bool(row["use_worktree"]) if row["use_worktree"] is not None else False,
+            git_commit_sha=row["git_commit_sha"],
+            pr_number=row["pr_number"],
+            pr_url=row["pr_url"],
+            pr_status=row["pr_status"],
+            pr_mergeable=row["pr_mergeable"],
+            ci_status=row["ci_status"],
             # Archive tracking
-            archived=bool(row["archived"]) if "archived" in keys and row["archived"] is not None else False,
-            archived_at=_parse_datetime(row["archived_at"]) if "archived_at" in keys else None,
+            archived=bool(row["archived"]) if row["archived"] is not None else False,
+            archived_at=_parse_datetime(row["archived_at"]),
             # Resume tracking
-            resume_count=row["resume_count"] if "resume_count" in keys and row["resume_count"] is not None else 0,
-            last_resumed_at=_parse_datetime(row["last_resumed_at"]) if "last_resumed_at" in keys else None,
+            resume_count=row["resume_count"] if row["resume_count"] is not None else 0,
+            last_resumed_at=_parse_datetime(row["last_resumed_at"]),
             # Model selection
-            model=row["model"] if "model" in keys else None,
+            model=row["model"],
             # Context overflow recovery tracking
-            recovery_count=row["recovery_count"]
-            if "recovery_count" in keys and row["recovery_count"] is not None
-            else 0,
-            last_recovery_at=_parse_datetime(row["last_recovery_at"]) if "last_recovery_at" in keys else None,
-            recovery_from_run_id=row["recovery_from_run_id"] if "recovery_from_run_id" in keys else None,
+            recovery_count=row["recovery_count"] if row["recovery_count"] is not None else 0,
+            last_recovery_at=_parse_datetime(row["last_recovery_at"]),
+            recovery_from_run_id=row["recovery_from_run_id"],
             # Recovery progress UI
-            is_recovering=bool(row["is_recovering"])
-            if "is_recovering" in keys and row["is_recovering"] is not None
-            else False,
-            recovery_item_count=row["recovery_item_count"]
-            if "recovery_item_count" in keys and row["recovery_item_count"] is not None
-            else 0,
+            is_recovering=bool(row["is_recovering"]) if row["is_recovering"] is not None else False,
+            recovery_item_count=row["recovery_item_count"] if row["recovery_item_count"] is not None else 0,
             # PR monitoring tracking
-            last_comment_id=row["last_comment_id"] if "last_comment_id" in keys else None,
-            last_check_sha=row["last_check_sha"] if "last_check_sha" in keys else None,
-            auto_resume_enabled=bool(row["auto_resume_enabled"])
-            if "auto_resume_enabled" in keys and row["auto_resume_enabled"] is not None
-            else True,
-            auto_resume_count=row["auto_resume_count"]
-            if "auto_resume_count" in keys and row["auto_resume_count"] is not None
-            else 0,
+            last_comment_id=row["last_comment_id"],
+            last_check_sha=row["last_check_sha"],
+            auto_resume_enabled=bool(row["auto_resume_enabled"]) if row["auto_resume_enabled"] is not None else True,
+            auto_resume_count=row["auto_resume_count"] if row["auto_resume_count"] is not None else 0,
             # Ralph mode fields
-            ralph_enabled=bool(row["ralph_enabled"])
-            if "ralph_enabled" in keys and row["ralph_enabled"] is not None
-            else False,
-            loop_count=row["loop_count"] if "loop_count" in keys and row["loop_count"] is not None else 0,
-            max_loops=row["max_loops"] if "max_loops" in keys and row["max_loops"] is not None else 50,
-            circuit_state=CircuitState(row["circuit_state"])
-            if "circuit_state" in keys and row["circuit_state"]
-            else CircuitState.CLOSED,
-            consecutive_no_progress=row["consecutive_no_progress"]
-            if "consecutive_no_progress" in keys and row["consecutive_no_progress"] is not None
-            else 0,
-            consecutive_same_error=row["consecutive_same_error"]
-            if "consecutive_same_error" in keys and row["consecutive_same_error"] is not None
-            else 0,
-            last_progress_loop=row["last_progress_loop"]
-            if "last_progress_loop" in keys and row["last_progress_loop"] is not None
-            else 0,
-            last_error_hash=row["last_error_hash"] if "last_error_hash" in keys else None,
-            half_open_iterations=row["half_open_iterations"]
-            if "half_open_iterations" in keys and row["half_open_iterations"] is not None
-            else 0,
-            completion_signals=row["completion_signals"]
-            if "completion_signals" in keys and row["completion_signals"] is not None
-            else 0,
-            test_only_loops=row["test_only_loops"]
-            if "test_only_loops" in keys and row["test_only_loops"] is not None
-            else 0,
-            completion_confidence=row["completion_confidence"]
-            if "completion_confidence" in keys and row["completion_confidence"] is not None
-            else 0.0,
-            completion_reason=row["completion_reason"] if "completion_reason" in keys else None,
-            calls_this_hour=row["calls_this_hour"]
-            if "calls_this_hour" in keys and row["calls_this_hour"] is not None
-            else 0,
-            hour_start=_parse_datetime(row["hour_start"]) if "hour_start" in keys else None,
-            max_calls_per_hour=row["max_calls_per_hour"]
-            if "max_calls_per_hour" in keys and row["max_calls_per_hour"] is not None
-            else 100,
-            max_cost_usd=row["max_cost_usd"] if "max_cost_usd" in keys else None,
+            ralph_enabled=bool(row["ralph_enabled"]) if row["ralph_enabled"] is not None else False,
+            loop_count=row["loop_count"] if row["loop_count"] is not None else 0,
+            max_loops=row["max_loops"] if row["max_loops"] is not None else 50,
+            circuit_state=CircuitState(row["circuit_state"]) if row["circuit_state"] else CircuitState.CLOSED,
+            consecutive_no_progress=row["consecutive_no_progress"] if row["consecutive_no_progress"] is not None else 0,
+            consecutive_same_error=row["consecutive_same_error"] if row["consecutive_same_error"] is not None else 0,
+            last_progress_loop=row["last_progress_loop"] if row["last_progress_loop"] is not None else 0,
+            last_error_hash=row["last_error_hash"],
+            half_open_iterations=row["half_open_iterations"] if row["half_open_iterations"] is not None else 0,
+            completion_signals=row["completion_signals"] if row["completion_signals"] is not None else 0,
+            test_only_loops=row["test_only_loops"] if row["test_only_loops"] is not None else 0,
+            completion_confidence=row["completion_confidence"] if row["completion_confidence"] is not None else 0.0,
+            completion_reason=row["completion_reason"],
+            calls_this_hour=row["calls_this_hour"] if row["calls_this_hour"] is not None else 0,
+            hour_start=_parse_datetime(row["hour_start"]),
+            max_calls_per_hour=row["max_calls_per_hour"] if row["max_calls_per_hour"] is not None else 100,
+            max_cost_usd=row["max_cost_usd"],
             # Approval gates (Theme D1)
             approval_policy=(
-                ApprovalPolicy(row["approval_policy"])
-                if "approval_policy" in keys and row["approval_policy"]
-                else ApprovalPolicy.PERMISSIVE
+                ApprovalPolicy(row["approval_policy"]) if row["approval_policy"] else ApprovalPolicy.PERMISSIVE
             ),
             # Hard caps (Theme D3)
-            max_tool_calls=row["max_tool_calls"] if "max_tool_calls" in keys else None,
-            max_duration_minutes=row["max_duration_minutes"] if "max_duration_minutes" in keys else None,
-            tool_call_count=(
-                row["tool_call_count"] if "tool_call_count" in keys and row["tool_call_count"] is not None else 0
-            ),
+            max_tool_calls=row["max_tool_calls"],
+            max_duration_minutes=row["max_duration_minutes"],
+            tool_call_count=(row["tool_call_count"] if row["tool_call_count"] is not None else 0),
             # Supervision fields
             supervision_config=SupervisionConfig(**json.loads(row["supervision_config"]))
-            if "supervision_config" in keys and row["supervision_config"]
+            if row["supervision_config"]
             else None,
             supervision_auto_resume_count=row["supervision_auto_resume_count"]
-            if "supervision_auto_resume_count" in keys and row["supervision_auto_resume_count"] is not None
+            if row["supervision_auto_resume_count"] is not None
             else 0,
-            last_supervision_check_at=_parse_datetime(row["last_supervision_check_at"])
-            if "last_supervision_check_at" in keys
-            else None,
-            last_supervision_resume_at=_parse_datetime(row["last_supervision_resume_at"])
-            if "last_supervision_resume_at" in keys
-            else None,
-            supervision_disabled_reason=row["supervision_disabled_reason"]
-            if "supervision_disabled_reason" in keys
-            else None,
+            last_supervision_check_at=_parse_datetime(row["last_supervision_check_at"]),
+            last_supervision_resume_at=_parse_datetime(row["last_supervision_resume_at"]),
+            supervision_disabled_reason=row["supervision_disabled_reason"],
             # Queued messages (JSON array)
             queued_messages=[QueuedMessage(**m) for m in json.loads(row["queued_messages"])]
-            if "queued_messages" in keys and row["queued_messages"]
+            if row["queued_messages"]
             else [],
             # Commit/file snapshot tracking
-            changes_snapshotted=bool(row["changes_snapshotted"])
-            if "changes_snapshotted" in keys and row["changes_snapshotted"] is not None
-            else False,
-            snapshot_at=_parse_datetime(row["snapshot_at"]) if "snapshot_at" in keys else None,
+            changes_snapshotted=bool(row["changes_snapshotted"]) if row["changes_snapshotted"] is not None else False,
+            snapshot_at=_parse_datetime(row["snapshot_at"]),
             # Task profile metadata
-            metadata=json.loads(row["metadata"]) if "metadata" in keys and row["metadata"] else None,
+            metadata=json.loads(row["metadata"]) if row["metadata"] else None,
             # Health monitoring
-            last_output_at=_parse_datetime(row["last_output_at"]) if "last_output_at" in keys else None,
+            last_output_at=_parse_datetime(row["last_output_at"]),
             # Task chain linking
-            chain_id=row["chain_id"] if "chain_id" in keys else None,
-            step_id=row["step_id"] if "step_id" in keys else None,
+            chain_id=row["chain_id"],
+            step_id=row["step_id"],
             # List-view cockpit fields
-            custom_title=row["custom_title"] if "custom_title" in keys else None,
-            kind=row["kind"] if "kind" in keys else None,
-            snoozed_until=_parse_datetime(row["snoozed_until"]) if "snoozed_until" in keys else None,
-            last_activity_at=_parse_datetime(row["last_activity_at"]) if "last_activity_at" in keys else None,
-            forked_from_run_id=row["forked_from_run_id"] if "forked_from_run_id" in keys else None,
+            custom_title=row["custom_title"],
+            kind=row["kind"],
+            snoozed_until=_parse_datetime(row["snoozed_until"]),
+            last_activity_at=_parse_datetime(row["last_activity_at"]),
+            forked_from_run_id=row["forked_from_run_id"],
             # Scheduled-task linkage
-            schedule_id=row["schedule_id"] if "schedule_id" in keys else None,
+            schedule_id=row["schedule_id"],
             # Loop-engineering: optional objective gate command (I4/I1)
-            verify_cmd=row["verify_cmd"] if "verify_cmd" in keys else None,
+            verify_cmd=row["verify_cmd"],
         )
 
     def get_run_with_project(self, run_id: str) -> tuple[ExecutionRun, Project] | None:
