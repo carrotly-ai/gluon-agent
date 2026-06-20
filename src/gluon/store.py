@@ -872,6 +872,8 @@ MIGRATIONS = [
     # FK from execution_runs back to the schedule that spawned them. Nullable;
     # NULL for runs created from the UI / CLI / API directly.
     "ALTER TABLE execution_runs ADD COLUMN schedule_id TEXT;",
+    # Loop-engineering I4/I1: optional objective gate command for ralph loops.
+    "ALTER TABLE execution_runs ADD COLUMN verify_cmd TEXT;",
     "CREATE INDEX IF NOT EXISTS idx_runs_schedule_id ON execution_runs(schedule_id);",
 ]
 
@@ -3199,6 +3201,7 @@ class GluonStore:
         forked_from_run_id: str | None = None,
         claude_session_id: str | None = None,
         schedule_id: str | None = None,
+        verify_cmd: str | None = None,
     ) -> ExecutionRun:
         """Create a new execution run.
 
@@ -3235,6 +3238,7 @@ class GluonStore:
             custom_title=custom_title,
             forked_from_run_id=forked_from_run_id,
             schedule_id=schedule_id,
+            verify_cmd=verify_cmd,
         )
         # Seed last_activity_at so the new run sorts correctly under "Recent activity".
         run.last_activity_at = run.created_at
@@ -3247,9 +3251,9 @@ class GluonStore:
                  started_at, completed_at, exit_code, log_path, error_message, model,
                  ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy,
                  max_tool_calls, max_duration_minutes, tool_call_count, user_id,
-                 custom_title, kind, last_activity_at, forked_from_run_id, schedule_id)
+                 custom_title, kind, last_activity_at, forked_from_run_id, schedule_id, verify_cmd)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?)
+                        ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -3283,6 +3287,7 @@ class GluonStore:
                     run.last_activity_at.isoformat() if run.last_activity_at else None,
                     run.forked_from_run_id,
                     run.schedule_id,
+                    run.verify_cmd,
                 ),
             )
         return run
@@ -3720,6 +3725,8 @@ class GluonStore:
             forked_from_run_id=row["forked_from_run_id"] if "forked_from_run_id" in keys else None,
             # Scheduled-task linkage
             schedule_id=row["schedule_id"] if "schedule_id" in keys else None,
+            # Loop-engineering: optional objective gate command (I4/I1)
+            verify_cmd=row["verify_cmd"] if "verify_cmd" in keys else None,
         )
 
     def get_run_with_project(self, run_id: str) -> tuple[ExecutionRun, Project] | None:

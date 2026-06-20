@@ -54,6 +54,9 @@ class RunResponse(BaseModel):
     completion_reason: str | None = Field(default=None, description="Reason for loop completion/exit")
     calls_this_hour: int = Field(default=0, description="API calls made in current hour window")
     max_calls_per_hour: int = Field(default=100, description="Maximum API calls per hour")
+    # Loop-engineering: objective-gate readiness (I4 warn-only)
+    verify_cmd: str | None = Field(default=None, description="Objective gate command for ralph loops; None = gateless")
+    readiness: str = Field(default="gateless", description="'gated' when verify_cmd is set, else 'gateless'")
     # Witness health (latest classification for running runs)
     health_classification: str | None = Field(default=None, description="Latest witness health classification")
     # Chain/formula step progress

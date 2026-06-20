@@ -967,6 +967,13 @@ def is_gateable_kind(kind: str | None) -> bool:
     return kind in GATEABLE_KINDS
 
 
+def run_readiness(verify_cmd: str | None) -> str:
+    """Loop-engineering readiness (I4): a run is "gated" when it has an objective
+    verify command, else "gateless". Warn-only classification in Step 1; Step 2
+    enforces the gate for "gated" runs and degrades "gateless" runs gracefully."""
+    return "gated" if verify_cmd else "gateless"
+
+
 class ExecutionRun(BaseModel):
     """A background execution run of a Claude Code task."""
 
@@ -1092,6 +1099,11 @@ class ExecutionRun(BaseModel):
     # kind: low-cardinality run category. Today: research / build / docs / bug / review / chore.
     # Auto-detected from prompt on create; user can override via PATCH /api/runs/{id}.
     kind: str | None = None
+    # verify_cmd: optional objective gate for ralph loops (loop-engineering I4/I1).
+    # When set, the ralph loop will (Step 2) run this shell command in a clean
+    # checkout and treat exit-0 as the authoritative "done". Step 1 only stores it
+    # and classifies the run "gated" vs "gateless" (run_readiness) — NOT enforced yet.
+    verify_cmd: str | None = None
     # snoozed_until: when set in the future, run hides from default list and lives in
     # the "Snoozed" group; expires implicitly when datetime passes.
     snoozed_until: datetime | None = None

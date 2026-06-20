@@ -2724,7 +2724,16 @@ but explicit commits with good messages are preferred.
             ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
             os.environ.update(ws_env_vars)
 
-        logger.info(f"Starting ralph loop for run {run.id[:8]}")
+        # Loop-engineering I4 (warn-only): classify the loop's objective-gate
+        # readiness. "gated" = a verify_cmd is set (Step 2 will enforce it as the
+        # authoritative done-signal); "gateless" = self-report only (today's behavior).
+        _readiness = "gated" if run.verify_cmd else "gateless"
+        logger.info(
+            "Starting ralph loop for run %s (readiness=%s, verify_cmd=%s)",
+            run.id[:8],
+            _readiness,
+            run.verify_cmd or "—",
+        )
 
         # Setup logging
         log_dir = self._get_log_dir(run.id)

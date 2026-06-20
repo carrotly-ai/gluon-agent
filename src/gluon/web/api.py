@@ -41,6 +41,7 @@ from gluon.models import (
     TaskSchedule,
     TaskStatus,
     expand_path,
+    run_readiness,
     utc_now,
 )
 from gluon.notifier import NotificationDispatcher
@@ -600,6 +601,9 @@ def create_app(
             forked_from_run_id=run.forked_from_run_id,
             # Scheduled-task linkage
             schedule_id=run.schedule_id,
+            # Loop-engineering readiness (I4 warn-only)
+            verify_cmd=run.verify_cmd,
+            readiness=run_readiness(run.verify_cmd),
         )
 
     # ========== REST API Routes ==========
@@ -779,6 +783,8 @@ def create_app(
             snoozed_until=run.snoozed_until,
             last_activity_at=run.last_activity_at,
             forked_from_run_id=run.forked_from_run_id,
+            verify_cmd=run.verify_cmd,
+            readiness=run_readiness(run.verify_cmd),
         )
 
     @app.post("/api/runs", response_model=RunResponse)
