@@ -5071,29 +5071,6 @@ def create_app(
             ]
         )
 
-    @app.get("/api/formulas/{name}", response_model=FormulaTemplateResponse)
-    async def get_formula(name: str) -> FormulaTemplateResponse:
-        """Get a specific formula template by name."""
-        from gluon.formulas import FormulaLoader
-
-        template = FormulaLoader.load(name)
-        if not template:
-            raise HTTPException(status_code=404, detail=f"Formula '{name}' not found")
-
-        return FormulaTemplateResponse(
-            name=template.name,
-            description=template.description,
-            variables=[
-                FormulaVariableResponse(name=v.name, type=v.type, required=v.required, default=v.default, help=v.help)
-                for v in template.variables
-            ],
-            steps=[
-                FormulaStepResponse(id=s.id, name=s.name, prompt=s.prompt, depends_on=s.depends_on, profile=s.profile)
-                for s in template.steps
-            ],
-            use_worktree=template.use_worktree,
-        )
-
     @app.post("/api/formulas/{name}/run", response_model=FormulaRunResponse)
     async def run_formula(name: str, req: FormulaRunRequest) -> FormulaRunResponse:
         """Execute a formula template for a project."""
@@ -5121,26 +5098,6 @@ def create_app(
             chain_id=chain_id,
             step_count=len(template.steps),
         )
-
-    @app.post("/api/formulas/validate")
-    async def validate_formula_endpoint(template: dict) -> dict:
-        """Validate a formula template definition."""
-        from gluon.formulas import FormulaStepDef, FormulaTemplate, FormulaVariable, validate_formula
-
-        try:
-            variables = [FormulaVariable(**v) for v in template.get("variables", [])]
-            steps = [FormulaStepDef(**s) for s in template.get("steps", [])]
-            ft = FormulaTemplate(
-                name=template.get("name", "unnamed"),
-                description=template.get("description"),
-                variables=variables,
-                steps=steps,
-                use_worktree=template.get("use_worktree", True),
-            )
-            errors = validate_formula(ft)
-            return {"valid": len(errors) == 0, "errors": errors}
-        except Exception as e:
-            return {"valid": False, "errors": [str(e)]}
 
     # ==============================================================
     # OrchestratorTask endpoints (Theme B Phase 3)
