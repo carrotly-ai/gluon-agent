@@ -97,51 +97,6 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return dt
 
 
-SCHEMA = """
--- Workspaces table
-CREATE TABLE IF NOT EXISTS workspaces (
-    id TEXT PRIMARY KEY,
-    name TEXT UNIQUE NOT NULL,
-    path TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    scan_depth INTEGER DEFAULT 1,
-    auto_discover INTEGER DEFAULT 1,
-    ignore_patterns TEXT
-);
-
--- Projects table
-CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY,
-    name TEXT UNIQUE NOT NULL,
-    path TEXT NOT NULL,
-    workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    metadata TEXT
-);
-
--- Sessions table
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    claude_session_id TEXT,
-    status TEXT NOT NULL DEFAULT 'active',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    last_prompt TEXT,
-    total_cost_usd REAL DEFAULT 0.0,
-    total_turns INTEGER DEFAULT 0
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
-CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(name);
-"""
-
 # Migration to add workspace_id column if it doesn't exist
 MIGRATIONS = [
     """

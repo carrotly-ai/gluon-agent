@@ -41,7 +41,6 @@ class CircuitBreaker:
         self.consecutive_no_progress = 0
         self.consecutive_same_error = 0
         self.last_error_hash: str | None = None
-        self.last_output_length: int = 0
         self.last_progress_loop: int = 0
         self.half_open_iterations: int = 0  # Track iterations spent in HALF_OPEN
 
@@ -108,7 +107,6 @@ class CircuitBreaker:
             elif self.consecutive_same_error >= self.config.same_error_threshold:
                 self.state = CircuitState.OPEN
 
-        self.last_output_length = output_length
         return self.state
 
     def can_execute(self) -> bool:

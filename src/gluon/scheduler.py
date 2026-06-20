@@ -21,7 +21,6 @@ from gluon.models import (
     AgentSchedule,
     HeartbeatRun,
     HeartbeatStatus,
-    TaskStatus,
     utc_now,
 )
 
@@ -400,7 +399,6 @@ HEARTBEAT.md and stop. Otherwise, pick the highest-priority task and make \
 concrete progress — don't just plan."""
 
 
-# Re-export TaskStatus to keep the imports in this module tidy
 __all__ = [
     "DEFAULT_POLL_INTERVAL_SECS",
     "DEFAULT_PROMPT_TEMPLATE",
@@ -408,5 +406,4 @@ __all__ = [
     "HeartbeatScheduler",
     "compute_next_fire",
     "validate_cron",
-    "TaskStatus",  # convenience re-export; used by some CLI callers
 ]
