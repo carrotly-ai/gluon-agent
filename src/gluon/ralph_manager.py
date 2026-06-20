@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from gluon.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 from gluon.completion_detector import CompletionDetector, CompletionDetectorConfig
+from gluon.gate import run_gate
 from gluon.models import CircuitState, ExecutionRun, RalphLoopIteration, RunStatus, SupervisionConfig
 from gluon.rate_limiter import RateLimiter, RateLimiterConfig
 
@@ -94,6 +95,11 @@ class RalphManager:
         # Cache for iteration output (used by completion detection)
         self._last_iteration_output: str = ""
 
+        # Loop-engineering I1: when a gated run's verify_cmd fails after the agent
+        # self-declared done, stash the gate output here so the next iteration's
+        # prompt tells the agent to fix it (instead of re-declaring done).
+        self._last_gate_failure: str | None = None
+
         # Planning phase tracking for force_planning + ralph_mode
         # When True, planning is complete and agent should execute, not re-plan
         self.planning_complete: bool = False
@@ -108,6 +114,27 @@ class RalphManager:
         self.run.supervision_config.enabled = False
         self.run.supervision_disabled_reason = f"Ralph Loop completed: {reason}"
         logger.info(f"Disabled supervision for run {self.run.id[:8]}: {reason}")
+
+    def _apply_objective_gate(self, should_exit: bool, exit_reason: str) -> tuple[bool, str]:
+        """Loop-engineering I1: for *gated* runs (``verify_cmd`` set), the objective
+        gate is the authority. Self-report (``should_exit``) only TRIGGERS the gate;
+        actually exiting requires the gate to pass (exit 0). When it fails, demote
+        the self-report to a hint, stash the output for the next prompt, and keep
+        looping (bounded by max_loops). Gateless runs are returned unchanged.
+        """
+        if not (should_exit and self.run.verify_cmd):
+            return should_exit, exit_reason
+        result = run_gate(self.run.verify_cmd, self.working_dir)
+        if result.passed:
+            self._last_gate_failure = None
+            return True, f"{exit_reason}; verify_cmd passed"
+        logger.info(
+            "verify_cmd did not pass for run %s — self-report claimed done but the "
+            "objective gate is red; demoting EXIT_SIGNAL to a hint and continuing",
+            self.run.id[:8],
+        )
+        self._last_gate_failure = result.output
+        return False, exit_reason
 
     async def execute_loop(self) -> ExecutionRun:
         """Execute the ralph loop until completion or circuit break.
@@ -190,6 +217,9 @@ class RalphManager:
                 self.consecutive_done_signals,
                 self.consecutive_test_only,
             )
+            # Loop-engineering I1: for gated runs the objective gate overrides
+            # self-report. No-op for gateless runs (today's behavior unchanged).
+            should_exit, exit_reason = self._apply_objective_gate(should_exit, exit_reason)
 
             if should_exit:
                 logger.info(
@@ -443,6 +473,15 @@ class RalphManager:
         append_system_prompt, so they apply to ALL runs (not just Ralph Loops).
         """
         context_parts = [f"[Loop {loop_number}/{self.run.max_loops}]"]
+
+        # Loop-engineering I1: if the objective gate (verify_cmd) failed last time the
+        # agent declared done, surface it so this iteration FIXES it before declaring done.
+        if self._last_gate_failure:
+            context_parts.append(
+                f"[OBJECTIVE GATE FAILED] Your verify command `{self.run.verify_cmd}` did NOT "
+                "pass. Make it pass (exit 0) before declaring done — EXIT_SIGNAL must stay false "
+                f"until it does. Last gate output:\n{self._last_gate_failure}"
+            )
 
         # Add remaining TODO count if available - with explicit EXIT_SIGNAL guidance
         todo_content = self._read_todo_file()
