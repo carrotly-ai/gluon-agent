@@ -5,7 +5,8 @@
       "mcp__perplexity__perplexity_reason",
       "mcp__context7__resolve-library-id",
       "Bash(cat:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(echo \"=== branches ===\" && git branch -a 2>&1 | head -30 *)"
     ],
     "deny": [],
     "ask": []
