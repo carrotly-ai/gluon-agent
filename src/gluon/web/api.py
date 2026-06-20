@@ -318,6 +318,19 @@ def create_app(
                event-bus question escalation reach Telegram/Discord. When omitted,
                a transport-less dispatcher is created and channel delivery no-ops.
     """
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # Startup/shutdown run the same bodies previously registered via the
+        # deprecated @app.on_event hooks (_run_startup / _run_shutdown, defined
+        # later in this closure — bound by the time lifespan executes at app
+        # startup). Migrated to the FastAPI lifespan API (#162).
+        await _run_startup()
+        try:
+            yield
+        finally:
+            await _run_shutdown()
+
     app = FastAPI(
         title="Gluon Web Dashboard",
         description="Web interface for managing Gluon Agent task execution",
@@ -325,6 +338,7 @@ def create_app(
         docs_url="/api/docs",
         redoc_url="/api/redoc",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
 
     # Shared store — created early because the auth middleware below closes over it.
@@ -5667,8 +5681,7 @@ def create_app(
     cleanup_interval_seconds = 8 * 60 * 60  # 8 hours
     cleanup_initial_delay_seconds = 300  # 5 minutes after startup
 
-    @app.on_event("startup")
-    async def start_background_tasks() -> None:
+    async def _run_startup() -> None:
         """Start background tasks on app startup."""
         nonlocal _polling_task, _cleanup_task, _log_polling_task, _pr_polling_task
         nonlocal _worktree_cleanup_task, _auth_sweep_task, _health_monitor
@@ -5761,8 +5774,7 @@ def create_app(
             "worktree cleanup, PR status polling, supervision coordinator"
         )
 
-    @app.on_event("shutdown")
-    async def stop_background_tasks() -> None:
+    async def _run_shutdown() -> None:
         """Stop background tasks on app shutdown."""
         # Stop Redis event transport
         redis_transport = getattr(app.state, "redis_transport", None)
