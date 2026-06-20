@@ -75,6 +75,34 @@ class GitManager:
         except Exception as e:
             return 1, "", str(e)
 
+    async def _run_gh(self, cwd: Path, *args: str, check: bool = False) -> tuple[int, str, str]:
+        """Run a gh (GitHub CLI) command and return (returncode, stdout, stderr).
+
+        Mirrors ``_run_git``: stdout/stderr are decoded + stripped; a missing
+        binary or unexpected error returns (1, "", <message>).
+        """
+        cmd = ["gh", *args]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            returncode = proc.returncode or 0
+            stdout_str = stdout.decode().strip()
+            stderr_str = stderr.decode().strip()
+
+            if check and returncode != 0:
+                logger.warning(f"gh {args[0]} failed in {cwd}: {stderr_str}")
+
+            return returncode, stdout_str, stderr_str
+        except FileNotFoundError:
+            return 1, "", "gh command not found"
+        except Exception as e:
+            return 1, "", str(e)
+
     def _get_git_author_config(self) -> list[str]:
         """
         Get git author config flags for commit commands.
@@ -198,24 +226,15 @@ class GitManager:
         try:
             # Use gh pr view to get PR info for this branch
             # Include mergeable and mergeStateStatus for conflict detection
-            proc = await asyncio.create_subprocess_exec(
-                "gh",
-                "pr",
-                "view",
-                branch,
-                "--json",
-                "number,url,state,isDraft,mergeable,mergeStateStatus",
-                cwd=path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            rc, stdout_str, _ = await self._run_gh(
+                path, "pr", "view", branch, "--json", "number,url,state,isDraft,mergeable,mergeStateStatus"
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
+            if rc != 0:
                 return None
 
             import json as json_module
 
-            data = json_module.loads(stdout.decode())
+            data = json_module.loads(stdout_str)
             # Map state to our pr_status values
             state = data.get("state", "").lower()
             if data.get("isDraft"):
@@ -236,7 +255,7 @@ class GitManager:
                 "status": state,
                 "mergeable": mergeable,
             }
-        except (FileNotFoundError, Exception):
+        except Exception:
             return None
 
     # ========== Status Operations ==========
@@ -1970,7 +1989,7 @@ Run ID: `{run_id}`
                         except json_module.JSONDecodeError:
                             pass
 
-        except (FileNotFoundError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Error fetching PR comments: {e}")
 
         # Sort by ID (ascending) for consistent processing order
@@ -2016,7 +2035,7 @@ Run ID: `{run_id}`
                         except json_module.JSONDecodeError:
                             pass
 
-        except (FileNotFoundError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Error fetching check runs: {e}")
 
         return check_runs
@@ -2097,7 +2116,7 @@ Run ID: `{run_id}`
             logger.info(f"Posted comment on PR #{pr_number}")
             return True
 
-        except (FileNotFoundError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Error posting PR comment: {e}")
             return False
 
