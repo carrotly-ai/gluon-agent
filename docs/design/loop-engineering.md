@@ -65,14 +65,23 @@ breaking the large share of Gluon's work (research/docs/review) that has no gate
 ## Progress
 - [x] Step 0 — I5 metric — backend (PR #154): `is_gateable_kind`, `store.get_loop_effectiveness`,
   `GET /api/usage/effectiveness`, 6 tests. Additive + read-only; gate green on touched files.
-- [ ] Step 0 — I5 metric — Usage-page surface (frontend)
+- [x] Step 0 — I5 metric — Usage-page surface (frontend): `LoopEffectiveness` types,
+  `fetchLoopEffectiveness`, "Loop Effectiveness" panel (gateable vs gateless), hidden until
+  there are runs, graceful `.catch → null`. biome + build green. (Runtime screenshot pending a
+  container rebuild from this branch — the running image predates the backend endpoint.)
 - [ ] Step 1 — I4 warn-only
 - [ ] Step 2 — I1 objective gate
 - [ ] Step 3 — completion_detector demotion
 
+## Step 1 — I4 warn-only (DESIGN — to validate next iteration)
+Add a `verify_cmd: str | None` field to `ExecutionRun` (additive migration in store.py
+MIGRATIONS) + plumb it through create/run (CLI flag + API create body), NOT enforced.
+Add a readiness classifier: a run is **gated** iff `verify_cmd` is set, else **gateless**.
+Surface the verdict (run record field / list-view chip / a log line at ralph start). No
+exit-criteria change. Validate against: ExecutionRun fields, create_run signature,
+the MIGRATIONS list pattern, RunResponse, and the ralph start path in runner.py.
+
 ## NEXT STEPS
-Surface the I5 metric on the web-ui **Usage page** (UsagePage.tsx): a small "Loop
-effectiveness" panel showing acceptance rate + cost-per-accepted-change for
-**gateable** vs **gateless**, consuming `GET /api/usage/effectiveness`. Add the API
-client call + a response type; verify with `bun run build` (+ optional docker cp +
-screenshot at desktop/mobile). Then move to Step 1 (I4 warn-only).
+Implement Step 1 (I4 warn-only): ground the `verify_cmd` field + migration + readiness
+classifier against the real create_run / runner ralph-start / RunResponse, then implement
+additively (field default None = today's behavior), prove non-regression, gate, commit.
