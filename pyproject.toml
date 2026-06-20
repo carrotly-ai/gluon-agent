@@ -97,6 +97,7 @@ module = [
     "gluon.agent",
     "gluon.chat_agent",
     "gluon.web.api",
+    "gluon.web.background",
     "gluon.runner",
     "gluon.queue.redis_queue",  # External library typing issues with redis.asyncio
 ]
