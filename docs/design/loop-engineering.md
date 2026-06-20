@@ -74,8 +74,18 @@ breaking the large share of Gluon's work (research/docs/review) that has no gate
     persistence + `_row_to_run`; `RunResponse.verify_cmd`/`readiness`; ralph-start log line.
   - setters: `gluon run --verify-cmd` + `CreateRunRequest.verify_cmd` → `runner.submit` → `create_run`.
   - tests/test_verify_cmd_readiness.py (helper, persistence, API exposure, API setter forward, non-regression). Full suite 2303 passed.
-- [ ] Step 2 — I1 objective gate
-- [ ] Step 3 — completion_detector demotion
+- [x] Step 2 — I1 objective gate: `gluon/gate.py` (`run_gate`) + `RalphManager._apply_objective_gate`
+  (gate is authority for gated runs; self-report demoted to a hint; failure fed back into the next
+  prompt) + 9 tests. Full suite 2312 passed.
+- [x] Step 3 — completion_detector demotion: SUBSUMED by Step 2's `_apply_objective_gate` seam —
+  for gated runs the detector's signals are advisory (gate decides); gateless unchanged; detector +
+  witness.py kept. Documented in completion_detector.py's docstring; covered by test_objective_gate.
+
+## DONE — Steps 0–3 complete. Future work (documented, not built):
+- Draft-PR handoff marker for gated runs that exhaust max_loops without the gate passing (the PR is
+  agent-created, so forcing `--draft` needs a decision — see Step 2 "SCOPED OUT").
+- I6 security-in-gate · I2 independent-verifier subagent · S2 unify the ~7 keep-running engines onto
+  the reusable gate/loop contract · S3 revisit witness.py once I5 cost-per-accepted data judges it.
 
 ## Step 2 — I1 objective gate (DESIGN — to validate next iteration; design-heaviest)
 When `run.verify_cmd` is set, the ralph loop must treat `verify_cmd` exit-0 as the
@@ -95,6 +105,21 @@ and git_manager (worktree checkout + `gh pr create --draft`). **If the clean-che
 draft-handoff mechanics require a big refactor or are genuinely ambiguous, STOP and escalate
 options in the PR rather than guessing** (per guardrails).
 
+### VALIDATED (grounded against the real code) — it's a clean additive change, NOT a refactor
+- **Demotion seam** = `RalphManager.execute_loop()` (ralph_manager.py): after
+  `should_exit, _ = completion_detector.should_exit(...)` it sets status=REVIEW + break.
+  `self.working_dir` is the run's worktree (the agent's changes are on disk there) — running
+  `verify_cmd` as a fresh subprocess in it IS the "clean checkout" (no new git checkout needed).
+- **Plan**:
+  1. `gluon/gate.py`: `run_gate(cmd, cwd, timeout=GLUON_GATE_TIMEOUT_SECS|600) -> GateResult(passed, exit_code, output)`. exit-0 == passed; timeout → not passed. Reusable.
+  2. `RalphManager._apply_objective_gate(should_exit, exit_reason)`: only when `should_exit and run.verify_cmd`, run the gate; if passed → exit (reason + "verify_cmd passed"); if failed → `should_exit=False` (self-report is demoted to a hint; the gate is authority) + stash `self._last_gate_failure`. Gateless/no-verify_cmd → returns input unchanged (NON-REGRESSION is trivial; gate not run). `execute_loop` calls it in one line after `should_exit`.
+  3. Feedback: `_build_loop_prompt` injects `self._last_gate_failure` so the next iteration FIXES the failure instead of re-declaring done (evaluator-optimizer). max_loops still bounds it.
+- **Gateless graceful degrade** ALREADY exists: max_loops / cost-cap → status=REVIEW → `_run_ralph_loop` auto-creates a PR. So "never loop forever / handoff" is satisfied today.
+- **SCOPED OUT this step (noted, not guessed):** marking the handoff PR as a *draft* when a gated
+  run exhausts max_loops without the gate passing. The PR is normally **agent-created** (via the
+  REQUIRED-PR instructions), so forcing `--draft` needs a decision on agent-vs-gluon PR creation —
+  recorded as a Step-2 follow-up / future item rather than guessed.
+
 ## Step 1 — I4 warn-only (DESIGN — to validate next iteration)
 Add a `verify_cmd: str | None` field to `ExecutionRun` (additive migration in store.py
 MIGRATIONS) + plumb it through create/run (CLI flag + API create body), NOT enforced.
@@ -104,10 +129,6 @@ exit-criteria change. Validate against: ExecutionRun fields, create_run signatur
 the MIGRATIONS list pattern, RunResponse, and the ralph start path in runner.py.
 
 ## NEXT STEPS
-Step 2 (I1 objective gate). FIRST ground the design (Step 2 section above) against
-completion_detector.py, the ralph loop body (runner._run_ralph_loop / ralph_manager), and
-git_manager (worktree clean checkout + draft PR). Write the validated design into this doc.
-If the clean-checkout/draft-handoff mechanics are ambiguous or require a big refactor, STOP and
-escalate options in the PR (do not guess). Otherwise implement the reusable gate helper +
-gated-exit override + gateless cap→draft→handoff, opt-in, with a non-regression test that
-verify_cmd=None behaves exactly as today.
+None — Steps 0–3 are implemented, tested (full suite green except the pre-existing environmental
+test_doctor), and committed to PR #154. The loop is complete; PR is ready for review (do not merge
+without review). Future items above are deliberately deferred.
