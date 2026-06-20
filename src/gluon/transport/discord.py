@@ -1213,10 +1213,10 @@ class DiscordTransport(Transport):
         """Handle the models command - list available models."""
         text = (
             "**Available Models:**\n"
-            "- `opus` / `claude-opus-4.8` - Highest quality, best for complex reasoning\n"
+            "- `opus` / `claude-opus-4.8` - Highest quality, best for complex reasoning (default)\n"
             "- `claude-opus-4.7` / `claude-opus-4.6` - Previous Opus generations\n"
-            "- `sonnet` / `claude-sonnet-4.6` - Fast, high-quality (default)\n"
-            "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost\n\n"
+            "- `sonnet` / `claude-sonnet-4.6` - Fast, high-quality\n"
+            "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost (not on AWS Bedrock)\n\n"
             "**Usage:** `@gluon <task> --model opus`\n"
             "**Short form:** `@gluon <task> -m haiku`"
         )

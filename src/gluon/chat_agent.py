@@ -47,10 +47,12 @@ All tasks are tracked in a single database regardless of where they were started
 When you use list_runs, you see ALL runs from CLI, Web Dashboard, and other bot interfaces.
 
 **Model Selection Guidelines:**
-When running tasks, choose the appropriate model based on task complexity:
-- **opus**: Complex tasks requiring deep reasoning, architecture decisions, or large refactors
-- **sonnet**: Default for most tasks - balanced performance and cost
-- **haiku**: Simple tasks like bug fixes, documentation, or straightforward implementations
+When running tasks, choose the appropriate model based on task complexity. The
+default is **opus-4.8** (the project standard); only override it down when a task
+is clearly simpler:
+- **opus**: Default — complex reasoning, architecture, large refactors, and most tasks
+- **sonnet**: Lighter / cost-sensitive tasks where opus-level reasoning isn't needed
+- **haiku**: Simple bug fixes or docs (note: Haiku is not available on AWS Bedrock)
 
 **Worktree Isolation:**
 Use `use_worktree=true` in run_task when you need isolated execution (e.g., experimental changes,
@@ -213,14 +215,14 @@ class GluonChatAgent:
             {
                 "project_name": str,  # Name of the project
                 "prompt": str,  # The task to perform
-                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
+                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: opus-4.8
                 "use_worktree": bool,  # Optional: Execute in isolated Git worktree. Default: false
             },
         )
         async def run_task(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "")
-            model = args.get("model", "sonnet")
+            model = args.get("model") or DEFAULT_MODEL.value
             use_worktree = args.get("use_worktree", False)
 
             if not project_name or not prompt:
@@ -271,13 +273,13 @@ class GluonChatAgent:
             {
                 "project_name": str,  # Name of the project
                 "prompt": str,  # Optional follow-up prompt
-                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
+                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: opus-4.8
             },
         )
         async def resume_session(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "Continue from where you left off.")
-            model = args.get("model", "sonnet")
+            model = args.get("model") or DEFAULT_MODEL.value
 
             if not project_name:
                 return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
