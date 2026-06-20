@@ -513,6 +513,34 @@ def create_app(
         """Build project_id → project_name lookup."""
         return {p.id: p.name for p in store.list_projects()}
 
+    def _resolve_run_or_404(run_id: str):
+        """Fetch a run by id (short-id aware) or raise 404."""
+        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        return run
+
+    def _resolve_project_or_404(project_id: str):
+        """Fetch a project by id or name or raise 404."""
+        project = store.get_project(project_id) or store.get_project_by_name(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        return project
+
+    def _workspace_to_response(ws, project_count: int) -> WorkspaceResponse:
+        """Serialize a Workspace to WorkspaceResponse (rolling budgets + current spend)."""
+        return WorkspaceResponse(
+            id=ws.id,
+            name=ws.name,
+            path=str(ws.path),
+            project_count=project_count,
+            auto_discover=ws.auto_discover,
+            daily_budget_usd=ws.daily_budget_usd,
+            monthly_budget_usd=ws.monthly_budget_usd,
+            daily_spend_usd=store.get_workspace_daily_spend(ws.id),
+            monthly_spend_usd=store.get_workspace_monthly_spend(ws.id),
+        )
+
     def run_to_response(run, project_lookup: dict[str, str]) -> RunResponse:
         """Convert ExecutionRun to RunResponse."""
         # For ralph-enabled runs, compute cost from iterations (accurate total)
@@ -647,9 +675,7 @@ def create_app(
     @app.get("/api/runs/{run_id}", response_model=RunDetailResponse)
     async def get_run(run_id: str, refresh_pr: bool = True) -> RunDetailResponse:
         """Get details for a specific run."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Refresh status if active
         if run.is_active:
@@ -876,9 +902,7 @@ def create_app(
     @app.post("/api/runs/{run_id}/cancel", response_model=RunResponse)
     async def cancel_run(run_id: str) -> RunResponse:
         """Cancel a running task."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if not run.is_active:
             raise HTTPException(
@@ -924,9 +948,7 @@ def create_app(
         and branch. Logs are appended, costs accumulate.
         """
         # Get the run to resume
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Get the project for this run
         project_lookup = get_project_lookup()
@@ -973,9 +995,7 @@ def create_app(
         """
         from gluon.models import QueuedMessage
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Check if task is currently running
         if run.status not in (RunStatus.RUNNING, RunStatus.PENDING):
@@ -1016,9 +1036,7 @@ def create_app(
         run_id: str, message_id: str, body: EditQueuedMessageRequest
     ) -> QueuedMessageResponse:
         """Edit a queued message by its ID."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Find and update the message
         for msg in run.queued_messages:
@@ -1042,9 +1060,7 @@ def create_app(
     @app.delete("/api/runs/{run_id}/queue/{message_id}")
     async def delete_queued_message(run_id: str, message_id: str) -> dict:
         """Delete a queued message by its ID."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Find and remove the message
         original_len = len(run.queued_messages)
@@ -1065,9 +1081,7 @@ def create_app(
     @app.delete("/api/runs/{run_id}/queue")
     async def clear_queue(run_id: str) -> dict:
         """Clear all queued messages for a run."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         cleared_count = len(run.queued_messages)
         run.queued_messages = []
@@ -1098,9 +1112,7 @@ def create_app(
         from gluon.models import utc_now
 
         # Get the run to recover
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Get the project for this run
         project = store.get_project(run.project_id)
@@ -1260,9 +1272,7 @@ def create_app(
         This is useful for viewing the full conversation history when a run has been
         resumed multiple times.
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if not run.claude_session_id:
             raise HTTPException(
@@ -1307,9 +1317,7 @@ def create_app(
         """
         from gluon.models import QuestionStatus
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         questions = store.list_pending_questions(run.id)
         has_pending = any(q.status == QuestionStatus.PENDING for q in questions)
@@ -1377,9 +1385,7 @@ def create_app(
 
         Returns the most recent TodoWrite snapshot captured by the PostToolUse mirror hook.
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         snapshot = store.get_latest_todo_snapshot(run.id)
         if snapshot is None:
@@ -1411,9 +1417,7 @@ def create_app(
 
         Returns a list of all loop iterations with metrics for each.
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if not run.ralph_enabled:
             raise HTTPException(
@@ -1459,9 +1463,7 @@ def create_app(
         This gracefully terminates the loop and moves the run to REVIEW status.
         Only works for ralph-enabled runs that are currently running.
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if not run.ralph_enabled:
             raise HTTPException(
@@ -1499,9 +1501,7 @@ def create_app(
         """Get supervision status for a run."""
         from gluon.policies import get_supervision_config
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         config = get_supervision_config(run)
         decisions = store.list_supervision_decisions(run.id, limit=10)
@@ -1533,9 +1533,7 @@ def create_app(
     @app.post("/api/runs/{run_id}/supervision/evaluate", response_model=SupervisionEvaluateResponse)
     async def evaluate_supervision(run_id: str) -> SupervisionEvaluateResponse:
         """Manually trigger supervision evaluation for a run."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         result = await runner.evaluate_supervision(run.id)
         if not result:
@@ -1554,9 +1552,7 @@ def create_app(
         from gluon.policies import get_supervision_config
         from gluon.resume_coordinator import ResumeCoordinator
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         coordinator = ResumeCoordinator(store=store, runner=runner)
         success = await coordinator.disable_supervision(run.id, request.reason)
@@ -1604,9 +1600,7 @@ def create_app(
         """
         from gluon.git_manager import GitManager
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         base_branch = run.source_branch or "main"
 
@@ -1677,9 +1671,7 @@ def create_app(
         """
         from gluon.git_manager import GitManager
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         base_branch = run.source_branch or "main"
 
@@ -1761,9 +1753,7 @@ def create_app(
         """
         from gluon.git_manager import GitManager
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Priority 1: Check for snapshots
         if store.has_commit_snapshots(run.id):
@@ -1831,9 +1821,7 @@ def create_app(
         """
         from gluon.git_manager import GitManager
 
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if not run.branch_name:
             raise HTTPException(status_code=400, detail="Run has no branch")
@@ -1874,9 +1862,7 @@ def create_app(
         tail: int | None = None,
     ) -> LogResponse:
         """Get log content for a run."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if stream not in ("stdout", "stderr", "messages"):
             raise HTTPException(status_code=400, detail=f"Invalid stream: {stream}")
@@ -2719,9 +2705,7 @@ def create_app(
         - failed → pending (re-queue for retry)
         - cancelled → pending (re-queue)
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Validate transition
         current_status = run.status.value
@@ -2766,9 +2750,7 @@ def create_app(
     @app.post("/api/runs/{run_id}/archive", response_model=RunResponse)
     async def archive_run(run_id: str) -> RunResponse:
         """Archive a run to hide it from the board."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         updated_run = store.archive_run(run.id, archived=True)
         if not updated_run:
@@ -2786,9 +2768,7 @@ def create_app(
     @app.post("/api/runs/{run_id}/unarchive", response_model=RunResponse)
     async def unarchive_run(run_id: str) -> RunResponse:
         """Unarchive a run to show it on the board again."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         updated_run = store.archive_run(run.id, archived=False)
         if not updated_run:
@@ -2812,9 +2792,7 @@ def create_app(
         Unspecified fields are left unchanged. Pass ``null`` explicitly to clear
         a field. Returns the updated ``RunResponse``.
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Pydantic's `model_fields_set` tells us which fields the client actually
         # sent — distinguishes "set to null" (clear) from "omitted" (leave).
@@ -2852,9 +2830,7 @@ def create_app(
     @app.post("/api/runs/{run_id}/snooze", response_model=RunResponse)
     async def snooze_run(run_id: str, body: SnoozeRunRequest) -> RunResponse:
         """Set or clear a run's snooze deadline."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         run.snoozed_until = body.until
         run.bump_activity()
@@ -2943,9 +2919,7 @@ def create_app(
     @app.post("/api/runs/{run_id}/pr-status", response_model=RunResponse)
     async def update_pr_status(run_id: str, pr_status: str = Query(..., description="New PR status")) -> RunResponse:
         """Update the PR status for a run (e.g., mark as merged to move from REVIEW to DONE)."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         # Validate pr_status
         valid_statuses = {"open", "merged", "closed", "draft"}
@@ -3059,19 +3033,7 @@ def create_app(
         result = []
         for ws in workspaces:
             projects = store.list_projects_by_workspace(ws.id)
-            result.append(
-                WorkspaceResponse(
-                    id=ws.id,
-                    name=ws.name,
-                    path=str(ws.path),
-                    project_count=len(projects),
-                    auto_discover=ws.auto_discover,
-                    daily_budget_usd=ws.daily_budget_usd,
-                    monthly_budget_usd=ws.monthly_budget_usd,
-                    daily_spend_usd=store.get_workspace_daily_spend(ws.id),
-                    monthly_spend_usd=store.get_workspace_monthly_spend(ws.id),
-                )
-            )
+            result.append(_workspace_to_response(ws, len(projects)))
         return result
 
     @app.get("/api/workspaces/{workspace_id}", response_model=WorkspaceResponse)
@@ -3084,17 +3046,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
 
         projects = store.list_projects_by_workspace(workspace.id)
-        return WorkspaceResponse(
-            id=workspace.id,
-            name=workspace.name,
-            path=str(workspace.path),
-            project_count=len(projects),
-            auto_discover=workspace.auto_discover,
-            daily_budget_usd=workspace.daily_budget_usd,
-            monthly_budget_usd=workspace.monthly_budget_usd,
-            daily_spend_usd=store.get_workspace_daily_spend(workspace.id),
-            monthly_spend_usd=store.get_workspace_monthly_spend(workspace.id),
-        )
+        return _workspace_to_response(workspace, len(projects))
 
     @app.post("/api/workspaces", response_model=WorkspaceResponse)
     async def create_workspace(body: CreateWorkspaceRequest) -> WorkspaceResponse:
@@ -3136,17 +3088,7 @@ def create_app(
                     )
                     projects_added.append(project_name)
 
-        return WorkspaceResponse(
-            id=workspace.id,
-            name=workspace.name,
-            path=str(workspace.path),
-            project_count=len(projects_added),
-            auto_discover=workspace.auto_discover,
-            daily_budget_usd=workspace.daily_budget_usd,
-            monthly_budget_usd=workspace.monthly_budget_usd,
-            daily_spend_usd=store.get_workspace_daily_spend(workspace.id),
-            monthly_spend_usd=store.get_workspace_monthly_spend(workspace.id),
-        )
+        return _workspace_to_response(workspace, len(projects_added))
 
     @app.put(
         "/api/workspaces/{workspace_id}/budget", response_model=WorkspaceResponse, dependencies=[Depends(require_admin)]
@@ -3861,9 +3803,7 @@ def create_app(
         Returns conflict info if merge fails due to conflicts, allowing
         the user to resume the agent to resolve them.
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if not run.use_worktree or not run.branch_name:
             raise HTTPException(status_code=400, detail="Run is not a worktree run or has no branch")
@@ -4023,9 +3963,7 @@ def create_app(
     @app.get("/api/runs/{run_id}/attachments", response_model=RunImagesResponse)
     async def get_run_attachments(run_id: str) -> RunImagesResponse:
         """Get all images attached to a run."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         images = image_service.list_images_for_run(run.id)
         return RunImagesResponse(
@@ -4044,9 +3982,7 @@ def create_app(
         Either upload a new image (multipart form with 'file') or
         attach an existing image (JSON body with 'image_id').
         """
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         if file and file.filename:
             # Upload new image and attach
@@ -4077,9 +4013,7 @@ def create_app(
     @app.delete("/api/runs/{run_id}/attachments/{image_id}")
     async def detach_image_from_run(run_id: str, image_id: str) -> dict:
         """Detach an image from a run."""
-        run = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        run = _resolve_run_or_404(run_id)
 
         success = image_service.detach_from_run(run.id, image_id)
         if not success:
@@ -4099,9 +4033,7 @@ def create_app(
         Detect if there are conflicts in the project (rebase/merge in progress).
         Returns conflict state and list of conflicted files.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         # Detect conflict state
         conflict_state = await git_manager._detect_conflict_state(project.expanded_path)
@@ -4131,9 +4063,7 @@ def create_app(
         Get 3-way diff for a conflicted file.
         Returns base (common ancestor), ours (HEAD), theirs (incoming), and merged (current with markers).
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         diff_data = await git_manager.get_conflict_diff(project.expanded_path, file_path)
 
@@ -4150,9 +4080,7 @@ def create_app(
         """
         Resolve a conflict by choosing ours, theirs, or marking as resolved.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         if body.resolution not in ("ours", "theirs", "resolved"):
             raise HTTPException(
@@ -4172,9 +4100,7 @@ def create_app(
         """
         Start a rebase onto another branch.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.rebase_branch(project.expanded_path, body.onto_branch)
 
@@ -4189,9 +4115,7 @@ def create_app(
         """
         Continue a rebase after resolving conflicts.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.rebase_continue(project.expanded_path)
 
@@ -4206,9 +4130,7 @@ def create_app(
         """
         Abort an in-progress rebase.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.rebase_abort(project.expanded_path)
 
@@ -4222,9 +4144,7 @@ def create_app(
         """
         Skip the current commit during rebase.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.rebase_skip(project.expanded_path)
 
@@ -4239,9 +4159,7 @@ def create_app(
         """
         Check if a force push would be required for the current branch.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.check_force_push_needed(project.expanded_path, branch)
 
@@ -4257,9 +4175,7 @@ def create_app(
         Force push to remote. Use with caution!
         Defaults to --force-with-lease for safety.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         async with _workspace_env(store, project.workspace_id):
             result = await git_manager.force_push(
@@ -4278,9 +4194,7 @@ def create_app(
         """
         List all branches in the repository.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         branches = await git_manager.list_branches(project.expanded_path)
 
@@ -4309,9 +4223,7 @@ def create_app(
         """
         Rename a branch.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.rename_branch(project.expanded_path, body.old_name, body.new_name)
 
@@ -4325,9 +4237,7 @@ def create_app(
         """
         Change the base of a feature branch by rebasing onto a new base.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         result = await git_manager.change_base_branch(project.expanded_path, body.feature_branch, body.new_base)
 
@@ -4347,9 +4257,7 @@ def create_app(
         """
         Delete a branch (local or remote).
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         async with _workspace_env(store, project.workspace_id):
             result = await git_manager.delete_branch(project.expanded_path, branch_name, force=force, remote=remote)
@@ -4367,9 +4275,7 @@ def create_app(
         Get cached git status for a project (no network operations).
         Returns the last known git state from the database.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         # Get cached status from store (no git operations)
         cached_status = git_manager.get_cached_status(project)
@@ -4413,9 +4319,7 @@ def create_app(
         Refresh git status for a project by fetching from remote.
         Updates the cached status and returns the new state.
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         # Refresh status (performs git fetch)
         try:
@@ -4464,9 +4368,7 @@ def create_app(
         - push: Git push
         - fetch: Git fetch only (refresh status)
         """
-        project = store.get_project(project_id) or store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        project = _resolve_project_or_404(project_id)
 
         action = body.action if body else "auto"
         path = project.expanded_path

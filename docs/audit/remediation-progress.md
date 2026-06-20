@@ -25,7 +25,7 @@ Green = no NEW ruff/mypy errors in touched files, no NEW test failures.
 - [x] **5. store `in keys` guards** `[low/low/low]` — dropped ~50 obsolete `"col" in keys` guards in `_row_to_run` (columns always present post-migration). Pattern A (`else None`) collapsed to `row["col"]`; Pattern B's genuine `is not None`/truthiness NULL-handling preserved verbatim. Removed unused `keys = row.keys()`. Behavior-identical; suite 2292 passed. *(Same pattern remains in 3 smaller converters — workspace-budget/supervision-decision/one other; left as optional follow-up, audit named `_row_to_run`.)*
 
 ### Tier 2 — medium dedup
-- [ ] **6. web/api lookup helpers** `[high/med/low]` — `_resolve_run_or_404`/`_resolve_project_or_404`/`_broadcast_run`/`_workspace_to_response`; collapse 32×/24×/22×/4× boilerplate (§4.9).
+- [x] **6. web/api lookup helpers** `[high/med/low]` — added `_resolve_run_or_404` (folded 31 identical short-id-aware run-or-404 blocks), `_resolve_project_or_404` (folded 16 identical project-or-404 blocks), `_workspace_to_response` (folded 3 of 4 sites; left the deferred `/budget` route inline). **SKIPPED `_broadcast_run`** — the ~29 sites have DIVERGENT fallbacks (`run.project_id[:8]` vs `"Unknown"`) so it's not a clean behavior-identical fold. 1 run-or-404 variant (plain `get_run`, no short-id) left inline. Behavior-identical (api tests assert status+body); suite 2292 passed.
 - [ ] **7. runner `_run_task` seams** `[high/med/med]` — `_run_blueprint_validation`, `_finalize_worktree` (shared with `_run_ralph_loop`), `_stream_agent_messages` (§2/§4).
 - [ ] **8. chat_agent tool cache** `[med/med/low]` — cache tools + MCP server on `self`; derive `allowed_tools` from decorators (§2).
 - [ ] **9. git_manager `_run_gh`** `[med/med/low]` — add helper + dedupe merge-base/numstat (§4.7).
@@ -56,4 +56,4 @@ do not delete `compute_next_fire` (ValueError contract); do not remove `GLUON_RE
 (feed the LIVE event bus).
 
 ## NEXT STEPS
-Items 1–5 done. Next: **item 6 — web/api lookup helpers** (§4.9): add `_resolve_run_or_404`/`_resolve_project_or_404`/`_broadcast_run`/`_workspace_to_response` to web/api.py and collapse the repeated run-or-404 (×32), project-or-404 (×24), broadcast-pair (×22), workspace-serialize (×4) boilerplate — behavior-identical. web/api.py is CENTRAL → FULL backend suite. (Large mechanical change; can be split across commits.)
+Items 1–6 done (47 run/project-or-404 folds + 3 workspace folds). Next: **item 7 — runner `_run_task` seams** (§2): extract `_run_blueprint_validation(...)`, `_finalize_worktree(...)` (the ~90-LOC block duplicated verbatim in `_run_task` and `_run_ralph_loop`), and a shared `_stream_agent_messages(...)`. runner.py is CENTRAL → FULL suite. This is a behavior-preserving extraction of a ~920-LOC method — GROUND CAREFULLY, extract one seam at a time, gate after each.
