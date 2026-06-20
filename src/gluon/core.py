@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
+from gluon.budgets import enforce_agent_budget, enforce_workspace_budget, touch_agent_last_active
 from gluon.models import (
     ExecutionRun,
     GitStatus,
@@ -350,95 +351,16 @@ class Orchestrator:
         )
 
     def _enforce_agent_budget(self, agent_id: str) -> None:
-        """Raise BudgetExceededError if the agent has hit its monthly cap.
-
-        No-op if the agent has no budget configured or doesn't exist.
-        """
-        agent = self.store.get_agent(agent_id)
-        if agent is None or agent.monthly_budget_usd is None:
-            return
-
-        from datetime import UTC, datetime
-
-        now = datetime.now(UTC)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        spent = self.store.get_agent_monthly_spend(agent_id, month_start)
-        if spent >= agent.monthly_budget_usd:
-            raise BudgetExceededError(
-                agent_name=agent.name,
-                spent=spent,
-                budget=agent.monthly_budget_usd,
-            )
+        """Raise BudgetExceededError if the agent has hit its monthly cap (no-op if unconfigured)."""
+        enforce_agent_budget(self.store, agent_id)
 
     def _enforce_workspace_budget(self, workspace_id: str) -> None:
-        """Raise WorkspaceBudgetExceededError if a daily or monthly cap is hit.
-
-        No-op when neither budget is set (or the workspace doesn't exist).
-        Checks daily first, then monthly. Also logs a WARNING at 80% for each
-        scope so operators see headroom before we hard-stop.
-        """
-        workspace = self.store.get_workspace(workspace_id)
-        if workspace is None:
-            return
-        if workspace.daily_budget_usd is None and workspace.monthly_budget_usd is None:
-            return
-
-        from datetime import UTC, datetime
-
-        now = datetime.now(UTC)
-
-        # Daily scope
-        if workspace.daily_budget_usd is not None:
-            spent_today = self.store.get_workspace_daily_spend(workspace_id, now)
-            budget = workspace.daily_budget_usd
-            if spent_today >= budget:
-                raise WorkspaceBudgetExceededError(
-                    workspace_name=workspace.name,
-                    scope="daily",
-                    spent=spent_today,
-                    budget=budget,
-                )
-            if budget > 0 and (spent_today / budget) >= 0.8:
-                logger.warning(
-                    "Workspace '%s' daily spend at %.1f%% of cap ($%.2f / $%.2f)",
-                    workspace.name,
-                    (spent_today / budget) * 100,
-                    spent_today,
-                    budget,
-                )
-
-        # Monthly scope
-        if workspace.monthly_budget_usd is not None:
-            spent_month = self.store.get_workspace_monthly_spend(workspace_id, now)
-            budget = workspace.monthly_budget_usd
-            if spent_month >= budget:
-                raise WorkspaceBudgetExceededError(
-                    workspace_name=workspace.name,
-                    scope="monthly",
-                    spent=spent_month,
-                    budget=budget,
-                )
-            if budget > 0 and (spent_month / budget) >= 0.8:
-                logger.warning(
-                    "Workspace '%s' monthly spend at %.1f%% of cap ($%.2f / $%.2f)",
-                    workspace.name,
-                    (spent_month / budget) * 100,
-                    spent_month,
-                    budget,
-                )
+        """Raise WorkspaceBudgetExceededError if a daily/monthly cap is hit (no-op if unset)."""
+        enforce_workspace_budget(self.store, workspace_id)
 
     def _touch_agent_last_active(self, agent_id: str) -> None:
         """Best-effort update of the agent's last_active_at timestamp."""
-        try:
-            agent = self.store.get_agent(agent_id)
-            if agent is None:
-                return
-            from datetime import UTC, datetime
-
-            agent.last_active_at = datetime.now(UTC)
-            self.store.update_agent(agent)
-        except Exception:
-            logger.debug("Failed to update agent last_active_at", exc_info=True)
+        touch_agent_last_active(self.store, agent_id)
 
     def remove_project(self, name_or_id: str) -> bool:
         """

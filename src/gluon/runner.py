@@ -26,6 +26,9 @@ from claude_agent_sdk import EffortLevel
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.agent_hooks import ScreenshotCollector, TodoCollector
+from gluon.budgets import enforce_agent_budget as _enforce_agent_budget
+from gluon.budgets import enforce_workspace_budget as _enforce_workspace_budget
+from gluon.budgets import touch_agent_last_active as _touch_agent_last_active
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
@@ -77,92 +80,6 @@ def _resolve_default_run_cost_cap(store: "GluonStore") -> float | None:
             )
 
     return None
-
-
-def _month_start_utc() -> datetime:
-    """Return the first-of-month timestamp (UTC midnight) for today."""
-    now = datetime.now(UTC)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def _enforce_agent_budget(store: "GluonStore", agent_id: str) -> None:
-    """Raise BudgetExceededError if the agent has already hit its monthly cap.
-
-    No-op when the agent has no budget configured. Callers pass the agent_id
-    they're about to link a new run to.
-    """
-    from gluon.core import BudgetExceededError
-
-    agent = store.get_agent(agent_id)
-    if agent is None:
-        return
-    if agent.monthly_budget_usd is None:
-        return
-
-    spent = store.get_agent_monthly_spend(agent_id, _month_start_utc())
-    if spent >= agent.monthly_budget_usd:
-        raise BudgetExceededError(
-            agent_name=agent.name,
-            spent=spent,
-            budget=agent.monthly_budget_usd,
-        )
-
-
-def _enforce_workspace_budget(store: "GluonStore", workspace_id: str) -> None:
-    """Raise WorkspaceBudgetExceededError if daily or monthly cap is hit.
-
-    No-op when the workspace has no budgets set. Also logs a WARNING at 80%
-    for each scope so operators see headroom before the cap is hit.
-    """
-    from gluon.core import WorkspaceBudgetExceededError
-
-    workspace = store.get_workspace(workspace_id)
-    if workspace is None:
-        return
-    if workspace.daily_budget_usd is None and workspace.monthly_budget_usd is None:
-        return
-
-    now = datetime.now(UTC)
-
-    # Daily scope
-    if workspace.daily_budget_usd is not None:
-        spent_today = store.get_workspace_daily_spend(workspace_id, now)
-        budget = workspace.daily_budget_usd
-        if spent_today >= budget:
-            raise WorkspaceBudgetExceededError(
-                workspace_name=workspace.name,
-                scope="daily",
-                spent=spent_today,
-                budget=budget,
-            )
-        if budget > 0 and (spent_today / budget) >= 0.8:
-            logger.warning(
-                "Workspace '%s' daily spend at %.1f%% of cap ($%.2f / $%.2f)",
-                workspace.name,
-                (spent_today / budget) * 100,
-                spent_today,
-                budget,
-            )
-
-    # Monthly scope
-    if workspace.monthly_budget_usd is not None:
-        spent_month = store.get_workspace_monthly_spend(workspace_id, now)
-        budget = workspace.monthly_budget_usd
-        if spent_month >= budget:
-            raise WorkspaceBudgetExceededError(
-                workspace_name=workspace.name,
-                scope="monthly",
-                spent=spent_month,
-                budget=budget,
-            )
-        if budget > 0 and (spent_month / budget) >= 0.8:
-            logger.warning(
-                "Workspace '%s' monthly spend at %.1f%% of cap ($%.2f / $%.2f)",
-                workspace.name,
-                (spent_month / budget) * 100,
-                spent_month,
-                budget,
-            )
 
 
 _KIND_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -217,18 +134,6 @@ Write it for a human reviewer, not as a restatement of your task prompt:
 Base the description on your ACTUAL diff (`git diff {base_branch}...HEAD`),
 not on what you intended to do.
 """
-
-
-def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
-    """Update the agent's last_active_at timestamp on run start. Best-effort."""
-    try:
-        agent = store.get_agent(agent_id)
-        if agent is None:
-            return
-        agent.last_active_at = datetime.now(UTC)
-        store.update_agent(agent)
-    except Exception:
-        logger.debug("Failed to update agent last_active_at", exc_info=True)
 
 
 # ========== Hard-cap watchdog (Theme D3) ==========
