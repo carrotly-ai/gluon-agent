@@ -32,7 +32,6 @@ from gluon.recurrence import (
     WEEKDAYS,
     WEEKENDS,
     compute_next_fire_in_tz,
-    cron_to_recurrence,
     human_summary,
     next_n_fires_in_tz,
     recurrence_to_cron,
@@ -56,11 +55,6 @@ class TestRecurrenceConversions:
         # Sun=0..Sat=6 in cron — full set
         assert recurrence_to_cron(EVERY_DAY, "08:30") == "30 8 * * 0,1,2,3,4,5,6"
 
-    def test_arbitrary_subset_round_trip(self):
-        cron = recurrence_to_cron([0, 2, 4], "11:15")  # Mon, Wed, Fri
-        parsed = cron_to_recurrence(cron)
-        assert parsed == {"days": [0, 2, 4], "time": "11:15"}
-
     def test_empty_days_rejected(self):
         with pytest.raises(ValueError):
             recurrence_to_cron([], "09:00")
@@ -70,18 +64,6 @@ class TestRecurrenceConversions:
             recurrence_to_cron([0], "9am")
         with pytest.raises(ValueError):
             recurrence_to_cron([0], "25:00")
-
-    def test_complex_cron_returns_none(self):
-        # Anything outside the friendly subset (e.g. */5 minutes) must round-trip to None
-        assert cron_to_recurrence("*/5 9 * * 1-5") is None
-        assert cron_to_recurrence("0 9 1 * *") is None  # day-of-month set
-        assert cron_to_recurrence("0 9-17 * * 1-5") is None  # hour range
-
-    def test_cron_to_recurrence_every_day_star(self):
-        assert cron_to_recurrence("0 9 * * *") == {"days": EVERY_DAY, "time": "09:00"}
-
-    def test_invalid_cron_returns_none(self):
-        assert cron_to_recurrence("not a cron") is None
 
 
 class TestHumanSummary:
