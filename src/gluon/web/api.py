@@ -840,6 +840,7 @@ def create_app(
                 ralph_enabled=body.ralph_enabled,
                 max_loops=body.max_loops,
                 max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
+                verify_cmd=body.verify_cmd,  # I4: objective-gate command (Step 2 enforces)
                 # Per-task overrides
                 agent_teams=body.agent_teams,
                 model_transition=body.model_transition,

@@ -182,6 +182,11 @@ class CreateRunRequest(BaseModel):
     ralph_enabled: bool = Field(default=False, description="Enable ralph loop for autonomous execution")
     max_loops: int = Field(default=50, description="Maximum loop iterations (1-100)")
     max_cost_usd: float | None = Field(default=None, description="Optional cost limit in USD")
+    # Loop-engineering (I4): optional objective gate command for ralph loops
+    verify_cmd: str | None = Field(
+        default=None,
+        description="Objective gate command; when set the run is 'gated' (Step 2 enforces it)",
+    )
     # Per-task overrides
     agent_teams: bool | None = Field(default=None, description="Override global agent teams setting")
     dev_port: int | None = Field(default=None, description="Dev server port (auto-assigned if not set)")

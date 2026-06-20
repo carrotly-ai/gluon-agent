@@ -5,6 +5,8 @@ exactly as before (gateless), and the field is NOT yet enforced.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from gluon.models import run_readiness
 from gluon.store import GluonStore
 
@@ -56,3 +58,22 @@ def test_run_response_exposes_readiness(api_client, temp_store: GluonStore) -> N
     assert by_id[gated.id]["readiness"] == "gated"
     assert by_id[gateless.id]["verify_cmd"] is None
     assert by_id[gateless.id]["readiness"] == "gateless"
+
+
+def test_create_run_api_forwards_verify_cmd(api_client_with_mocks, temp_store: GluonStore, project_with_path) -> None:
+    """POST /api/runs with verify_cmd forwards it to runner.submit and the
+    response surfaces verify_cmd + readiness=gated (setter chain)."""
+    client, mock_runner, _ = api_client_with_mocks
+    project, _ = project_with_path
+    seeded = temp_store.create_run(project_id=project.id, prompt="t", verify_cmd="uv run pytest")
+    mock_runner.submit = AsyncMock(return_value=seeded)
+
+    resp = client.post(
+        "/api/runs",
+        json={"project_name": project.name, "prompt": "t", "verify_cmd": "uv run pytest"},
+    )
+    assert resp.status_code == 200, resp.json()
+    assert mock_runner.submit.await_args.kwargs.get("verify_cmd") == "uv run pytest"
+    body = resp.json()
+    assert body["verify_cmd"] == "uv run pytest"
+    assert body["readiness"] == "gated"
