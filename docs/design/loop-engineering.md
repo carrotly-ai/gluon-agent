@@ -69,7 +69,11 @@ breaking the large share of Gluon's work (research/docs/review) that has no gate
   `fetchLoopEffectiveness`, "Loop Effectiveness" panel (gateable vs gateless), hidden until
   there are runs, graceful `.catch → null`. biome + build green. (Runtime screenshot pending a
   container rebuild from this branch — the running image predates the backend endpoint.)
-- [ ] Step 1 — I4 warn-only
+- [~] Step 1 — I4 warn-only:
+  - [x] core: `ExecutionRun.verify_cmd` + `run_readiness`; additive migration; `create_run`
+    persistence + `_row_to_run`; `RunResponse.verify_cmd`/`readiness`; ralph-start log line;
+    tests (incl. non-regression). Full suite 2302 passed.
+  - [ ] setters: `gluon run --verify-cmd` CLI flag + `CreateRunRequest.verify_cmd` → `runner.submit` → `create_run`.
 - [ ] Step 2 — I1 objective gate
 - [ ] Step 3 — completion_detector demotion
 
@@ -82,6 +86,8 @@ exit-criteria change. Validate against: ExecutionRun fields, create_run signatur
 the MIGRATIONS list pattern, RunResponse, and the ralph start path in runner.py.
 
 ## NEXT STEPS
-Implement Step 1 (I4 warn-only): ground the `verify_cmd` field + migration + readiness
-classifier against the real create_run / runner ralph-start / RunResponse, then implement
-additively (field default None = today's behavior), prove non-regression, gate, commit.
+Finish Step 1 setters so users can actually set `verify_cmd`: add `CreateRunRequest.verify_cmd`
+(web/models.py) → thread through `runner.submit` (add param) → `store.create_run(verify_cmd=...)`,
+and a `gluon run --verify-cmd` CLI flag (cli.py). Ground against runner.submit's signature +
+how it calls create_run, and the CLI run command. Add tests (API create with verify_cmd round-trips
+to the run record). Then Step 2 (I1 objective gate).
