@@ -28,7 +28,7 @@ from gluon.transport.base import (
 from gluon.transport.capabilities import TELEGRAM_CAPS, TransportCapabilities
 
 if TYPE_CHECKING:
-    from gluon.models import PendingApproval
+    from gluon.models import PendingApproval, PendingQuestion
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 # Total must stay under Telegram's 64-byte callback_data limit — we use the
 # full approval UUID which is 36 chars, leaving plenty of headroom.
 _APPROVAL_CALLBACK_PREFIX = "approval"
+
+# Prefix for AskUserQuestion option buttons. Format: "question:<id>:<option_index>".
+# The option index (not the label) is encoded so unicode/whitespace in labels
+# can't break the round-trip, and the whole string stays well under Telegram's
+# 64-byte callback_data limit (9 + 36-char UUID + ":" + index ≈ 48 bytes).
+_QUESTION_CALLBACK_PREFIX = "question"
 
 
 def extract_agent_flag(args: list[str]) -> tuple[list[str], str | None]:
@@ -118,6 +124,41 @@ def build_approval_keyboard(approval_id: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def format_question_message(question: PendingQuestion) -> str:
+    """Format a PendingQuestion as a Telegram message body (Markdown)."""
+    lines = [
+        f"❓ *{_truncate(question.header or 'Question', 80)}*",
+        "",
+        _truncate(question.question_text, 600),
+    ]
+    if question.multi_select:
+        lines.append("")
+        lines.append("_Multi-select: tap one option (Telegram records a single choice)._")
+    lines.append("")
+    lines.append(f"_question `{question.id[:8]}`_")
+    return "\n".join(lines)
+
+
+def build_question_keyboard(question: PendingQuestion) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with one button per option.
+
+    Each button encodes the option *index* in callback_data so labels with
+    unicode/whitespace round-trip safely. One option per row keeps long
+    labels readable on mobile. Capped at 25 options (well within Telegram's
+    100-button limit) to mirror the Discord select-menu ceiling.
+    """
+    rows = [
+        [
+            InlineKeyboardButton(
+                _truncate(opt.get("label") or f"Option {idx + 1}", 80),
+                callback_data=f"{_QUESTION_CALLBACK_PREFIX}:{question.id}:{idx}",
+            )
+        ]
+        for idx, opt in enumerate(question.options[:25])
+    ]
+    return InlineKeyboardMarkup(rows)
 
 
 class TelegramTransport(Transport):
@@ -399,6 +440,117 @@ class TelegramTransport(Transport):
 
         await query.answer(f"{verb}.")
 
+    async def post_question_request(self, question: PendingQuestion) -> bool:
+        """Post a pending AskUserQuestion to Telegram with option buttons.
+
+        Called by the QuestionWatcher. Mirrors post_approval_request: sends to
+        the configured approval_chat_id. Returns True on success, False on
+        failure so the watcher retries. If no approval_chat_id is configured,
+        returns True (no-op) so the watcher stops retrying — the operator must
+        set GLUON_TELEGRAM_APPROVAL_CHAT for questions to arrive.
+        """
+        if not self.app:
+            logger.debug("Telegram app not started; skipping question post")
+            return False
+        if self.approval_chat_id is None:
+            logger.warning(
+                "Telegram has no approval_chat_id configured; skipping question %s",
+                question.id[:8],
+            )
+            return True
+
+        body = format_question_message(question)
+        keyboard = build_question_keyboard(question)
+
+        try:
+            await self.app.bot.send_message(
+                chat_id=self.approval_chat_id,
+                text=body,
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+            return True
+        except Exception as e:
+            logger.warning("Failed to post question %s to Telegram: %s", question.id[:8], e)
+            # Retry on next tick — markdown might be the problem, try plain
+            try:
+                await self.app.bot.send_message(
+                    chat_id=self.approval_chat_id,
+                    text=body,
+                    reply_markup=keyboard,
+                )
+                return True
+            except Exception as e2:
+                logger.warning("Plain-text question post also failed: %s", e2)
+                return False
+
+    async def _handle_question_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle option-button presses on AskUserQuestion messages.
+
+        Records the answer exactly as the Discord/web path does
+        (PendingQuestion.answer + store.update_pending_question); the runner
+        picks it up on its next poll and resumes. Single-press only — for a
+        multi_select question this records one option (Telegram limitation).
+        """
+        from gluon.models import QuestionStatus
+
+        query = update.callback_query
+        if query is None or not query.data:
+            return
+
+        # Parse callback_data: question:<id>:<option_index>
+        parts = query.data.split(":", 2)
+        if len(parts) != 3 or parts[0] != _QUESTION_CALLBACK_PREFIX:
+            return
+        _, question_id, raw_index = parts
+
+        user_id_int = query.from_user.id if query.from_user else 0
+        user_id = f"telegram:{user_id_int}"
+
+        if not self.is_authorized(user_id):
+            await query.answer("Not authorized.", show_alert=True)
+            return
+
+        question = self.bot_core.store.get_pending_question(question_id)
+        if question is None:
+            await query.answer("Question not found.", show_alert=True)
+            return
+
+        if question.status != QuestionStatus.PENDING:
+            await query.answer(f"Already {question.status.value}.", show_alert=False)
+            try:
+                await query.edit_message_text(
+                    text=(f"{format_question_message(question)}\n\n_Already {question.status.value}._"),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                logger.debug("Could not edit already-answered question message", exc_info=True)
+            return
+
+        # Map the encoded option index back to a label
+        try:
+            idx = int(raw_index)
+        except (TypeError, ValueError):
+            await query.answer("Invalid option.", show_alert=True)
+            return
+        if not (0 <= idx < len(question.options)):
+            await query.answer("Invalid option.", show_alert=True)
+            return
+        label = question.options[idx].get("label") or f"Option {idx + 1}"
+
+        question.answer([label], source="user")
+        self.bot_core.store.update_pending_question(question)
+
+        try:
+            await query.edit_message_text(
+                text=(f"{format_question_message(question)}\n\n✅ *Answered:* {label}"),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            logger.debug("Could not edit question message after answer", exc_info=True)
+
+        await query.answer(f"Answer recorded: {label}")
+
     async def send_typing(self, ctx: TransportContext) -> None:
         """Send typing indicator."""
         if not self.app:
@@ -429,6 +581,7 @@ class TelegramTransport(Transport):
     async def start(self) -> None:
         """Start the Telegram bot."""
         from gluon.approval_watcher import ApprovalWatcher
+        from gluon.question_watcher import QuestionWatcher
 
         self.app = Application.builder().token(self.token).build()
         self._register_handlers()
@@ -452,6 +605,15 @@ class TelegramTransport(Transport):
         )
         await self._approval_watcher.start()
 
+        # Start question watcher — surfaces un-notified AskUserQuestion prompts
+        # with option buttons. Like approvals, routed to approval_chat_id.
+        self._question_watcher: QuestionWatcher | None = QuestionWatcher(
+            store=self.bot_core.store,
+            poster=self,
+            name="telegram-questions",
+        )
+        await self._question_watcher.start()
+
         logger.info("Telegram transport started")
 
     async def stop(self) -> None:
@@ -464,6 +626,14 @@ class TelegramTransport(Transport):
                     await watcher.stop()
                 except Exception:
                     logger.debug("Approval watcher stop failed", exc_info=True)
+
+            # Stop question watcher
+            question_watcher = getattr(self, "_question_watcher", None)
+            if question_watcher is not None:
+                try:
+                    await question_watcher.stop()
+                except Exception:
+                    logger.debug("Question watcher stop failed", exc_info=True)
 
             # Stop git sync
             await self.bot_core.git_manager.stop_background_sync()
@@ -497,6 +667,14 @@ class TelegramTransport(Transport):
             CallbackQueryHandler(
                 self._handle_approval_callback,
                 pattern=f"^{_APPROVAL_CALLBACK_PREFIX}:",
+            )
+        )
+
+        # AskUserQuestion option-button callbacks
+        self.app.add_handler(
+            CallbackQueryHandler(
+                self._handle_question_callback,
+                pattern=f"^{_QUESTION_CALLBACK_PREFIX}:",
             )
         )
 
