@@ -3406,7 +3406,7 @@ def formula_run(
             initiator="cli",
         )
 
-    chain_id = anyio.from_thread.run(_run)
+    chain_id = anyio.run(_run)
     console.print(f"[green]Formula '{name}' started as chain {chain_id}[/green]")
 
 

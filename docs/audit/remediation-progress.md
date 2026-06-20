@@ -38,7 +38,12 @@ Green = no NEW ruff/mypy errors in touched files, no NEW test failures.
 - [ ] **17. Doc fixes** `[low/low/none]` — chat_agent SYSTEM_PROMPT + `run_task` sonnet/haiku→opus-4.8; `CLI-REFERENCE.md` omissions; redis_transport/README counts (§8).
 
 ## Deferred — tracked as issues (owner sign-off; reverses documented KEEP or deletes public API)
-_Filled in during SETUP._
+- [#155](https://github.com/carrotly-ai/gluon-agent/issues/155) — distributed Worker/Job/RedisJobQueue subsystem (~1,500 LOC) — remove or gate (§3A; KEEP at remediation-plan L220)
+- [#156](https://github.com/carrotly-ai/gluon-agent/issues/156) — MergeQueueService dead at runtime — wire or remove (§5; KEEP at remediation-plan L217)
+- [#157](https://github.com/carrotly-ai/gluon-agent/issues/157) — advanced-git UI unbuilt — build or delete 13 api.ts clients + GitManager methods (§5/§7)
+- [#158](https://github.com/carrotly-ai/gluon-agent/issues/158) — witness recovery half — wire `execute_action` or delete (§3B)
+- [#159](https://github.com/carrotly-ai/gluon-agent/issues/159) — externally-documented dead routes (provider/budget/supervision) — retire-or-keep (§3J)
+- [#160](https://github.com/carrotly-ai/gluon-agent/issues/160) — §10 frontend-coupled "dead" fields — coordinated FE+BE change (RalphStatusBlock, ResumeRunResponse ids, auth OIDC branch)
 
 ## NEVER TOUCH (audit refuted — §10)
 Do not merge `cleanup.py`↔`session_cleanup.py`; do not merge `image_storage.py`↔`files.py`;

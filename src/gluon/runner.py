@@ -1968,6 +1968,11 @@ but explicit commits with good messages are preferred.
                 except Exception:
                     logger.debug("Session cleanup failed", exc_info=True)
 
+            # Close out the work-queue item this run was dispatched from. It was
+            # set RUNNING on dispatch (mark_running) but nothing ever marked it
+            # terminal, so queue items leaked in RUNNING forever.
+            self._finalize_queue_item(run)
+
             # Self-propelling queue: dispatch next queued work item
             if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:
                 try:
@@ -1995,6 +2000,30 @@ but explicit commits with good messages are preferred.
 
         # Check for queued follow-up message and auto-resume if present
         await self._handle_queued_followup(run)
+
+    def _finalize_queue_item(self, run: ExecutionRun) -> None:
+        """Mark the work-queue item a queue-dispatched run came from as terminal.
+
+        Queue items are set RUNNING on dispatch (``WorkQueueManager.mark_running``)
+        but nothing closed them out when the linked run finished, so they leaked
+        in RUNNING forever. The run's ``initiator`` (``queue:<id>`` from the
+        per-run dispatch, ``queue_drain:<id>`` from the background drain) links
+        back to the originating item.
+        """
+        initiator = run.initiator or ""
+        if not (initiator.startswith("queue:") or initiator.startswith("queue_drain:")):
+            return
+        try:
+            from gluon.work_queue import WorkQueueManager
+
+            item_id = initiator.split(":", 1)[1]
+            wq = WorkQueueManager(self.store)
+            if run.status == RunStatus.FAILED:
+                wq.mark_failed(item_id, run.error_message or "Run failed")
+            elif run.status in (RunStatus.COMPLETED, RunStatus.REVIEW):
+                wq.mark_completed(item_id)
+        except Exception:
+            logger.debug("Work queue item finalization failed", exc_info=True)
 
     def _drain_db_queue_into(self, run: ExecutionRun, queue: asyncio.Queue[str]) -> None:
         """Move any DB-queued messages into the asyncio queue (one-shot).
