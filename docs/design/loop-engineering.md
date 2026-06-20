@@ -81,9 +81,13 @@ breaking the large share of Gluon's work (research/docs/review) that has no gate
   for gated runs the detector's signals are advisory (gate decides); gateless unchanged; detector +
   witness.py kept. Documented in completion_detector.py's docstring; covered by test_objective_gate.
 
-## DONE — Steps 0–3 complete. Future work (documented, not built):
-- Draft-PR handoff marker for gated runs that exhaust max_loops without the gate passing (the PR is
-  agent-created, so forcing `--draft` needs a decision — see Step 2 "SCOPED OUT").
+## DONE — Steps 0–3 + item A complete.
+- [x] **Item A — draft-PR handoff** (gluon-managed): a gated run that exhausts caps without the gate
+  passing flags `run.metadata["gate_not_passed"]` (ralph_manager `_flag_gate_outcome`); the runner
+  drafts the handoff PR + comments — converting the agent's PR (`convert_pr_to_draft` = `gh pr ready
+  --undo`) or creating the rescue PR with `--draft`. Gateless unchanged. +4 tests; full suite 2316 passed.
+
+### Future work (documented, not built):
 - I6 security-in-gate · I2 independent-verifier subagent · S2 unify the ~7 keep-running engines onto
   the reusable gate/loop contract · S3 revisit witness.py once I5 cost-per-accepted data judges it.
 
