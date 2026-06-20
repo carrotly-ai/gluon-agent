@@ -835,6 +835,29 @@ export interface UsageSummary {
   total_runs: number
 }
 
+/** Loop-effectiveness metrics (I5): acceptance rate + cost-per-accepted-change */
+export interface GateabilityBucket {
+  runs: number
+  pr_producing: number
+  accepted: number
+  acceptance_rate: number
+  cost_usd: number
+  cost_per_accepted_usd: number | null
+}
+
+export interface LoopEffectivenessKind extends GateabilityBucket {
+  kind: string
+}
+
+export interface LoopEffectiveness {
+  overall: GateabilityBucket
+  /** Code-producing kinds (build/bug/chore) — objectively gateable */
+  gateable: GateabilityBucket
+  /** Judgment-call kinds (research/docs/review) — no objective gate */
+  gateless: GateabilityBucket
+  by_kind: LoopEffectivenessKind[]
+}
+
 /** Project usage breakdown */
 export interface ProjectUsage {
   project_id: string

@@ -34,6 +34,7 @@ import type {
   LinkTransport,
   LoginResponse,
   LogResponse,
+  LoopEffectiveness,
   MeResponse,
   // Merge Queue types
   MergeQueueEntry,
@@ -503,6 +504,11 @@ export async function cloneRepository(
 /** Fetch usage summary for header display */
 export async function fetchUsageSummary(): Promise<UsageSummary> {
   return fetchJson<UsageSummary>('/usage/summary')
+}
+
+/** Fetch loop-effectiveness (I5): acceptance rate + cost-per-accepted-change */
+export async function fetchLoopEffectiveness(): Promise<LoopEffectiveness> {
+  return fetchJson<LoopEffectiveness>('/usage/effectiveness')
 }
 
 /** Fetch usage breakdown by project */
