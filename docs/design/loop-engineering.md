@@ -63,11 +63,16 @@ breaking the large share of Gluon's work (research/docs/review) that has no gate
 **Opt-in / non-breaking:** brand-new method/model/route; zero change to existing behavior.
 
 ## Progress
-- [ ] Step 0 — I5 metric — backend (in progress)
+- [x] Step 0 — I5 metric — backend (PR #154): `is_gateable_kind`, `store.get_loop_effectiveness`,
+  `GET /api/usage/effectiveness`, 6 tests. Additive + read-only; gate green on touched files.
 - [ ] Step 0 — I5 metric — Usage-page surface (frontend)
 - [ ] Step 1 — I4 warn-only
 - [ ] Step 2 — I1 objective gate
 - [ ] Step 3 — completion_detector demotion
 
 ## NEXT STEPS
-Implement Step 0 backend (helper + store method + models + endpoint + tests), gate, commit, open PR.
+Surface the I5 metric on the web-ui **Usage page** (UsagePage.tsx): a small "Loop
+effectiveness" panel showing acceptance rate + cost-per-accepted-change for
+**gateable** vs **gateless**, consuming `GET /api/usage/effectiveness`. Add the API
+client call + a response type; verify with `bun run build` (+ optional docker cp +
+screenshot at desktop/mobile). Then move to Step 1 (I4 warn-only).
