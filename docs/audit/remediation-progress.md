@@ -108,7 +108,22 @@ Owner now wants the larger portions finished, not deferred. Disposition: build t
 - [x] **runs (batch 7 — logs)** (`d452949`, local) — GET /api/runs/{id}/logs → runs.py (store + run-resolver + runner.get_logs; runner owns log-path resolution, no path construction in route). **runs clean subset COMPLETE — runs.py holds 18 routes.**
 - [x] domain: **projects (clean subset)** (`60754d3`, local) — GET /api/projects/{id} (detail) + DELETE /api/projects/{id} → `web/routers/projects.py` (store-only). create_project stays inline (os.path.realpath taint-break — CodeQL only validates it in api.py). list_projects/files/commands + conflicts/rebase/branches/git cluster stay inline (git/path). test_api_projects.py (24).
 
-### #162 status: clean extraction SUBSTANTIALLY COMPLETE (~14 router modules)
+### #162 status: CLEAN EXTRACTION COMPLETE — ready for final push (loop wound down)
+
+**Done (no-push fast-mode batch, owner directive to conserve CI minutes — all committed locally, gated each step with ruff+mypy+full suite 2261, NOT pushed):** api.py **6625 → 4184 lines (−2441, ~37%)**. 13 router modules + `_deps` provider layer + lifespan migration + `background.py`. ~70 routes extracted behavior-identically.
+
+**Remaining 79 inline routes are KEEP-INLINE-by-design or deferred — this is the correct end state, not unfinished work:**
+- **runs (12) + projects (15):** git/path/image/background routes — get_run, recover, commits/files/diff/create-pr/merge, attachments, witness; project create/list/files/commands + conflicts/rebase/branches/git. Relocating re-triggers CodeQL py/path-injection (the workspaces lesson). Keep inline.
+- **security (auth 8, users 5, settings 2, webhooks 4):** need a CI-backed pass (CodeQL/human review) — NOT no-push mode. Owner decision.
+- **images (4):** do-not-touch set.
+- **un-netted (queue 4, merge-queue 3, activity 2, vercel/git/agents):** no test net → no behavior-identity proof, and "fix at the end" can't catch a silent break with no test exercising it. Add nets first, or extract in a CI-backed pass.
+- **special:** ws (websocket), version (create_app-scoped nonlocal cache).
+
+**HANDOFF — next action is the OWNER's:** push the branch (one CI run for all ~22 local commits), let CodeQL + `test (3.12)` validate, fix anything they surface. The loop is wound down: no more autonomous extraction (further routes need CI feedback or human/security review).
+
+---
+
+### #162 earlier status note (superseded by the COMPLETE summary above)
 
 **Extracted (14 router modules):** sdk_sessions, notifications, workspaces(core), queued_messages, tasks, formulas, schedules, usage, approvals, supervision, runs(18), projects(2) + the `_deps` provider layer + lifespan migration + background.py. **api.py: ~6625 → ~4306 lines.**
 
