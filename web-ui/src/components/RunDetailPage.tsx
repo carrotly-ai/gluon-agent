@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { useLazyExpand } from '@/hooks/useLazyExpand'
 import { useRunActions } from '@/hooks/useRunActions'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { parseMessages } from '@/lib/agentMessage'
@@ -655,68 +656,43 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
 
   // Edit a queued message
 
-  const handleExpandHistoryRun = async (historyRunId: string) => {
-    if (expandedHistoryRun === historyRunId) {
-      setExpandedHistoryRun(null)
-      return
-    }
-    setExpandedHistoryRun(historyRunId)
-    if (!historyLogs[historyRunId]) {
-      try {
-        const [stdout, stderr] = await Promise.all([
-          fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
-          fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
-        ])
-        setHistoryLogs((prev) => ({
-          ...prev,
-          [historyRunId]: { stdout: stdout.content || '', stderr: stderr.content || '' },
-        }))
-      } catch {
-        setHistoryLogs((prev) => ({
-          ...prev,
-          [historyRunId]: { stdout: '', stderr: '' },
-        }))
-      }
-    }
-  }
+  // Toggle-and-lazy-load expanders (#165, shared via useLazyExpand). `?? ''` is
+  // unreachable — `enabled: !!runId` skips the load when runId is undefined.
+  const handleExpandHistoryRun = useLazyExpand({
+    expanded: expandedHistoryRun,
+    setExpanded: setExpandedHistoryRun,
+    cache: historyLogs,
+    setCache: setHistoryLogs,
+    load: async (historyRunId) => {
+      const [stdout, stderr] = await Promise.all([
+        fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
+        fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
+      ])
+      return { stdout: stdout.content || '', stderr: stderr.content || '' }
+    },
+  })
 
-  const handleExpandCommit = async (sha: string) => {
-    if (expandedCommit === sha) {
-      setExpandedCommit(null)
-      return
-    }
-    setExpandedCommit(sha)
-    if (!commitDetails[sha] && runId) {
-      setLoadingCommitDetail(sha)
-      try {
-        const detail = await fetchCommitDetail(runId, sha)
-        setCommitDetails((prev) => ({ ...prev, [sha]: detail }))
-      } catch (err) {
-        console.error('Failed to load commit details:', err)
-      } finally {
-        setLoadingCommitDetail(null)
-      }
-    }
-  }
+  const handleExpandCommit = useLazyExpand({
+    expanded: expandedCommit,
+    setExpanded: setExpandedCommit,
+    cache: commitDetails,
+    setCache: setCommitDetails,
+    setLoading: setLoadingCommitDetail,
+    enabled: !!runId,
+    load: (sha) => fetchCommitDetail(runId ?? '', sha),
+    onError: (err) => console.error('Failed to load commit details:', err),
+  })
 
-  const handleExpandFile = async (filePath: string) => {
-    if (expandedFile === filePath) {
-      setExpandedFile(null)
-      return
-    }
-    setExpandedFile(filePath)
-    if (!fileDiffs[filePath] && runId) {
-      setLoadingFileDiff(filePath)
-      try {
-        const diff = await fetchFileDiff(runId, filePath)
-        setFileDiffs((prev) => ({ ...prev, [filePath]: diff }))
-      } catch (err) {
-        console.error('Failed to load file diff:', err)
-      } finally {
-        setLoadingFileDiff(null)
-      }
-    }
-  }
+  const handleExpandFile = useLazyExpand({
+    expanded: expandedFile,
+    setExpanded: setExpandedFile,
+    cache: fileDiffs,
+    setCache: setFileDiffs,
+    setLoading: setLoadingFileDiff,
+    enabled: !!runId,
+    load: (filePath) => fetchFileDiff(runId ?? '', filePath),
+    onError: (err) => console.error('Failed to load file diff:', err),
+  })
 
   // Lazy load commits
   const loadCommits = useCallback(async () => {

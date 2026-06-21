@@ -31,6 +31,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { useLazyExpand } from '@/hooks/useLazyExpand'
 import { useRunActions } from '@/hooks/useRunActions'
 import { parseMessages } from '@/lib/agentMessage'
 import {
@@ -1033,73 +1034,43 @@ export function RunDetailDialog({
 
   // Edit a queued message
 
-  const handleExpandHistoryRun = async (historyRunId: string) => {
-    if (expandedHistoryRun === historyRunId) {
-      setExpandedHistoryRun(null)
-      return
-    }
-    setExpandedHistoryRun(historyRunId)
-    // Load logs if not already cached
-    if (!historyLogs[historyRunId]) {
-      try {
-        const [stdout, stderr] = await Promise.all([
-          fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
-          fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
-        ])
-        setHistoryLogs((prev) => ({
-          ...prev,
-          [historyRunId]: { stdout: stdout.content || '', stderr: stderr.content || '' },
-        }))
-      } catch {
-        setHistoryLogs((prev) => ({
-          ...prev,
-          [historyRunId]: { stdout: '', stderr: '' },
-        }))
-      }
-    }
-  }
+  // Toggle-and-lazy-load expanders (#165, shared via useLazyExpand). `?? ''` is
+  // unreachable — `enabled: !!run` skips the load when run is null.
+  const handleExpandHistoryRun = useLazyExpand({
+    expanded: expandedHistoryRun,
+    setExpanded: setExpandedHistoryRun,
+    cache: historyLogs,
+    setCache: setHistoryLogs,
+    load: async (historyRunId) => {
+      const [stdout, stderr] = await Promise.all([
+        fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
+        fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
+      ])
+      return { stdout: stdout.content || '', stderr: stderr.content || '' }
+    },
+  })
 
-  // Handler for expanding a commit to see full message + files
-  const handleExpandCommit = async (sha: string) => {
-    if (expandedCommit === sha) {
-      setExpandedCommit(null)
-      return
-    }
-    setExpandedCommit(sha)
-    // Load commit details if not already cached
-    if (!commitDetails[sha] && run) {
-      setLoadingCommitDetail(sha)
-      try {
-        const detail = await fetchCommitDetail(run.id, sha)
-        setCommitDetails((prev) => ({ ...prev, [sha]: detail }))
-      } catch (err) {
-        console.error('Failed to load commit details:', err)
-      } finally {
-        setLoadingCommitDetail(null)
-      }
-    }
-  }
+  const handleExpandCommit = useLazyExpand({
+    expanded: expandedCommit,
+    setExpanded: setExpandedCommit,
+    cache: commitDetails,
+    setCache: setCommitDetails,
+    setLoading: setLoadingCommitDetail,
+    enabled: !!run,
+    load: (sha) => fetchCommitDetail(run?.id ?? '', sha),
+    onError: (err) => console.error('Failed to load commit details:', err),
+  })
 
-  // Handler for expanding a file to see diff
-  const handleExpandFile = async (filePath: string) => {
-    if (expandedFile === filePath) {
-      setExpandedFile(null)
-      return
-    }
-    setExpandedFile(filePath)
-    // Load file diff if not already cached
-    if (!fileDiffs[filePath] && run) {
-      setLoadingFileDiff(filePath)
-      try {
-        const diff = await fetchFileDiff(run.id, filePath)
-        setFileDiffs((prev) => ({ ...prev, [filePath]: diff }))
-      } catch (err) {
-        console.error('Failed to load file diff:', err)
-      } finally {
-        setLoadingFileDiff(null)
-      }
-    }
-  }
+  const handleExpandFile = useLazyExpand({
+    expanded: expandedFile,
+    setExpanded: setExpandedFile,
+    cache: fileDiffs,
+    setCache: setFileDiffs,
+    setLoading: setLoadingFileDiff,
+    enabled: !!run,
+    load: (filePath) => fetchFileDiff(run?.id ?? '', filePath),
+    onError: (err) => console.error('Failed to load file diff:', err),
+  })
 
   // handleArchive removed - Archive button currently disabled
 
