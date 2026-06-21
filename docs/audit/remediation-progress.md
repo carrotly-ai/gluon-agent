@@ -125,7 +125,9 @@ All clean + netted + un-netted-but-now-netted non-security routes are extracted.
 - **Keep-inline by design (CodeQL path/git/image/background):** run get_run/recover/commits/files/diff/create-pr/merge/attachments; project create/list/files/commands + conflicts/rebase/branches/git; workspace create/scan/clone; /api/git/*; images.
 - **Low-value stragglers:** /api/agents/{id}/inbox (clean, could net+extract — minor), /api/vercel/test (token subprocess — security-ish), /api/version (nonlocal cache), /api/ws (websocket).
 
-**HANDOFF:** push the branch for one CI run over all local commits; decide whether to authorize the security-route extraction (with CI) or leave them inline.
+**OWNER AUTHORIZED security-route extraction (no-push, net-first, accept risk)** — proceeding with extra care: preserve every auth check / dependency / secret-redaction / signature-verify byte-for-byte; net-first (esp. the security invariant); gate each.
+- [x] **settings domain** (`53e8b67` net + `631d8c6`, local) — GET/PUT /api/settings + POST /api/vercel/test → `web/routers/settings.py`. Moved `_redact_setting`+`_SECRET_KEY_MARKERS` with them (removed the now-dead module helper from api.py); preserved `require_admin` gate + env-not-argv token handling. **Security verified:** test_api_settings.py (redaction masking) + test_api_authz.py (admin gate) green. api.py 3864 → 3802; suite 2297.
+- **Next security domains (net-first each):** users (5, netted by test_api_authz — RBAC admin), webhooks (4, NO net → net the HMAC signature-verify behavior FIRST, critical), auth (8, netted by test_api_auth — login/logout/me/oidc; most complex → last). Each: preserve auth logic byte-identical, verify the security invariant via its net, gate, commit.
 
 ### #162 status: CLEAN EXTRACTION COMPLETE — ready for final push (loop wound down) [superseded — loop resumed above]
 
