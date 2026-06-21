@@ -76,7 +76,6 @@ from gluon.web.models import (
     CreateUserRequest,
     CreateWorkspaceRequest,
     DailyUsageResponse,
-    EditQueuedMessageRequest,
     FileChangeResponse,
     FileDiffResponse,
     ForkRunRequest,
@@ -110,9 +109,6 @@ from gluon.web.models import (
     ProjectUsageResponse,
     ProviderResponse,
     QueuedMessageResponse,
-    QueueFollowupRequest,
-    QueueFollowupResponse,
-    # Ralph Loop models
     RalphIterationResponse,
     RalphIterationsResponse,
     RebaseRequest,
@@ -174,7 +170,7 @@ from gluon.web.models import (
     WorkspaceResponse,
     WorkspaceSettingsResponse,
 )
-from gluon.web.routers import notifications, sdk_sessions, workspaces
+from gluon.web.routers import notifications, queued_messages, sdk_sessions, workspaces
 from gluon.web.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -345,6 +341,7 @@ def create_app(
     app.include_router(sdk_sessions.router)
     app.include_router(notifications.router)
     app.include_router(workspaces.router)
+    app.include_router(queued_messages.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -991,118 +988,6 @@ def create_app(
             original_run_id=resumed_run.id,
             new_run_id=resumed_run.id,
         )
-
-    @app.post("/api/runs/{run_id}/queue-followup", response_model=QueueFollowupResponse)
-    async def queue_followup(run_id: str, body: QueueFollowupRequest) -> QueueFollowupResponse:
-        """
-        Queue a follow-up message for a running task.
-
-        If the task is running/pending, the message is appended to the queue
-        and will auto-resume after the task completes.
-
-        If the task is not running, returns action="resume_now" to indicate
-        the caller should use the normal resume endpoint instead.
-        """
-        from gluon.models import QueuedMessage
-
-        run = _resolve_run_or_404(run_id)
-
-        # Check if task is currently running
-        if run.status not in (RunStatus.RUNNING, RunStatus.PENDING):
-            # Not running - caller should use normal resume
-            return QueueFollowupResponse(
-                run_id=run.id,
-                action="resume_now",
-                message=None,
-            )
-
-        # Append message to the queue
-        try:
-            queued_msg = QueuedMessage(message=body.message)
-            run.queued_messages.append(queued_msg)
-            store.update_run(run)
-        except Exception as e:
-            logger.exception(f"Failed to queue message for run {run_id}")
-            raise HTTPException(status_code=500, detail=f"Failed to queue message: {e!s}")
-
-        # Broadcast update to WebSocket clients
-        try:
-            project_lookup = get_project_lookup()
-            project_name = project_lookup.get(run.project_id) or "Unknown"
-            await ws_manager.broadcast_run_update(run, project_name)
-        except Exception as e:
-            # Don't fail the request - message was queued successfully
-            logger.warning(f"Failed to broadcast queue update for run {run_id}: {e}")
-
-        return QueueFollowupResponse(
-            run_id=run.id,
-            action="queued",
-            message=body.message,
-            message_id=queued_msg.id,
-        )
-
-    @app.put("/api/runs/{run_id}/queue/{message_id}")
-    async def edit_queued_message(
-        run_id: str, message_id: str, body: EditQueuedMessageRequest
-    ) -> QueuedMessageResponse:
-        """Edit a queued message by its ID."""
-        run = _resolve_run_or_404(run_id)
-
-        # Find and update the message
-        for msg in run.queued_messages:
-            if msg.id == message_id:
-                msg.message = body.message
-                store.update_run(run)
-
-                # Broadcast update
-                project_lookup = get_project_lookup()
-                project_name = project_lookup.get(run.project_id) or "Unknown"
-                await ws_manager.broadcast_run_update(run, project_name)
-
-                return QueuedMessageResponse(
-                    id=msg.id,
-                    message=msg.message,
-                    queued_at=msg.queued_at.isoformat(),
-                )
-
-        raise HTTPException(status_code=404, detail=f"Queued message not found: {message_id}")
-
-    @app.delete("/api/runs/{run_id}/queue/{message_id}")
-    async def delete_queued_message(run_id: str, message_id: str) -> dict:
-        """Delete a queued message by its ID."""
-        run = _resolve_run_or_404(run_id)
-
-        # Find and remove the message
-        original_len = len(run.queued_messages)
-        run.queued_messages = [m for m in run.queued_messages if m.id != message_id]
-
-        if len(run.queued_messages) == original_len:
-            raise HTTPException(status_code=404, detail=f"Queued message not found: {message_id}")
-
-        store.update_run(run)
-
-        # Broadcast update
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(run.project_id) or "Unknown"
-        await ws_manager.broadcast_run_update(run, project_name)
-
-        return {"deleted": True, "message_id": message_id}
-
-    @app.delete("/api/runs/{run_id}/queue")
-    async def clear_queue(run_id: str) -> dict:
-        """Clear all queued messages for a run."""
-        run = _resolve_run_or_404(run_id)
-
-        cleared_count = len(run.queued_messages)
-        run.queued_messages = []
-        store.update_run(run)
-
-        # Broadcast update
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(run.project_id) or "Unknown"
-        await ws_manager.broadcast_run_update(run, project_name)
-
-        return {"cleared": True, "count": cleared_count}
 
     @app.post("/api/runs/{run_id}/recover", response_model=RecoverRunResponse)
     async def recover_run(run_id: str, body: RecoverRunRequest | None = None) -> RecoverRunResponse:
