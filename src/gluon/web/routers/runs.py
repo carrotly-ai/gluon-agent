@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from gluon.auth import SYSTEM_USER
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, utc_now
@@ -35,6 +35,8 @@ from gluon.web.models import (
     StopLoopResponse,
     TodoItemResponse,
     UpdateRunRequest,
+    UpdateStatusRequest,
+    UpdateStatusResponse,
 )
 from gluon.web.routers._deps import (
     get_current_user,
@@ -474,3 +476,111 @@ async def answer_question(
         await ws_manager.broadcast_question_answered(question.run_id, question_id)
 
     return question_to_response(question)
+
+
+# Allowed status transitions for drag-and-drop
+ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"cancelled"},
+    "running": {"cancelled"},
+    "review": {"completed", "pending", "failed", "cancelled"},  # Approve, retry, reject, or cancel
+    "completed": {"pending", "review"},  # Re-queue for retry, or back to review if PR still open
+    "failed": {"pending"},  # Retry
+    "cancelled": {"pending"},  # Retry
+}
+
+
+@router.post("/api/runs/{run_id}/status", response_model=UpdateStatusResponse)
+async def update_run_status(
+    run_id: str,
+    body: UpdateStatusRequest,
+    store: Store,
+    runner: Runner,
+    resolve_run_or_404: RunResolver,
+    project_lookup_fn: ProjectLookup,
+    run_to_response: RunToResponse,
+    ws_manager: WsManager,
+) -> UpdateStatusResponse:
+    """
+    Manually transition a run's status (for drag-and-drop).
+
+    Allowed transitions:
+    - pending → cancelled (abort before start)
+    - running → cancelled (manual abort - also kills process)
+    - completed → pending (re-queue for retry)
+    - failed → pending (re-queue for retry)
+    - cancelled → pending (re-queue)
+    """
+    run = resolve_run_or_404(run_id)
+
+    # Validate transition
+    current_status = run.status.value
+    new_status = body.status
+
+    try:
+        new_status_enum = RunStatus(new_status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
+
+    if new_status not in ALLOWED_STATUS_TRANSITIONS.get(current_status, set()):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot transition from {current_status} to {new_status}",
+        )
+
+    # Handle special case: cancelling a running process
+    if current_status == "running" and new_status == "cancelled":
+        await runner.cancel(run.id)
+
+    # Update status
+    previous_status = current_status
+    updated_run = store.update_run_status(run.id, new_status_enum)
+    if not updated_run:
+        raise HTTPException(status_code=500, detail="Failed to update run status")
+
+    project_lookup = project_lookup_fn()
+    response_run = run_to_response(updated_run, project_lookup)
+
+    # Broadcast update
+    project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
+    await ws_manager.broadcast_run_update(updated_run, project_name)
+
+    return UpdateStatusResponse(
+        run=response_run,
+        previous_status=previous_status,
+        new_status=new_status,
+    )
+
+
+@router.post("/api/runs/{run_id}/pr-status", response_model=RunResponse)
+async def update_pr_status(
+    run_id: str,
+    store: Store,
+    resolve_run_or_404: RunResolver,
+    project_lookup_fn: ProjectLookup,
+    run_to_response: RunToResponse,
+    ws_manager: WsManager,
+    pr_status: str = Query(..., description="New PR status"),
+) -> RunResponse:
+    """Update the PR status for a run (e.g., mark as merged to move from REVIEW to DONE)."""
+    run = resolve_run_or_404(run_id)
+
+    # Validate pr_status
+    valid_statuses = {"open", "merged", "closed", "draft"}
+    if pr_status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid PR status: {pr_status}. Must be one of: {valid_statuses}",
+        )
+
+    updated_run = store.update_pr_status(run.id, pr_status)
+    if not updated_run:
+        raise HTTPException(status_code=500, detail="Failed to update PR status")
+
+    project_lookup = project_lookup_fn()
+    response = run_to_response(updated_run, project_lookup)
+
+    # Broadcast update so UI reflects the change
+    project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
+    await ws_manager.broadcast_run_update(updated_run, project_name)
+
+    return response
