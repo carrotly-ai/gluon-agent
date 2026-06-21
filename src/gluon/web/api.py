@@ -96,8 +96,6 @@ from gluon.web.models import (
     RecoverRunResponse,
     ResolveConflictRequest,
     ResolveConflictResponse,
-    ResumeRunRequest,
-    ResumeRunResponse,
     RunCommitsResponse,
     RunDetailResponse,
     RunFilesResponse,
@@ -876,88 +874,8 @@ def create_app(
 
         return response
 
-    @app.post("/api/runs/{run_id}/cancel", response_model=RunResponse)
-    async def cancel_run(run_id: str) -> RunResponse:
-        """Cancel a running task."""
-        run = _resolve_run_or_404(run_id)
-
-        if not run.is_active:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Run is not active (status: {run.status.value})",
-            )
-
-        try:
-            success = await runner.cancel(run.id)
-        except Exception as e:
-            logger.error("Error cancelling run %s: %s", run.id[:8], e, exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"An error occurred while cancelling run {run.id[:8]}; check server logs.",
-            ) from e
-        if not success:
-            # cancel() returns False when the run is no longer cancellable (e.g.
-            # it just finished or was never running in this process).
-            raise HTTPException(
-                status_code=409,
-                detail=f"Run {run.id[:8]} could not be cancelled (it may have already finished).",
-            )
-
-        # Refresh and return updated run
-        updated_run = store.get_run(run.id)
-        if not updated_run:
-            raise HTTPException(status_code=500, detail="Run disappeared after cancel")
-        project_lookup = get_project_lookup()
-        response = run_to_response(updated_run, project_lookup)
-
-        # Broadcast update
-        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
-        await ws_manager.broadcast_run_update(updated_run, project_name)
-
-        return response
-
-    @app.post("/api/runs/{run_id}/resume", response_model=ResumeRunResponse)
-    async def resume_run(run_id: str, body: ResumeRunRequest) -> ResumeRunResponse:
-        """
-        Resume a completed/failed run in-place (same run ID continues).
-
-        The run continues with the same Claude session context, worktree,
-        and branch. Logs are appended, costs accumulate.
-        """
-        # Get the run to resume
-        run = _resolve_run_or_404(run_id)
-
-        # Get the project for this run
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(run.project_id)
-        if not project_name:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not find project for this run",
-            )
-
-        # Use resume_in_place which handles all validation
-        try:
-            resumed_run = await runner.resume_in_place(
-                run_id=run.id,
-                new_prompt=body.prompt,
-                wait=False,
-                initiator="web:resume",
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        # Broadcast to WebSocket clients (run_updated since same run continues)
-        await ws_manager.broadcast_run_update(resumed_run, project_name)
-
-        return ResumeRunResponse(
-            run_id=resumed_run.id,
-            status=resumed_run.status.value,
-            resume_count=resumed_run.resume_count,
-            # Backward compatibility
-            original_run_id=resumed_run.id,
-            new_run_id=resumed_run.id,
-        )
+    # cancel/resume run routes moved to gluon.web.routers.runs (#162).
+    # recover stays inline (worktree-path + background recovery closure).
 
     @app.post("/api/runs/{run_id}/recover", response_model=RecoverRunResponse)
     async def recover_run(run_id: str, body: RecoverRunRequest | None = None) -> RecoverRunResponse:
