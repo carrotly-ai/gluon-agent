@@ -21,8 +21,26 @@ from gluon.models import ExecutionRun, Project, User, UserRole
 from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
-from gluon.web.models import RunResponse, WorkspaceResponse
+from gluon.web.models import RunResponse, UserResponse, WorkspaceResponse
 from gluon.web.websocket import WebSocketManager
+
+
+def user_to_response(u: User) -> UserResponse:
+    """Map a User to its API response. Shared by the users router and the
+    (still-inline) auth login/me routes — lives here so both import one copy."""
+    return UserResponse(
+        id=u.id,
+        username=u.username,
+        display_name=u.display_name,
+        email=u.email,
+        role=u.role.value,
+        auth_provider=u.auth_provider.value,
+        disabled=u.disabled,
+        telegram_user_id=u.telegram_user_id,
+        discord_user_id=u.discord_user_id,
+        created_at=u.created_at.isoformat(),
+        last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
+    )
 
 
 def get_store(request: Request) -> GluonStore:

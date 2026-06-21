@@ -48,7 +48,6 @@ from gluon.web.models import (
     BranchListResponse,
     BranchOperationResponse,
     BranchResponse,
-    ChangePasswordRequest,
     ClaudeSessionInfo,
     ClaudeSessionListResponse,
     ClaudeSessionMessageItem,
@@ -62,7 +61,6 @@ from gluon.web.models import (
     ConflictFileResponse,
     CreateLinkCodeRequest,
     CreateProjectRequest,
-    CreateUserRequest,
     CreateWorkspaceRequest,
     FileChangeResponse,
     FileDiffResponse,
@@ -97,9 +95,6 @@ from gluon.web.models import (
     SlashCommandResponse,
     SlashCommandsResponse,
     TaskListResponse,
-    UpdateUserRequest,
-    UserListResponse,
-    UserResponse,
     VersionResponse,
     WorkspaceResponse,
     WorkspaceSettingsResponse,
@@ -120,9 +115,11 @@ from gluon.web.routers import (
     system,
     tasks,
     usage,
+    users,
     work_queue,
     workspaces,
 )
+from gluon.web.routers._deps import user_to_response
 from gluon.web.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -296,6 +293,7 @@ def create_app(
     app.include_router(work_queue.router)
     app.include_router(merge_queue.router)
     app.include_router(settings.router)
+    app.include_router(users.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -1293,21 +1291,6 @@ def create_app(
         get_oidc_provider,
     )
 
-    def _user_to_response(u: UserModel) -> UserResponse:
-        return UserResponse(
-            id=u.id,
-            username=u.username,
-            display_name=u.display_name,
-            email=u.email,
-            role=u.role.value,
-            auth_provider=u.auth_provider.value,
-            disabled=u.disabled,
-            telegram_user_id=u.telegram_user_id,
-            discord_user_id=u.discord_user_id,
-            created_at=u.created_at.isoformat(),
-            last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
-        )
-
     @app.post("/api/auth/login", response_model=LoginResponse, dependencies=[Depends(_rate_limit_auth)])
     async def auth_login(
         body: LoginRequest,
@@ -1353,7 +1336,7 @@ def create_app(
             secure=request.url.scheme == "https",
             path="/",
         )
-        return LoginResponse(user=_user_to_response(user))
+        return LoginResponse(user=user_to_response(user))
 
     @app.post("/api/auth/logout")
     async def auth_logout(
@@ -1388,20 +1371,20 @@ def create_app(
         """
         auth_on = is_auth_enabled()
         if not auth_on:
-            return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=False)
+            return MeResponse(user=user_to_response(SYSTEM_USER), auth_enabled=False)
 
         session_id = request.cookies.get(SESSION_COOKIE_NAME)
         if not session_id:
             # Tell client they're not logged in — use SYSTEM_USER payload as
             # a placeholder so the shape is uniform.
-            return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=True)
+            return MeResponse(user=user_to_response(SYSTEM_USER), auth_enabled=True)
         from gluon.auth import resolve_session
 
         result = resolve_session(store, session_id)
         if result is None:
-            return MeResponse(user=_user_to_response(SYSTEM_USER), auth_enabled=True)
+            return MeResponse(user=user_to_response(SYSTEM_USER), auth_enabled=True)
         user, _ = result
-        return MeResponse(user=_user_to_response(user), auth_enabled=True)
+        return MeResponse(user=user_to_response(user), auth_enabled=True)
 
     # ========== Auth provider feature-detection (D5 Phase 3) ==========
 
@@ -1641,185 +1624,7 @@ def create_app(
 
     # ========== User management (D5 Phase 2 — admin-only) ==========
 
-    @app.get("/api/users", response_model=UserListResponse)
-    async def list_users_endpoint(
-        include_disabled: bool = False,
-        _admin: UserModel = Depends(require_admin),
-    ) -> UserListResponse:
-        """List all users. Admin-only."""
-        users = store.list_users(include_disabled=include_disabled)
-        return UserListResponse(
-            users=[_user_to_response(u) for u in users],
-            total=len(users),
-        )
-
-    @app.post("/api/users", response_model=UserResponse)
-    async def create_user_endpoint(
-        body: CreateUserRequest,
-        _admin: UserModel = Depends(require_admin),
-    ) -> UserResponse:
-        """Create a new user. Admin-only.
-
-        Password must be at least 12 characters. Returns 409 if the username
-        already exists.
-        """
-        provider = get_auth_provider(store)
-        if not hasattr(provider, "create_user"):
-            raise HTTPException(
-                status_code=500,
-                detail="current auth provider does not support user creation",
-            )
-        try:
-            role_enum = UserRole(body.role.lower())
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"unknown role '{body.role}'; valid: {[r.value for r in UserRole]}",
-            ) from None
-        try:
-            user = provider.create_user(  # type: ignore[attr-defined]
-                username=body.username,
-                password=body.password,
-                display_name=body.display_name,
-                email=body.email,
-                role=role_enum,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-        except Exception as e:
-            if "UNIQUE" in str(e):
-                raise HTTPException(status_code=409, detail="username already exists") from None
-            raise
-        return _user_to_response(user)
-
-    @app.patch("/api/users/{user_id}", response_model=UserResponse)
-    async def update_user_endpoint(
-        user_id: str,
-        body: UpdateUserRequest,
-        admin: UserModel = Depends(require_admin),  # noqa: ARG001
-    ) -> UserResponse:
-        """Update a user's profile fields. Admin-only.
-
-        Any field left `None` in the request is unchanged. Role changes and
-        `disabled=True` rotate the target user's active sessions.
-
-        Chat-account binding (D5 Phase 4): `telegram_user_id` /
-        `discord_user_id` accept either a positive integer to set the link,
-        or `0` to clear it. We refuse to set a chat ID that is already
-        bound to a different user (returns 409) — chat IDs must be unique
-        per platform so the bot can resolve them unambiguously.
-        """
-        user = store.get_user(user_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-
-        needs_session_rotation = False
-        if body.display_name is not None:
-            user.display_name = body.display_name
-        if body.email is not None:
-            user.email = body.email
-        if body.role is not None and body.role.lower() != user.role.value:
-            try:
-                user.role = UserRole(body.role.lower())
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"unknown role '{body.role}'",
-                ) from None
-            needs_session_rotation = True
-        if body.disabled is not None and body.disabled != user.disabled:
-            user.disabled = body.disabled
-            if body.disabled:
-                needs_session_rotation = True
-
-        # D5 Phase 4 — chat-account binding (admin pre-registration).
-        # 0 is the "clear" sentinel; positive integers set the link.
-        if body.telegram_user_id is not None:
-            new_tg: int | None = body.telegram_user_id or None
-            if new_tg is not None and new_tg != user.telegram_user_id:
-                conflict = store.get_user_by_telegram_id(new_tg)
-                if conflict is not None and conflict.id != user.id:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(f"telegram user {new_tg} is already bound to @{conflict.username}"),
-                    )
-            user.telegram_user_id = new_tg
-        if body.discord_user_id is not None:
-            new_dc: int | None = body.discord_user_id or None
-            if new_dc is not None and new_dc != user.discord_user_id:
-                conflict = store.get_user_by_discord_id(new_dc)
-                if conflict is not None and conflict.id != user.id:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(f"discord user {new_dc} is already bound to @{conflict.username}"),
-                    )
-            user.discord_user_id = new_dc
-
-        store.update_user(user)
-        if needs_session_rotation:
-            store.delete_user_sessions_for_user(user.id)
-        return _user_to_response(user)
-
-    @app.delete("/api/users/{user_id}", response_model=UserResponse)
-    async def disable_user_endpoint(
-        user_id: str,
-        _admin: UserModel = Depends(require_admin),
-    ) -> UserResponse:
-        """Disable a user (soft delete). Admin-only. Rotates their sessions.
-
-        We don't hard-delete users because all the D5 Phase 2 attribution
-        links (``execution_runs.user_id``, ``orchestrator_tasks.created_by_user_id``,
-        ``pending_approvals.decided_by_user_id``) would lose their target.
-        Disable-and-preserve keeps the audit trail intact.
-        """
-        user = store.get_user(user_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-        if not user.disabled:
-            user.disabled = True
-            store.update_user(user)
-            store.delete_user_sessions_for_user(user.id)
-        return _user_to_response(user)
-
-    @app.post("/api/users/{user_id}/password", response_model=UserResponse)
-    async def change_password_endpoint(
-        user_id: str,
-        body: ChangePasswordRequest,
-        current: UserModel = Depends(current_user_dep),
-    ) -> UserResponse:
-        """Change a user's password.
-
-        - Admins may change anyone's password without providing `current_password`.
-        - Any other user may change only their own password AND must provide
-          `current_password` which is verified against the stored hash.
-
-        All sessions for the target user are rotated on success.
-        """
-        target = store.get_user(user_id)
-        if target is None:
-            raise HTTPException(status_code=404, detail="user not found")
-
-        provider = get_auth_provider(store)
-        if not hasattr(provider, "set_password") or not hasattr(provider, "verify_password"):
-            raise HTTPException(status_code=500, detail="auth provider misconfigured")
-
-        is_admin = current.role == UserRole.ADMIN
-        is_self = current.id == target.id
-
-        if not is_admin:
-            if not is_self:
-                raise HTTPException(status_code=403, detail="can only change your own password")
-            if not body.current_password:
-                raise HTTPException(status_code=400, detail="current_password required")
-            if not provider.verify_password(target.auth_subject, body.current_password):  # type: ignore[attr-defined]
-                raise HTTPException(status_code=401, detail="current password is incorrect")
-
-        try:
-            provider.set_password(target, body.new_password)  # type: ignore[attr-defined]
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        return _user_to_response(target)
+    # user-management routes moved to gluon.web.routers.users (#162).
 
     # ========== Version Info ==========
 
