@@ -115,3 +115,69 @@ async def delete_workspace(
         raise HTTPException(status_code=500, detail="Failed to delete workspace")
 
     return {"deleted": True, "workspace_id": workspace.id}
+
+
+@router.put("/api/workspaces/{workspace_id}/settings", dependencies=[Depends(require_admin)])
+async def update_workspace_settings(
+    workspace_id: str,
+    body: dict[str, str],
+    store: Annotated[GluonStore, Depends(get_store)],
+) -> dict:
+    """Set one or more workspace setting overrides."""
+    workspace = store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+    for key, value in body.items():
+        if key.startswith("env."):
+            raise HTTPException(status_code=400, detail="Use /env-vars endpoint for environment variables")
+        store.set_workspace_setting(workspace.id, key, value)
+
+    return {"updated": len(body), "workspace_id": workspace.id}
+
+
+@router.delete("/api/workspaces/{workspace_id}/settings/{key}", dependencies=[Depends(require_admin)])
+async def delete_workspace_setting(
+    workspace_id: str,
+    key: str,
+    store: Annotated[GluonStore, Depends(get_store)],
+) -> dict:
+    """Remove a single setting override (reverts to global)."""
+    workspace = store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+    deleted = store.delete_workspace_setting(workspace.id, key)
+    return {"deleted": deleted, "key": key, "workspace_id": workspace.id}
+
+
+@router.put("/api/workspaces/{workspace_id}/env-vars", dependencies=[Depends(require_admin)])
+async def update_workspace_env_vars(
+    workspace_id: str,
+    body: dict[str, str],
+    store: Annotated[GluonStore, Depends(get_store)],
+) -> dict:
+    """Set workspace environment variables (auto-prefixed with env.)."""
+    workspace = store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+    for key, value in body.items():
+        store.set_workspace_setting(workspace.id, f"env.{key}", value)
+
+    return {"updated": len(body), "workspace_id": workspace.id}
+
+
+@router.delete("/api/workspaces/{workspace_id}/env-vars/{key}", dependencies=[Depends(require_admin)])
+async def delete_workspace_env_var(
+    workspace_id: str,
+    key: str,
+    store: Annotated[GluonStore, Depends(get_store)],
+) -> dict:
+    """Remove a workspace environment variable."""
+    workspace = store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail=f"Workspace not found: {workspace_id}")
+
+    deleted = store.delete_workspace_setting(workspace.id, f"env.{key}")
+    return {"deleted": deleted, "key": key, "workspace_id": workspace.id}
