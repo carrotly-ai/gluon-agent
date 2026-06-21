@@ -83,6 +83,16 @@ def get_workspace_to_response(request: Request) -> Callable[..., WorkspaceRespon
     return cast("Callable[..., WorkspaceResponse]", request.app.state.workspace_to_response)
 
 
+def rate_limit_auth(request: Request) -> None:
+    """Per-IP throttle for the extracted auth router — byte-identical to
+    create_app's ``_rate_limit_auth``, but reads the per-app limiter from
+    app.state (set in create_app) so it shares the same instance/budget."""
+    limiter = request.app.state.auth_limiter
+    ip = request.client.host if request.client else "unknown"
+    if not limiter.allow(f"{request.url.path}:{ip}"):
+        raise HTTPException(status_code=429, detail="Too many attempts; wait a minute and try again.")
+
+
 async def get_current_user(
     request: Request,
     session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
