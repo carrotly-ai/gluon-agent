@@ -46,7 +46,6 @@ from gluon.web.models import (
     ActivityEventResponse,
     ActivityListResponse,
     AttachImageRequest,
-    AttentionCountsResponse,
     AuthProvidersResponse,
     BranchListResponse,
     BranchOperationResponse,
@@ -1957,47 +1956,7 @@ def create_app(
 
     # archive/unarchive/patch/snooze/fork run routes moved to gluon.web.routers.runs (#162).
 
-    @app.get("/api/attention-counts", response_model=AttentionCountsResponse)
-    async def get_attention_counts() -> AttentionCountsResponse:
-        """Aggregate counts of runs that need user attention.
-
-        A run "needs attention" if it is FAILED, has a CONFLICTING PR, or has a
-        pending question (``pending_questions.status = 'pending'``). Snoozed and
-        archived runs are excluded.
-        """
-        runs = store.list_runs(limit=1000)
-        try:
-            pending_q_run_ids = store.list_run_ids_with_pending_questions()
-        except Exception:
-            pending_q_run_ids = set()
-
-        needs_input = 0
-        failed = 0
-        conflicts = 0
-        by_project: dict[str, int] = {}
-        for run in runs:
-            if run.archived or run.is_snoozed:
-                continue
-            attention = False
-            if run.id in pending_q_run_ids:
-                needs_input += 1
-                attention = True
-            if run.status == RunStatus.FAILED:
-                failed += 1
-                attention = True
-            if run.pr_mergeable == "CONFLICTING":
-                conflicts += 1
-                attention = True
-            if attention:
-                by_project[run.project_id] = by_project.get(run.project_id, 0) + 1
-
-        return AttentionCountsResponse(
-            total=needs_input + failed + conflicts,
-            needs_input=needs_input,
-            failed=failed,
-            conflicts=conflicts,
-            by_project=by_project,
-        )
+    # attention-counts route moved to gluon.web.routers.system (#162).
 
     # pr-status run route moved to gluon.web.routers.runs (#162).
 
@@ -2389,36 +2348,7 @@ def create_app(
         except subprocess.TimeoutExpired:
             return {"valid": False, "error": "Request timed out"}
 
-    @app.get("/api/sandbox/status")
-    async def get_sandbox_status() -> dict:
-        """Get sandbox availability and configuration.
-
-        Returns information about OS-level sandboxing:
-        - Linux: bubblewrap (bwrap)
-        - macOS: sandbox-exec with Seatbelt profiles
-        """
-        import platform
-        import shutil
-
-        system = platform.system()
-
-        # Check if sandbox runtime is available
-        if system == "Linux":
-            available = shutil.which("bwrap") is not None
-            runtime = "bubblewrap"
-        elif system == "Darwin":
-            available = shutil.which("sandbox-exec") is not None
-            runtime = "sandbox-exec"
-        else:
-            available = False
-            runtime = None
-
-        return {
-            "available": available,
-            "runtime": runtime,
-            "enabled": store.get_setting("sandbox_enabled", "true") == "true",
-            "platform": system,
-        }
+    # sandbox/status route moved to gluon.web.routers.system (#162).
 
     # ========== Webhooks API (Phase: Distributed Workers) ==========
 
