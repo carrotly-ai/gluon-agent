@@ -115,6 +115,7 @@ from gluon.web.routers import (
     runs,
     schedules,
     sdk_sessions,
+    settings,
     supervision,
     system,
     tasks,
@@ -201,17 +202,6 @@ async def _workspace_env(store: GluonStore, workspace_id: str | None):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-
-
-_SECRET_KEY_MARKERS = ("secret", "token", "password", "passwd", "api_key")
-
-
-def _redact_setting(key: str, value: str) -> str:
-    """Mask secret-looking setting values so they are never returned to clients."""
-    low = key.lower()
-    if value and (any(m in low for m in _SECRET_KEY_MARKERS) or low.endswith("_key")):
-        return "********"
-    return value
 
 
 class _SlidingWindowLimiter:
@@ -305,6 +295,7 @@ def create_app(
     app.include_router(activity.router)
     app.include_router(work_queue.router)
     app.include_router(merge_queue.router)
+    app.include_router(settings.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -2245,61 +2236,7 @@ def create_app(
 
     # Usage-dashboard routes moved to gluon.web.routers.usage (#162).
 
-    # ========== Phase 9: Settings API ==========
-
-    @app.get("/api/settings", dependencies=[Depends(require_admin)])
-    async def get_all_settings() -> dict[str, str]:
-        """Get all settings as key-value pairs."""
-        from gluon.llm_provider import get_provider
-
-        settings = store.get_all_settings()
-        # Never round-trip secret values to the client (even for admins) — show
-        # only that a value is set. Covers e.g. github_webhook_secret, *_token.
-        settings = {k: _redact_setting(k, v) for k, v in settings.items()}
-        # Expose whether VERCEL_TOKEN is available from environment (without leaking the value)
-        settings["_vercel_token_from_env"] = "true" if os.environ.get("VERCEL_TOKEN") else "false"
-
-        # Expose resolved provider info (the actual provider may come from env var, not DB)
-        provider = get_provider()
-        settings["_llm_provider_name"] = provider.name
-        settings["_llm_provider_supports_cost_tracking"] = str(provider.supports_cost_tracking).lower()
-        return settings
-
-    @app.put("/api/settings/{key}", dependencies=[Depends(require_admin)])
-    async def update_setting(key: str, body: dict) -> dict[str, str]:
-        """Update a single setting value."""
-        value = body.get("value")
-        if value is None:
-            raise HTTPException(status_code=400, detail="Missing 'value' in request body")
-        store.set_setting(key, str(value))
-        return {"key": key, "value": str(value)}
-
-    @app.post("/api/vercel/test", dependencies=[Depends(require_admin)])
-    async def test_vercel_token(body: dict) -> dict:
-        """Test a Vercel API token by calling `vercel whoami`."""
-        token = (body.get("token") or "").strip() or os.environ.get("VERCEL_TOKEN", "")
-        if not token:
-            raise HTTPException(status_code=400, detail="No token provided and VERCEL_TOKEN not set")
-
-        try:
-            # Pass the token via env, not argv, so it doesn't leak through
-            # /proc/<pid>/cmdline or `ps`.
-            result = await asyncio.to_thread(
-                subprocess.run,
-                ["vercel", "whoami"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                env={**os.environ, "VERCEL_TOKEN": token},
-            )
-            if result.returncode == 0:
-                return {"valid": True, "account": result.stdout.strip()}
-            else:
-                return {"valid": False, "error": result.stderr.strip() or "Invalid token"}
-        except FileNotFoundError:
-            return {"valid": False, "error": "Vercel CLI not installed"}
-        except subprocess.TimeoutExpired:
-            return {"valid": False, "error": "Request timed out"}
+    # settings + vercel-token routes moved to gluon.web.routers.settings (#162).
 
     # sandbox/status route moved to gluon.web.routers.system (#162).
 
