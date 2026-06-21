@@ -13,9 +13,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
 
-from fastapi import Request
+from fastapi import Cookie, HTTPException, Request
 
-from gluon.models import ExecutionRun, Project
+from gluon.auth import SESSION_COOKIE_NAME, _current_user_impl, _role_rank
+from gluon.models import ExecutionRun, Project, User, UserRole
 from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
@@ -57,3 +58,23 @@ def get_resolve_project_or_404(request: Request) -> Callable[[str], Project]:
 
 def get_workspace_to_response(request: Request) -> Callable[..., WorkspaceResponse]:
     return cast("Callable[..., WorkspaceResponse]", request.app.state.workspace_to_response)
+
+
+async def require_admin(
+    request: Request,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> User:
+    """Admin-role gate for extracted routers — mirrors create_app's `require_admin`.
+
+    Reads the store from app.state instead of closing over it; otherwise
+    byte-identical to ``make_require_role(store, ADMIN)`` (no-op in single-user
+    mode where SYSTEM_USER is admin, 403 with the same message otherwise).
+    """
+    store = cast(GluonStore, request.app.state.store)
+    user = _current_user_impl(store, session)
+    if _role_rank(user.role) < _role_rank(UserRole.ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail=f"role '{UserRole.ADMIN.value}' required (you are '{user.role.value}')",
+        )
+    return user
