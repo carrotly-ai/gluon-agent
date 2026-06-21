@@ -545,8 +545,7 @@ class Agent(BaseModel):
     a workspace. It carries budget/concurrency policy and can be wired to
     scheduled heartbeats (future) and assigned tasks (future).
 
-    Distinct from `Worker` (execution target) — a single Agent may map to
-    many workers, and a workspace may have zero-to-many Agents.
+    A workspace may have zero-to-many Agents.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -906,11 +905,6 @@ class Project(BaseModel):
             expanded = expanded.resolve()
         return expanded
 
-    @property
-    def is_workspace_managed(self) -> bool:
-        """Check if this project is managed by a workspace."""
-        return self.workspace_id is not None
-
 
 class Session(BaseModel):
     """A Claude Code session associated with a project."""
@@ -949,6 +943,37 @@ class Session(BaseModel):
         """Increment turn count."""
         self.total_turns += 1
         self.updated_at = utc_now()
+
+
+# Loop-engineering: which run `kind`s are "gateable" — i.e. an objective
+# test/lint/build can verify "done". Code-producing kinds are gateable; research,
+# docs, and review produce judgment-call outputs with no objective gate. A NULL
+# kind is treated as gateable (auto_detect_kind defaults to "build"). This is a
+# coarse proxy used for the I5 effectiveness metric; per-run "gated" (Step 1+)
+# means a `verify_cmd` is actually configured.
+GATEABLE_KINDS: frozenset[str] = frozenset({"build", "bug", "chore"})
+
+
+def is_gateable_kind(kind: str | None) -> bool:
+    """True if a run of this `kind` can be verified by an objective gate."""
+    if kind is None:
+        return True  # auto_detect_kind defaults to "build" (gateable)
+    return kind in GATEABLE_KINDS
+
+
+def run_readiness(verify_cmd: str | None) -> str:
+    """Loop-engineering readiness (I4): a run is "gated" when it has an objective
+    verify command, else "gateless". Warn-only classification in Step 1; Step 2
+    enforces the gate for "gated" runs and degrades "gateless" runs gracefully."""
+    return "gated" if verify_cmd else "gateless"
+
+
+# Combined hard ceiling across BOTH automatic resume paths (PR-monitor comment/CI
+# resumes increment `auto_resume_count`; supervisor resumes increment
+# `supervision_auto_resume_count`). Either path refuses once the SUM reaches this,
+# preventing the two caps from compounding into a runaway loop. User-queued
+# follow-ups (`_handle_queued_followup`) are not auto-resumes and stay uncapped.
+MAX_TOTAL_AUTO_RESUMES = 8
 
 
 class ExecutionRun(BaseModel):
@@ -1076,6 +1101,11 @@ class ExecutionRun(BaseModel):
     # kind: low-cardinality run category. Today: research / build / docs / bug / review / chore.
     # Auto-detected from prompt on create; user can override via PATCH /api/runs/{id}.
     kind: str | None = None
+    # verify_cmd: optional objective gate for ralph loops (loop-engineering I4/I1).
+    # When set, the ralph loop will (Step 2) run this shell command in a clean
+    # checkout and treat exit-0 as the authoritative "done". Step 1 only stores it
+    # and classifies the run "gated" vs "gateless" (run_readiness) — NOT enforced yet.
+    verify_cmd: str | None = None
     # snoozed_until: when set in the future, run hides from default list and lives in
     # the "Snoozed" group; expires implicitly when datetime passes.
     snoozed_until: datetime | None = None
@@ -1669,151 +1699,6 @@ class ImageAttachment(BaseModel):
     def full_path(self) -> Path:
         """Get full path to image file in storage."""
         return Path.home() / ".gluon" / "images" / self.file_path
-
-    def to_markdown(self) -> str:
-        """Return markdown image reference."""
-        return f"![{self.original_name}]({self.file_path})"
-
-
-# ========== Distributed Worker Models ==========
-
-
-class JobStatus(StrEnum):
-    """Status of a job in the queue."""
-
-    QUEUED = "queued"  # Waiting in queue
-    ASSIGNED = "assigned"  # Assigned to worker, pending execution
-    RUNNING = "running"  # Currently executing
-    COMPLETED = "completed"  # Finished successfully
-    FAILED = "failed"  # Error occurred
-
-
-class WorkerType(StrEnum):
-    """Type of worker for task execution."""
-
-    LOCAL = "local"  # Local subprocess execution
-    REMOTE = "remote"  # Remote worker via HTTP API
-
-
-class WorkerStatus(StrEnum):
-    """Health status of a worker."""
-
-    HEALTHY = "healthy"  # Worker responding normally
-    UNHEALTHY = "unhealthy"  # Worker missed heartbeats
-    OFFLINE = "offline"  # Worker explicitly offline
-
-
-class Worker(BaseModel):
-    """A worker that can execute jobs."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str  # Human-readable name (unique)
-    type: WorkerType = WorkerType.LOCAL
-    base_url: str | None = None  # For remote workers (e.g., "http://worker1:8080")
-    api_key: str  # API key for authentication
-    max_concurrent: int = 4  # Maximum concurrent jobs
-    status: WorkerStatus = WorkerStatus.HEALTHY
-    last_heartbeat: datetime | None = None
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
-
-    # Runtime tracking (not persisted)
-    active_jobs: int = 0  # Current number of running jobs
-
-    @property
-    def is_available(self) -> bool:
-        """Check if worker can accept more jobs."""
-        return self.status == WorkerStatus.HEALTHY and self.active_jobs < self.max_concurrent
-
-    @property
-    def available_slots(self) -> int:
-        """Number of available job slots."""
-        if self.status != WorkerStatus.HEALTHY:
-            return 0
-        return max(0, self.max_concurrent - self.active_jobs)
-
-    def mark_healthy(self) -> None:
-        """Mark worker as healthy with updated heartbeat."""
-        self.status = WorkerStatus.HEALTHY
-        self.last_heartbeat = utc_now()
-        self.updated_at = utc_now()
-
-    def mark_unhealthy(self) -> None:
-        """Mark worker as unhealthy (missed heartbeats)."""
-        self.status = WorkerStatus.UNHEALTHY
-        self.updated_at = utc_now()
-
-    def mark_offline(self) -> None:
-        """Mark worker as explicitly offline."""
-        self.status = WorkerStatus.OFFLINE
-        self.updated_at = utc_now()
-
-
-class Job(BaseModel):
-    """A job in the execution queue."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    run_id: str  # FK to ExecutionRun
-    project_id: str  # FK to Project (denormalized for quick filtering)
-    prompt: str  # Task prompt
-    priority: int = 5  # 1 (highest) to 10 (lowest), default 5
-    status: JobStatus = JobStatus.QUEUED
-    worker_id: str | None = None  # FK to Worker (assigned worker)
-    created_at: datetime = Field(default_factory=utc_now)
-    assigned_at: datetime | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    error_message: str | None = None
-
-    # Job configuration
-    model: str | None = None  # Requested model tier
-    use_worktree: bool = False  # Whether to use git worktree
-    session_id: str | None = None  # Session ID to resume (optional)
-
-    # Lease tracking for fault tolerance
-    lease_expires_at: datetime | None = None  # Worker lease expiration
-
-    def assign_to_worker(self, worker_id: str, lease_seconds: int = 300) -> None:
-        """Assign job to a worker with a lease."""
-        self.worker_id = worker_id
-        self.status = JobStatus.ASSIGNED
-        self.assigned_at = utc_now()
-        self.lease_expires_at = datetime.fromtimestamp(utc_now().timestamp() + lease_seconds, tz=UTC)
-
-    def mark_running(self) -> None:
-        """Mark job as running."""
-        self.status = JobStatus.RUNNING
-        self.started_at = utc_now()
-
-    def mark_completed(self) -> None:
-        """Mark job as completed."""
-        self.status = JobStatus.COMPLETED
-        self.completed_at = utc_now()
-        self.lease_expires_at = None
-
-    def mark_failed(self, error: str) -> None:
-        """Mark job as failed."""
-        self.status = JobStatus.FAILED
-        self.error_message = error
-        self.completed_at = utc_now()
-        self.lease_expires_at = None
-
-    def release_lease(self) -> None:
-        """Release job back to queue (e.g., worker died)."""
-        self.worker_id = None
-        self.status = JobStatus.QUEUED
-        self.assigned_at = None
-        self.lease_expires_at = None
-
-    @property
-    def is_lease_expired(self) -> bool:
-        """Check if worker lease has expired."""
-        if not self.lease_expires_at:
-            return False
-        return utc_now() > self.lease_expires_at
-
-
-# ========== Webhook Models ==========
 
 
 class WebhookConfig(BaseModel):

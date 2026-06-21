@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from gluon.agent import AgentMessage, AgentResult
 from gluon.chat_agent import ChatMessage, GluonChatAgent
-from gluon.core import Orchestrator, ProjectNotFoundError
+from gluon.core import Orchestrator
 from gluon.git_manager import GitManager
 from gluon.models import ExecutionRun, TaskProfile, ThinkingBudget
 from gluon.models_config import ModelTier
@@ -204,41 +204,6 @@ class GluonBotCore:
             self.unregister_task(run_id)
             return True
         return False
-
-    # ========== Project Resolution ==========
-
-    def resolve_project(
-        self,
-        project_hint: str | None,
-        channel_name: str | None = None,
-    ) -> str | None:
-        """Resolve a project name from hints.
-
-        Args:
-            project_hint: Direct project name hint
-            channel_name: Channel name to try matching
-
-        Returns:
-            Project name if found, None otherwise
-        """
-        # Direct hint takes priority
-        if project_hint:
-            try:
-                self.orchestrator.get_project(project_hint)
-                return project_hint
-            except ProjectNotFoundError:
-                pass
-
-        # Try channel name match (normalize - to _)
-        if channel_name:
-            normalized = channel_name.lower().replace("-", "_")
-            try:
-                project = self.orchestrator.get_project(normalized)
-                return project.name
-            except ProjectNotFoundError:
-                pass
-
-        return None
 
     # ========== Identity resolution (D5 Phase 4) ==========
 

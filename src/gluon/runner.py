@@ -26,6 +26,9 @@ from claude_agent_sdk import EffortLevel
 
 from gluon.agent import AgentMessage, AgentResult, GluonAgent
 from gluon.agent_hooks import ScreenshotCollector, TodoCollector
+from gluon.budgets import enforce_agent_budget as _enforce_agent_budget
+from gluon.budgets import enforce_workspace_budget as _enforce_workspace_budget
+from gluon.budgets import touch_agent_last_active as _touch_agent_last_active
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
@@ -77,92 +80,6 @@ def _resolve_default_run_cost_cap(store: "GluonStore") -> float | None:
             )
 
     return None
-
-
-def _month_start_utc() -> datetime:
-    """Return the first-of-month timestamp (UTC midnight) for today."""
-    now = datetime.now(UTC)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def _enforce_agent_budget(store: "GluonStore", agent_id: str) -> None:
-    """Raise BudgetExceededError if the agent has already hit its monthly cap.
-
-    No-op when the agent has no budget configured. Callers pass the agent_id
-    they're about to link a new run to.
-    """
-    from gluon.core import BudgetExceededError
-
-    agent = store.get_agent(agent_id)
-    if agent is None:
-        return
-    if agent.monthly_budget_usd is None:
-        return
-
-    spent = store.get_agent_monthly_spend(agent_id, _month_start_utc())
-    if spent >= agent.monthly_budget_usd:
-        raise BudgetExceededError(
-            agent_name=agent.name,
-            spent=spent,
-            budget=agent.monthly_budget_usd,
-        )
-
-
-def _enforce_workspace_budget(store: "GluonStore", workspace_id: str) -> None:
-    """Raise WorkspaceBudgetExceededError if daily or monthly cap is hit.
-
-    No-op when the workspace has no budgets set. Also logs a WARNING at 80%
-    for each scope so operators see headroom before the cap is hit.
-    """
-    from gluon.core import WorkspaceBudgetExceededError
-
-    workspace = store.get_workspace(workspace_id)
-    if workspace is None:
-        return
-    if workspace.daily_budget_usd is None and workspace.monthly_budget_usd is None:
-        return
-
-    now = datetime.now(UTC)
-
-    # Daily scope
-    if workspace.daily_budget_usd is not None:
-        spent_today = store.get_workspace_daily_spend(workspace_id, now)
-        budget = workspace.daily_budget_usd
-        if spent_today >= budget:
-            raise WorkspaceBudgetExceededError(
-                workspace_name=workspace.name,
-                scope="daily",
-                spent=spent_today,
-                budget=budget,
-            )
-        if budget > 0 and (spent_today / budget) >= 0.8:
-            logger.warning(
-                "Workspace '%s' daily spend at %.1f%% of cap ($%.2f / $%.2f)",
-                workspace.name,
-                (spent_today / budget) * 100,
-                spent_today,
-                budget,
-            )
-
-    # Monthly scope
-    if workspace.monthly_budget_usd is not None:
-        spent_month = store.get_workspace_monthly_spend(workspace_id, now)
-        budget = workspace.monthly_budget_usd
-        if spent_month >= budget:
-            raise WorkspaceBudgetExceededError(
-                workspace_name=workspace.name,
-                scope="monthly",
-                spent=spent_month,
-                budget=budget,
-            )
-        if budget > 0 and (spent_month / budget) >= 0.8:
-            logger.warning(
-                "Workspace '%s' monthly spend at %.1f%% of cap ($%.2f / $%.2f)",
-                workspace.name,
-                (spent_month / budget) * 100,
-                spent_month,
-                budget,
-            )
 
 
 _KIND_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -217,18 +134,6 @@ Write it for a human reviewer, not as a restatement of your task prompt:
 Base the description on your ACTUAL diff (`git diff {base_branch}...HEAD`),
 not on what you intended to do.
 """
-
-
-def _touch_agent_last_active(store: "GluonStore", agent_id: str) -> None:
-    """Update the agent's last_active_at timestamp on run start. Best-effort."""
-    try:
-        agent = store.get_agent(agent_id)
-        if agent is None:
-            return
-        agent.last_active_at = datetime.now(UTC)
-        store.update_agent(agent)
-    except Exception:
-        logger.debug("Failed to update agent last_active_at", exc_info=True)
 
 
 # ========== Hard-cap watchdog (Theme D3) ==========
@@ -635,6 +540,7 @@ class TaskRunner:
         max_duration_minutes: int | None = None,
         user_id: str | None = None,
         schedule_id: str | None = None,
+        verify_cmd: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -720,6 +626,7 @@ class TaskRunner:
             kind=auto_detect_kind(prompt),
             claude_session_id=claude_session_id,
             schedule_id=schedule_id,
+            verify_cmd=verify_cmd,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 
@@ -1565,12 +1472,7 @@ but explicit commits with good messages are preferred.
                             if run.use_worktree and run.branch_name and item.success:
                                 # Safety net: auto-commit any uncommitted changes
                                 try:
-                                    prompt_preview = run.prompt[:60]
-                                    ellipsis = "..." if len(run.prompt) > 60 else ""
-                                    commit_msg = (
-                                        f"chore: {prompt_preview}{ellipsis}\n\n"
-                                        f"Auto-committed by Gluon Agent\nRun ID: {run.id}"
-                                    )
+                                    commit_msg = _auto_commit_message(run.prompt, run.id)
                                     commit_result = await self.git_manager.auto_commit_changes(
                                         path=working_path,
                                         message=commit_msg,
@@ -1966,6 +1868,11 @@ but explicit commits with good messages are preferred.
                 except Exception:
                     logger.debug("Session cleanup failed", exc_info=True)
 
+            # Close out the work-queue item this run was dispatched from. It was
+            # set RUNNING on dispatch (mark_running) but nothing ever marked it
+            # terminal, so queue items leaked in RUNNING forever.
+            self._finalize_queue_item(run)
+
             # Self-propelling queue: dispatch next queued work item
             if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:
                 try:
@@ -1993,6 +1900,30 @@ but explicit commits with good messages are preferred.
 
         # Check for queued follow-up message and auto-resume if present
         await self._handle_queued_followup(run)
+
+    def _finalize_queue_item(self, run: ExecutionRun) -> None:
+        """Mark the work-queue item a queue-dispatched run came from as terminal.
+
+        Queue items are set RUNNING on dispatch (``WorkQueueManager.mark_running``)
+        but nothing closed them out when the linked run finished, so they leaked
+        in RUNNING forever. The run's ``initiator`` (``queue:<id>`` from the
+        per-run dispatch, ``queue_drain:<id>`` from the background drain) links
+        back to the originating item.
+        """
+        initiator = run.initiator or ""
+        if not (initiator.startswith("queue:") or initiator.startswith("queue_drain:")):
+            return
+        try:
+            from gluon.work_queue import WorkQueueManager
+
+            item_id = initiator.split(":", 1)[1]
+            wq = WorkQueueManager(self.store)
+            if run.status == RunStatus.FAILED:
+                wq.mark_failed(item_id, run.error_message or "Run failed")
+            elif run.status in (RunStatus.COMPLETED, RunStatus.REVIEW):
+                wq.mark_completed(item_id)
+        except Exception:
+            logger.debug("Work queue item finalization failed", exc_info=True)
 
     def _drain_db_queue_into(self, run: ExecutionRun, queue: asyncio.Queue[str]) -> None:
         """Move any DB-queued messages into the asyncio queue (one-shot).
@@ -2542,16 +2473,6 @@ but explicit commits with good messages are preferred.
 
         return dispatched
 
-    @property
-    def supervisor(self) -> ResumeCoordinator | None:
-        """Get the supervision coordinator instance."""
-        return self._supervisor
-
-    @property
-    def supervisor_running(self) -> bool:
-        """Check if supervisor is running."""
-        return self._supervisor is not None and self._supervisor.is_running
-
     async def evaluate_supervision(self, run_id: str) -> dict | None:
         """Manually trigger supervision evaluation for a run.
 
@@ -2694,6 +2615,39 @@ but explicit commits with good messages are preferred.
 
         return last_tool
 
+    async def _mark_pr_gate_not_passed(
+        self, run: ExecutionRun, path: Path, stdout_path: Path, *, convert: bool
+    ) -> None:
+        """Loop-engineering item A: a *gated* ralph run that ended without its
+        objective gate passing → mark the handoff PR as DRAFT + comment, so it
+        doesn't look "ready". ``convert``: the PR is already open (agent-created)
+        and must be converted; False when we just created it as a draft. Best-effort.
+        """
+        pr_number = run.pr_number
+        if pr_number is None and run.pr_url and "/pull/" in run.pr_url:
+            try:
+                pr_number = int(run.pr_url.rsplit("/pull/", 1)[-1].split("/")[0])
+            except ValueError:
+                pr_number = None
+        if pr_number is None:
+            return
+        try:
+            if convert:
+                await self.git_manager.convert_pr_to_draft(path, pr_number)
+                run.pr_status = "draft"
+            await self.git_manager.post_pr_comment(
+                path,
+                pr_number,
+                f"⚠️ **Objective gate did not pass.** This gated ralph run hit its loop/cost "
+                f"limit without `{run.verify_cmd}` exiting 0, so it's marked **draft** "
+                "(self-report claimed done but the gate is red). Fix the failure before marking ready.",
+            )
+            with open(stdout_path, "a") as f:
+                f.write(f"⚠ Gate not passed — PR #{pr_number} marked draft\n")
+        except Exception as e:
+            with open(stdout_path, "a") as f:
+                f.write(f"Warning: failed to mark PR draft: {e}\n")
+
     async def _run_ralph_loop(
         self,
         run: ExecutionRun,
@@ -2724,7 +2678,16 @@ but explicit commits with good messages are preferred.
             ws_env_vars = self.store.get_workspace_env_vars(workspace_id)
             os.environ.update(ws_env_vars)
 
-        logger.info(f"Starting ralph loop for run {run.id[:8]}")
+        # Loop-engineering I4 (warn-only): classify the loop's objective-gate
+        # readiness. "gated" = a verify_cmd is set (Step 2 will enforce it as the
+        # authoritative done-signal); "gateless" = self-report only (today's behavior).
+        _readiness = "gated" if run.verify_cmd else "gateless"
+        logger.info(
+            "Starting ralph loop for run %s (readiness=%s, verify_cmd=%s)",
+            run.id[:8],
+            _readiness,
+            run.verify_cmd or "—",
+        )
 
         # Setup logging
         log_dir = self._get_log_dir(run.id)
@@ -2812,14 +2775,13 @@ but explicit commits with good messages are preferred.
 
                 # Auto-commit and create PR for worktree runs
                 auto_create_pr = self.store.resolve_setting("auto_create_pr", "true", workspace_id) == "true"
+                # item A: a gated run that exhausted its caps without the gate passing.
+                gate_not_passed = bool((updated_run.metadata or {}).get("gate_not_passed"))
                 if updated_run.use_worktree and updated_run.branch_name:
                     # Auto-commit uncommitted changes
                     try:
-                        prompt_preview = updated_run.prompt[:60]
-                        ellipsis = "..." if len(updated_run.prompt) > 60 else ""
-                        commit_msg = (
-                            f"chore: {prompt_preview}{ellipsis}\n\n"
-                            f"Auto-committed by Gluon Agent (Ralph Loop)\nRun ID: {updated_run.id}"
+                        commit_msg = _auto_commit_message(
+                            updated_run.prompt, updated_run.id, "Gluon Agent (Ralph Loop)"
                         )
                         commit_result = await self.git_manager.auto_commit_changes(
                             path=working_path,
@@ -2837,6 +2799,8 @@ but explicit commits with good messages are preferred.
                     if auto_create_pr and updated_run.pr_url:
                         with open(stdout_path, "a") as f:
                             f.write(f"✓ PR created by agent: {updated_run.pr_url}\n")
+                        if gate_not_passed:
+                            await self._mark_pr_gate_not_passed(updated_run, working_path, stdout_path, convert=True)
                     elif auto_create_pr:
                         try:
                             pr_result = await self.git_manager.push_branch_and_create_pr(
@@ -2845,6 +2809,7 @@ but explicit commits with good messages are preferred.
                                 prompt=updated_run.prompt,
                                 run_id=updated_run.id,
                                 base_branch=updated_run.source_branch,
+                                draft=gate_not_passed,
                             )
                             if pr_result.get("pushed"):
                                 with open(stdout_path, "a") as f:
@@ -2856,6 +2821,11 @@ but explicit commits with good messages are preferred.
                                 with open(stdout_path, "a") as f:
                                     f.write(f"✓ Created PR: {updated_run.pr_url}\n")
                                 self.store.update_run(updated_run)
+                                if gate_not_passed:
+                                    # PR already created as a draft; just add the comment.
+                                    await self._mark_pr_gate_not_passed(
+                                        updated_run, working_path, stdout_path, convert=False
+                                    )
                             elif pr_result.get("error"):
                                 with open(stdout_path, "a") as f:
                                     f.write(f"Warning: PR creation: {pr_result['error']}\n")
@@ -3081,6 +3051,19 @@ but explicit commits with good messages are preferred.
 
 
 # Utility functions for CLI
+
+
+def _auto_commit_message(prompt: str, run_id: str, label: str = "Gluon Agent") -> str:
+    """Build the safety-net auto-commit message for a worktree run (#161).
+
+    Shared by ``_run_task`` and ``_run_ralph_loop`` — the only difference between
+    the two call sites was the label ("Gluon Agent" vs "Gluon Agent (Ralph
+    Loop)"). Pure (no I/O), so it is unit-tested directly. The rest of the two
+    finalization tails diverge on several axes and are NOT folded here (see #161).
+    """
+    preview = prompt[:60]
+    ellipsis = "..." if len(prompt) > 60 else ""
+    return f"chore: {preview}{ellipsis}\n\nAuto-committed by {label}\nRun ID: {run_id}"
 
 
 def format_duration(seconds: float | None) -> str:

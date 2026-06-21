@@ -5,7 +5,7 @@ auto-resumed based on its current state and configured policy.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from gluon.models import (
     CircuitState,
@@ -252,28 +252,3 @@ def _evaluate_conservative(ctx: PolicyContext, config: SupervisionConfig) -> Pol
         should_resume=False,
         reason=f"Conservative: no strong resume signals (confidence={ctx.completion_confidence:.0f}%)",
     )
-
-
-def should_auto_resume(run: ExecutionRun, completion_confidence: float = 0.0) -> tuple[bool, str]:
-    """Convenience function to check if a run should be auto-resumed.
-
-    Args:
-        run: ExecutionRun to evaluate
-        completion_confidence: Current completion confidence score
-
-    Returns:
-        Tuple of (should_resume, reason)
-    """
-    ctx = PolicyContext(
-        run=run,
-        circuit_state=run.circuit_state,
-        calls_this_hour=run.calls_this_hour,
-        max_calls_per_hour=run.max_calls_per_hour,
-        total_cost_usd=run.cost_usd or 0.0,
-        max_cost_usd=run.max_cost_usd,
-        completion_confidence=completion_confidence or run.completion_confidence,
-        now=datetime.now(UTC),
-    )
-
-    decision = evaluate_policy(ctx)
-    return decision.should_resume, decision.reason

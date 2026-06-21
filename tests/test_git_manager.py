@@ -37,13 +37,6 @@ class TestRefValidation:
             assert res["success"] is False
             mock_git.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_rename_rejects_option_like_name(self, git_manager, tmp_path):
-        with patch.object(git_manager, "_run_git", new=AsyncMock()) as mock_git:
-            res = await git_manager.rename_branch(tmp_path, "ok", "--evil")
-            assert res["success"] is False
-            mock_git.assert_not_called()
-
 
 @pytest.fixture
 def git_manager(store: GluonStore):

@@ -1021,6 +1021,13 @@ def run(
     max_loops: Annotated[int, typer.Option("--max-loops", help="Max loop iterations (ralph mode)")] = 50,
     max_calls: Annotated[int, typer.Option("--max-calls", help="Max API calls per hour (ralph mode)")] = 100,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Max cost in USD (ralph mode)")] = None,
+    verify_cmd: Annotated[
+        str | None,
+        typer.Option(
+            "--verify-cmd",
+            help="Objective gate command for ralph loops (e.g. 'uv run pytest'); marks the run 'gated'.",
+        ),
+    ] = None,
     profile: Annotated[
         str | None,
         typer.Option("--profile", "-P", help="Task profile: quick/standard/deep/planning"),
@@ -1144,6 +1151,7 @@ def run(
                 max_loops=max_loops,
                 max_calls_per_hour=max_calls,
                 max_cost_usd=max_cost,
+                verify_cmd=verify_cmd,
                 profile=profile,
                 thinking_budget=thinking,
                 force_planning=planning if planning else None,
@@ -3398,7 +3406,7 @@ def formula_run(
             initiator="cli",
         )
 
-    chain_id = anyio.from_thread.run(_run)
+    chain_id = anyio.run(_run)
     console.print(f"[green]Formula '{name}' started as chain {chain_id}[/green]")
 
 

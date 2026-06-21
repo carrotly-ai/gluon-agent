@@ -75,6 +75,34 @@ class GitManager:
         except Exception as e:
             return 1, "", str(e)
 
+    async def _run_gh(self, cwd: Path, *args: str, check: bool = False) -> tuple[int, str, str]:
+        """Run a gh (GitHub CLI) command and return (returncode, stdout, stderr).
+
+        Mirrors ``_run_git``: stdout/stderr are decoded + stripped; a missing
+        binary or unexpected error returns (1, "", <message>).
+        """
+        cmd = ["gh", *args]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            returncode = proc.returncode or 0
+            stdout_str = stdout.decode().strip()
+            stderr_str = stderr.decode().strip()
+
+            if check and returncode != 0:
+                logger.warning(f"gh {args[0]} failed in {cwd}: {stderr_str}")
+
+            return returncode, stdout_str, stderr_str
+        except FileNotFoundError:
+            return 1, "", "gh command not found"
+        except Exception as e:
+            return 1, "", str(e)
+
     def _get_git_author_config(self) -> list[str]:
         """
         Get git author config flags for commit commands.
@@ -198,24 +226,15 @@ class GitManager:
         try:
             # Use gh pr view to get PR info for this branch
             # Include mergeable and mergeStateStatus for conflict detection
-            proc = await asyncio.create_subprocess_exec(
-                "gh",
-                "pr",
-                "view",
-                branch,
-                "--json",
-                "number,url,state,isDraft,mergeable,mergeStateStatus",
-                cwd=path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            rc, stdout_str, _ = await self._run_gh(
+                path, "pr", "view", branch, "--json", "number,url,state,isDraft,mergeable,mergeStateStatus"
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
+            if rc != 0:
                 return None
 
             import json as json_module
 
-            data = json_module.loads(stdout.decode())
+            data = json_module.loads(stdout_str)
             # Map state to our pr_status values
             state = data.get("state", "").lower()
             if data.get("isDraft"):
@@ -236,7 +255,7 @@ class GitManager:
                 "status": state,
                 "mergeable": mergeable,
             }
-        except (FileNotFoundError, Exception):
+        except Exception:
             return None
 
     # ========== Status Operations ==========
@@ -581,6 +600,7 @@ class GitManager:
         prompt: str,
         run_id: str,
         base_branch: str | None = None,
+        draft: bool = False,
     ) -> dict:
         """
         Push branch to remote and create a PR for worktree runs.
@@ -649,6 +669,8 @@ Run ID: `{run_id}`
             ]
             if base_branch:
                 gh_args.extend(["--base", base_branch])
+            if draft:
+                gh_args.append("--draft")
             proc = await asyncio.create_subprocess_exec(
                 *gh_args,
                 cwd=project_path,
@@ -675,8 +697,8 @@ Run ID: `{run_id}`
                         result["pr_number"] = int(pr_url.split("/pull/")[-1])
                     except ValueError:
                         pass
-                result["pr_status"] = "open"
-                logger.info(f"Created PR: {pr_url}")
+                result["pr_status"] = "draft" if draft else "open"
+                logger.info(f"Created {'draft ' if draft else ''}PR: {pr_url}")
 
         except FileNotFoundError:
             result["error"] = "GitHub CLI (gh) not installed"
@@ -1637,109 +1659,6 @@ Run ID: `{run_id}`
         result["message"] = "Rebase aborted"
         return result
 
-    async def rebase_skip(self, path: Path) -> dict:
-        """Skip the current commit during rebase."""
-        result = {"success": False, "message": "", "conflicts": []}
-
-        rc, _, stderr = await self._run_git(path, "rebase", "--skip")
-        if rc != 0:
-            if "conflict" in stderr.lower():
-                conflict_state = await self._detect_conflict_state(path)
-                result["conflicts"] = conflict_state["conflicted_files"]
-                result["message"] = f"More conflicts after skip: {len(result['conflicts'])} file(s)"
-            else:
-                result["message"] = f"Rebase skip failed: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = "Skipped commit"
-        return result
-
-    # ========== Force Push Operations ==========
-
-    async def check_force_push_needed(self, path: Path, branch: str | None = None) -> dict:
-        """
-        Check if a force push would be needed to push the current branch.
-
-        Returns dict with: needed, commits_to_delete, reason
-        """
-        result = {"needed": False, "commits_to_delete": 0, "reason": ""}
-
-        if not branch:
-            branch = await self._get_branch(path)
-            if not branch:
-                result["reason"] = "Not on a branch"
-                return result
-
-        remote, _ = await self._get_remote(path)
-        if not remote:
-            result["reason"] = "No remote configured"
-            return result
-
-        # Fetch latest
-        await self._run_git(path, "fetch", remote, "--quiet")
-
-        # Check if remote branch exists
-        rc, _, _ = await self._run_git(path, "rev-parse", "--verify", f"{remote}/{branch}")
-        if rc != 0:
-            result["reason"] = "Remote branch doesn't exist (new branch)"
-            return result
-
-        # Get commits that would be deleted on remote
-        # These are commits in remote that are not ancestors of local
-        rc, stdout, _ = await self._run_git(path, "rev-list", f"HEAD..{remote}/{branch}", "--count")
-        if rc == 0 and stdout:
-            try:
-                commits_to_delete = int(stdout.strip())
-                if commits_to_delete > 0:
-                    result["needed"] = True
-                    result["commits_to_delete"] = commits_to_delete
-                    result["reason"] = f"Would delete {commits_to_delete} commit(s) from remote"
-            except ValueError:
-                pass
-
-        return result
-
-    async def force_push(self, path: Path, branch: str | None = None, force_with_lease: bool = True) -> dict:
-        """
-        Force push to remote.
-
-        Args:
-            path: Repository path
-            branch: Branch to push (default: current)
-            force_with_lease: Use --force-with-lease for safety (default: True)
-
-        Returns dict with: success, message
-        """
-        result = {"success": False, "message": ""}
-
-        if branch is not None and not _is_valid_ref(branch):
-            result["message"] = f"Invalid branch name: {branch!r}"
-            return result
-
-        if not branch:
-            branch = await self._get_branch(path)
-            if not branch:
-                result["message"] = "Not on a branch"
-                return result
-
-        remote, _ = await self._get_remote(path)
-        if not remote:
-            result["message"] = "No remote configured"
-            return result
-
-        force_flag = "--force-with-lease" if force_with_lease else "--force"
-        rc, _, stderr = await self._run_git(path, "push", force_flag, remote, branch)
-        if rc != 0:
-            result["message"] = f"Force push failed: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = f"Force pushed {branch} to {remote}"
-        return result
-
-    # ========== Branch Management ==========
-
     async def list_branches(self, path: Path, remote: bool = False) -> list[dict[str, str | bool | int | None]]:
         """
         List branches in the repository.
@@ -1798,23 +1717,6 @@ Run ID: `{run_id}`
 
         return branches
 
-    async def rename_branch(self, path: Path, old_name: str, new_name: str) -> dict:
-        """Rename a branch."""
-        result = {"success": False, "message": ""}
-
-        if not _is_valid_ref(old_name) or not _is_valid_ref(new_name):
-            result["message"] = "Invalid branch name"
-            return result
-
-        rc, _, stderr = await self._run_git(path, "branch", "-m", "--", old_name, new_name)
-        if rc != 0:
-            result["message"] = f"Failed to rename branch: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = f"Renamed {old_name} to {new_name}"
-        return result
-
     async def delete_branch(self, path: Path, branch: str, force: bool = False, remote: bool = False) -> dict:
         """Delete a branch (local or remote)."""
         result = {"success": False, "message": ""}
@@ -1841,53 +1743,6 @@ Run ID: `{run_id}`
         location = "remote" if remote else "local"
         result["message"] = f"Deleted {location} branch {branch}"
         return result
-
-    async def change_base_branch(self, path: Path, feature_branch: str, new_base: str) -> dict:
-        """
-        Change the base of a feature branch by rebasing onto a new base.
-
-        This is equivalent to: git rebase --onto new_base old_base feature_branch
-        """
-        result = {"success": False, "message": "", "conflicts": []}
-
-        if not _is_valid_ref(feature_branch) or not _is_valid_ref(new_base):
-            result["message"] = "Invalid branch name"
-            return result
-
-        # Get current branch to restore later
-        current = await self._get_branch(path)
-
-        # Checkout feature branch
-        rc, _, stderr = await self._run_git(path, "checkout", feature_branch)
-        if rc != 0:
-            result["message"] = f"Failed to checkout {feature_branch}: {stderr}"
-            return result
-
-        # Find merge base (old base)
-        rc, old_base, _ = await self._run_git(path, "merge-base", feature_branch, new_base)
-        if rc != 0:
-            result["message"] = "Could not find common ancestor"
-            # Restore original branch
-            if current:
-                await self._run_git(path, "checkout", current)
-            return result
-
-        # Rebase onto new base
-        rc, _, stderr = await self._run_git(path, "rebase", "--onto", new_base, old_base.strip(), feature_branch)
-        if rc != 0:
-            if "conflict" in stderr.lower():
-                conflict_state = await self._detect_conflict_state(path)
-                result["conflicts"] = conflict_state["conflicted_files"]
-                result["message"] = f"Rebase conflict: {len(result['conflicts'])} file(s)"
-            else:
-                result["message"] = f"Rebase failed: {stderr}"
-            return result
-
-        result["success"] = True
-        result["message"] = f"Rebased {feature_branch} onto {new_base}"
-        return result
-
-    # ========== PR Comment and Check Run Methods ==========
 
     async def get_pr_comments(self, path: Path, pr_number: int) -> list[dict]:
         """
@@ -1967,7 +1822,7 @@ Run ID: `{run_id}`
                         except json_module.JSONDecodeError:
                             pass
 
-        except (FileNotFoundError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Error fetching PR comments: {e}")
 
         # Sort by ID (ascending) for consistent processing order
@@ -2013,7 +1868,7 @@ Run ID: `{run_id}`
                         except json_module.JSONDecodeError:
                             pass
 
-        except (FileNotFoundError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Error fetching check runs: {e}")
 
         return check_runs
@@ -2094,6 +1949,34 @@ Run ID: `{run_id}`
             logger.info(f"Posted comment on PR #{pr_number}")
             return True
 
-        except (FileNotFoundError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Error posting PR comment: {e}")
+            return False
+
+    async def convert_pr_to_draft(self, path: Path, pr_number: int) -> bool:
+        """Convert an open PR to draft (``gh pr ready <n> --undo``).
+
+        Used by the loop-engineering handoff (item A): when a gated ralph run hits
+        its caps without the objective gate passing, an already-open PR is marked
+        draft to signal "not actually done". Best-effort; returns False on failure.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "pr",
+                "ready",
+                str(pr_number),
+                "--undo",
+                cwd=path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                logger.warning(f"Failed to convert PR #{pr_number} to draft: {stderr.decode()}")
+                return False
+            logger.info(f"Converted PR #{pr_number} to draft")
+            return True
+        except OSError as e:
+            logger.warning(f"Failed to convert PR #{pr_number} to draft: {e}")
             return False

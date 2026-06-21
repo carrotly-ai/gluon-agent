@@ -9,6 +9,13 @@ Exit signals:
 3. Multiple consecutive "done" signals from Claude
 4. Test saturation (only running tests, no implementation)
 5. High completion confidence score
+
+Loop-engineering note (I1/I3): these are all *self-report* signals. For a *gated*
+run (``run.verify_cmd`` set), they are ADVISORY only — they trigger an objective
+gate, and the run exits only if that gate passes (see
+``RalphManager._apply_objective_gate``). For a *gateless* run they remain the
+authoritative "done" decision (today's behavior). This module is therefore
+demoted-not-deleted: it still classifies progress and the gateless exit.
 """
 
 import re

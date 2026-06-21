@@ -43,16 +43,3 @@ QUESTION_CREATED = "question.created"
 QUESTION_ANSWERED = "question.answered"
 QUESTION_ESCALATED = "question.escalated"
 QUESTION_EXPIRED = "question.expired"
-
-# Execution events
-PROGRESS_UPDATE = "progress.update"
-TOKEN_UPDATE = "token.update"
-LOG_LINE = "log.line"
-AGENT_MESSAGE = "agent.message"
-LOOP_PROGRESS = "loop.progress"
-STEP_PROGRESS = "step.progress"
-
-# System events
-QUEUE_UPDATED = "queue.updated"
-MERGE_UPDATED = "merge.updated"
-WITNESS_DECISION = "witness.decision"

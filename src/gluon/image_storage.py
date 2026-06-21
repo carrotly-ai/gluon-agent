@@ -5,9 +5,7 @@ for run tasks, with automatic copy to worktree for AI visibility.
 """
 
 import hashlib
-import shutil
 from pathlib import Path
-from typing import BinaryIO
 
 from gluon.models import ImageAttachment
 from gluon.store import GluonStore
@@ -197,26 +195,6 @@ class ImageStorageService:
 
         return image
 
-    def save_image_from_file(
-        self,
-        file: BinaryIO,
-        original_name: str,
-        mime_type: str | None = None,
-    ) -> ImageAttachment:
-        """
-        Save an image from a file-like object.
-
-        Args:
-            file: File-like object to read from
-            original_name: Original filename
-            mime_type: MIME type (optional)
-
-        Returns:
-            ImageAttachment with metadata
-        """
-        data = file.read()
-        return self.save_image(data, original_name, mime_type)
-
     def get_image(self, image_id: str) -> ImageAttachment:
         """
         Get image metadata by ID.
@@ -328,75 +306,3 @@ class ImageStorageService:
             List of ImageAttachment objects
         """
         return self.store.list_images_for_run(run_id)
-
-    def copy_to_worktree(
-        self,
-        run_id: str,
-        worktree_path: Path,
-        target_dir: str = ".gluon-images",
-    ) -> list[str]:
-        """
-        Copy all images for a run to the worktree directory.
-
-        Creates a `.gluon-images/` directory in the worktree and copies
-        all attached images there, making them visible to the AI agent.
-
-        Args:
-            run_id: Run UUID
-            worktree_path: Path to the worktree root
-            target_dir: Subdirectory name for images (default: .gluon-images)
-
-        Returns:
-            List of copied file paths (relative to worktree)
-        """
-        images = self.list_images_for_run(run_id)
-        if not images:
-            return []
-
-        # Create target directory
-        target_path = worktree_path / target_dir
-        target_path.mkdir(parents=True, exist_ok=True)
-
-        copied_paths = []
-        for image in images:
-            source_path = self.STORAGE_DIR / image.file_path
-            if not source_path.exists():
-                continue
-
-            # Use original name for better AI understanding
-            dest_path = target_path / image.original_name
-
-            # Handle name conflicts by appending hash prefix
-            if dest_path.exists():
-                stem = dest_path.stem
-                suffix = dest_path.suffix
-                dest_path = target_path / f"{stem}_{image.hash[:8]}{suffix}"
-
-            shutil.copy2(source_path, dest_path)
-            relative_path = str(dest_path.relative_to(worktree_path))
-            copied_paths.append(relative_path)
-
-        return copied_paths
-
-    def get_markdown_references(self, run_id: str) -> str:
-        """
-        Get markdown references for all images attached to a run.
-
-        Returns a formatted string with markdown image references that
-        can be appended to the prompt.
-
-        Args:
-            run_id: Run UUID
-
-        Returns:
-            Markdown string with image references
-        """
-        images = self.list_images_for_run(run_id)
-        if not images:
-            return ""
-
-        lines = ["", "## Attached Images", ""]
-        for image in images:
-            lines.append(f"- ![{image.original_name}](.gluon-images/{image.original_name})")
-
-        return "\n".join(lines)

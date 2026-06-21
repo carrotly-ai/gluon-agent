@@ -213,18 +213,3 @@ def get_slash_commands(
 
     logger.debug(f"Scanned {len(commands)} slash commands/skills")
     return commands
-
-
-def search_commands(query: str) -> list[SlashCommand]:
-    """Search commands by name prefix.
-
-    Args:
-        query: Search query (matched against command name prefix)
-
-    Returns:
-        List of matching SlashCommand objects
-    """
-    commands = get_slash_commands()
-    query_lower = query.lower()
-
-    return [c for c in commands if c.name.lower().startswith(query_lower)]

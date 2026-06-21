@@ -54,6 +54,9 @@ class RunResponse(BaseModel):
     completion_reason: str | None = Field(default=None, description="Reason for loop completion/exit")
     calls_this_hour: int = Field(default=0, description="API calls made in current hour window")
     max_calls_per_hour: int = Field(default=100, description="Maximum API calls per hour")
+    # Loop-engineering: objective-gate readiness (I4 warn-only)
+    verify_cmd: str | None = Field(default=None, description="Objective gate command for ralph loops; None = gateless")
+    readiness: str = Field(default="gateless", description="'gated' when verify_cmd is set, else 'gateless'")
     # Witness health (latest classification for running runs)
     health_classification: str | None = Field(default=None, description="Latest witness health classification")
     # Chain/formula step progress
@@ -179,6 +182,11 @@ class CreateRunRequest(BaseModel):
     ralph_enabled: bool = Field(default=False, description="Enable ralph loop for autonomous execution")
     max_loops: int = Field(default=50, description="Maximum loop iterations (1-100)")
     max_cost_usd: float | None = Field(default=None, description="Optional cost limit in USD")
+    # Loop-engineering (I4): optional objective gate command for ralph loops
+    verify_cmd: str | None = Field(
+        default=None,
+        description="Objective gate command; when set the run is 'gated' (Step 2 enforces it)",
+    )
     # Per-task overrides
     agent_teams: bool | None = Field(default=None, description="Override global agent teams setting")
     dev_port: int | None = Field(default=None, description="Dev server port (auto-assigned if not set)")
@@ -607,6 +615,34 @@ class UsageSummaryResponse(BaseModel):
     total_runs: int = Field(description="All-time run count")
 
 
+class GateabilityBucket(BaseModel):
+    """Loop-effectiveness metrics (I5) for one bucket of runs."""
+
+    runs: int = Field(description="Total runs in this bucket")
+    pr_producing: int = Field(description="Runs that opened a PR")
+    accepted: int = Field(description="Runs whose PR was merged (accepted changes)")
+    acceptance_rate: float = Field(description="accepted / pr_producing (0 if none)")
+    cost_usd: float = Field(description="Total cost in USD for this bucket")
+    cost_per_accepted_usd: float | None = Field(default=None, description="cost_usd / accepted; null when 0 accepted")
+
+
+class LoopEffectivenessKind(GateabilityBucket):
+    """Per-`kind` effectiveness row."""
+
+    kind: str = Field(description="Run kind: research/build/docs/bug/review/chore")
+
+
+class LoopEffectivenessResponse(BaseModel):
+    """Loop-effectiveness (I5): acceptance rate + cost-per-accepted-change, split by
+    whether the work `kind` is objectively gateable. North-star metrics live in
+    `gateable` (acceptance_rate, cost_per_accepted_usd)."""
+
+    overall: GateabilityBucket
+    gateable: GateabilityBucket = Field(description="Code-producing kinds (build/bug/chore)")
+    gateless: GateabilityBucket = Field(description="Judgment-call kinds (research/docs/review)")
+    by_kind: list[LoopEffectivenessKind] = Field(default_factory=list)
+
+
 class ProjectUsageResponse(BaseModel):
     """Response model for usage by project."""
 
@@ -802,28 +838,6 @@ class RebaseResponse(BaseModel):
     conflicts: list[str] = Field(default_factory=list, description="List of conflicted files if any")
 
 
-class ForcePushCheckResponse(BaseModel):
-    """Response model for force push check."""
-
-    needed: bool = Field(description="Whether force push is required")
-    commits_to_delete: int = Field(default=0, description="Number of commits that would be deleted on remote")
-    reason: str = Field(default="", description="Explanation")
-
-
-class ForcePushRequest(BaseModel):
-    """Request model for force push."""
-
-    branch: str | None = Field(default=None, description="Branch to force push (default: current)")
-    force_with_lease: bool = Field(default=True, description="Use --force-with-lease for safety")
-
-
-class ForcePushResponse(BaseModel):
-    """Response model for force push."""
-
-    success: bool
-    message: str
-
-
 class BranchResponse(BaseModel):
     """Response model for a branch."""
 
@@ -839,20 +853,6 @@ class BranchListResponse(BaseModel):
 
     branches: list[BranchResponse]
     current_branch: str | None = None
-
-
-class RenameBranchRequest(BaseModel):
-    """Request model for renaming a branch."""
-
-    old_name: str
-    new_name: str
-
-
-class ChangeBaseBranchRequest(BaseModel):
-    """Request model for changing a branch's base."""
-
-    feature_branch: str = Field(description="Branch to rebase")
-    new_base: str = Field(description="New base branch")
 
 
 class BranchOperationResponse(BaseModel):

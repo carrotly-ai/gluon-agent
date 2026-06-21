@@ -311,11 +311,6 @@ export interface SystemStatus {
   total_runs: number
 }
 
-/** Request body for resuming a run */
-export interface ResumeRunRequest {
-  prompt: string
-}
-
 /** Response from resume operation (in-place resume) */
 export interface ResumeRunResponse {
   run_id: string // Same run continues
@@ -324,11 +319,6 @@ export interface ResumeRunResponse {
   // Backward compatibility (deprecated, same as run_id)
   original_run_id?: string
   new_run_id?: string
-}
-
-/** Request body for recovering a run from context overflow */
-export interface RecoverRunRequest {
-  fresh?: boolean
 }
 
 /** Response from recover operation */
@@ -352,12 +342,6 @@ export interface SessionHistoryResponse {
 export interface UpdateRunRequest {
   custom_title?: string | null
   kind?: RunKind | null
-}
-
-/** POST /api/runs/{id}/snooze — set or clear a run's snooze deadline. */
-export interface SnoozeRunRequest {
-  /** ISO datetime when the run should reappear; null clears the snooze. */
-  until: string | null
 }
 
 /** POST /api/runs/{id}/fork — fork an existing run's Claude session. */
@@ -732,12 +716,6 @@ export type KanbanColumn = keyof typeof KANBAN_COLUMNS
 
 // ========== Status Transition Types (Phase 7.2 Drag-and-Drop) ==========
 
-/** Request to update run status via drag-and-drop */
-export interface UpdateStatusRequest {
-  status: RunStatus
-  reason?: string
-}
-
 /** Response from status update */
 export interface UpdateStatusResponse {
   run: Run
@@ -806,11 +784,6 @@ export interface ScanResultResponse {
   projects_removed: string[]
 }
 
-/** Request to clone a GitHub repository into a workspace */
-export interface CloneRepositoryRequest {
-  github_url: string
-}
-
 /** Response from clone operation */
 export interface CloneResultResponse {
   workspace_id: string
@@ -833,6 +806,29 @@ export interface UsageSummary {
   month_runs: number
   total_cost_usd: number
   total_runs: number
+}
+
+/** Loop-effectiveness metrics (I5): acceptance rate + cost-per-accepted-change */
+export interface GateabilityBucket {
+  runs: number
+  pr_producing: number
+  accepted: number
+  acceptance_rate: number
+  cost_usd: number
+  cost_per_accepted_usd: number | null
+}
+
+export interface LoopEffectivenessKind extends GateabilityBucket {
+  kind: string
+}
+
+export interface LoopEffectiveness {
+  overall: GateabilityBucket
+  /** Code-producing kinds (build/bug/chore) — objectively gateable */
+  gateable: GateabilityBucket
+  /** Judgment-call kinds (research/docs/review) — no objective gate */
+  gateless: GateabilityBucket
+  by_kind: LoopEffectivenessKind[]
 }
 
 /** Project usage breakdown */
@@ -968,69 +964,6 @@ export interface ConflictFile {
   conflict_markers_count: number
 }
 
-/** Conflict detection response */
-export interface ConflictDetectionResponse {
-  has_conflicts: boolean
-  is_rebase_in_progress: boolean
-  is_merge_in_progress: boolean
-  conflict_operation: 'rebase' | 'merge' | 'cherry_pick' | null
-  rebase_current_step: number | null
-  rebase_total_steps: number | null
-  conflicted_files: ConflictFile[]
-}
-
-/** 3-way diff for a conflicted file */
-export interface ConflictDiff {
-  file_path: string
-  base: string | null
-  ours: string | null
-  theirs: string | null
-  merged: string | null
-}
-
-/** Request to resolve a conflict */
-export interface ResolveConflictRequest {
-  file_path: string
-  resolution: 'ours' | 'theirs' | 'resolved'
-}
-
-/** Response from conflict resolution */
-export interface ResolveConflictResponse {
-  success: boolean
-  message: string
-}
-
-/** Request to start a rebase */
-export interface RebaseRequest {
-  onto_branch: string
-}
-
-/** Response from rebase operations */
-export interface RebaseResponse {
-  success: boolean
-  message: string
-  conflicts: string[]
-}
-
-/** Response from force push check */
-export interface ForcePushCheckResponse {
-  needed: boolean
-  commits_to_delete: number
-  reason: string
-}
-
-/** Request for force push */
-export interface ForcePushRequest {
-  branch?: string
-  force_with_lease?: boolean
-}
-
-/** Response from force push */
-export interface ForcePushResponse {
-  success: boolean
-  message: string
-}
-
 /** Branch info */
 export interface Branch {
   name: string
@@ -1038,31 +971,6 @@ export interface Branch {
   upstream: string | null
   ahead: number
   behind: number
-}
-
-/** Response for branch list */
-export interface BranchListResponse {
-  branches: Branch[]
-  current_branch: string | null
-}
-
-/** Request to rename a branch */
-export interface RenameBranchRequest {
-  old_name: string
-  new_name: string
-}
-
-/** Request to change branch base */
-export interface ChangeBaseBranchRequest {
-  feature_branch: string
-  new_base: string
-}
-
-/** Generic branch operation response */
-export interface BranchOperationResponse {
-  success: boolean
-  message: string
-  conflicts: string[]
 }
 
 // ========== Git Sync Types (Settings Page) ==========
@@ -1084,12 +992,6 @@ export interface GitStatusInfo {
   has_operation_in_progress: boolean
   operation_type: 'rebase' | 'merge' | 'cherry_pick' | null
   last_fetch_at: string | null
-}
-
-/** Request for git sync operation */
-export interface GitSyncRequest {
-  action: 'auto' | 'pull' | 'push' | 'fetch'
-  force?: boolean
 }
 
 /** Response from git sync operation */
@@ -1184,17 +1086,6 @@ export interface RunTodosResponse {
   in_progress_count: number
   pending_count: number
   captured_at: string | null
-}
-
-/** WebSocket message for todo updates */
-export interface TodosUpdatedMessage extends WebSocketMessage {
-  type: 'todos_updated'
-  run_id: string
-  todos: TodoItem[]
-  todo_count: number
-  completed_count: number
-  in_progress_count: number
-  pending_count: number
 }
 
 // ========== Slash Command Types ==========

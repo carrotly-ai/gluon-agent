@@ -8,6 +8,7 @@ import pytest
 from gluon.models import ExecutionRun, RunStatus, WorkQueueStatus
 from gluon.runner import RunnerConfig, TaskRunner
 from gluon.store import GluonStore
+from gluon.work_queue import WorkQueueManager
 
 
 def _make_store(tmp_path: Path) -> GluonStore:
@@ -102,3 +103,64 @@ async def test_drain_returns_zero_when_queue_empty(tmp_path):
 
     assert dispatched == 0
     runner.submit.assert_not_called()
+
+
+def _dispatched_item(store: GluonStore, project_id: str, run_id: str):
+    """Enqueue + claim + mark_running an item linked to run_id (as dispatch does)."""
+    wq = WorkQueueManager(store)
+    item = wq.enqueue(project_id, "Queued task")
+    wq.claim_next(project_id)
+    wq.mark_running(item.id, run_id)
+    return item
+
+
+def test_finalize_queue_item_marks_completed(tmp_path):
+    """A queue-dispatched run reaching COMPLETED closes out its work item."""
+    store = _make_store(tmp_path)
+    project = _make_project(store, tmp_path, "fin-a")
+    run = ExecutionRun(project_id=project.id, prompt="Queued task")
+    item = _dispatched_item(store, project.id, run.id)
+    run.initiator = f"queue:{item.id}"
+    run.status = RunStatus.COMPLETED
+
+    runner = TaskRunner(store=store, config=RunnerConfig(log_path=tmp_path / "logs"))
+    runner._finalize_queue_item(run)
+
+    items = store.list_work_items(project_id=project.id)
+    assert items[0].status == WorkQueueStatus.COMPLETED
+    assert items[0].completed_at is not None
+
+
+def test_finalize_queue_item_marks_failed(tmp_path):
+    """A queue-dispatched run reaching FAILED marks its work item FAILED with the error."""
+    store = _make_store(tmp_path)
+    project = _make_project(store, tmp_path, "fin-b")
+    run = ExecutionRun(project_id=project.id, prompt="Queued task")
+    item = _dispatched_item(store, project.id, run.id)
+    run.initiator = f"queue_drain:{item.id}"
+    run.status = RunStatus.FAILED
+    run.error_message = "boom"
+
+    runner = TaskRunner(store=store, config=RunnerConfig(log_path=tmp_path / "logs"))
+    runner._finalize_queue_item(run)
+
+    items = store.list_work_items(project_id=project.id)
+    assert items[0].status == WorkQueueStatus.FAILED
+    assert items[0].error_message == "boom"
+
+
+def test_finalize_queue_item_noop_for_non_queue_run(tmp_path):
+    """A run not dispatched from the queue must not touch any work item."""
+    store = _make_store(tmp_path)
+    project = _make_project(store, tmp_path, "fin-c")
+    run = ExecutionRun(project_id=project.id, prompt="Manual task")
+    item = _dispatched_item(store, project.id, "some-other-run")
+    run.initiator = "cli"
+    run.status = RunStatus.COMPLETED
+
+    runner = TaskRunner(store=store, config=RunnerConfig(log_path=tmp_path / "logs"))
+    runner._finalize_queue_item(run)
+
+    items = store.list_work_items(project_id=project.id)
+    assert items[0].id == item.id
+    assert items[0].status == WorkQueueStatus.RUNNING  # untouched

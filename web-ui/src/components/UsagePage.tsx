@@ -1,9 +1,22 @@
 import { BarChart3, Check, ChevronDown } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { fetchUsageByDay, fetchUsageByProject, fetchUsageRuns, fetchUsageSummary } from '@/lib/api'
+import {
+  fetchLoopEffectiveness,
+  fetchUsageByDay,
+  fetchUsageByProject,
+  fetchUsageRuns,
+  fetchUsageSummary,
+} from '@/lib/api'
 import { formatCost, formatTokens, projectColor } from '@/lib/format'
 import { formatDateWithContext } from '@/lib/timestamps'
-import type { DailyUsage, ProjectUsage, RunUsageItem, UsageSummary } from '@/lib/types'
+import type {
+  DailyUsage,
+  GateabilityBucket,
+  LoopEffectiveness,
+  ProjectUsage,
+  RunUsageItem,
+  UsageSummary,
+} from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { DataPage } from './ui/DataPage'
 import { PageHeader } from './ui/PageHeader'
@@ -19,6 +32,7 @@ export function UsagePage() {
   const [projectUsage, setProjectUsage] = useState<ProjectUsage[]>([])
   const [dailyUsage, setDailyUsage] = useState<DailyUsage[]>([])
   const [runs, setRuns] = useState<RunUsageItem[]>([])
+  const [effectiveness, setEffectiveness] = useState<LoopEffectiveness | null>(null)
   const [loading, setLoading] = useState(true)
   const [sortField, setSortField] = useState<SortField>('cost')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
@@ -29,16 +43,19 @@ export function UsagePage() {
       setLoading(true)
       try {
         const since = new Date(Date.now() - CHART_DAYS * 24 * 60 * 60 * 1000).toISOString()
-        const [summaryData, projectData, dailyData, runsData] = await Promise.all([
-          fetchUsageSummary(),
-          fetchUsageByProject(),
-          fetchUsageByDay({ since }),
-          fetchUsageRuns({ sort_by: sortField, sort_order: sortOrder, limit: 50 }),
-        ])
+        const [summaryData, projectData, dailyData, runsData, effectivenessData] =
+          await Promise.all([
+            fetchUsageSummary(),
+            fetchUsageByProject(),
+            fetchUsageByDay({ since }),
+            fetchUsageRuns({ sort_by: sortField, sort_order: sortOrder, limit: 50 }),
+            fetchLoopEffectiveness().catch(() => null),
+          ])
         setSummary(summaryData)
         setProjectUsage(projectData)
         setDailyUsage(dailyData)
         setRuns(runsData)
+        setEffectiveness(effectivenessData)
       } catch (err) {
         console.error('Failed to load usage data:', err)
       } finally {
@@ -116,6 +133,34 @@ export function UsagePage() {
                 </span>
               </span>
             </div>
+
+            {/* Loop effectiveness (I5): acceptance rate + cost-per-accepted-change.
+                "Accepted" = the run's PR was merged. Split by whether the work
+                kind is objectively gateable. Hidden until there are runs. */}
+            {effectiveness && effectiveness.overall.runs > 0 && (
+              <div className="mt-6 border border-[rgba(163,163,163,0.1)] rounded-sm">
+                <div className="px-4 py-3 border-b border-[rgba(163,163,163,0.08)] flex items-center justify-between gap-2">
+                  <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/70">
+                    Loop Effectiveness
+                  </span>
+                  <span className="text-micro text-[var(--color-stone)]/50">
+                    accepted = merged PR
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-[rgba(163,163,163,0.06)]">
+                  <EffectivenessCell
+                    label="Gateable"
+                    hint="build · bug · chore"
+                    bucket={effectiveness.gateable}
+                  />
+                  <EffectivenessCell
+                    label="Gateless"
+                    hint="research · docs · review"
+                    bucket={effectiveness.gateless}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* 30-day chart */}
             <UsageChart daily={dailyUsage} projects={projectUsage} />
@@ -580,6 +625,44 @@ function SummaryCard({
         {value}
       </p>
       <p className="text-caption text-[var(--color-stone)]/50 mt-1">{subValue}</p>
+    </div>
+  )
+}
+
+function EffectivenessCell({
+  label,
+  hint,
+  bucket,
+}: {
+  label: string
+  hint: string
+  bucket: GateabilityBucket
+}) {
+  return (
+    <div className="p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-caption uppercase tracking-widest text-[var(--color-stone)]/60">
+          {label}
+        </span>
+        <span className="text-micro text-[var(--color-stone)]/40">{hint}</span>
+      </div>
+      <div className="mt-2 flex items-baseline gap-6">
+        <div>
+          <div className="text-mono text-[1.25rem] font-light text-[var(--color-paper)]">
+            {bucket.pr_producing > 0 ? `${Math.round(bucket.acceptance_rate * 100)}%` : '—'}
+          </div>
+          <div className="text-micro text-[var(--color-stone)]/50">acceptance</div>
+        </div>
+        <div>
+          <div className="text-mono text-[1.25rem] font-light text-[var(--color-paper)]">
+            {bucket.cost_per_accepted_usd != null ? formatCost(bucket.cost_per_accepted_usd) : '—'}
+          </div>
+          <div className="text-micro text-[var(--color-stone)]/50">cost / accepted</div>
+        </div>
+      </div>
+      <p className="mt-2 text-micro text-[var(--color-stone)]/50">
+        {bucket.accepted} / {bucket.pr_producing} PRs accepted · {bucket.runs} runs
+      </p>
     </div>
   )
 }

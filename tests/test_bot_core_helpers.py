@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gluon.bot_core import GluonBotCore
-from gluon.core import ProjectNotFoundError
 from gluon.models import Project, RunStatus
 
 
@@ -96,37 +95,6 @@ class TestExtractRunInfoFromMessage:
         text = "Run: `abcd1234`"
         run_id, _ = bot_core.extract_run_info_from_message(text)
         assert run_id == "abcd1234"
-
-
-# ========== resolve_project ==========
-
-
-class TestResolveProject:
-    def test_direct_hint_found(self, bot_core: GluonBotCore):
-        bot_core.orchestrator.get_project.return_value = Project(name="myapp", path="/tmp/myapp")
-        result = bot_core.resolve_project("myapp")
-        assert result == "myapp"
-
-    def test_hint_not_found_channel_matches(self, bot_core: GluonBotCore):
-        # First call for hint fails, second call for channel_name succeeds
-        bot_core.orchestrator.get_project.side_effect = [
-            ProjectNotFoundError("nope"),
-            Project(name="my_app", path="/tmp/my_app"),
-        ]
-        result = bot_core.resolve_project("nope", channel_name="my-app")
-        assert result == "my_app"
-
-    def test_both_fail_returns_none(self, bot_core: GluonBotCore):
-        bot_core.orchestrator.get_project.side_effect = ProjectNotFoundError("not found")
-        result = bot_core.resolve_project("bad", channel_name="also-bad")
-        assert result is None
-
-    def test_hint_preferred_over_channel(self, bot_core: GluonBotCore):
-        bot_core.orchestrator.get_project.return_value = Project(name="myapp", path="/tmp/myapp")
-        result = bot_core.resolve_project("myapp", channel_name="other-channel")
-        assert result == "myapp"
-        # Only called once because hint succeeded
-        assert bot_core.orchestrator.get_project.call_count == 1
 
 
 # ========== format_projects_list ==========

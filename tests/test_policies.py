@@ -22,7 +22,6 @@ from gluon.policies import (
     _evaluate_conservative,
     evaluate_policy,
     get_supervision_config,
-    should_auto_resume,
 )
 
 # ---------------------------------------------------------------------------
@@ -426,32 +425,3 @@ class TestConservativePolicy:
         ctx = _make_ctx(run)
         result = _evaluate_conservative(ctx, cfg)
         assert result.should_resume is False
-
-
-# ===================================================================
-# should_auto_resume convenience function
-# ===================================================================
-
-
-class TestShouldAutoResume:
-    def test_convenience_wrapper(self):
-        cfg = SupervisionConfig(policy=SupervisionPolicy.AGGRESSIVE)
-        run = _make_run(supervision_config=cfg)
-        should, reason = should_auto_resume(run)
-        assert should is True
-        assert "Aggressive" in reason
-
-    def test_manual_policy_returns_false(self):
-        cfg = SupervisionConfig(policy=SupervisionPolicy.MANUAL)
-        run = _make_run(supervision_config=cfg)
-        should, reason = should_auto_resume(run)
-        assert should is False
-
-    def test_respects_confidence_param(self):
-        cfg = SupervisionConfig(
-            policy=SupervisionPolicy.CONSERVATIVE,
-            auto_resume_triggers=["low_confidence"],
-        )
-        run = _make_run(supervision_config=cfg, completion_confidence=0.0)
-        should, reason = should_auto_resume(run, completion_confidence=20.0)
-        assert should is True

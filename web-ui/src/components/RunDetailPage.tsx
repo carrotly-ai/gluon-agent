@@ -25,15 +25,13 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { useLazyExpand } from '@/hooks/useLazyExpand'
+import { useRunActions } from '@/hooks/useRunActions'
+import { useRunResume } from '@/hooks/useRunResume'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { parseMessages } from '@/lib/agentMessage'
 import {
-  cancelRun,
-  createPrForRun,
-  deleteQueuedMessage,
-  editQueuedMessage,
   fetchCommands,
   fetchCommitDetail,
   fetchFileDiff,
@@ -45,10 +43,6 @@ import {
   fetchRunFiles,
   fetchSessionHistory,
   getImageFileUrl,
-  mergeRunBranch,
-  queueFollowup,
-  resumeRun,
-  uploadAndAttachImage,
 } from '@/lib/api'
 import { formatDuration, formatTokens } from '@/lib/format'
 import { formatDateWithContext, formatRelativeTime } from '@/lib/timestamps'
@@ -343,19 +337,32 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
       .finally(() => setFilesLoading(false))
   }, [detail?.project_id])
 
-  const handleCancel = async () => {
-    if (!run) return
-    setCancelling(true)
-    try {
-      const updated = await cancelRun(run.id)
-      setRun(updated)
-      onRunUpdated?.(updated)
-    } catch (err) {
-      console.error('Failed to cancel run:', err)
-    } finally {
-      setCancelling(false)
-    }
-  }
+  // Shared run actions (#165). Page owns its run state (setRun), has an
+  // optional onRunUpdated, shows no cancel toast, and does not scroll on a
+  // merge conflict (no onMergeConflict).
+  const {
+    handleCancel,
+    handleCreatePr,
+    handleMerge,
+    handleDeleteQueuedMessage,
+    handleEditQueuedMessage,
+  } = useRunActions({
+    run,
+    onRunUpdated,
+    setRun,
+    setDetail,
+    setCancelling,
+    setCreatingPr,
+    setPrError,
+    setMerging,
+    setMergeError,
+    setResumePrompt,
+    sourceBranch: detail?.source_branch,
+    cancelToasts: false,
+    onRefresh: () => handleRefresh(),
+    setEditingMessageId,
+    setEditingMessageText,
+  })
 
   const handleRefresh = async () => {
     if (!runId) return
@@ -448,110 +455,19 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
     })
   }, [])
 
-  const handleResume = async () => {
-    if (!run || !resumePrompt.trim()) return
-    setResuming(true)
-    setResumeError(null)
-    try {
-      const result = await resumeRun(run.id, resumePrompt.trim())
-
-      if (resumePendingImages.length > 0 && result.run_id) {
-        const uploadPromises = resumePendingImages.map((img) =>
-          uploadAndAttachImage(result.run_id, img.file).catch((err) => {
-            console.error(`Failed to upload image ${img.file.name}:`, err)
-            return null
-          })
-        )
-        await Promise.all(uploadPromises)
-      }
-
-      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
-      setResumePendingImages([])
-      setResumePrompt('')
-      // Reset textarea height
-      if (resumeTextareaRef.current) {
-        resumeTextareaRef.current.style.height = 'auto'
-      }
-      handleRefresh()
-    } catch (err) {
-      setResumeError(err instanceof Error ? err.message : 'Failed to resume run')
-    } finally {
-      setResuming(false)
-    }
-  }
-
-  // Queue a follow-up message for a running task (will auto-resume after completion)
-  const handleQueueFollowup = async () => {
-    if (!run || !resumePrompt.trim()) return
-    setQueuing(true)
-    setResumeError(null)
-    try {
-      const result = await queueFollowup(run.id, resumePrompt.trim())
-
-      if (result.action === 'resume_now') {
-        // Task is not running - use normal resume instead
-        await handleResume()
-        return
-      }
-
-      // Message queued - clear prompt and refresh to show indicator
-      setResumePrompt('')
-      // Reset textarea height
-      if (resumeTextareaRef.current) {
-        resumeTextareaRef.current.style.height = 'auto'
-      }
-      toast.success('Message queued - will continue after current task completes')
-      handleRefresh()
-    } catch (err) {
-      setResumeError(err instanceof Error ? err.message : 'Failed to queue follow-up')
-    } finally {
-      setQueuing(false)
-    }
-  }
-
-  // Send message immediately by cancelling current task and resuming with new message
-  const handleSendNow = async () => {
-    if (!run || !resumePrompt.trim()) return
-    setResuming(true)
-    setResumeError(null)
-    try {
-      // Cancel current execution
-      await cancelRun(run.id)
-
-      // Small delay for cancellation to propagate
-      await new Promise((r) => setTimeout(r, 500))
-
-      // Resume with new message
-      await resumeRun(run.id, resumePrompt.trim())
-
-      // Upload images if any
-      if (resumePendingImages.length > 0) {
-        const uploadPromises = resumePendingImages.map((img) =>
-          uploadAndAttachImage(run.id, img.file).catch((err) => {
-            console.error(`Failed to upload image ${img.file.name}:`, err)
-            return null
-          })
-        )
-        await Promise.all(uploadPromises)
-      }
-
-      // Cleanup
-      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
-      setResumePendingImages([])
-      setResumePrompt('')
-      // Reset textarea height
-      if (resumeTextareaRef.current) {
-        resumeTextareaRef.current.style.height = 'auto'
-      }
-
-      // Refresh
-      handleRefresh()
-    } catch (err) {
-      setResumeError(err instanceof Error ? err.message : 'Failed to send message')
-    } finally {
-      setResuming(false)
-    }
-  }
+  // Shared resume / send-now / queue-follow-up flow (#165, via useRunResume).
+  const { handleResume, handleSendNow, handleQueueFollowup } = useRunResume({
+    run,
+    resumePrompt,
+    setResumePrompt,
+    resumePendingImages,
+    setResumePendingImages,
+    resumeTextareaRef,
+    setResuming,
+    setQueuing,
+    setResumeError,
+    onRefresh: () => handleRefresh(),
+  })
 
   // Handle autocomplete trigger detection
   const handleResumePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -644,168 +560,44 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   }, [])
 
   // Edit a queued message
-  const handleEditQueuedMessage = async (messageId: string, newText: string) => {
-    if (!run || !newText.trim()) return
-    try {
-      await editQueuedMessage(run.id, messageId, newText.trim())
-      setEditingMessageId(null)
-      setEditingMessageText('')
-      handleRefresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to edit message')
-    }
-  }
 
-  // Delete a queued message
-  const handleDeleteQueuedMessage = async (messageId: string) => {
-    if (!run) return
-    try {
-      await deleteQueuedMessage(run.id, messageId)
-      handleRefresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete message')
-    }
-  }
+  // Toggle-and-lazy-load expanders (#165, shared via useLazyExpand). `?? ''` is
+  // unreachable — `enabled: !!runId` skips the load when runId is undefined.
+  const handleExpandHistoryRun = useLazyExpand({
+    expanded: expandedHistoryRun,
+    setExpanded: setExpandedHistoryRun,
+    cache: historyLogs,
+    setCache: setHistoryLogs,
+    load: async (historyRunId) => {
+      const [stdout, stderr] = await Promise.all([
+        fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
+        fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
+      ])
+      return { stdout: stdout.content || '', stderr: stderr.content || '' }
+    },
+  })
 
-  const handleExpandHistoryRun = async (historyRunId: string) => {
-    if (expandedHistoryRun === historyRunId) {
-      setExpandedHistoryRun(null)
-      return
-    }
-    setExpandedHistoryRun(historyRunId)
-    if (!historyLogs[historyRunId]) {
-      try {
-        const [stdout, stderr] = await Promise.all([
-          fetchLogs(historyRunId, 'stdout').catch(() => ({ content: '' })),
-          fetchLogs(historyRunId, 'stderr').catch(() => ({ content: '' })),
-        ])
-        setHistoryLogs((prev) => ({
-          ...prev,
-          [historyRunId]: { stdout: stdout.content || '', stderr: stderr.content || '' },
-        }))
-      } catch {
-        setHistoryLogs((prev) => ({
-          ...prev,
-          [historyRunId]: { stdout: '', stderr: '' },
-        }))
-      }
-    }
-  }
+  const handleExpandCommit = useLazyExpand({
+    expanded: expandedCommit,
+    setExpanded: setExpandedCommit,
+    cache: commitDetails,
+    setCache: setCommitDetails,
+    setLoading: setLoadingCommitDetail,
+    enabled: !!runId,
+    load: (sha) => fetchCommitDetail(runId ?? '', sha),
+    onError: (err) => console.error('Failed to load commit details:', err),
+  })
 
-  const handleExpandCommit = async (sha: string) => {
-    if (expandedCommit === sha) {
-      setExpandedCommit(null)
-      return
-    }
-    setExpandedCommit(sha)
-    if (!commitDetails[sha] && runId) {
-      setLoadingCommitDetail(sha)
-      try {
-        const detail = await fetchCommitDetail(runId, sha)
-        setCommitDetails((prev) => ({ ...prev, [sha]: detail }))
-      } catch (err) {
-        console.error('Failed to load commit details:', err)
-      } finally {
-        setLoadingCommitDetail(null)
-      }
-    }
-  }
-
-  const handleExpandFile = async (filePath: string) => {
-    if (expandedFile === filePath) {
-      setExpandedFile(null)
-      return
-    }
-    setExpandedFile(filePath)
-    if (!fileDiffs[filePath] && runId) {
-      setLoadingFileDiff(filePath)
-      try {
-        const diff = await fetchFileDiff(runId, filePath)
-        setFileDiffs((prev) => ({ ...prev, [filePath]: diff }))
-      } catch (err) {
-        console.error('Failed to load file diff:', err)
-      } finally {
-        setLoadingFileDiff(null)
-      }
-    }
-  }
-
-  const handleCreatePr = async () => {
-    if (!run) return
-    setCreatingPr(true)
-    setPrError(null)
-    try {
-      const result = await createPrForRun(run.id)
-      if (result.success && result.pr_url) {
-        const updatedDetail = await fetchRun(run.id)
-        setDetail(updatedDetail)
-        setRun(updatedDetail)
-        onRunUpdated?.(updatedDetail)
-        toast.success('Pull request created', {
-          description: `PR #${updatedDetail.pr_number} opened`,
-          action: {
-            label: 'View',
-            onClick: () => window.open(result.pr_url, '_blank'),
-          },
-        })
-      } else {
-        setPrError(result.error || 'Failed to create PR')
-      }
-    } catch (err) {
-      setPrError(err instanceof Error ? err.message : 'Failed to create PR')
-    } finally {
-      setCreatingPr(false)
-    }
-  }
-
-  const handleMerge = async () => {
-    if (!run) return
-    setMerging(true)
-    setMergeError(null)
-    try {
-      const result = await mergeRunBranch(run.id)
-      if (result.success) {
-        const updatedDetail = await fetchRun(run.id)
-        setDetail(updatedDetail)
-        setRun(updatedDetail)
-        onRunUpdated?.(updatedDetail)
-        toast.success('Branch merged successfully', {
-          description: `Merged into ${detail?.source_branch || 'main'}`,
-        })
-      } else if (
-        result.has_conflicts &&
-        result.conflicting_files &&
-        result.conflicting_files.length > 0
-      ) {
-        const filesStr = result.conflicting_files.slice(0, 10).join('\n- ')
-        const moreCount =
-          result.conflicting_files.length > 10 ? result.conflicting_files.length - 10 : 0
-        const conflictPrompt = `The merge has conflicts that need to be resolved. Please fix these merge conflicts:
-
-Conflicting files:
-- ${filesStr}${moreCount > 0 ? `\n- ... and ${moreCount} more files` : ''}
-
-Steps to resolve:
-1. In the worktree, run: git merge ${detail?.source_branch || 'main'}
-2. Resolve each conflict by understanding both changes and merging them appropriately
-3. After resolving all conflicts, commit the merge
-4. Push the changes
-
-Focus on preserving functionality from both sides where possible.`
-
-        setResumePrompt(conflictPrompt)
-        setMergeError(
-          `Merge conflicts in ${result.conflicting_files.length} file(s). Use the resume prompt below to have Claude resolve them.`
-        )
-      } else {
-        setMergeError(result.error || 'Failed to merge branch')
-      }
-    } catch (err) {
-      setMergeError(err instanceof Error ? err.message : 'Failed to merge branch')
-    } finally {
-      setMerging(false)
-    }
-  }
+  const handleExpandFile = useLazyExpand({
+    expanded: expandedFile,
+    setExpanded: setExpandedFile,
+    cache: fileDiffs,
+    setCache: setFileDiffs,
+    setLoading: setLoadingFileDiff,
+    enabled: !!runId,
+    load: (filePath) => fetchFileDiff(runId ?? '', filePath),
+    onError: (err) => console.error('Failed to load file diff:', err),
+  })
 
   // Lazy load commits
   const loadCommits = useCallback(async () => {

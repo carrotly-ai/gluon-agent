@@ -211,16 +211,6 @@ class WebSocketManager:
                     if run_id in self.log_subscriptions:
                         self.log_subscriptions[run_id].discard(ws)
 
-    async def stream_log_line(self, run_id: str, stream: str, line: str) -> None:
-        """Send a log line to subscribed clients."""
-        message = {
-            "type": "log_line",
-            "run_id": run_id,
-            "stream": stream,
-            "line": line,
-        }
-        await self._send_to_subscribers(run_id, message)
-
     async def stream_agent_message(self, run_id: str, msg: dict[str, Any]) -> None:
         """Stream an agent message to subscribed clients.
 
@@ -338,37 +328,6 @@ class WebSocketManager:
             "type": "question_answered",
             "run_id": run_id,
             "question_id": question_id,
-        }
-        await self.broadcast(message)
-        await self._send_to_subscribers(run_id, message)
-
-    async def broadcast_todos_updated(
-        self,
-        run_id: str,
-        todos: list[dict[str, Any]],
-        todo_count: int,
-        completed_count: int,
-        in_progress_count: int,
-        pending_count: int,
-    ) -> None:
-        """Broadcast updated todo state to all clients and run subscribers.
-
-        Args:
-            run_id: The run ID the todos belong to
-            todos: Raw todo items from TodoWrite
-            todo_count: Total number of todos
-            completed_count: Number of completed todos
-            in_progress_count: Number of in-progress todos
-            pending_count: Number of pending todos
-        """
-        message = {
-            "type": "todos_updated",
-            "run_id": run_id,
-            "todos": todos,
-            "todo_count": todo_count,
-            "completed_count": completed_count,
-            "in_progress_count": in_progress_count,
-            "pending_count": pending_count,
         }
         await self.broadcast(message)
         await self._send_to_subscribers(run_id, message)

@@ -12,38 +12,15 @@ from typing import TYPE_CHECKING, Any
 from gluon.models import (
     ExecutionRun,
     HealthClassification,
-    QueuedMessage,
     RecoveryAction,
     WitnessDecision,
     utc_now,
 )
 
 if TYPE_CHECKING:
-    from gluon.notifier import NotificationDispatcher
-    from gluon.runner import TaskRunner
     from gluon.store import GluonStore
 
 logger = logging.getLogger(__name__)
-
-# Minimum interval between NUDGE actions for the same run.
-# Avoids flooding a stuck run with repeated course-correction messages.
-NUDGE_COOLDOWN_SECS = 900  # 15 minutes
-
-# Injected when the witness classifies a run as LOOPING. Asks the agent to
-# stop, reassess, and either pivot or pause for review.
-LOOPING_NUDGE_PROMPT = """[SYSTEM NUDGE from the Gluon witness]
-
-Gluon has detected that you may be stuck in a retry/error loop. Before taking \
-any further action, stop and answer these questions:
-
-1. What specific error or obstacle keeps recurring?
-2. Is there a fundamentally different approach that would sidestep it entirely?
-3. Have you already tried variations of the current approach that failed the same way?
-
-If you can answer (1) and (2) clearly, proceed with the new approach.
-If you cannot, write your analysis to `NUDGE_ANALYSIS.md` and stop for human review.
-
-Do not retry the current failing approach."""
 
 WITNESS_PROMPT = """Classify the health of this Claude Code agent run.
 
@@ -180,105 +157,3 @@ class WitnessClassifier:
             HealthClassification.ZOMBIE: RecoveryAction.RESTART,
         }
         return mapping.get(classification, RecoveryAction.NONE)
-
-    async def execute_action(
-        self,
-        run: ExecutionRun,
-        action: RecoveryAction,
-        runner: "TaskRunner",
-        notifier: "NotificationDispatcher | None",
-    ) -> None:
-        """Execute the suggested recovery action."""
-        if action == RecoveryAction.NONE:
-            return
-
-        if action == RecoveryAction.ESCALATE:
-            if notifier:
-                try:
-                    from gluon.models import RunStatus
-
-                    await notifier.notify(run, run.status, RunStatus.FAILED)
-                except Exception:
-                    logger.debug("Escalation notification failed", exc_info=True)
-
-        elif action == RecoveryAction.RESTART:
-            try:
-                # Cancel the stuck run
-                await runner.cancel(run.id)
-                # Resubmit with same parameters
-                await runner.submit(
-                    project_id=run.project_id,
-                    prompt=run.prompt or "",
-                    model=run.model,
-                    initiator=f"witness:restart:{run.id[:8]}",
-                    profile=run.metadata.get("profile", "standard") if run.metadata else "standard",
-                )
-                logger.info("Witness restarted run %s", run.id[:8])
-            except Exception:
-                logger.debug("Witness restart failed", exc_info=True)
-
-        elif action == RecoveryAction.NUDGE:
-            await self._send_nudge(run, runner)
-
-    async def _send_nudge(self, run: ExecutionRun, runner: "TaskRunner") -> None:
-        """Inject a course-correction message into a live run's follow-up queue.
-
-        Respects NUDGE_COOLDOWN_SECS to avoid repeatedly nudging the same run.
-        Uses the same queued-message mechanism as user-submitted follow-ups,
-        so the message gets picked up by the run's multi-turn execute loop.
-        """
-        if self._recent_nudge_exists(run.id):
-            logger.info("Witness NUDGE for run %s suppressed by cooldown", run.id[:8])
-            self._record_nudge_outcome(run.id, sent=False, reason="cooldown")
-            return
-
-        try:
-            refreshed = self.store.get_run(run.id)
-            if refreshed is None:
-                logger.debug("Witness NUDGE: run %s not found", run.id[:8])
-                return
-
-            refreshed.queued_messages.append(QueuedMessage(message=LOOPING_NUDGE_PROMPT))
-            self.store.update_run(refreshed)
-
-            active_queue = getattr(runner, "_active_queues", {}).get(run.id)
-            if active_queue is not None:
-                try:
-                    active_queue.put_nowait(LOOPING_NUDGE_PROMPT)
-                except Exception:
-                    logger.debug("Witness NUDGE: direct queue put failed; DB poller will retry", exc_info=True)
-
-            logger.info("Witness sent NUDGE to run %s", run.id[:8])
-            self._record_nudge_outcome(run.id, sent=True, reason="looping_detected")
-        except Exception:
-            logger.debug("Witness NUDGE failed for run %s", run.id[:8], exc_info=True)
-            self._record_nudge_outcome(run.id, sent=False, reason="error")
-
-    def _recent_nudge_exists(self, run_id: str) -> bool:
-        """True if a NUDGE action was recorded for this run within the cooldown window."""
-        decisions = self.store.list_witness_decisions(run_id, limit=10)
-        now = utc_now()
-        for d in decisions:
-            if d.action != RecoveryAction.NUDGE:
-                continue
-            if d.action_result != "nudge_sent":
-                continue
-            age = (now - d.timestamp).total_seconds()
-            if age < NUDGE_COOLDOWN_SECS:
-                return True
-        return False
-
-    def _record_nudge_outcome(self, run_id: str, *, sent: bool, reason: str) -> None:
-        """Append a witness decision recording the nudge outcome."""
-        decision = WitnessDecision(
-            run_id=run_id,
-            classification=HealthClassification.LOOPING,
-            confidence=1.0,
-            reasoning=f"NUDGE outcome: {reason}",
-            action=RecoveryAction.NUDGE,
-            action_result="nudge_sent" if sent else f"nudge_skipped:{reason}",
-        )
-        try:
-            self.store.record_witness_decision(decision)
-        except Exception:
-            logger.debug("Failed to record nudge outcome", exc_info=True)

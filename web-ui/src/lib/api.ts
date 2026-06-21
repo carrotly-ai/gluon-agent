@@ -3,15 +3,10 @@ import type {
   ActivityEvent,
   AttentionCountsResponse,
   AuthProvidersResponse,
-  BranchListResponse,
-  BranchOperationResponse,
   ChangePasswordRequest,
   CloneResultResponse,
   CommitDetail,
   // Advanced Git Operations types
-  ConflictDetectionResponse,
-  ConflictDiff,
-  CreateProjectRequest,
   CreateRunRequest,
   CreateTaskScheduleRequest,
   // Auth types (D5 Phase 2)
@@ -19,12 +14,9 @@ import type {
   CreateWorkspaceRequest,
   DailyUsage,
   FileDiff,
-  ForcePushCheckResponse,
-  ForcePushResponse,
   ForkRunRequest,
   // Formula types
   FormulaTemplate,
-  GitStatusInfo,
   GitSyncResponse,
   // Notification types
   GluonNotification,
@@ -34,6 +26,7 @@ import type {
   LinkTransport,
   LoginResponse,
   LogResponse,
+  LoopEffectiveness,
   MeResponse,
   // Merge Queue types
   MergeQueueEntry,
@@ -42,16 +35,13 @@ import type {
   PendingQuestion,
   PendingQuestionsResponse,
   Project,
-  ProjectDetail,
   ProjectFile,
   ProjectFilesResponse,
   ProjectUsage,
   QueuedMessage,
   // Ralph Loop types
   RalphIterationsResponse,
-  RebaseResponse,
   RecoverRunResponse,
-  ResolveConflictResponse,
   ResumeRunResponse,
   Run,
   RunCommitsResponse,
@@ -72,7 +62,6 @@ import type {
   SlashCommand,
   SlashCommandsResponse,
   StopLoopResponse,
-  SystemStatus,
   TaskSchedule,
   TaskScheduleListResponse,
   UpdateRunRequest,
@@ -206,17 +195,6 @@ export async function fetchAttentionCounts(): Promise<AttentionCountsResponse> {
   return fetchJson<AttentionCountsResponse>('/attention-counts')
 }
 
-/** Update PR status (e.g., mark as merged to move from REVIEW to DONE) */
-export async function updatePrStatus(
-  runId: string,
-  prStatus: 'open' | 'merged' | 'closed' | 'draft'
-): Promise<Run> {
-  const params = new URLSearchParams({ pr_status: prStatus })
-  return fetchJson<Run>(`/runs/${runId}/pr-status?${params}`, {
-    method: 'POST',
-  })
-}
-
 /** Resume a completed/failed run with a follow-up prompt */
 export async function resumeRun(runId: string, prompt: string): Promise<ResumeRunResponse> {
   return fetchJson<ResumeRunResponse>(`/runs/${runId}/resume`, {
@@ -263,13 +241,6 @@ export async function deleteQueuedMessage(
   messageId: string
 ): Promise<{ deleted: boolean; message_id: string }> {
   return fetchJson<{ deleted: boolean; message_id: string }>(`/runs/${runId}/queue/${messageId}`, {
-    method: 'DELETE',
-  })
-}
-
-/** Clear all queued messages */
-export async function clearQueue(runId: string): Promise<{ cleared: boolean; count: number }> {
-  return fetchJson<{ cleared: boolean; count: number }>(`/runs/${runId}/queue`, {
     method: 'DELETE',
   })
 }
@@ -349,11 +320,6 @@ export async function fetchProjects(): Promise<Project[]> {
   return fetchJson<Project[]>('/projects')
 }
 
-/** Fetch system status */
-export async function fetchStatus(): Promise<SystemStatus> {
-  return fetchJson<SystemStatus>('/status')
-}
-
 // ========== Status Transition API (Phase 7.2 Drag-and-Drop) ==========
 
 /** Update run status via drag-and-drop */
@@ -369,19 +335,6 @@ export async function updateRunStatus(
 }
 
 // ========== Project Management API (Phase 7.3) ==========
-
-/** Fetch a single project by ID */
-export async function fetchProject(projectId: string): Promise<ProjectDetail> {
-  return fetchJson<ProjectDetail>(`/projects/${projectId}`)
-}
-
-/** Create a new project */
-export async function createProject(request: CreateProjectRequest): Promise<Project> {
-  return fetchJson<Project>('/projects', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  })
-}
 
 /** Delete a project */
 export async function deleteProject(
@@ -404,10 +357,6 @@ export async function fetchSchedules(opts?: {
     params.set('include_disabled', String(opts.include_disabled))
   const qs = params.toString()
   return fetchJson<TaskScheduleListResponse>(`/schedules${qs ? `?${qs}` : ''}`)
-}
-
-export async function fetchSchedule(scheduleId: string): Promise<TaskSchedule> {
-  return fetchJson<TaskSchedule>(`/schedules/${scheduleId}`)
 }
 
 export async function createSchedule(body: CreateTaskScheduleRequest): Promise<TaskSchedule> {
@@ -441,10 +390,6 @@ export async function disableSchedule(scheduleId: string): Promise<TaskSchedule>
 
 export async function fireScheduleNow(scheduleId: string): Promise<Run> {
   return fetchJson<Run>(`/schedules/${scheduleId}/fire`, { method: 'POST' })
-}
-
-export async function fetchScheduleRuns(scheduleId: string, limit = 50): Promise<Run[]> {
-  return fetchJson<Run[]>(`/schedules/${scheduleId}/runs?limit=${limit}`)
 }
 
 export async function previewSchedule(
@@ -503,6 +448,11 @@ export async function cloneRepository(
 /** Fetch usage summary for header display */
 export async function fetchUsageSummary(): Promise<UsageSummary> {
   return fetchJson<UsageSummary>('/usage/summary')
+}
+
+/** Fetch loop-effectiveness (I5): acceptance rate + cost-per-accepted-change */
+export async function fetchLoopEffectiveness(): Promise<LoopEffectiveness> {
+  return fetchJson<LoopEffectiveness>('/usage/effectiveness')
 }
 
 /** Fetch usage breakdown by project */
@@ -641,41 +591,9 @@ export async function mergeRunBranch(runId: string): Promise<MergeResponse> {
 
 // ========== Image Attachments API (Phase 10.1) ==========
 
-/** Upload an image file */
-export async function uploadImage(file: File): Promise<ImageAttachment> {
-  const formData = new FormData()
-  formData.append('file', file)
-
-  const response = await fetch(`${API_BASE}/images/upload`, {
-    method: 'POST',
-    body: formData,
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }))
-    throw new Error(error.detail || 'Image upload failed')
-  }
-
-  return response.json()
-}
-
-/** Get image metadata by ID */
-export async function fetchImage(imageId: string): Promise<ImageAttachment> {
-  return fetchJson<ImageAttachment>(`/images/${imageId}`)
-}
-
 /** Get image file URL (for <img> src) */
 export function getImageFileUrl(imageId: string): string {
   return `${API_BASE}/images/${imageId}/file`
-}
-
-/** Delete an image (only if not attached to any runs) */
-export async function deleteImage(
-  imageId: string
-): Promise<{ deleted: boolean; image_id: string }> {
-  return fetchJson<{ deleted: boolean; image_id: string }>(`/images/${imageId}`, {
-    method: 'DELETE',
-  })
 }
 
 /** Get images attached to a run */
@@ -701,156 +619,9 @@ export async function uploadAndAttachImage(runId: string, file: File): Promise<I
   return response.json()
 }
 
-/** Attach an existing image to a run */
-export async function attachImageToRun(runId: string, imageId: string): Promise<ImageAttachment> {
-  return fetchJson<ImageAttachment>(`/runs/${runId}/attachments`, {
-    method: 'POST',
-    body: JSON.stringify({ image_id: imageId }),
-  })
-}
-
-/** Detach an image from a run */
-export async function detachImageFromRun(
-  runId: string,
-  imageId: string
-): Promise<{ detached: boolean }> {
-  return fetchJson<{ detached: boolean }>(`/runs/${runId}/attachments/${imageId}`, {
-    method: 'DELETE',
-  })
-}
-
 // ========== Advanced Git Operations API (Phase 5) ==========
 
-/** Detect conflicts in a project */
-export async function detectConflicts(projectId: string): Promise<ConflictDetectionResponse> {
-  return fetchJson<ConflictDetectionResponse>(`/projects/${projectId}/conflicts`)
-}
-
-/** Get 3-way diff for a conflicted file */
-export async function getConflictDiff(projectId: string, filePath: string): Promise<ConflictDiff> {
-  return fetchJson<ConflictDiff>(`/projects/${projectId}/conflicts/${encodeURIComponent(filePath)}`)
-}
-
-/** Resolve a conflict */
-export async function resolveConflict(
-  projectId: string,
-  filePath: string,
-  resolution: 'ours' | 'theirs' | 'resolved'
-): Promise<ResolveConflictResponse> {
-  return fetchJson<ResolveConflictResponse>(`/projects/${projectId}/conflicts/resolve`, {
-    method: 'POST',
-    body: JSON.stringify({ file_path: filePath, resolution }),
-  })
-}
-
-/** Start a rebase onto another branch */
-export async function startRebase(projectId: string, ontoBranch: string): Promise<RebaseResponse> {
-  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase`, {
-    method: 'POST',
-    body: JSON.stringify({ onto_branch: ontoBranch }),
-  })
-}
-
-/** Continue a rebase after resolving conflicts */
-export async function continueRebase(projectId: string): Promise<RebaseResponse> {
-  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase/continue`, {
-    method: 'POST',
-  })
-}
-
-/** Abort an in-progress rebase */
-export async function abortRebase(projectId: string): Promise<RebaseResponse> {
-  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase/abort`, {
-    method: 'POST',
-  })
-}
-
-/** Skip the current commit during rebase */
-export async function skipRebaseCommit(projectId: string): Promise<RebaseResponse> {
-  return fetchJson<RebaseResponse>(`/projects/${projectId}/rebase/skip`, {
-    method: 'POST',
-  })
-}
-
-/** Check if a force push would be required */
-export async function checkForcePushNeeded(
-  projectId: string,
-  branch?: string
-): Promise<ForcePushCheckResponse> {
-  const params = branch ? `?branch=${encodeURIComponent(branch)}` : ''
-  return fetchJson<ForcePushCheckResponse>(`/projects/${projectId}/force-push-check${params}`)
-}
-
-/** Force push to remote */
-export async function forcePush(
-  projectId: string,
-  branch?: string,
-  forceWithLease: boolean = true
-): Promise<ForcePushResponse> {
-  return fetchJson<ForcePushResponse>(`/projects/${projectId}/force-push`, {
-    method: 'POST',
-    body: JSON.stringify({ branch, force_with_lease: forceWithLease }),
-  })
-}
-
-/** List all branches in a repository */
-export async function listBranches(projectId: string): Promise<BranchListResponse> {
-  return fetchJson<BranchListResponse>(`/projects/${projectId}/branches`)
-}
-
-/** Rename a branch */
-export async function renameBranch(
-  projectId: string,
-  oldName: string,
-  newName: string
-): Promise<BranchOperationResponse> {
-  return fetchJson<BranchOperationResponse>(`/projects/${projectId}/branches/rename`, {
-    method: 'POST',
-    body: JSON.stringify({ old_name: oldName, new_name: newName }),
-  })
-}
-
-/** Change the base of a feature branch */
-export async function changeBaseBranch(
-  projectId: string,
-  featureBranch: string,
-  newBase: string
-): Promise<BranchOperationResponse> {
-  return fetchJson<BranchOperationResponse>(`/projects/${projectId}/branches/change-base`, {
-    method: 'POST',
-    body: JSON.stringify({ feature_branch: featureBranch, new_base: newBase }),
-  })
-}
-
-/** Delete a branch */
-export async function deleteBranch(
-  projectId: string,
-  branchName: string,
-  options?: { force?: boolean; remote?: boolean }
-): Promise<BranchOperationResponse> {
-  const params = new URLSearchParams()
-  if (options?.force) params.set('force', 'true')
-  if (options?.remote) params.set('remote', 'true')
-  const query = params.toString()
-  return fetchJson<BranchOperationResponse>(
-    `/projects/${projectId}/branches/${encodeURIComponent(branchName)}${query ? `?${query}` : ''}`,
-    { method: 'DELETE' }
-  )
-}
-
 // ========== Git Sync API (Settings Page) ==========
-
-/** Get cached git status for a project (no network operations) */
-export async function fetchProjectGitStatus(projectId: string): Promise<GitStatusInfo> {
-  return fetchJson<GitStatusInfo>(`/projects/${projectId}/git/status`)
-}
-
-/** Refresh git status by fetching from remote */
-export async function refreshProjectGitStatus(projectId: string): Promise<GitStatusInfo> {
-  return fetchJson<GitStatusInfo>(`/projects/${projectId}/git/refresh`, {
-    method: 'POST',
-  })
-}
 
 /** Perform git sync operation (auto, pull, push, fetch) */
 export async function syncProjectGit(
@@ -1020,11 +791,6 @@ export async function fetchFormulas(): Promise<{ formulas: FormulaTemplate[] }> 
   return fetchJson<{ formulas: FormulaTemplate[] }>('/formulas')
 }
 
-/** Fetch a specific formula template by name */
-export async function fetchFormula(name: string): Promise<FormulaTemplate> {
-  return fetchJson<FormulaTemplate>(`/formulas/${name}`)
-}
-
 /** Run a formula template for a project */
 export async function runFormula(
   name: string,
@@ -1033,16 +799,6 @@ export async function runFormula(
   return fetchJson<{ chain_id: string; step_count: number }>(`/formulas/${name}/run`, {
     method: 'POST',
     body: JSON.stringify(req),
-  })
-}
-
-/** Validate a formula template definition */
-export async function validateFormula(
-  template: Record<string, unknown>
-): Promise<{ valid: boolean; errors: string[] }> {
-  return fetchJson<{ valid: boolean; errors: string[] }>('/formulas/validate', {
-    method: 'POST',
-    body: JSON.stringify(template),
   })
 }
 
@@ -1265,11 +1021,6 @@ export async function createLinkCode(transport: LinkTransport): Promise<LinkCode
     method: 'POST',
     body: JSON.stringify({ transport }),
   })
-}
-
-/** Show which chat accounts are bound to the current user. */
-export async function fetchMyLinks(): Promise<LinkStatusResponse> {
-  return fetchJson<LinkStatusResponse>('/auth/links')
 }
 
 /** Remove the current user's binding for the given transport. */

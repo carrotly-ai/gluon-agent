@@ -47,10 +47,12 @@ All tasks are tracked in a single database regardless of where they were started
 When you use list_runs, you see ALL runs from CLI, Web Dashboard, and other bot interfaces.
 
 **Model Selection Guidelines:**
-When running tasks, choose the appropriate model based on task complexity:
-- **opus**: Complex tasks requiring deep reasoning, architecture decisions, or large refactors
-- **sonnet**: Default for most tasks - balanced performance and cost
-- **haiku**: Simple tasks like bug fixes, documentation, or straightforward implementations
+When running tasks, choose the appropriate model based on task complexity. The
+default is **opus-4.8** (the project standard); only override it down when a task
+is clearly simpler:
+- **opus**: Default — complex reasoning, architecture, large refactors, and most tasks
+- **sonnet**: Lighter / cost-sensitive tasks where opus-level reasoning isn't needed
+- **haiku**: Simple bug fixes or docs (note: Haiku is not available on AWS Bedrock)
 
 **Worktree Isolation:**
 Use `use_worktree=true` in run_task when you need isolated execution (e.g., experimental changes,
@@ -138,6 +140,11 @@ class GluonChatAgent:
     def __init__(self, orchestrator: Orchestrator | None = None):
         self.orchestrator = orchestrator or Orchestrator()
         self._pending_task: dict[str, Any] | None = None
+        # MCP tools/server are stateless (the tool closures capture only
+        # self.orchestrator, stable across messages), so build them once and
+        # reuse instead of rebuilding all 41 closures + the server per message.
+        self._mcp_server: Any = None
+        self._mcp_tool_names: list[str] = []
 
     def _create_tools(self):
         """Create MCP tools for Gluon operations."""
@@ -208,14 +215,14 @@ class GluonChatAgent:
             {
                 "project_name": str,  # Name of the project
                 "prompt": str,  # The task to perform
-                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
+                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: opus-4.8
                 "use_worktree": bool,  # Optional: Execute in isolated Git worktree. Default: false
             },
         )
         async def run_task(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "")
-            model = args.get("model", "sonnet")
+            model = args.get("model") or DEFAULT_MODEL.value
             use_worktree = args.get("use_worktree", False)
 
             if not project_name or not prompt:
@@ -266,13 +273,13 @@ class GluonChatAgent:
             {
                 "project_name": str,  # Name of the project
                 "prompt": str,  # Optional follow-up prompt
-                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: sonnet
+                "model": str,  # Optional: Model tier (opus/sonnet/haiku). Default: opus-4.8
             },
         )
         async def resume_session(args: dict[str, Any]) -> dict[str, Any]:
             project_name = args.get("project_name", "")
             prompt = args.get("prompt", "Continue from where you left off.")
-            model = args.get("model", "sonnet")
+            model = args.get("model") or DEFAULT_MODEL.value
 
             if not project_name:
                 return {"content": [{"type": "text", "text": "Error: project_name is required"}]}
@@ -1757,6 +1764,20 @@ class GluonChatAgent:
             list_claude_sessions,
         ]
 
+    def _get_mcp_server(self):
+        """Build the MCP tool server once and cache it.
+
+        The tool closures from ``_create_tools`` capture only
+        ``self.orchestrator`` (stable across messages), so rebuilding them on
+        every ``chat()`` call was pure waste. ``allowed_tools`` is derived from
+        the registered tool names so the allowlist can't drift from the tools.
+        """
+        if self._mcp_server is None:
+            tools = self._create_tools()
+            self._mcp_tool_names = [f"mcp__gluon__{t.name}" for t in tools]
+            self._mcp_server = create_sdk_mcp_server(name="gluon-tools", version="1.0.0", tools=tools)
+        return self._mcp_server
+
     async def chat(
         self,
         message: str,
@@ -1794,12 +1815,7 @@ class GluonChatAgent:
 
         full_message += message
 
-        tools = self._create_tools()
-        server = create_sdk_mcp_server(
-            name="gluon-tools",
-            version="1.0.0",
-            tools=tools,
-        )
+        server = self._get_mcp_server()
 
         # Find Claude CLI path
         cli_path = find_claude_cli()
@@ -1826,54 +1842,9 @@ class GluonChatAgent:
                 "BashOutput",
                 "WebSearch",
                 "WebFetch",
-                # Gluon MCP tools
-                "mcp__gluon__list_projects",
-                "mcp__gluon__list_sessions",
-                "mcp__gluon__get_status",
-                "mcp__gluon__run_task",
-                "mcp__gluon__resume_session",
-                "mcp__gluon__add_workspace",
-                "mcp__gluon__list_workspaces",
-                "mcp__gluon__scan_workspace",
-                "mcp__gluon__list_runs",
-                "mcp__gluon__cancel_run",
-                "mcp__gluon__get_git_status",
-                "mcp__gluon__git_sync",
-                "mcp__gluon__git_push",
-                "mcp__gluon__git_fetch",
-                # New tools
-                "mcp__gluon__get_run",
-                "mcp__gluon__get_logs",
-                "mcp__gluon__add_project",
-                "mcp__gluon__get_usage",
-                "mcp__gluon__create_pr",
-                # Agent workflow tools (inspect & merge)
-                "mcp__gluon__get_run_commits",
-                "mcp__gluon__get_run_files",
-                "mcp__gluon__get_file_diff",
-                "mcp__gluon__merge_branch",
-                "mcp__gluon__check_conflicts",
-                # Phase 1: High Priority Tools
-                "mcp__gluon__archive_run",
-                "mcp__gluon__list_branches",
-                "mcp__gluon__delete_branch",
-                "mcp__gluon__upload_image",
-                # Phase 2: Medium Priority Tools
-                "mcp__gluon__remove_project",
-                "mcp__gluon__remove_workspace",
-                "mcp__gluon__list_workspace_projects",
-                "mcp__gluon__get_usage_by_project",
-                "mcp__gluon__get_setting",
-                "mcp__gluon__set_setting",
-                "mcp__gluon__rebase_branch",
-                "mcp__gluon__rebase_continue",
-                "mcp__gluon__rebase_abort",
-                "mcp__gluon__list_run_images",
-                # Conflict Resolution Tools
-                "mcp__gluon__get_conflict_diff",
-                "mcp__gluon__resolve_conflict",
-                # Claude Session Explorer (C4)
-                "mcp__gluon__list_claude_sessions",
+                # Gluon MCP tools — derived from the registered @tool names so the
+                # allowlist can't drift from the tool set (was a hand-synced list).
+                *self._mcp_tool_names,
             ],
             max_turns=3,
             model=haiku_model,

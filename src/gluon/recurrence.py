@@ -7,7 +7,6 @@ to drop into a raw cron string.
 
 This module provides:
     - recurrence_to_cron(days, hh_mm)            -> 5-field cron string
-    - cron_to_recurrence(cron)                   -> {days, time} or None
     - compute_next_fire_in_tz(cron, tz, base)    -> UTC datetime
     - next_n_fires_in_tz(cron, tz, n, base)      -> list[UTC datetime]
     - human_summary(days, time, tz)              -> "Weekdays at 9:00 AM SGT"
@@ -26,7 +25,6 @@ from croniter import croniter  # type: ignore[import-untyped]
 
 # ISO weekday → cron weekday. ISO uses Mon=0..Sun=6; cron uses Sun=0..Sat=6.
 _ISO_TO_CRON = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 0}
-_CRON_TO_ISO = {v: k for k, v in _ISO_TO_CRON.items()}
 
 ISO_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 WEEKDAYS = [0, 1, 2, 3, 4]
@@ -65,41 +63,6 @@ def recurrence_to_cron(days: list[int], hh_mm: str) -> str:
     cron_days = sorted({_ISO_TO_CRON[d] for d in days})
     dow_csv = ",".join(str(d) for d in cron_days)
     return f"{minute} {hour} * * {dow_csv}"
-
-
-def cron_to_recurrence(cron: str) -> dict[str, object] | None:
-    """Inverse of ``recurrence_to_cron``, when possible.
-
-    Returns ``{"days": [int...], "time": "HH:MM"}`` if the cron expression
-    matches the friendly subset (single integer minute, single integer hour,
-    DOM=*, MONTH=*, DOW=int|csv-of-ints). Otherwise returns ``None`` — the
-    caller should fall back to surfacing the raw cron string in the editor.
-    """
-    parts = cron.strip().split()
-    if len(parts) != 5:
-        return None
-    minute_s, hour_s, dom_s, month_s, dow_s = parts
-    if dom_s != "*" or month_s != "*":
-        return None
-    try:
-        minute = int(minute_s)
-        hour = int(hour_s)
-    except ValueError:
-        return None
-    if not (0 <= minute <= 59 and 0 <= hour <= 23):
-        return None
-    # DOW: either "*" (every day) or a CSV of integers 0..6
-    if dow_s == "*":
-        days = EVERY_DAY[:]
-    else:
-        try:
-            cron_days = [int(x) for x in dow_s.split(",")]
-        except ValueError:
-            return None
-        if any(d not in _CRON_TO_ISO for d in cron_days):
-            return None
-        days = sorted({_CRON_TO_ISO[d] for d in cron_days})
-    return {"days": days, "time": f"{hour:02d}:{minute:02d}"}
 
 
 def validate_cron(cron: str) -> bool:

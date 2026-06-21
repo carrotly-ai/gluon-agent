@@ -1,0 +1,128 @@
+"""Shared FastAPI ``Depends`` providers for the extracted routers (#162).
+
+``create_app`` stores its shared collaborators on ``app.state`` (see the
+``app.state.<name> = ...`` block near the end of ``create_app``); these
+providers read them back so per-domain routers can inject what they need via
+``Depends`` instead of closing over ``create_app`` locals.
+
+Keep the attribute names here in sync with those assignments.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import cast
+
+from fastapi import Cookie, HTTPException, Request
+
+from gluon.auth import SESSION_COOKIE_NAME, _current_user_impl, _role_rank
+from gluon.core import Orchestrator
+from gluon.models import ExecutionRun, Project, User, UserRole
+from gluon.notifier import NotificationDispatcher
+from gluon.runner import TaskRunner
+from gluon.store import GluonStore
+from gluon.web.models import RunResponse, UserResponse, WorkspaceResponse
+from gluon.web.websocket import WebSocketManager
+
+
+def user_to_response(u: User) -> UserResponse:
+    """Map a User to its API response. Shared by the users router and the
+    (still-inline) auth login/me routes — lives here so both import one copy."""
+    return UserResponse(
+        id=u.id,
+        username=u.username,
+        display_name=u.display_name,
+        email=u.email,
+        role=u.role.value,
+        auth_provider=u.auth_provider.value,
+        disabled=u.disabled,
+        telegram_user_id=u.telegram_user_id,
+        discord_user_id=u.discord_user_id,
+        created_at=u.created_at.isoformat(),
+        last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
+    )
+
+
+def get_store(request: Request) -> GluonStore:
+    return cast(GluonStore, request.app.state.store)
+
+
+def get_runner(request: Request) -> TaskRunner:
+    return cast(TaskRunner, request.app.state.runner)
+
+
+def get_orchestrator(request: Request) -> Orchestrator:
+    return cast(Orchestrator, request.app.state.orchestrator)
+
+
+def get_ws_manager(request: Request) -> WebSocketManager:
+    return cast(WebSocketManager, request.app.state.ws_manager)
+
+
+def get_notifier(request: Request) -> NotificationDispatcher:
+    return cast(NotificationDispatcher, request.app.state.notifier)
+
+
+def get_project_lookup(request: Request) -> Callable[[], dict[str, str]]:
+    return cast("Callable[[], dict[str, str]]", request.app.state.get_project_lookup)
+
+
+def get_run_to_response(request: Request) -> Callable[..., RunResponse]:
+    return cast("Callable[..., RunResponse]", request.app.state.run_to_response)
+
+
+def get_resolve_run_or_404(request: Request) -> Callable[[str], ExecutionRun]:
+    return cast("Callable[[str], ExecutionRun]", request.app.state.resolve_run_or_404)
+
+
+def get_resolve_project_or_404(request: Request) -> Callable[[str], Project]:
+    return cast("Callable[[str], Project]", request.app.state.resolve_project_or_404)
+
+
+def get_workspace_to_response(request: Request) -> Callable[..., WorkspaceResponse]:
+    return cast("Callable[..., WorkspaceResponse]", request.app.state.workspace_to_response)
+
+
+def rate_limit_auth(request: Request) -> None:
+    """Per-IP throttle for the extracted auth router — byte-identical to
+    create_app's ``_rate_limit_auth``, but reads the per-app limiter from
+    app.state (set in create_app) so it shares the same instance/budget."""
+    limiter = request.app.state.auth_limiter
+    ip = request.client.host if request.client else "unknown"
+    if not limiter.allow(f"{request.url.path}:{ip}"):
+        raise HTTPException(status_code=429, detail="Too many attempts; wait a minute and try again.")
+
+
+async def get_current_user(
+    request: Request,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> User:
+    """Current-user dependency for extracted routers — mirrors create_app's
+    ``current_user_dep`` (``make_current_user_dependency(store)``).
+
+    Reads the store from app.state instead of closing over it; byte-identical
+    behavior to ``_current_user_impl(store, session)`` (returns SYSTEM_USER in
+    single-user mode / for an absent or invalid session).
+    """
+    store = cast(GluonStore, request.app.state.store)
+    return _current_user_impl(store, session)
+
+
+async def require_admin(
+    request: Request,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> User:
+    """Admin-role gate for extracted routers — mirrors create_app's `require_admin`.
+
+    Reads the store from app.state instead of closing over it; otherwise
+    byte-identical to ``make_require_role(store, ADMIN)`` (no-op in single-user
+    mode where SYSTEM_USER is admin, 403 with the same message otherwise).
+    """
+    store = cast(GluonStore, request.app.state.store)
+    user = _current_user_impl(store, session)
+    if _role_rank(user.role) < _role_rank(UserRole.ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail=f"role '{UserRole.ADMIN.value}' required (you are '{user.role.value}')",
+        )
+    return user

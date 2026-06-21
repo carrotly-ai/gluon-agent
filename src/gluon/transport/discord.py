@@ -1213,10 +1213,10 @@ class DiscordTransport(Transport):
         """Handle the models command - list available models."""
         text = (
             "**Available Models:**\n"
-            "- `opus` / `claude-opus-4.8` - Highest quality, best for complex reasoning\n"
+            "- `opus` / `claude-opus-4.8` - Highest quality, best for complex reasoning (default)\n"
             "- `claude-opus-4.7` / `claude-opus-4.6` - Previous Opus generations\n"
-            "- `sonnet` / `claude-sonnet-4.6` - Fast, high-quality (default)\n"
-            "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost\n\n"
+            "- `sonnet` / `claude-sonnet-4.6` - Fast, high-quality\n"
+            "- `haiku` / `claude-haiku-4.5` - Fastest, lowest cost (not on AWS Bedrock)\n\n"
             "**Usage:** `@gluon <task> --model opus`\n"
             "**Short form:** `@gluon <task> -m haiku`"
         )
@@ -1796,21 +1796,3 @@ class DiscordTransport(Transport):
 
         task = asyncio.create_task(execute_task())
         self.bot_core.register_task(run.id, task)
-
-
-async def run_discord_transport(
-    token: str,
-    guild_id: int,
-    bot_core: GluonBotCore,
-    allowed_users: list[int] | None = None,
-) -> None:
-    """Run the Discord transport until interrupted.
-
-    Args:
-        token: Discord bot token
-        guild_id: Discord guild (server) ID
-        bot_core: Bot core instance
-        allowed_users: List of allowed Discord user IDs
-    """
-    transport = DiscordTransport(token, guild_id, bot_core, allowed_users)
-    await transport.start()
