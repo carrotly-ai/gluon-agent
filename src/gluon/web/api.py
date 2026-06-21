@@ -82,7 +82,6 @@ from gluon.web.models import (
     MergeQueueEntryResponse,
     MergeQueueListResponse,
     OIDCProviderInfo,
-    ProjectDetailResponse,
     ProjectFileResponse,
     ProjectFilesResponse,
     ProjectResponse,
@@ -121,6 +120,7 @@ from gluon.web.routers import (
     approvals,
     formulas,
     notifications,
+    projects,
     queued_messages,
     runs,
     schedules,
@@ -308,6 +308,7 @@ def create_app(
     app.include_router(approvals.router)
     app.include_router(supervision.router)
     app.include_router(runs.router)
+    app.include_router(projects.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -2056,37 +2057,8 @@ def create_app(
 
     # ========== Phase 7.3: Project Management ==========
 
-    @app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse)
-    async def get_project(project_id: str) -> ProjectDetailResponse:
-        """Get detailed info for a specific project."""
-        project = store.get_project(project_id)
-        if not project:
-            # Try by name
-            project = store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
-
-        # Get workspace info if applicable
-        workspace_name = None
-        if project.workspace_id:
-            workspace = store.get_workspace(project.workspace_id)
-            if workspace:
-                workspace_name = workspace.name
-
-        # Get run stats
-        runs = store.list_runs(project_id=project.id, limit=1000)
-        last_run_at = runs[0].created_at if runs else None
-
-        return ProjectDetailResponse(
-            id=project.id,
-            name=project.name,
-            path=str(project.path),
-            session_count=len(store.list_sessions(project.id)),
-            workspace_id=project.workspace_id,
-            workspace_name=workspace_name,
-            run_count=len(runs),
-            last_run_at=last_run_at,
-        )
+    # get_project detail (GET /api/projects/{id}) moved to gluon.web.routers.projects (#162).
+    # create_project stays inline (os.path.realpath taint-break — CodeQL recognises it only here).
 
     @app.post("/api/projects", response_model=ProjectResponse)
     async def create_project(body: CreateProjectRequest) -> ProjectResponse:
@@ -2121,20 +2093,7 @@ def create_app(
             session_count=0,
         )
 
-    @app.delete("/api/projects/{project_id}")
-    async def delete_project(project_id: str) -> dict:
-        """Delete a project (cascades to sessions/runs)."""
-        project = store.get_project(project_id)
-        if not project:
-            project = store.get_project_by_name(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
-
-        success = store.delete_project(project.id)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete project")
-
-        return {"deleted": True, "project_id": project.id}
+    # delete_project (DELETE /api/projects/{id}) moved to gluon.web.routers.projects (#162).
 
     # ========== Workspace Management ==========
     #
