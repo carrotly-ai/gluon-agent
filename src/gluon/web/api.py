@@ -33,7 +33,6 @@ from gluon.core import Orchestrator, ProjectNotFoundError
 from gluon.files import get_project_files
 from gluon.models import (
     ConcurrencyPolicy,
-    Notification,
     OrchestratorTask,
     RunStatus,
     TaskComment,
@@ -101,8 +100,6 @@ from gluon.web.models import (
     MeResponse,
     MergeQueueEntryResponse,
     MergeQueueListResponse,
-    NotificationResponse,
-    NotificationsListResponse,
     OIDCProviderInfo,
     PendingQuestionResponse,
     PendingQuestionsResponse,
@@ -178,7 +175,7 @@ from gluon.web.models import (
     WorkspaceResponse,
     WorkspaceSettingsResponse,
 )
-from gluon.web.routers import sdk_sessions
+from gluon.web.routers import notifications, sdk_sessions
 from gluon.web.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -347,6 +344,7 @@ def create_app(
     # Per-domain routers extracted from this closure (#162 STEP B). They stay
     # behind the same fail-closed auth middleware (paths unchanged).
     app.include_router(sdk_sessions.router)
+    app.include_router(notifications.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -4520,65 +4518,6 @@ def create_app(
             projects_refreshed=refreshed,
             errors=errors,
         )
-
-    # ========== Notification Endpoints ==========
-
-    def _notification_to_response(n: Notification) -> NotificationResponse:
-        return NotificationResponse(
-            id=n.id,
-            workspace_id=n.workspace_id,
-            project_id=n.project_id,
-            run_id=n.run_id,
-            session_id=n.session_id,
-            type=n.type.value,
-            severity=n.severity.value,
-            title=n.title,
-            message=n.message,
-            metadata=n.metadata,
-            read=n.read,
-            created_at=n.created_at.isoformat(),
-            read_at=n.read_at.isoformat() if n.read_at else None,
-        )
-
-    @app.get("/api/notifications", response_model=NotificationsListResponse)
-    async def list_notifications(
-        workspace_id: str | None = None,
-        unread_only: bool = False,
-        limit: int = Query(default=50, le=200),
-    ) -> NotificationsListResponse:
-        """List notifications with optional filters."""
-        notifications = store.list_notifications(
-            workspace_id=workspace_id,
-            unread_only=unread_only,
-            limit=limit,
-        )
-        unread_count = store.get_unread_count(workspace_id=workspace_id)
-        return NotificationsListResponse(
-            notifications=[_notification_to_response(n) for n in notifications],
-            unread_count=unread_count,
-        )
-
-    @app.post("/api/notifications/{notification_id}/read", response_model=NotificationResponse)
-    async def mark_notification_read(notification_id: str) -> NotificationResponse:
-        """Mark a single notification as read."""
-        notification = store.mark_notification_read(notification_id)
-        if not notification:
-            raise HTTPException(status_code=404, detail="Notification not found")
-        return _notification_to_response(notification)
-
-    @app.post("/api/notifications/read-all")
-    async def mark_all_notifications_read(
-        workspace_id: str | None = None,
-    ) -> dict:
-        """Mark all notifications as read."""
-        count = store.mark_all_notifications_read(workspace_id=workspace_id)
-        return {"marked_read": count}
-
-    @app.delete("/api/notifications")
-    async def delete_all_notifications() -> dict:
-        """Delete all notifications."""
-        count = store.delete_all_notifications()
-        return {"deleted": count}
 
     # ========== Activity Log Endpoints ==========
 
