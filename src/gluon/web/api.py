@@ -6163,6 +6163,19 @@ cd web-ui && bun dev
                 status_code=200,
             )
 
+    # Expose create_app's shared collaborators on app.state so per-domain
+    # routers can inject them via Depends (web/routers/_deps.py) instead of
+    # closing over these locals (#162). Set here, at the end, so every helper
+    # is already defined. Read at request time, so order vs include_router
+    # doesn't matter.
+    app.state.runner = runner
+    app.state.ws_manager = ws_manager
+    app.state.get_project_lookup = get_project_lookup
+    app.state.run_to_response = run_to_response
+    app.state.resolve_run_or_404 = _resolve_run_or_404
+    app.state.resolve_project_or_404 = _resolve_project_or_404
+    app.state.workspace_to_response = _workspace_to_response
+
     return app
 
 
