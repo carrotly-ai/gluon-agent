@@ -17,12 +17,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from gluon.auth import SYSTEM_USER
-from gluon.models import ExecutionRun, RunStatus
+from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, utc_now
 from gluon.models import User as UserModel
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
+    AnswerQuestionRequest,
     ForkRunRequest,
+    PendingQuestionResponse,
+    PendingQuestionsResponse,
     RalphIterationResponse,
     RalphIterationsResponse,
     RunResponse,
@@ -378,3 +381,96 @@ async def fork_run_endpoint(
     project_name = project_lookup.get(child.project_id, child.project_id[:8])
     await ws_manager.broadcast_run_update(child, project_name)
     return run_to_response(child, project_lookup)
+
+
+def question_to_response(q: PendingQuestion) -> PendingQuestionResponse:
+    """Convert PendingQuestion to API response."""
+    return PendingQuestionResponse(
+        id=q.id,
+        run_id=q.run_id,
+        question_index=q.question_index,
+        question_text=q.question_text,
+        header=q.header,
+        options=q.options,
+        multi_select=q.multi_select,
+        status=q.status.value,
+        created_at=q.created_at.isoformat(),
+        expires_at=q.expires_at.isoformat() if q.expires_at else None,
+        selected_labels=q.selected_labels,
+        answer_source=q.answer_source,
+    )
+
+
+@router.get("/api/runs/{run_id}/questions", response_model=PendingQuestionsResponse)
+async def get_run_questions(
+    run_id: str,
+    store: Store,
+    resolve_run_or_404: RunResolver,
+) -> PendingQuestionsResponse:
+    """
+    Get all questions for a run.
+
+    Returns both pending and answered questions for the run.
+    """
+    run = resolve_run_or_404(run_id)
+
+    questions = store.list_pending_questions(run.id)
+    has_pending = any(q.status == QuestionStatus.PENDING for q in questions)
+
+    return PendingQuestionsResponse(
+        run_id=run.id,
+        questions=[question_to_response(q) for q in questions],
+        has_pending=has_pending,
+    )
+
+
+@router.post("/api/questions/{question_id}/answer", response_model=PendingQuestionResponse)
+async def answer_question(
+    question_id: str,
+    body: AnswerQuestionRequest,
+    store: Store,
+    ws_manager: WsManager,
+) -> PendingQuestionResponse:
+    """
+    Submit an answer to a pending question.
+
+    The answer must contain at least one selected label from the question's options.
+    """
+    question = store.get_pending_question(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail=f"Question not found: {question_id}")
+
+    if question.status != QuestionStatus.PENDING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Question already answered (status: {question.status.value})",
+        )
+
+    # Validate at least one selection
+    if not body.selected_labels:
+        raise HTTPException(status_code=400, detail="At least one option must be selected")
+
+    # Update the question
+    question.status = QuestionStatus.ANSWERED
+    question.selected_labels = body.selected_labels
+    question.answer_source = "user"
+    question.answered_at = utc_now()
+    store.update_pending_question(question)
+
+    # Emit question.answered event (subscribers handle WebSocket broadcast)
+    try:
+        from gluon.events import event_bus
+        from gluon.events.types import EventCategory, GluonEvent
+
+        await event_bus.emit(
+            GluonEvent(
+                type="question.answered",
+                category=EventCategory.INTERACTION,
+                run_id=question.run_id,
+                data={"question_id": question_id, "selected_labels": body.selected_labels},
+            )
+        )
+    except ImportError:
+        await ws_manager.broadcast_question_answered(question.run_id, question_id)
+
+    return question_to_response(question)
