@@ -108,7 +108,15 @@ Owner now wants the larger portions finished, not deferred. Disposition: build t
 - [x] **runs (batch 7 — logs)** (`d452949`, local) — GET /api/runs/{id}/logs → runs.py (store + run-resolver + runner.get_logs; runner owns log-path resolution, no path construction in route). **runs clean subset COMPLETE — runs.py holds 18 routes.**
 - [x] domain: **projects (clean subset)** (`60754d3`, local) — GET /api/projects/{id} (detail) + DELETE /api/projects/{id} → `web/routers/projects.py` (store-only). create_project stays inline (os.path.realpath taint-break — CodeQL only validates it in api.py). list_projects/files/commands + conflicts/rebase/branches/git cluster stay inline (git/path). test_api_projects.py (24).
 
-### #162 status: CLEAN EXTRACTION COMPLETE — ready for final push (loop wound down)
+### #162 status: RESUMED — net-first extraction of the un-netted clean routes
+
+Owner resumed the loop after the "complete" checkpoint. New approach for the previously-un-netted clean routes: **write a behavior-identity net FIRST (green against the inline routes), commit it, THEN extract** — so even un-netted routes get a provable-identity extraction without CI.
+
+- [x] **activity + work-queue net** (`2360e86`, local) — `tests/test_api_activity_queue.py`, 13 tests covering GET/POST /api/activity(/cleanup) + the 4 /api/queue routes; green against inline.
+- [x] **activity + work-queue extraction** (`ab79ab5`, local) — `web/routers/activity.py` (2) + `web/routers/work_queue.py` (4, with a unified `work_item_to_response` mapper). Net re-run green post-extraction. **api.py 4184 → 4037; full suite 2274.**
+- **Next (same net-first pattern):** merge-queue (3, check git-coupling first — if retry triggers a real git merge, keep inline). Then security/keep-inline routes remain (owner/CI decisions).
+
+### #162 status: CLEAN EXTRACTION COMPLETE — ready for final push (loop wound down) [superseded — loop resumed above]
 
 **Done (no-push fast-mode batch, owner directive to conserve CI minutes — all committed locally, gated each step with ruff+mypy+full suite 2261, NOT pushed):** api.py **6625 → 4184 lines (−2441, ~37%)**. 13 router modules + `_deps` provider layer + lifespan migration + `background.py`. ~70 routes extracted behavior-identically.
 
