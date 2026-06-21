@@ -33,11 +33,11 @@ import { ImageLightbox } from '@/components/ImageLightbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useLazyExpand } from '@/hooks/useLazyExpand'
 import { useRunActions } from '@/hooks/useRunActions'
+import { useRunResume } from '@/hooks/useRunResume'
 import { parseMessages } from '@/lib/agentMessage'
 import {
   answerQuestion,
   archiveRun,
-  cancelRun,
   fetchCommands,
   fetchCommitDetail,
   fetchFileDiff,
@@ -52,10 +52,7 @@ import {
   fetchSessionHistory,
   fetchWitnessDecisions,
   getImageFileUrl,
-  queueFollowup,
   recoverRun,
-  resumeRun,
-  uploadAndAttachImage,
 } from '@/lib/api'
 import { formatDuration, formatTokens } from '@/lib/format'
 import { formatDateWithContext, formatRelativeTime } from '@/lib/timestamps'
@@ -831,116 +828,19 @@ export function RunDetailDialog({
     })
   }, [])
 
-  const handleResume = async () => {
-    if (!run || !resumePrompt.trim()) return
-    setResuming(true)
-    setResumeError(null)
-    try {
-      // Resume continues the same run in-place
-      const result = await resumeRun(run.id, resumePrompt.trim())
-
-      // Upload images to the run if any (same run_id)
-      if (resumePendingImages.length > 0 && result.run_id) {
-        const uploadPromises = resumePendingImages.map((img) =>
-          uploadAndAttachImage(result.run_id, img.file).catch((err) => {
-            console.error(`Failed to upload image ${img.file.name}:`, err)
-            return null
-          })
-        )
-        await Promise.all(uploadPromises)
-      }
-
-      // Cleanup images and prompt, but DON'T close dialog
-      // The run is now RUNNING again - stay open to watch progress
-      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
-      setResumePendingImages([])
-      setResumePrompt('')
-      // Reset textarea height
-      if (resumeTextareaRef.current) {
-        resumeTextareaRef.current.style.height = 'auto'
-      }
-
-      // Refresh the run data to show new status
-      handleRefresh()
-    } catch (err) {
-      setResumeError(err instanceof Error ? err.message : 'Failed to resume run')
-    } finally {
-      setResuming(false)
-    }
-  }
-
-  // Queue a follow-up message for a running task (will auto-resume after completion)
-  const handleQueueFollowup = async () => {
-    if (!run || !resumePrompt.trim()) return
-    setQueuing(true)
-    setResumeError(null)
-    try {
-      const result = await queueFollowup(run.id, resumePrompt.trim())
-
-      if (result.action === 'resume_now') {
-        // Task is not running - use normal resume instead
-        await handleResume()
-        return
-      }
-
-      // Message queued - clear prompt and refresh to show indicator
-      setResumePrompt('')
-      // Reset textarea height
-      if (resumeTextareaRef.current) {
-        resumeTextareaRef.current.style.height = 'auto'
-      }
-      toast.success('Message queued - will continue after current task completes')
-      handleRefresh()
-    } catch (err) {
-      setResumeError(err instanceof Error ? err.message : 'Failed to queue follow-up')
-    } finally {
-      setQueuing(false)
-    }
-  }
-
-  // Send message immediately by cancelling current task and resuming with new message
-  const handleSendNow = async () => {
-    if (!run || !resumePrompt.trim()) return
-    setResuming(true)
-    setResumeError(null)
-    try {
-      // Cancel current execution
-      await cancelRun(run.id)
-
-      // Small delay for cancellation to propagate
-      await new Promise((r) => setTimeout(r, 500))
-
-      // Resume with new message
-      await resumeRun(run.id, resumePrompt.trim())
-
-      // Upload images if any
-      if (resumePendingImages.length > 0) {
-        const uploadPromises = resumePendingImages.map((img) =>
-          uploadAndAttachImage(run.id, img.file).catch((err) => {
-            console.error(`Failed to upload image ${img.file.name}:`, err)
-            return null
-          })
-        )
-        await Promise.all(uploadPromises)
-      }
-
-      // Cleanup
-      resumePendingImages.forEach((img) => URL.revokeObjectURL(img.preview))
-      setResumePendingImages([])
-      setResumePrompt('')
-      // Reset textarea height
-      if (resumeTextareaRef.current) {
-        resumeTextareaRef.current.style.height = 'auto'
-      }
-
-      // Refresh
-      handleRefresh()
-    } catch (err) {
-      setResumeError(err instanceof Error ? err.message : 'Failed to send message')
-    } finally {
-      setResuming(false)
-    }
-  }
+  // Shared resume / send-now / queue-follow-up flow (#165, via useRunResume).
+  const { handleResume, handleSendNow, handleQueueFollowup } = useRunResume({
+    run,
+    resumePrompt,
+    setResumePrompt,
+    resumePendingImages,
+    setResumePendingImages,
+    resumeTextareaRef,
+    setResuming,
+    setQueuing,
+    setResumeError,
+    onRefresh: () => handleRefresh(),
+  })
 
   // Handle autocomplete trigger detection
   const handleResumePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
