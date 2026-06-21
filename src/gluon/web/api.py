@@ -78,7 +78,6 @@ from gluon.web.models import (
     LinkStatusResponse,
     LoginRequest,
     LoginResponse,
-    LogResponse,
     MeResponse,
     MergeQueueEntryResponse,
     MergeQueueListResponse,
@@ -1202,28 +1201,7 @@ def create_app(
             deletions=diff_data["deletions"],
         )
 
-    @app.get("/api/runs/{run_id}/logs", response_model=LogResponse)
-    async def get_logs(
-        run_id: str,
-        stream: str = "stdout",
-        tail: int | None = None,
-    ) -> LogResponse:
-        """Get log content for a run."""
-        run = _resolve_run_or_404(run_id)
-
-        if stream not in ("stdout", "stderr", "messages"):
-            raise HTTPException(status_code=400, detail=f"Invalid stream: {stream}")
-
-        logs = runner.get_logs(run.id, tail=tail)
-        content = logs.get(stream, "")
-        line_count = len(content.splitlines()) if content else 0
-
-        return LogResponse(
-            run_id=run.id,
-            stream=stream,
-            content=content,
-            line_count=line_count,
-        )
+    # logs run route moved to gluon.web.routers.runs (#162).
 
     @app.get("/api/projects", response_model=list[ProjectResponse])
     async def list_projects() -> list[ProjectResponse]:

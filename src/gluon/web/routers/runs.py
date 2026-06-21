@@ -28,6 +28,7 @@ from gluon.web.models import (
     AnswerQuestionRequest,
     CreateRunRequest,
     ForkRunRequest,
+    LogResponse,
     PendingQuestionResponse,
     PendingQuestionsResponse,
     RalphIterationResponse,
@@ -829,3 +830,30 @@ async def create_run(
     await ws_manager.broadcast_run_created(run, project.name)
 
     return response
+
+
+@router.get("/api/runs/{run_id}/logs", response_model=LogResponse)
+async def get_logs(
+    run_id: str,
+    store: Store,
+    runner: Runner,
+    resolve_run_or_404: RunResolver,
+    stream: str = "stdout",
+    tail: int | None = None,
+) -> LogResponse:
+    """Get log content for a run."""
+    run = resolve_run_or_404(run_id)
+
+    if stream not in ("stdout", "stderr", "messages"):
+        raise HTTPException(status_code=400, detail=f"Invalid stream: {stream}")
+
+    logs = runner.get_logs(run.id, tail=tail)
+    content = logs.get(stream, "")
+    line_count = len(content.splitlines()) if content else 0
+
+    return LogResponse(
+        run_id=run.id,
+        stream=stream,
+        content=content,
+        line_count=line_count,
+    )
