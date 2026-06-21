@@ -18,6 +18,7 @@ from gluon.web.routers import _deps
 SHARED_DEPS = (
     "store",
     "runner",
+    "orchestrator",
     "ws_manager",
     "notifier",
     "get_project_lookup",
@@ -44,6 +45,7 @@ def test_providers_read_app_state():
     req = SimpleNamespace(app=app)
     assert _deps.get_store(req) is app.state.store
     assert _deps.get_runner(req) is app.state.runner
+    assert _deps.get_orchestrator(req) is app.state.orchestrator
     assert _deps.get_ws_manager(req) is app.state.ws_manager
     assert _deps.get_notifier(req) is app.state.notifier
     assert _deps.get_project_lookup(req) is app.state.get_project_lookup

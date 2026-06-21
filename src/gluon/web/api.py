@@ -5928,6 +5928,7 @@ cd web-ui && bun dev
     # is already defined. Read at request time, so order vs include_router
     # doesn't matter.
     app.state.runner = runner
+    app.state.orchestrator = orchestrator
     app.state.ws_manager = ws_manager
     app.state.get_project_lookup = get_project_lookup
     app.state.run_to_response = run_to_response

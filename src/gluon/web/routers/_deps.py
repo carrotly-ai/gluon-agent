@@ -16,6 +16,7 @@ from typing import cast
 from fastapi import Cookie, HTTPException, Request
 
 from gluon.auth import SESSION_COOKIE_NAME, _current_user_impl, _role_rank
+from gluon.core import Orchestrator
 from gluon.models import ExecutionRun, Project, User, UserRole
 from gluon.notifier import NotificationDispatcher
 from gluon.runner import TaskRunner
@@ -30,6 +31,10 @@ def get_store(request: Request) -> GluonStore:
 
 def get_runner(request: Request) -> TaskRunner:
     return cast(TaskRunner, request.app.state.runner)
+
+
+def get_orchestrator(request: Request) -> Orchestrator:
+    return cast(Orchestrator, request.app.state.orchestrator)
 
 
 def get_ws_manager(request: Request) -> WebSocketManager:
