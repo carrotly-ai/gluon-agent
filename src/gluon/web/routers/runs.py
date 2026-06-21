@@ -11,6 +11,7 @@ path-validation context). Paths unchanged → same fail-closed auth posture.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import Annotated
@@ -18,12 +19,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from gluon.auth import SYSTEM_USER
+from gluon.core import Orchestrator
 from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, utc_now
 from gluon.models import User as UserModel
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
 from gluon.web.models import (
     AnswerQuestionRequest,
+    CreateRunRequest,
     ForkRunRequest,
     PendingQuestionResponse,
     PendingQuestionsResponse,
@@ -43,6 +46,7 @@ from gluon.web.models import (
 )
 from gluon.web.routers._deps import (
     get_current_user,
+    get_orchestrator,
     get_project_lookup,
     get_resolve_run_or_404,
     get_run_to_response,
@@ -57,6 +61,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
 
 Store = Annotated[GluonStore, Depends(get_store)]
+Orch = Annotated[Orchestrator, Depends(get_orchestrator)]
 Runner = Annotated[TaskRunner, Depends(get_runner)]
 RunResolver = Annotated[Callable[[str], ExecutionRun], Depends(get_resolve_run_or_404)]
 ProjectLookup = Annotated[Callable[[], dict[str, str]], Depends(get_project_lookup)]
@@ -689,3 +694,138 @@ async def resume_run(
         original_run_id=resumed_run.id,
         new_run_id=resumed_run.id,
     )
+
+
+@router.get("/api/runs", response_model=list[RunResponse])
+async def list_runs(
+    store: Store,
+    runner: Runner,
+    project_lookup_fn: ProjectLookup,
+    run_to_response: RunToResponse,
+    project_id: str | None = None,
+    status: Annotated[list[str] | None, Query()] = None,
+    limit: int = 50,
+    archived: bool = False,
+) -> list[RunResponse]:
+    """List execution runs with optional filters."""
+    # Refresh status of active runs
+    await asyncio.to_thread(runner.refresh_all_runs)
+
+    # Convert status strings to enum
+    statuses = None
+    if status:
+        try:
+            statuses = [RunStatus(s) for s in status]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {e}")
+
+    runs = store.list_runs(
+        project_id=project_id,
+        statuses=statuses,
+        limit=limit,
+        include_archived=archived,
+    )
+
+    # When viewing archived, only show archived runs; otherwise only show non-archived
+    if archived:
+        runs = [r for r in runs if r.archived]
+    else:
+        runs = [r for r in runs if not r.archived]
+
+    project_lookup = project_lookup_fn()
+
+    return [run_to_response(run, project_lookup) for run in runs]
+
+
+@router.post("/api/runs", response_model=RunResponse)
+async def create_run(
+    body: CreateRunRequest,
+    store: Store,
+    orchestrator: Orch,
+    runner: Runner,
+    project_lookup_fn: ProjectLookup,
+    run_to_response: RunToResponse,
+    ws_manager: WsManager,
+    user: CurrentUser,
+) -> RunResponse:
+    """Create and start a new execution run.
+
+    D5 Phase 2 attribution: the created run's ``user_id`` is set to the
+    current user's ID when auth is enabled, or None for SYSTEM_USER.
+    """
+    from gluon.core import (
+        AgentAmbiguousError,
+        AgentNotFoundError,
+        BudgetExceededError,
+        ProjectNotFoundError,
+        WorkspaceBudgetExceededError,
+    )
+
+    # Only attribute when a real (non-SYSTEM) user is logged in. SYSTEM_USER
+    # has a deterministic zero-UUID but we don't want to pollute rows with it.
+    attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
+
+    try:
+        project = orchestrator.get_project(body.project_name)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Project not found: {body.project_name}")
+
+    # Resolve agent — explicit reference or auto-select
+    try:
+        resolved_agent_id = orchestrator.resolve_agent(body.agent, project.workspace_id)
+    except AgentNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except AgentAmbiguousError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+    # Create the run (budget enforcement happens inside runner.submit)
+    try:
+        run = await runner.submit(
+            project_id=project.id,
+            prompt=body.prompt,
+            wait=False,
+            use_worktree=body.use_worktree,
+            initiator="web:dashboard",
+            model=body.model_override or body.model,  # Override takes precedence
+            # Task profile options
+            profile=body.profile,
+            thinking_budget=body.thinking_override,
+            force_planning=body.force_planning,
+            effort=body.effort_override,
+            task_budget=body.task_budget_override,
+            # Ralph Loop options
+            ralph_enabled=body.ralph_enabled,
+            max_loops=body.max_loops,
+            max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
+            verify_cmd=body.verify_cmd,  # I4: objective-gate command (Step 2 enforces)
+            # Per-task overrides
+            agent_teams=body.agent_teams,
+            model_transition=body.model_transition,
+            enable_prehydration=body.enable_prehydration,
+            blueprint_enabled=body.blueprint_enabled,
+            agent_id=resolved_agent_id,
+            # Hard caps (Theme D3)
+            max_tool_calls=body.max_tool_calls,
+            max_duration_minutes=body.max_duration_minutes,
+            # D5 Phase 2 — attribution
+            user_id=attribution_user_id,
+        )
+    except BudgetExceededError as e:
+        raise HTTPException(status_code=402, detail=str(e)) from None
+    except WorkspaceBudgetExceededError as e:
+        raise HTTPException(status_code=402, detail=str(e)) from None
+
+    # Store dev_port in metadata if provided
+    if body.dev_port is not None:
+        if run.metadata is None:
+            run.metadata = {}
+        run.metadata["dev_port"] = body.dev_port
+        store.update_run(run)
+
+    project_lookup = project_lookup_fn()
+    response = run_to_response(run, project_lookup)
+
+    # Broadcast to WebSocket clients
+    await ws_manager.broadcast_run_created(run, project.name)
+
+    return response

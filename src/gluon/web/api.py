@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 
 from gluon.commands import get_slash_commands
-from gluon.core import Orchestrator, ProjectNotFoundError
+from gluon.core import Orchestrator
 from gluon.files import get_project_files
 from gluon.models import (
     RunStatus,
@@ -65,7 +65,6 @@ from gluon.web.models import (
     ConflictFileResponse,
     CreateLinkCodeRequest,
     CreateProjectRequest,
-    CreateRunRequest,
     CreateUserRequest,
     CreateWorkspaceRequest,
     FileChangeResponse,
@@ -611,41 +610,8 @@ def create_app(
 
     # ========== REST API Routes ==========
 
-    @app.get("/api/runs", response_model=list[RunResponse])
-    async def list_runs(
-        project_id: str | None = None,
-        status: Annotated[list[str] | None, Query()] = None,
-        limit: int = 50,
-        archived: bool = False,
-    ) -> list[RunResponse]:
-        """List execution runs with optional filters."""
-        # Refresh status of active runs
-        await asyncio.to_thread(runner.refresh_all_runs)
-
-        # Convert status strings to enum
-        statuses = None
-        if status:
-            try:
-                statuses = [RunStatus(s) for s in status]
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=f"Invalid status: {e}")
-
-        runs = store.list_runs(
-            project_id=project_id,
-            statuses=statuses,
-            limit=limit,
-            include_archived=archived,
-        )
-
-        # When viewing archived, only show archived runs; otherwise only show non-archived
-        if archived:
-            runs = [r for r in runs if r.archived]
-        else:
-            runs = [r for r in runs if not r.archived]
-
-        project_lookup = get_project_lookup()
-
-        return [run_to_response(run, project_lookup) for run in runs]
+    # list_runs (GET /api/runs) moved to gluon.web.routers.runs (#162).
+    # get_run stays inline (git/PR refresh + commit/file counts).
 
     @app.get("/api/runs/{run_id}", response_model=RunDetailResponse)
     async def get_run(run_id: str, refresh_pr: bool = True) -> RunDetailResponse:
@@ -788,91 +754,7 @@ def create_app(
             readiness=run_readiness(run.verify_cmd),
         )
 
-    @app.post("/api/runs", response_model=RunResponse)
-    async def create_run(
-        body: CreateRunRequest,
-        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
-    ) -> RunResponse:
-        """Create and start a new execution run.
-
-        D5 Phase 2 attribution: the created run's ``user_id`` is set to the
-        current user's ID when auth is enabled, or None for SYSTEM_USER.
-        """
-        from gluon.core import (
-            AgentAmbiguousError,
-            AgentNotFoundError,
-            BudgetExceededError,
-            WorkspaceBudgetExceededError,
-        )
-
-        # Only attribute when a real (non-SYSTEM) user is logged in. SYSTEM_USER
-        # has a deterministic zero-UUID but we don't want to pollute rows with it.
-        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
-
-        try:
-            project = orchestrator.get_project(body.project_name)
-        except ProjectNotFoundError:
-            raise HTTPException(status_code=404, detail=f"Project not found: {body.project_name}")
-
-        # Resolve agent — explicit reference or auto-select
-        try:
-            resolved_agent_id = orchestrator.resolve_agent(body.agent, project.workspace_id)
-        except AgentNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from None
-        except AgentAmbiguousError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        # Create the run (budget enforcement happens inside runner.submit)
-        try:
-            run = await runner.submit(
-                project_id=project.id,
-                prompt=body.prompt,
-                wait=False,
-                use_worktree=body.use_worktree,
-                initiator="web:dashboard",
-                model=body.model_override or body.model,  # Override takes precedence
-                # Task profile options
-                profile=body.profile,
-                thinking_budget=body.thinking_override,
-                force_planning=body.force_planning,
-                effort=body.effort_override,
-                task_budget=body.task_budget_override,
-                # Ralph Loop options
-                ralph_enabled=body.ralph_enabled,
-                max_loops=body.max_loops,
-                max_cost_usd=body.max_budget_override or body.max_cost_usd,  # Override takes precedence
-                verify_cmd=body.verify_cmd,  # I4: objective-gate command (Step 2 enforces)
-                # Per-task overrides
-                agent_teams=body.agent_teams,
-                model_transition=body.model_transition,
-                enable_prehydration=body.enable_prehydration,
-                blueprint_enabled=body.blueprint_enabled,
-                agent_id=resolved_agent_id,
-                # Hard caps (Theme D3)
-                max_tool_calls=body.max_tool_calls,
-                max_duration_minutes=body.max_duration_minutes,
-                # D5 Phase 2 — attribution
-                user_id=attribution_user_id,
-            )
-        except BudgetExceededError as e:
-            raise HTTPException(status_code=402, detail=str(e)) from None
-        except WorkspaceBudgetExceededError as e:
-            raise HTTPException(status_code=402, detail=str(e)) from None
-
-        # Store dev_port in metadata if provided
-        if body.dev_port is not None:
-            if run.metadata is None:
-                run.metadata = {}
-            run.metadata["dev_port"] = body.dev_port
-            store.update_run(run)
-
-        project_lookup = get_project_lookup()
-        response = run_to_response(run, project_lookup)
-
-        # Broadcast to WebSocket clients
-        await ws_manager.broadcast_run_created(run, project.name)
-
-        return response
+    # create_run (POST /api/runs) moved to gluon.web.routers.runs (#162).
 
     # cancel/resume run routes moved to gluon.web.routers.runs (#162).
     # recover stays inline (worktree-path + background recovery closure).
