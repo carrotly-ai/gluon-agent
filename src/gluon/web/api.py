@@ -76,12 +76,6 @@ from gluon.web.models import (
     FileChangeResponse,
     FileDiffResponse,
     ForkRunRequest,
-    FormulaListResponse,
-    FormulaRunRequest,
-    FormulaRunResponse,
-    FormulaStepResponse,
-    FormulaTemplateResponse,
-    FormulaVariableResponse,
     GitRefreshAllResponse,
     GitStatusResponse,
     GitSyncRequest,
@@ -160,7 +154,7 @@ from gluon.web.models import (
     WorkspaceResponse,
     WorkspaceSettingsResponse,
 )
-from gluon.web.routers import notifications, queued_messages, sdk_sessions, tasks, workspaces
+from gluon.web.routers import formulas, notifications, queued_messages, sdk_sessions, tasks, workspaces
 from gluon.web.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -333,6 +327,7 @@ def create_app(
     app.include_router(workspaces.router)
     app.include_router(queued_messages.router)
     app.include_router(tasks.router)
+    app.include_router(formulas.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -4723,64 +4718,7 @@ def create_app(
             ],
         )
 
-    # ========== Formula Endpoints ==========
-
-    @app.get("/api/formulas", response_model=FormulaListResponse)
-    async def list_formulas() -> FormulaListResponse:
-        """List all available formula templates."""
-        from gluon.formulas import FormulaLoader
-
-        templates = FormulaLoader.discover()
-        return FormulaListResponse(
-            formulas=[
-                FormulaTemplateResponse(
-                    name=t.name,
-                    description=t.description,
-                    variables=[
-                        FormulaVariableResponse(
-                            name=v.name, type=v.type, required=v.required, default=v.default, help=v.help
-                        )
-                        for v in t.variables
-                    ],
-                    steps=[
-                        FormulaStepResponse(
-                            id=s.id, name=s.name, prompt=s.prompt, depends_on=s.depends_on, profile=s.profile
-                        )
-                        for s in t.steps
-                    ],
-                    use_worktree=t.use_worktree,
-                )
-                for t in templates
-            ]
-        )
-
-    @app.post("/api/formulas/{name}/run", response_model=FormulaRunResponse)
-    async def run_formula(name: str, req: FormulaRunRequest) -> FormulaRunResponse:
-        """Execute a formula template for a project."""
-        from gluon.chain_executor import ChainExecutor
-        from gluon.formulas import FormulaLoader
-
-        template = FormulaLoader.load(name)
-        if not template:
-            raise HTTPException(status_code=404, detail=f"Formula '{name}' not found")
-
-        chain_executor = ChainExecutor(store=store, runner=runner, notifier=notifier, ws_manager=ws_manager)
-        from gluon.formula_executor import FormulaExecutor
-
-        executor = FormulaExecutor(store=store, chain_executor=chain_executor)
-        try:
-            chain_id = await executor.execute(
-                template=template,
-                project_id=req.project_id,
-                variables=req.variables,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        return FormulaRunResponse(
-            chain_id=chain_id,
-            step_count=len(template.steps),
-        )
+    # Formula routes moved to gluon.web.routers.formulas (#162).
 
     # OrchestratorTask + comment routes and their mapper/resolver helpers
     # moved to gluon.web.routers.tasks (#162). The shared task_to_response
