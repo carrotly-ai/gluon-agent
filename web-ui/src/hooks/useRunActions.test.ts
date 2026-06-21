@@ -9,11 +9,20 @@ vi.mock('@/lib/api', () => ({
   createPrForRun: vi.fn(),
   fetchRun: vi.fn(),
   mergeRunBranch: vi.fn(),
+  deleteQueuedMessage: vi.fn(),
+  editQueuedMessage: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { toast } from 'sonner'
-import { cancelRun, createPrForRun, fetchRun, mergeRunBranch } from '@/lib/api'
+import {
+  cancelRun,
+  createPrForRun,
+  deleteQueuedMessage,
+  editQueuedMessage,
+  fetchRun,
+  mergeRunBranch,
+} from '@/lib/api'
 
 const RUN = { id: 'run-123' } as Run
 const DETAIL = { id: 'run-123', pr_number: 42, pr_url: 'https://x/pr/42' } as RunDetail
@@ -203,5 +212,54 @@ describe('useRunActions.handleMerge', () => {
     const { result } = renderHook(() => useRunActions(opts))
     await result.current.handleMerge()
     expect(mergeRunBranch).not.toHaveBeenCalled()
+  })
+})
+
+describe('useRunActions queued-message handlers', () => {
+  it('handleDeleteQueuedMessage deletes then refreshes', async () => {
+    vi.mocked(deleteQueuedMessage).mockResolvedValue(undefined as never)
+    const onRefresh = vi.fn()
+    const opts = makeOptions({ onRefresh })
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleDeleteQueuedMessage('msg-1')
+
+    expect(deleteQueuedMessage).toHaveBeenCalledWith('run-123', 'msg-1')
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('handleDeleteQueuedMessage toasts on error', async () => {
+    vi.mocked(deleteQueuedMessage).mockRejectedValue(new Error('nope'))
+    const onRefresh = vi.fn()
+    const opts = makeOptions({ onRefresh })
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleDeleteQueuedMessage('msg-1')
+
+    expect(toast.error).toHaveBeenCalledWith('nope')
+    expect(onRefresh).not.toHaveBeenCalled()
+  })
+
+  it('handleEditQueuedMessage edits, clears editing state, refreshes', async () => {
+    vi.mocked(editQueuedMessage).mockResolvedValue(undefined as never)
+    const onRefresh = vi.fn()
+    const setEditingMessageId = vi.fn()
+    const setEditingMessageText = vi.fn()
+    const opts = makeOptions({ onRefresh, setEditingMessageId, setEditingMessageText })
+    const { result } = renderHook(() => useRunActions(opts))
+
+    await result.current.handleEditQueuedMessage('msg-1', '  new text  ')
+
+    expect(editQueuedMessage).toHaveBeenCalledWith('run-123', 'msg-1', 'new text')
+    expect(setEditingMessageId).toHaveBeenCalledWith(null)
+    expect(setEditingMessageText).toHaveBeenCalledWith('')
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('handleEditQueuedMessage no-ops on empty text', async () => {
+    const opts = makeOptions()
+    const { result } = renderHook(() => useRunActions(opts))
+    await result.current.handleEditQueuedMessage('msg-1', '   ')
+    expect(editQueuedMessage).not.toHaveBeenCalled()
   })
 })

@@ -37,8 +37,6 @@ import {
   answerQuestion,
   archiveRun,
   cancelRun,
-  deleteQueuedMessage,
-  editQueuedMessage,
   fetchCommands,
   fetchCommitDetail,
   fetchFileDiff,
@@ -607,7 +605,13 @@ export function RunDetailDialog({
   // Shared run actions (#165). Dialog keeps run as a prop (no setRun), a
   // required onRunUpdated, the cancel toast, and scrolls to the resume box on
   // a merge conflict.
-  const { handleCancel, handleCreatePr, handleMerge } = useRunActions({
+  const {
+    handleCancel,
+    handleCreatePr,
+    handleMerge,
+    handleDeleteQueuedMessage,
+    handleEditQueuedMessage,
+  } = useRunActions({
     run,
     onRunUpdated,
     setDetail,
@@ -626,6 +630,9 @@ export function RunDetailDialog({
       }, 100)
     },
     cancelToasts: true,
+    onRefresh: () => handleRefresh(),
+    setEditingMessageId,
+    setEditingMessageText,
   })
 
   const handleArchive = async () => {
@@ -1025,28 +1032,6 @@ export function RunDetailDialog({
   }, [])
 
   // Edit a queued message
-  const handleEditQueuedMessage = async (messageId: string, newText: string) => {
-    if (!run || !newText.trim()) return
-    try {
-      await editQueuedMessage(run.id, messageId, newText.trim())
-      setEditingMessageId(null)
-      setEditingMessageText('')
-      handleRefresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to edit message')
-    }
-  }
-
-  // Delete a queued message
-  const handleDeleteQueuedMessage = async (messageId: string) => {
-    if (!run) return
-    try {
-      await deleteQueuedMessage(run.id, messageId)
-      handleRefresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete message')
-    }
-  }
 
   const handleExpandHistoryRun = async (historyRunId: string) => {
     if (expandedHistoryRun === historyRunId) {

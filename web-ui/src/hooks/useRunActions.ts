@@ -1,5 +1,12 @@
 import { toast } from 'sonner'
-import { cancelRun, createPrForRun, fetchRun, mergeRunBranch } from '@/lib/api'
+import {
+  cancelRun,
+  createPrForRun,
+  deleteQueuedMessage,
+  editQueuedMessage,
+  fetchRun,
+  mergeRunBranch,
+} from '@/lib/api'
 import type { Run, RunDetail } from '@/lib/types'
 
 /**
@@ -29,12 +36,18 @@ export interface UseRunActionsOptions {
   /** Dialog-only: scroll to the resume box after a merge conflict is detected. */
   onMergeConflict?: () => void
   cancelToasts?: boolean
+  /** Refresh the run after a queued-message edit/delete (both call handleRefresh). */
+  onRefresh?: () => void
+  setEditingMessageId?: (value: string | null) => void
+  setEditingMessageText?: (value: string) => void
 }
 
 export interface RunActions {
   handleCancel: () => Promise<void>
   handleCreatePr: () => Promise<void>
   handleMerge: () => Promise<void>
+  handleDeleteQueuedMessage: (messageId: string) => Promise<void>
+  handleEditQueuedMessage: (messageId: string, newText: string) => Promise<void>
 }
 
 /**
@@ -57,6 +70,9 @@ export function useRunActions(options: UseRunActionsOptions): RunActions {
     sourceBranch,
     onMergeConflict,
     cancelToasts,
+    onRefresh,
+    setEditingMessageId,
+    setEditingMessageText,
   } = options
 
   const handleCancel = async (): Promise<void> => {
@@ -153,5 +169,33 @@ Focus on preserving functionality from both sides where possible.`
     }
   }
 
-  return { handleCancel, handleCreatePr, handleMerge }
+  const handleDeleteQueuedMessage = async (messageId: string): Promise<void> => {
+    if (!run) return
+    try {
+      await deleteQueuedMessage(run.id, messageId)
+      onRefresh?.()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete message')
+    }
+  }
+
+  const handleEditQueuedMessage = async (messageId: string, newText: string): Promise<void> => {
+    if (!run || !newText.trim()) return
+    try {
+      await editQueuedMessage(run.id, messageId, newText.trim())
+      setEditingMessageId?.(null)
+      setEditingMessageText?.('')
+      onRefresh?.()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to edit message')
+    }
+  }
+
+  return {
+    handleCancel,
+    handleCreatePr,
+    handleMerge,
+    handleDeleteQueuedMessage,
+    handleEditQueuedMessage,
+  }
 }

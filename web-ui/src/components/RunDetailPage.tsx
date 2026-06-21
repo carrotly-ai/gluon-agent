@@ -32,8 +32,6 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { parseMessages } from '@/lib/agentMessage'
 import {
   cancelRun,
-  deleteQueuedMessage,
-  editQueuedMessage,
   fetchCommands,
   fetchCommitDetail,
   fetchFileDiff,
@@ -345,7 +343,13 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   // Shared run actions (#165). Page owns its run state (setRun), has an
   // optional onRunUpdated, shows no cancel toast, and does not scroll on a
   // merge conflict (no onMergeConflict).
-  const { handleCancel, handleCreatePr, handleMerge } = useRunActions({
+  const {
+    handleCancel,
+    handleCreatePr,
+    handleMerge,
+    handleDeleteQueuedMessage,
+    handleEditQueuedMessage,
+  } = useRunActions({
     run,
     onRunUpdated,
     setRun,
@@ -358,6 +362,9 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
     setResumePrompt,
     sourceBranch: detail?.source_branch,
     cancelToasts: false,
+    onRefresh: () => handleRefresh(),
+    setEditingMessageId,
+    setEditingMessageText,
   })
 
   const handleRefresh = async () => {
@@ -647,28 +654,6 @@ export function RunDetailPage({ onRunUpdated }: RunDetailPageProps) {
   }, [])
 
   // Edit a queued message
-  const handleEditQueuedMessage = async (messageId: string, newText: string) => {
-    if (!run || !newText.trim()) return
-    try {
-      await editQueuedMessage(run.id, messageId, newText.trim())
-      setEditingMessageId(null)
-      setEditingMessageText('')
-      handleRefresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to edit message')
-    }
-  }
-
-  // Delete a queued message
-  const handleDeleteQueuedMessage = async (messageId: string) => {
-    if (!run) return
-    try {
-      await deleteQueuedMessage(run.id, messageId)
-      handleRefresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete message')
-    }
-  }
 
   const handleExpandHistoryRun = async (historyRunId: string) => {
     if (expandedHistoryRun === historyRunId) {
