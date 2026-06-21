@@ -75,6 +75,13 @@ Then P3 refactors #161 → #162 → #165 → #166.
 P2 fixes: #164 ceiling=8 (+test) → #163 Telegram question flow (+test).
 P3 refactors: #161 → #162 → #165 (vitest first) → #166.
 
+## Phase 4 — FULLY complete the four deferred-rest portions (owner directive)
+
+Owner now wants the larger portions finished, not deferred. Disposition: build the testability seams the hard items need (extract-to-method first, behavior-identical + tested, THEN consolidate); one bounded sub-step per loop iteration; behavior-identical + tests + gate per step; revert-and-continue if a specific sub-step proves unsafe. Order: #165 → #162 → #166 → #161.
+
+**#165 useRunActions — folding remaining SHARED handlers (in progress):**
+- [x] batch 1 (`24369d4`): `handleDeleteQueuedMessage` + `handleEditQueuedMessage` were byte-identical across both components → folded with options `onRefresh`/`setEditingMessageId`/`setEditingMessageText`; +4 hook tests (22 total). Shared candidates remaining: `handleExpandCommit`/`handleExpandFile`/`handleExpandHistoryRun` (near-identical, only `run.id` vs `runId`, but each needs ~5 expand-state options), and the heavily-coupled `handleResume`/`handleQueueFollowup`/`handleSendNow`/`handleRefresh`/`handleCopyLogs` (ref + image-upload + tab-aware state — folding these risks a worse abstraction than the duplication; will fold only where the option surface stays reasonable, else note as kept-inline-with-reason). Dialog-only (`handleArchive`, `handleRecover`) stay inline.
+
 ## Phase 3 — owner UNBLOCKED the 4 Phase-2 deferrals (each at its more-ambitious option)
 
 Owner re-opened #161/#162-rest/#165-merge/#166 via AskUserQuestion, choosing: #165 → extract `useRunActions` test-first; #162 → lifespan + begin router split; #166 → build codegen tooling; #161 → full parameterized merge (with characterization tests first). Worked safest-first, same gate/commit discipline; risky items (#161, #166) get tests/diff-validation FIRST and a clean-revert fallback.
