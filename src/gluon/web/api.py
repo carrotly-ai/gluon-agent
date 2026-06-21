@@ -43,8 +43,6 @@ from gluon.store import GluonStore
 from gluon.web import background
 from gluon.web.models import (
     # Phase 2: Gastown feature models
-    ActivityEventResponse,
-    ActivityListResponse,
     AttachImageRequest,
     AuthProvidersResponse,
     BranchListResponse,
@@ -107,13 +105,11 @@ from gluon.web.models import (
     VersionResponse,
     WitnessDecisionListResponse,
     WitnessDecisionResponse,
-    WorkQueueAddRequest,
-    WorkQueueItemResponse,
-    WorkQueueListResponse,
     WorkspaceResponse,
     WorkspaceSettingsResponse,
 )
 from gluon.web.routers import (
+    activity,
     approvals,
     formulas,
     notifications,
@@ -126,6 +122,7 @@ from gluon.web.routers import (
     system,
     tasks,
     usage,
+    work_queue,
     workspaces,
 )
 from gluon.web.websocket import ws_manager
@@ -308,6 +305,8 @@ def create_app(
     app.include_router(runs.router)
     app.include_router(projects.router)
     app.include_router(system.router)
+    app.include_router(activity.router)
+    app.include_router(work_queue.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -3330,157 +3329,8 @@ def create_app(
 
     # ========== Activity Log Endpoints ==========
 
-    @app.get("/api/activity", response_model=ActivityListResponse)
-    async def list_activity(
-        actor: str | None = None,
-        action: str | None = None,
-        since: str | None = None,
-        limit: int = Query(default=50, le=200),
-    ) -> ActivityListResponse:
-        """List activity events with optional filters."""
-        since_dt = None
-        if since:
-            try:
-                since_dt = datetime.fromisoformat(since)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid 'since' datetime format")
-
-        events = store.list_activities(actor=actor, action=action, since=since_dt, limit=limit)
-        return ActivityListResponse(
-            events=[
-                ActivityEventResponse(
-                    id=e.id,
-                    timestamp=e.timestamp.isoformat(),
-                    actor=e.actor,
-                    action=e.action,
-                    result=e.result,
-                    message=e.message,
-                    metadata=e.metadata,
-                )
-                for e in events
-            ],
-            total=len(events),
-        )
-
-    @app.post("/api/activity/cleanup")
-    async def cleanup_activity(days: int = Query(default=90, ge=1)) -> dict:
-        """Delete activity events older than N days."""
-        deleted = store.cleanup_activities(days=days)
-        return {"deleted": deleted}
-
-    # ========== Work Queue Endpoints ==========
-
-    @app.get("/api/queue", response_model=WorkQueueListResponse)
-    async def list_queue(
-        project_id: str | None = None,
-        status: str | None = None,
-        limit: int = Query(default=20, le=100),
-    ) -> WorkQueueListResponse:
-        """List work queue items with optional filters."""
-        items = store.list_work_items(project_id=project_id, status=status, limit=limit)
-        return WorkQueueListResponse(
-            items=[
-                WorkQueueItemResponse(
-                    id=item.id,
-                    project_id=item.project_id,
-                    prompt=item.prompt,
-                    profile=item.profile,
-                    priority=item.priority,
-                    status=item.status.value,
-                    claimed_by=item.claimed_by,
-                    created_at=item.created_at.isoformat(),
-                    claimed_at=item.claimed_at.isoformat() if item.claimed_at else None,
-                    completed_at=item.completed_at.isoformat() if item.completed_at else None,
-                    error_message=item.error_message,
-                )
-                for item in items
-            ],
-            total=len(items),
-        )
-
-    @app.post("/api/queue", response_model=WorkQueueItemResponse)
-    async def add_to_queue(req: WorkQueueAddRequest) -> WorkQueueItemResponse:
-        """Add a new item to the work queue."""
-        item = store.enqueue_work(
-            project_id=req.project_id,
-            prompt=req.prompt,
-            profile=req.profile,
-            priority=req.priority,
-        )
-        return WorkQueueItemResponse(
-            id=item.id,
-            project_id=item.project_id,
-            prompt=item.prompt,
-            profile=item.profile,
-            priority=item.priority,
-            status=item.status.value,
-            claimed_by=item.claimed_by,
-            created_at=item.created_at.isoformat(),
-            claimed_at=None,
-            completed_at=None,
-            error_message=None,
-        )
-
-    @app.post("/api/queue/{item_id}/cancel", response_model=WorkQueueItemResponse)
-    async def cancel_queue_item(item_id: str) -> WorkQueueItemResponse:
-        """Cancel a work queue item."""
-        from gluon.models import WorkQueueStatus
-
-        items = store.list_work_items()
-        item = next((i for i in items if i.id == item_id), None)
-        if not item:
-            raise HTTPException(status_code=404, detail="Work queue item not found")
-        if item.status not in (WorkQueueStatus.PENDING, WorkQueueStatus.CLAIMED):
-            raise HTTPException(status_code=400, detail=f"Cannot cancel item in {item.status.value} status")
-
-        item.status = WorkQueueStatus.CANCELLED
-        item.completed_at = utc_now()
-        store.update_work_item(item)
-
-        return WorkQueueItemResponse(
-            id=item.id,
-            project_id=item.project_id,
-            prompt=item.prompt,
-            profile=item.profile,
-            priority=item.priority,
-            status=item.status.value,
-            claimed_by=item.claimed_by,
-            created_at=item.created_at.isoformat(),
-            claimed_at=item.claimed_at.isoformat() if item.claimed_at else None,
-            completed_at=item.completed_at.isoformat() if item.completed_at else None,
-            error_message=item.error_message,
-        )
-
-    @app.post("/api/queue/{item_id}/release", response_model=WorkQueueItemResponse)
-    async def release_queue_item(item_id: str) -> WorkQueueItemResponse:
-        """Release a claimed work queue item back to pending."""
-        from gluon.models import WorkQueueStatus
-
-        items = store.list_work_items()
-        item = next((i for i in items if i.id == item_id), None)
-        if not item:
-            raise HTTPException(status_code=404, detail="Work queue item not found")
-        if item.status != WorkQueueStatus.CLAIMED:
-            raise HTTPException(status_code=400, detail="Can only release claimed items")
-
-        item.status = WorkQueueStatus.PENDING
-        item.claimed_by = None
-        item.claimed_at = None
-        store.update_work_item(item)
-
-        return WorkQueueItemResponse(
-            id=item.id,
-            project_id=item.project_id,
-            prompt=item.prompt,
-            profile=item.profile,
-            priority=item.priority,
-            status=item.status.value,
-            claimed_by=item.claimed_by,
-            created_at=item.created_at.isoformat(),
-            claimed_at=None,
-            completed_at=None,
-            error_message=item.error_message,
-        )
+    # activity routes moved to gluon.web.routers.activity (#162).
+    # work-queue routes moved to gluon.web.routers.work_queue (#162).
 
     # ========== Merge Queue Endpoints ==========
 
