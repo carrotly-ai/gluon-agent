@@ -71,7 +71,6 @@ from gluon.web.models import (
     CreateWorkspaceRequest,
     FileChangeResponse,
     FileDiffResponse,
-    ForkRunRequest,
     GitRefreshAllResponse,
     GitStatusResponse,
     GitSyncRequest,
@@ -111,10 +110,8 @@ from gluon.web.models import (
     # SDK Session Browser models
     SlashCommandResponse,
     SlashCommandsResponse,
-    SnoozeRunRequest,
     StatusResponse,
     TaskListResponse,
-    UpdateRunRequest,
     UpdateStatusRequest,
     UpdateStatusResponse,
     UpdateUserRequest,
@@ -2385,134 +2382,7 @@ def create_app(
             new_status=new_status,
         )
 
-    # ========== Archive Run ==========
-
-    @app.post("/api/runs/{run_id}/archive", response_model=RunResponse)
-    async def archive_run(run_id: str) -> RunResponse:
-        """Archive a run to hide it from the board."""
-        run = _resolve_run_or_404(run_id)
-
-        updated_run = store.archive_run(run.id, archived=True)
-        if not updated_run:
-            raise HTTPException(status_code=500, detail="Failed to archive run")
-
-        project_lookup = get_project_lookup()
-        response = run_to_response(updated_run, project_lookup)
-
-        # Broadcast update so UI reflects the change
-        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
-        await ws_manager.broadcast_run_update(updated_run, project_name)
-
-        return response
-
-    @app.post("/api/runs/{run_id}/unarchive", response_model=RunResponse)
-    async def unarchive_run(run_id: str) -> RunResponse:
-        """Unarchive a run to show it on the board again."""
-        run = _resolve_run_or_404(run_id)
-
-        updated_run = store.archive_run(run.id, archived=False)
-        if not updated_run:
-            raise HTTPException(status_code=500, detail="Failed to unarchive run")
-
-        project_lookup = get_project_lookup()
-        response = run_to_response(updated_run, project_lookup)
-
-        # Broadcast update so UI reflects the change
-        project_name = project_lookup.get(updated_run.project_id, updated_run.project_id[:8])
-        await ws_manager.broadcast_run_update(updated_run, project_name)
-
-        return response
-
-    # ========== List-view cockpit endpoints (see tmp/list-view-plan.md) ==========
-
-    @app.patch("/api/runs/{run_id}", response_model=RunResponse)
-    async def patch_run(run_id: str, body: UpdateRunRequest) -> RunResponse:
-        """Partially update a run's user-editable fields (title, kind).
-
-        Unspecified fields are left unchanged. Pass ``null`` explicitly to clear
-        a field. Returns the updated ``RunResponse``.
-        """
-        run = _resolve_run_or_404(run_id)
-
-        # Pydantic's `model_fields_set` tells us which fields the client actually
-        # sent — distinguishes "set to null" (clear) from "omitted" (leave).
-        sent = body.model_fields_set
-        if "custom_title" in sent:
-            title = body.custom_title
-            if title is not None:
-                title = title.strip()
-                if len(title) > 200:
-                    raise HTTPException(status_code=400, detail="custom_title must be ≤ 200 chars")
-                run.custom_title = title or None
-            else:
-                run.custom_title = None
-        if "kind" in sent:
-            kind = body.kind
-            if kind is not None:
-                kind = kind.strip().lower()
-                if kind and kind not in {"research", "build", "docs", "bug", "review", "chore"}:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="kind must be one of: research, build, docs, bug, review, chore",
-                    )
-                run.kind = kind or None
-            else:
-                run.kind = None
-
-        run.bump_activity()
-        store.update_run(run)
-
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(run.project_id, run.project_id[:8])
-        await ws_manager.broadcast_run_update(run, project_name)
-        return run_to_response(run, project_lookup)
-
-    @app.post("/api/runs/{run_id}/snooze", response_model=RunResponse)
-    async def snooze_run(run_id: str, body: SnoozeRunRequest) -> RunResponse:
-        """Set or clear a run's snooze deadline."""
-        run = _resolve_run_or_404(run_id)
-
-        run.snoozed_until = body.until
-        run.bump_activity()
-        store.update_run(run)
-
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(run.project_id, run.project_id[:8])
-        await ws_manager.broadcast_run_update(run, project_name)
-        return run_to_response(run, project_lookup)
-
-    @app.post("/api/runs/{run_id}/fork", response_model=RunResponse)
-    async def fork_run_endpoint(
-        run_id: str,
-        body: ForkRunRequest,
-        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
-    ) -> RunResponse:
-        """Fork an existing run's Claude session into a new child run.
-
-        The child run inherits the parent's ``claude_session_id`` and gets its
-        own subprocess. Parent must have started at least once (must have a
-        session id). See ``TaskRunner.fork_run`` for behaviour details.
-        """
-        parent = store.get_run_by_short_id(run_id) or store.get_run(run_id)
-        if not parent:
-            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
-
-        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
-        try:
-            child = await runner.fork_run(
-                parent_run_id=parent.id,
-                new_prompt=body.prompt,
-                custom_title=body.custom_title,
-                initiator="web:fork",
-                user_id=attribution_user_id,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        project_lookup = get_project_lookup()
-        project_name = project_lookup.get(child.project_id, child.project_id[:8])
-        await ws_manager.broadcast_run_update(child, project_name)
-        return run_to_response(child, project_lookup)
+    # archive/unarchive/patch/snooze/fork run routes moved to gluon.web.routers.runs (#162).
 
     @app.get("/api/attention-counts", response_model=AttentionCountsResponse)
     async def get_attention_counts() -> AttentionCountsResponse:
