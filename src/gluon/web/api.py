@@ -119,11 +119,6 @@ from gluon.web.models import (
     SnoozeRunRequest,
     StatusResponse,
     StopLoopResponse,
-    SupervisionDecisionResponse,
-    SupervisionDisableRequest,
-    SupervisionEvaluateResponse,
-    SupervisionStatusResponse,
-    # Task tracking models (Theme B Phase 3)
     TaskListResponse,
     TodoItemResponse,
     UpdateRunRequest,
@@ -148,6 +143,7 @@ from gluon.web.routers import (
     queued_messages,
     schedules,
     sdk_sessions,
+    supervision,
     tasks,
     usage,
     workspaces,
@@ -328,6 +324,7 @@ def create_app(
     app.include_router(schedules.router)
     app.include_router(usage.router)
     app.include_router(approvals.router)
+    app.include_router(supervision.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -1374,100 +1371,7 @@ def create_app(
             final_loop_count=run.loop_count,
         )
 
-    # ========== Supervision Endpoints ==========
-
-    @app.get("/api/runs/{run_id}/supervision", response_model=SupervisionStatusResponse)
-    async def get_supervision_status(run_id: str) -> SupervisionStatusResponse:
-        """Get supervision status for a run."""
-        from gluon.policies import get_supervision_config
-
-        run = _resolve_run_or_404(run_id)
-
-        config = get_supervision_config(run)
-        decisions = store.list_supervision_decisions(run.id, limit=10)
-
-        return SupervisionStatusResponse(
-            run_id=run.id,
-            enabled=config.enabled,
-            policy=config.policy.value,
-            max_auto_resumes=config.max_auto_resumes,
-            auto_resume_count=run.supervision_auto_resume_count,
-            min_time_between_resumes=config.min_time_between_resumes,
-            last_check_at=run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,
-            last_resume_at=run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,
-            disabled_reason=run.supervision_disabled_reason,
-            recent_decisions=[
-                SupervisionDecisionResponse(
-                    timestamp=d.timestamp.isoformat(),
-                    decision=d.decision,
-                    reason=d.reason,
-                    trigger=d.trigger,
-                    circuit_state=d.circuit_state.value if d.circuit_state else None,
-                    completion_confidence=d.completion_confidence,
-                    auto_resume_count=d.auto_resume_count,
-                )
-                for d in decisions
-            ],
-        )
-
-    @app.post("/api/runs/{run_id}/supervision/evaluate", response_model=SupervisionEvaluateResponse)
-    async def evaluate_supervision(run_id: str) -> SupervisionEvaluateResponse:
-        """Manually trigger supervision evaluation for a run."""
-        run = _resolve_run_or_404(run_id)
-
-        result = await runner.evaluate_supervision(run.id)
-        if not result:
-            raise HTTPException(status_code=500, detail="Failed to evaluate supervision")
-
-        return SupervisionEvaluateResponse(
-            run_id=run.id,
-            decision=result["decision"],
-            reason=result["reason"],
-            wait_seconds=result.get("wait_seconds", 0),
-        )
-
-    @app.post("/api/runs/{run_id}/supervision/disable", response_model=SupervisionStatusResponse)
-    async def disable_supervision(run_id: str, request: SupervisionDisableRequest) -> SupervisionStatusResponse:
-        """Disable supervision for a run."""
-        from gluon.policies import get_supervision_config
-        from gluon.resume_coordinator import ResumeCoordinator
-
-        run = _resolve_run_or_404(run_id)
-
-        coordinator = ResumeCoordinator(store=store, runner=runner)
-        success = await coordinator.disable_supervision(run.id, request.reason)
-
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to disable supervision")
-
-        # Refresh run and config
-        run = store.get_run(run.id)
-        config = get_supervision_config(run)  # type: ignore[arg-type]
-        decisions = store.list_supervision_decisions(run.id, limit=10)  # type: ignore[union-attr]
-
-        return SupervisionStatusResponse(
-            run_id=run.id,  # type: ignore[union-attr]
-            enabled=config.enabled,
-            policy=config.policy.value,
-            max_auto_resumes=config.max_auto_resumes,
-            auto_resume_count=run.supervision_auto_resume_count,  # type: ignore[union-attr]
-            min_time_between_resumes=config.min_time_between_resumes,
-            last_check_at=run.last_supervision_check_at.isoformat() if run.last_supervision_check_at else None,  # type: ignore[union-attr]
-            last_resume_at=run.last_supervision_resume_at.isoformat() if run.last_supervision_resume_at else None,  # type: ignore[union-attr]
-            disabled_reason=run.supervision_disabled_reason,  # type: ignore[union-attr]
-            recent_decisions=[
-                SupervisionDecisionResponse(
-                    timestamp=d.timestamp.isoformat(),
-                    decision=d.decision,
-                    reason=d.reason,
-                    trigger=d.trigger,
-                    circuit_state=d.circuit_state.value if d.circuit_state else None,
-                    completion_confidence=d.completion_confidence,
-                    auto_resume_count=d.auto_resume_count,
-                )
-                for d in decisions
-            ],
-        )
+    # Supervision routes moved to gluon.web.routers.supervision (#162).
 
     # ========== Git Commits and Files ==========
 
