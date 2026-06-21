@@ -65,6 +65,21 @@ def get_workspace_to_response(request: Request) -> Callable[..., WorkspaceRespon
     return cast("Callable[..., WorkspaceResponse]", request.app.state.workspace_to_response)
 
 
+async def get_current_user(
+    request: Request,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> User:
+    """Current-user dependency for extracted routers — mirrors create_app's
+    ``current_user_dep`` (``make_current_user_dependency(store)``).
+
+    Reads the store from app.state instead of closing over it; byte-identical
+    behavior to ``_current_user_impl(store, session)`` (returns SYSTEM_USER in
+    single-user mode / for an absent or invalid session).
+    """
+    store = cast(GluonStore, request.app.state.store)
+    return _current_user_impl(store, session)
+
+
 async def require_admin(
     request: Request,
     session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
