@@ -116,7 +116,16 @@ Owner resumed the loop after the "complete" checkpoint. New approach for the pre
 - [x] **activity + work-queue extraction** (`ab79ab5`, local) — `web/routers/activity.py` (2) + `web/routers/work_queue.py` (4, with a unified `work_item_to_response` mapper). Net re-run green post-extraction. **api.py 4184 → 4037; full suite 2274.**
 - [x] **merge-queue + witness net** (`d2a53d2`, local) — `tests/test_api_merge_queue_witness.py`, 10 tests; green against inline. (merge-queue retry/cancel only mutate DB status — no git coupling — so safe to extract.)
 - [x] **merge-queue + witness extraction** (`c64b92b`, local) — `web/routers/merge_queue.py` (3, unified `merge_entry_to_response`) + GET /api/runs/{id}/witness → runs.py. Net re-run green. **api.py 4037 → 3911 (under 4k); full suite 2284.**
-- **Next (same net-first pattern):** workspace settings/env-vars (admin + store — extractable with require_admin; scan/clone stay inline, path). Then only security (auth/users/settings/webhooks — owner/CI) + keep-inline git/path/image routes remain.
+- [x] **workspace settings/env-vars net + extraction** (`<net>` + `03392c0`, local) — net `tests/test_api_workspace_settings.py` (7) green against inline; then moved the 4 admin-gated store-only routes (PUT/DELETE /settings, PUT/DELETE /env-vars) into the existing workspaces.py, preserving `dependencies=[Depends(require_admin)]`. create_workspace + scan/clone stay inline. **api.py 3911 → 3864; full suite 2291.**
+
+### #162: safely-autonomous extraction EXHAUSTED — remaining is owner/CI-gated
+
+All clean + netted + un-netted-but-now-netted non-security routes are extracted. **What's left is NOT safe to extract autonomously in no-push mode:**
+- **Security (DO NOT relocate without CodeQL + owner go-ahead):** auth (8 — login/logout/oidc/me), users (5 — RBAC admin), settings (2 — `_redact_setting` secret redaction + vercel token test), webhooks (4 — HMAC signature verify). A subtle relocation error here could open an auth/secret hole that no-push CI can't catch (auth-logic bugs often aren't CodeQL-visible). These need a **CI-backed pass** (push first) and/or explicit owner authorization. Hard line per the security rules.
+- **Keep-inline by design (CodeQL path/git/image/background):** run get_run/recover/commits/files/diff/create-pr/merge/attachments; project create/list/files/commands + conflicts/rebase/branches/git; workspace create/scan/clone; /api/git/*; images.
+- **Low-value stragglers:** /api/agents/{id}/inbox (clean, could net+extract — minor), /api/vercel/test (token subprocess — security-ish), /api/version (nonlocal cache), /api/ws (websocket).
+
+**HANDOFF:** push the branch for one CI run over all local commits; decide whether to authorize the security-route extraction (with CI) or leave them inline.
 
 ### #162 status: CLEAN EXTRACTION COMPLETE — ready for final push (loop wound down) [superseded — loop resumed above]
 
