@@ -114,7 +114,9 @@ Owner resumed the loop after the "complete" checkpoint. New approach for the pre
 
 - [x] **activity + work-queue net** (`2360e86`, local) — `tests/test_api_activity_queue.py`, 13 tests covering GET/POST /api/activity(/cleanup) + the 4 /api/queue routes; green against inline.
 - [x] **activity + work-queue extraction** (`ab79ab5`, local) — `web/routers/activity.py` (2) + `web/routers/work_queue.py` (4, with a unified `work_item_to_response` mapper). Net re-run green post-extraction. **api.py 4184 → 4037; full suite 2274.**
-- **Next (same net-first pattern):** merge-queue (3, check git-coupling first — if retry triggers a real git merge, keep inline). Then security/keep-inline routes remain (owner/CI decisions).
+- [x] **merge-queue + witness net** (`d2a53d2`, local) — `tests/test_api_merge_queue_witness.py`, 10 tests; green against inline. (merge-queue retry/cancel only mutate DB status — no git coupling — so safe to extract.)
+- [x] **merge-queue + witness extraction** (`c64b92b`, local) — `web/routers/merge_queue.py` (3, unified `merge_entry_to_response`) + GET /api/runs/{id}/witness → runs.py. Net re-run green. **api.py 4037 → 3911 (under 4k); full suite 2284.**
+- **Next (same net-first pattern):** workspace settings/env-vars (admin + store — extractable with require_admin; scan/clone stay inline, path). Then only security (auth/users/settings/webhooks — owner/CI) + keep-inline git/path/image routes remain.
 
 ### #162 status: CLEAN EXTRACTION COMPLETE — ready for final push (loop wound down) [superseded — loop resumed above]
 
