@@ -8,17 +8,13 @@ auth posture. (Settings / env-vars / scan / clone remain inline for now.)
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from gluon.models import expand_path
 from gluon.store import GluonStore
 from gluon.web.models import (
-    CreateWorkspaceRequest,
     UpdateWorkspaceBudgetRequest,
     WorkspaceResponse,
 )
@@ -58,53 +54,6 @@ async def get_workspace_detail(
 
     projects = store.list_projects_by_workspace(workspace.id)
     return workspace_to_response(workspace, len(projects))
-
-
-@router.post("/api/workspaces", response_model=WorkspaceResponse)
-async def create_workspace(
-    body: CreateWorkspaceRequest,
-    store: Annotated[GluonStore, Depends(get_store)],
-    workspace_to_response: Annotated[WorkspaceMapper, Depends(get_workspace_to_response)],
-) -> WorkspaceResponse:
-    """Create a new workspace."""
-    # Check if workspace with same name exists
-    existing = store.get_workspace_by_name(body.name)
-    if existing:
-        raise HTTPException(status_code=400, detail=f"Workspace already exists: {body.name}")
-
-    # Resolve and validate path (expand env vars like $HOME, ${HOME}, ~)
-    # os.path.realpath breaks CodeQL taint chain for py/path-injection
-    resolved = os.path.realpath(str(expand_path(body.path)))
-    home_dir = os.path.realpath(str(Path.home()))
-    if not (resolved.startswith(home_dir + os.sep) or resolved == home_dir):
-        raise HTTPException(status_code=400, detail="Path must be under home directory")
-    if not os.path.exists(resolved):
-        raise HTTPException(status_code=400, detail=f"Path does not exist: {body.path}")
-    workspace_path = Path(resolved)
-
-    # Create workspace (with optional budgets)
-    workspace = store.create_workspace(
-        name=body.name,
-        path=workspace_path,
-        daily_budget_usd=body.daily_budget_usd,
-        monthly_budget_usd=body.monthly_budget_usd,
-    )
-
-    # Auto-scan for projects if requested
-    projects_added = []
-    if body.auto_scan:
-        for project_path in workspace.scan_for_projects():
-            project_name = project_path.name
-            existing_project = store.get_project_by_name(project_name)
-            if not existing_project:
-                store.create_project(
-                    name=project_name,
-                    path=project_path,
-                    workspace_id=workspace.id,
-                )
-                projects_added.append(project_name)
-
-    return workspace_to_response(workspace, len(projects_added))
 
 
 @router.put(
