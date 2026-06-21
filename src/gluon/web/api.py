@@ -69,7 +69,6 @@ from gluon.web.models import (
     CreateRunRequest,
     CreateUserRequest,
     CreateWorkspaceRequest,
-    DailyUsageResponse,
     FileChangeResponse,
     FileDiffResponse,
     ForkRunRequest,
@@ -83,7 +82,6 @@ from gluon.web.models import (
     LoginRequest,
     LoginResponse,
     LogResponse,
-    LoopEffectivenessResponse,
     MeResponse,
     MergeQueueEntryResponse,
     MergeQueueListResponse,
@@ -94,7 +92,6 @@ from gluon.web.models import (
     ProjectFileResponse,
     ProjectFilesResponse,
     ProjectResponse,
-    ProjectUsageResponse,
     ProviderResponse,
     QueuedMessageResponse,
     RalphIterationResponse,
@@ -113,7 +110,6 @@ from gluon.web.models import (
     RunImagesResponse,
     RunResponse,
     RunTodosResponse,
-    RunUsageItemResponse,
     ScanResultResponse,
     # SDK Session Browser models
     SessionHistoryResponse,
@@ -134,7 +130,6 @@ from gluon.web.models import (
     UpdateStatusRequest,
     UpdateStatusResponse,
     UpdateUserRequest,
-    UsageSummaryResponse,
     UserListResponse,
     UserResponse,
     VersionResponse,
@@ -153,6 +148,7 @@ from gluon.web.routers import (
     schedules,
     sdk_sessions,
     tasks,
+    usage,
     workspaces,
 )
 from gluon.web.websocket import ws_manager
@@ -329,6 +325,7 @@ def create_app(
     app.include_router(tasks.router)
     app.include_router(formulas.router)
     app.include_router(schedules.router)
+    app.include_router(usage.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -3195,70 +3192,7 @@ def create_app(
             scan_result=scan_result,
         )
 
-    # ========== Phase 8: Usage Dashboard ==========
-
-    @app.get("/api/usage/summary", response_model=UsageSummaryResponse)
-    async def get_usage_summary() -> UsageSummaryResponse:
-        """Get aggregated usage statistics for header display."""
-        summary = store.get_usage_summary()
-        return UsageSummaryResponse(**summary)
-
-    @app.get("/api/usage/by-project", response_model=list[ProjectUsageResponse])
-    async def get_usage_by_project(
-        since: str | None = None,
-        until: str | None = None,
-    ) -> list[ProjectUsageResponse]:
-        """Get usage breakdown by project."""
-        from datetime import datetime
-
-        since_dt = datetime.fromisoformat(since) if since else None
-        until_dt = datetime.fromisoformat(until) if until else None
-
-        data = store.get_usage_by_project(since=since_dt, until=until_dt)
-        return [ProjectUsageResponse(**item) for item in data]
-
-    @app.get("/api/usage/effectiveness", response_model=LoopEffectivenessResponse)
-    async def get_loop_effectiveness() -> LoopEffectivenessResponse:
-        """Loop-effectiveness (I5): acceptance rate + cost-per-accepted-change,
-        split by whether the work kind is objectively gateable. Read-only."""
-        return LoopEffectivenessResponse(**store.get_loop_effectiveness())
-
-    @app.get("/api/usage/by-day", response_model=list[DailyUsageResponse])
-    async def get_usage_by_day(
-        since: str | None = None,
-        until: str | None = None,
-    ) -> list[DailyUsageResponse]:
-        """Get daily usage for charts."""
-        from datetime import datetime
-
-        since_dt = datetime.fromisoformat(since) if since else None
-        until_dt = datetime.fromisoformat(until) if until else None
-
-        data = store.get_usage_by_day(since=since_dt, until=until_dt)
-        return [DailyUsageResponse(**item) for item in data]
-
-    @app.get("/api/usage/runs", response_model=list[RunUsageItemResponse])
-    async def get_usage_runs(
-        since: str | None = None,
-        until: str | None = None,
-        sort_by: str = "cost",
-        sort_order: str = "desc",
-        limit: int = 50,
-    ) -> list[RunUsageItemResponse]:
-        """Get runs with cost data for usage dashboard."""
-        from datetime import datetime
-
-        since_dt = datetime.fromisoformat(since) if since else None
-        until_dt = datetime.fromisoformat(until) if until else None
-
-        data = store.get_usage_runs(
-            since=since_dt,
-            until=until_dt,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            limit=limit,
-        )
-        return [RunUsageItemResponse(**item) for item in data]
+    # Usage-dashboard routes moved to gluon.web.routers.usage (#162).
 
     # ========== Phase 9: Settings API ==========
 
