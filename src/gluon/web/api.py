@@ -12,7 +12,7 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import (
     Depends,
@@ -142,6 +142,7 @@ from gluon.web.models import (
     WorkspaceSettingsResponse,
 )
 from gluon.web.routers import (
+    approvals,
     formulas,
     notifications,
     queued_messages,
@@ -326,6 +327,7 @@ def create_app(
     app.include_router(formulas.router)
     app.include_router(schedules.router)
     app.include_router(usage.router)
+    app.include_router(approvals.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -4510,126 +4512,7 @@ def create_app(
 
     # ========== Witness Endpoints ==========
 
-    # ========== Approval Gate Endpoints (Theme D1) ==========
-
-    def _approval_to_dict(approval) -> dict[str, Any]:
-        """Serialize a PendingApproval for API responses."""
-        return {
-            "id": approval.id,
-            "run_id": approval.run_id,
-            "tool_name": approval.tool_name,
-            "tool_input": approval.tool_input,
-            "tool_use_id": approval.tool_use_id,
-            "classification_reason": approval.classification_reason,
-            "status": approval.status.value,
-            "decision_reason": approval.decision_reason,
-            "decided_by": approval.decided_by,
-            "created_at": approval.created_at.isoformat(),
-            "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
-            "timeout_at": approval.timeout_at.isoformat() if approval.timeout_at else None,
-        }
-
-    @app.get("/api/approvals")
-    async def list_approvals_endpoint(
-        status: str | None = None,
-        run_id: str | None = None,
-        limit: int = Query(default=50, le=200),
-    ) -> dict[str, Any]:
-        """List pending approvals, optionally filtered by status or run_id.
-
-        Common usage: GET /api/approvals?status=pending — shows what needs attention.
-        """
-        from gluon.models import ApprovalStatus
-
-        resolved_status: ApprovalStatus | None = None
-        if status:
-            try:
-                resolved_status = ApprovalStatus(status)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid status: {status}. Must be one of {[s.value for s in ApprovalStatus]}",
-                )
-        approvals = store.list_approvals(run_id=run_id, status=resolved_status, limit=limit)
-        return {
-            "approvals": [_approval_to_dict(a) for a in approvals],
-            "total": len(approvals),
-        }
-
-    @app.get("/api/approvals/{approval_id}")
-    async def get_approval_endpoint(approval_id: str) -> dict[str, Any]:
-        """Get detail for a single approval."""
-        approval = store.get_approval(approval_id)
-        if approval is None:
-            raise HTTPException(status_code=404, detail=f"Approval not found: {approval_id}")
-        return _approval_to_dict(approval)
-
-    @app.post("/api/approvals/{approval_id}/grant")
-    async def grant_approval_endpoint(
-        approval_id: str,
-        body: dict[str, Any] | None = None,
-        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
-    ) -> dict[str, Any]:
-        """Grant an approval — the waiting hook will unblock and allow the tool call.
-
-        D5 Phase 2 attribution: the approval's ``decided_by_user_id`` is set to
-        the current user's ID when auth is enabled. ``decided_by`` remains a
-        free-form string like "web" for cross-surface compatibility.
-        """
-        from gluon.models import ApprovalStatus
-
-        approval = store.get_approval(approval_id)
-        if approval is None:
-            raise HTTPException(status_code=404, detail=f"Approval not found: {approval_id}")
-        if approval.status != ApprovalStatus.PENDING:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Approval already {approval.status.value}",
-            )
-        reason = (body or {}).get("reason") if body else None
-        decided_by = (body or {}).get("decided_by", "web") if body else "web"
-        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
-        updated = store.decide_approval(
-            approval_id,
-            status=ApprovalStatus.GRANTED,
-            decided_by=decided_by,
-            decided_by_user_id=attribution_user_id,
-            decision_reason=reason,
-        )
-        if updated is None:
-            raise HTTPException(status_code=404, detail="Approval vanished")
-        return _approval_to_dict(updated)
-
-    @app.post("/api/approvals/{approval_id}/deny")
-    async def deny_approval_endpoint(
-        approval_id: str,
-        body: dict[str, Any] | None = None,
-        user: UserModel = Depends(current_user_dep),  # type: ignore[arg-type]
-    ) -> dict[str, Any]:
-        """Deny an approval — the waiting hook will return `permissionDecision: deny`."""
-        from gluon.models import ApprovalStatus
-
-        approval = store.get_approval(approval_id)
-        if approval is None:
-            raise HTTPException(status_code=404, detail=f"Approval not found: {approval_id}")
-        if approval.status != ApprovalStatus.PENDING:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Approval already {approval.status.value}",
-            )
-        reason = (body or {}).get("reason") if body else None
-        decided_by = (body or {}).get("decided_by", "web") if body else "web"
-        attribution_user_id = user.id if user.id != SYSTEM_USER.id else None
-        updated = store.decide_approval(
-            approval_id,
-            status=ApprovalStatus.DENIED,
-            decided_by=decided_by,
-            decided_by_user_id=attribution_user_id,
-            decision_reason=reason,
-        )
-        if updated is None:
-            raise HTTPException(status_code=404, detail="Approval vanished")
-        return _approval_to_dict(updated)
+    # Approval-gate routes moved to gluon.web.routers.approvals (#162).
 
     @app.get("/api/runs/{run_id}/witness", response_model=WitnessDecisionListResponse)
     async def get_witness_decisions(run_id: str) -> WitnessDecisionListResponse:
