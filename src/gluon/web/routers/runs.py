@@ -44,6 +44,8 @@ from gluon.web.models import (
     UpdateRunRequest,
     UpdateStatusRequest,
     UpdateStatusResponse,
+    WitnessDecisionListResponse,
+    WitnessDecisionResponse,
 )
 from gluon.web.routers._deps import (
     get_current_user,
@@ -856,4 +858,26 @@ async def get_logs(
         stream=stream,
         content=content,
         line_count=line_count,
+    )
+
+
+@router.get("/api/runs/{run_id}/witness", response_model=WitnessDecisionListResponse)
+async def get_witness_decisions(run_id: str, store: Store) -> WitnessDecisionListResponse:
+    """Get witness health decisions for a run."""
+    decisions = store.list_witness_decisions(run_id=run_id)
+    return WitnessDecisionListResponse(
+        run_id=run_id,
+        decisions=[
+            WitnessDecisionResponse(
+                id=d.id,
+                run_id=d.run_id,
+                timestamp=d.timestamp.isoformat(),
+                classification=d.classification.value,
+                confidence=d.confidence,
+                reasoning=d.reasoning,
+                action=d.action.value,
+                action_result=d.action_result,
+            )
+            for d in decisions
+        ],
     )

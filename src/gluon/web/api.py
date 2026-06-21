@@ -76,8 +76,6 @@ from gluon.web.models import (
     LoginRequest,
     LoginResponse,
     MeResponse,
-    MergeQueueEntryResponse,
-    MergeQueueListResponse,
     OIDCProviderInfo,
     ProjectFileResponse,
     ProjectFilesResponse,
@@ -103,8 +101,6 @@ from gluon.web.models import (
     UserListResponse,
     UserResponse,
     VersionResponse,
-    WitnessDecisionListResponse,
-    WitnessDecisionResponse,
     WorkspaceResponse,
     WorkspaceSettingsResponse,
 )
@@ -112,6 +108,7 @@ from gluon.web.routers import (
     activity,
     approvals,
     formulas,
+    merge_queue,
     notifications,
     projects,
     queued_messages,
@@ -307,6 +304,7 @@ def create_app(
     app.include_router(system.router)
     app.include_router(activity.router)
     app.include_router(work_queue.router)
+    app.include_router(merge_queue.router)
 
     # ---- Middleware (added innermost-first; CORS ends up outermost) ----
     #
@@ -3332,131 +3330,8 @@ def create_app(
     # activity routes moved to gluon.web.routers.activity (#162).
     # work-queue routes moved to gluon.web.routers.work_queue (#162).
 
-    # ========== Merge Queue Endpoints ==========
-
-    @app.get("/api/merge-queue", response_model=MergeQueueListResponse)
-    async def list_merge_queue(
-        status: str | None = None,
-        limit: int = Query(default=20, le=100),
-    ) -> MergeQueueListResponse:
-        """List merge queue entries with optional filters."""
-        entries = store.list_merge_entries(status=status, limit=limit)
-        return MergeQueueListResponse(
-            entries=[
-                MergeQueueEntryResponse(
-                    id=e.id,
-                    run_id=e.run_id,
-                    project_id=e.project_id,
-                    branch_name=e.branch_name,
-                    pr_number=e.pr_number,
-                    pr_url=e.pr_url,
-                    status=e.status.value,
-                    priority=e.priority,
-                    conflict_count=e.conflict_count,
-                    max_retries=e.max_retries,
-                    last_error=e.last_error,
-                    created_at=e.created_at.isoformat(),
-                    completed_at=e.completed_at.isoformat() if e.completed_at else None,
-                )
-                for e in entries
-            ],
-            total=len(entries),
-        )
-
-    @app.post("/api/merge-queue/{entry_id}/retry", response_model=MergeQueueEntryResponse)
-    async def retry_merge(entry_id: str) -> MergeQueueEntryResponse:
-        """Retry a failed/conflicted merge queue entry."""
-        from gluon.models import MergeQueueStatus
-
-        entry = store.get_merge_entry(entry_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail="Merge queue entry not found")
-        if entry.status not in (MergeQueueStatus.CONFLICT, MergeQueueStatus.FAILED):
-            raise HTTPException(status_code=400, detail=f"Cannot retry entry in {entry.status.value} status")
-
-        entry.status = MergeQueueStatus.PENDING
-        entry.conflict_count = 0
-        entry.last_error = None
-        entry.completed_at = None
-        store.update_merge_entry(entry)
-
-        return MergeQueueEntryResponse(
-            id=entry.id,
-            run_id=entry.run_id,
-            project_id=entry.project_id,
-            branch_name=entry.branch_name,
-            pr_number=entry.pr_number,
-            pr_url=entry.pr_url,
-            status=entry.status.value,
-            priority=entry.priority,
-            conflict_count=entry.conflict_count,
-            max_retries=entry.max_retries,
-            last_error=entry.last_error,
-            created_at=entry.created_at.isoformat(),
-            completed_at=None,
-        )
-
-    @app.post("/api/merge-queue/{entry_id}/cancel", response_model=MergeQueueEntryResponse)
-    async def cancel_merge(entry_id: str) -> MergeQueueEntryResponse:
-        """Cancel a merge queue entry."""
-        from gluon.models import MergeQueueStatus
-
-        entry = store.get_merge_entry(entry_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail="Merge queue entry not found")
-        if entry.status in (MergeQueueStatus.MERGED, MergeQueueStatus.CANCELLED):
-            raise HTTPException(status_code=400, detail=f"Cannot cancel entry in {entry.status.value} status")
-
-        entry.status = MergeQueueStatus.CANCELLED
-        entry.completed_at = utc_now()
-        store.update_merge_entry(entry)
-
-        return MergeQueueEntryResponse(
-            id=entry.id,
-            run_id=entry.run_id,
-            project_id=entry.project_id,
-            branch_name=entry.branch_name,
-            pr_number=entry.pr_number,
-            pr_url=entry.pr_url,
-            status=entry.status.value,
-            priority=entry.priority,
-            conflict_count=entry.conflict_count,
-            max_retries=entry.max_retries,
-            last_error=entry.last_error,
-            created_at=entry.created_at.isoformat(),
-            completed_at=entry.completed_at.isoformat() if entry.completed_at else None,
-        )
-
-    # ========== Witness Endpoints ==========
-
-    # Approval-gate routes moved to gluon.web.routers.approvals (#162).
-
-    @app.get("/api/runs/{run_id}/witness", response_model=WitnessDecisionListResponse)
-    async def get_witness_decisions(run_id: str) -> WitnessDecisionListResponse:
-        """Get witness health decisions for a run."""
-        decisions = store.list_witness_decisions(run_id=run_id)
-        return WitnessDecisionListResponse(
-            run_id=run_id,
-            decisions=[
-                WitnessDecisionResponse(
-                    id=d.id,
-                    run_id=d.run_id,
-                    timestamp=d.timestamp.isoformat(),
-                    classification=d.classification.value,
-                    confidence=d.confidence,
-                    reasoning=d.reasoning,
-                    action=d.action.value,
-                    action_result=d.action_result,
-                )
-                for d in decisions
-            ],
-        )
-
-    # Formula routes moved to gluon.web.routers.formulas (#162).
-
-    # OrchestratorTask + comment routes and their mapper/resolver helpers
-    # moved to gluon.web.routers.tasks (#162). The shared task_to_response
-    # mapper is imported there; the agents-domain inbox route below uses it.
+    # merge-queue routes moved to gluon.web.routers.merge_queue (#162).
+    # witness route moved to gluon.web.routers.runs (#162).
 
     @app.get("/api/agents/{agent_id}/inbox", response_model=TaskListResponse)
     async def agent_inbox_endpoint(
