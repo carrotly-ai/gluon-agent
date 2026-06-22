@@ -46,6 +46,12 @@ class RedisEventTransport:
         self._pubsub: aioredis.client.PubSub | None = None
         self._listener_task: asyncio.Task[None] | None = None
         self._running = False
+        # Subscriber resilience: reconnect on transient errors, then give up and
+        # let the UI fall back to polling. Redis is best-effort (cross-process
+        # event push), never required — see module docstring.
+        self._max_retries = int(os.environ.get("GLUON_REDIS_MAX_RETRIES", "5"))
+        self._retry_base_delay = float(os.environ.get("GLUON_REDIS_RETRY_BASE_DELAY", "0.5"))
+        self._retry_max_delay = float(os.environ.get("GLUON_REDIS_RETRY_MAX_DELAY", "30"))
 
     async def connect_publisher(self) -> None:
         """Connect the publish client. Used by runner subprocesses."""
@@ -83,43 +89,122 @@ class RedisEventTransport:
         if self._running:
             return
 
-        self._sub_client = aioredis.from_url(self.redis_url, encoding="utf-8", decode_responses=True)
+        # Initial connect is synchronous so a Redis that's down at startup surfaces
+        # immediately to the caller (which logs a warning and continues). Once the
+        # listener is running, transient drops are handled by reconnect-with-retry.
+        await self._connect_subscriber()
+
+        self._running = True
+        self._listener_task = asyncio.create_task(self._listen(event_bus), name="redis-event-listener")
+        logger.info("Redis event transport: subscriber started (pattern=%s)", ALL_EVENTS_CHANNEL)
+
+    async def _connect_subscriber(self) -> None:
+        """(Re)establish the subscriber connection and pattern subscription.
+
+        Closes any prior subscriber connection first so reconnects don't leak.
+        ``health_check_interval`` + ``socket_keepalive`` let redis-py detect and
+        recover dead/idle pubsub sockets instead of silently hanging until a read
+        timeout — the root cause of the original listener crash.
+        """
+        await self._close_subscriber()
+        self._sub_client = aioredis.from_url(
+            self.redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+            health_check_interval=30,
+            socket_keepalive=True,
+        )
         await self._sub_client.ping()  # type: ignore[misc]
 
         self._pubsub = self._sub_client.pubsub()
         # Subscribe to all gluon event channels via pattern
         await self._pubsub.psubscribe(ALL_EVENTS_CHANNEL)
 
-        self._running = True
-        self._listener_task = asyncio.create_task(self._listen(event_bus), name="redis-event-listener")
-        logger.info("Redis event transport: subscriber started (pattern=%s)", ALL_EVENTS_CHANNEL)
+    async def _close_subscriber(self) -> None:
+        """Tear down the subscriber pubsub + client (best-effort, never raises)."""
+        if self._pubsub is not None:
+            try:
+                await self._pubsub.punsubscribe()
+                await self._pubsub.close()
+            except Exception:
+                pass
+            self._pubsub = None
+        if self._sub_client is not None:
+            try:
+                await self._sub_client.close()
+            except Exception:
+                pass
+            self._sub_client = None
 
     async def _listen(self, event_bus: EventBus) -> None:
-        """Background loop: receive Redis messages and emit to local event_bus."""
+        """Background loop: receive Redis messages and emit to local event_bus.
+
+        Resilient to transient Redis failures: on a listener error the connection
+        is rebuilt and the loop retries, up to ``_max_retries`` consecutive
+        failures. Past that, the transport gives up and disables itself
+        (``_running = False``) so the UI falls back to polling — Redis is
+        best-effort cross-process push, never required. A successful message
+        receipt resets the failure counter, so isolated blips never accumulate
+        toward the cap over a long-lived connection.
+        """
         from gluon.events.types import GluonEvent
 
-        assert self._pubsub is not None
-        try:
-            async for message in self._pubsub.listen():
-                if not self._running:
-                    break
-                if message["type"] != "pmessage":
-                    continue
+        attempt = 0
+        while self._running:
+            try:
+                # The initial connection is established by start_subscriber; on a
+                # reconnect the prior except-branch dropped it, so rebuild here.
+                if self._pubsub is None:
+                    await self._connect_subscriber()
+                assert self._pubsub is not None
 
-                try:
-                    data = json.loads(message["data"])
-                    event = GluonEvent(**data)
-                    await event_bus.emit(event)
-                except Exception:
-                    logger.debug(
-                        "Redis event transport: failed to parse message: %s",
-                        str(message.get("data", ""))[:200],
-                        exc_info=True,
+                async for message in self._pubsub.listen():
+                    if not self._running:
+                        break
+                    attempt = 0  # connection is healthy
+                    if message["type"] != "pmessage":
+                        continue
+
+                    try:
+                        data = json.loads(message["data"])
+                        event = GluonEvent(**data)
+                        await event_bus.emit(event)
+                    except Exception:
+                        logger.debug(
+                            "Redis event transport: failed to parse message: %s",
+                            str(message.get("data", ""))[:200],
+                            exc_info=True,
+                        )
+                # listen() returned without error → connection closed cleanly; stop.
+                break
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                attempt += 1
+                if attempt > self._max_retries:
+                    logger.warning(
+                        "Redis event transport unavailable after %d retries; disabling "
+                        "cross-process events (UI falls back to polling): %s",
+                        self._max_retries,
+                        e,
                     )
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception("Redis event transport: listener error")
+                    break
+                delay = min(self._retry_base_delay * (2 ** (attempt - 1)), self._retry_max_delay)
+                logger.warning(
+                    "Redis event transport listener error (attempt %d/%d), reconnecting in %.1fs: %s",
+                    attempt,
+                    self._max_retries,
+                    delay,
+                    e,
+                )
+                # Drop the dead connection so the next iteration reconnects.
+                await self._close_subscriber()
+                try:
+                    await asyncio.sleep(delay)
+                except asyncio.CancelledError:
+                    break
+
+        self._running = False
 
     async def stop(self) -> None:
         """Stop subscriber and close all connections."""
@@ -133,20 +218,7 @@ class RedisEventTransport:
                 pass
             self._listener_task = None
 
-        if self._pubsub:
-            try:
-                await self._pubsub.punsubscribe()
-                await self._pubsub.close()
-            except Exception:
-                pass
-            self._pubsub = None
-
-        if self._sub_client:
-            try:
-                await self._sub_client.close()
-            except Exception:
-                pass
-            self._sub_client = None
+        await self._close_subscriber()
 
         if self._pub_client:
             try:

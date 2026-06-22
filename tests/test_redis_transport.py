@@ -249,6 +249,99 @@ class TestRedisEventTransport:
         await bus.stop()
 
     @pytest.mark.asyncio
+    async def test_listener_reconnects_after_transient_error(self):
+        """A transient listener error triggers reconnect, not a permanent crash."""
+        transport = RedisEventTransport()
+        transport._max_retries = 3
+        transport._retry_base_delay = 0.0  # no backoff wait in tests
+        bus = EventBus()
+
+        received: list[GluonEvent] = []
+
+        async def handler(event: GluonEvent) -> None:
+            received.append(event)
+
+        bus.subscribe("question.created", handler)
+        await bus.start()
+
+        event = GluonEvent(
+            type="question.created",
+            category=EventCategory.INTERACTION,
+            run_id="run-reconnect",
+            data={"questions": [], "question_ids": []},
+        )
+        message = {
+            "type": "pmessage",
+            "pattern": f"{CHANNEL_PREFIX}:*",
+            "channel": f"{CHANNEL_PREFIX}:question.created",
+            "data": event.model_dump_json(),
+        }
+
+        # First listen() raises (transient), second yields the message then ends.
+        calls = {"n": 0}
+
+        def listen_side_effect():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _raising_async_iter(TimeoutError("transient"))
+            return _async_iter([message])
+
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock()
+        mock_pubsub = AsyncMock()
+        mock_pubsub.psubscribe = AsyncMock()
+        mock_pubsub.punsubscribe = AsyncMock()
+        mock_pubsub.close = AsyncMock()
+        mock_pubsub.listen = MagicMock(side_effect=listen_side_effect)
+        mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        with patch("gluon.events.redis_transport.aioredis.from_url", return_value=mock_redis):
+            await transport.start_subscriber(bus)
+            await asyncio.sleep(0.1)
+
+        await transport.stop()
+        await bus.stop()
+
+        # Reconnected and delivered the event despite the first-attempt failure.
+        assert calls["n"] >= 2
+        assert len(received) == 1
+        assert received[0].run_id == "run-reconnect"
+
+    @pytest.mark.asyncio
+    async def test_listener_disables_after_max_retries(self):
+        """After N consecutive failures the transport disables itself (polling fallback)."""
+        transport = RedisEventTransport()
+        transport._max_retries = 2
+        transport._retry_base_delay = 0.0
+        bus = EventBus()
+        await bus.start()
+
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock()
+        mock_pubsub = AsyncMock()
+        mock_pubsub.psubscribe = AsyncMock()
+        mock_pubsub.punsubscribe = AsyncMock()
+        mock_pubsub.close = AsyncMock()
+        # Every listen() attempt fails — Redis is genuinely unavailable.
+        mock_pubsub.listen = MagicMock(side_effect=lambda: _raising_async_iter(TimeoutError("down")))
+        mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        with patch("gluon.events.redis_transport.aioredis.from_url", return_value=mock_redis):
+            await transport.start_subscriber(bus)
+            # Let the listener exhaust its retries.
+            for _ in range(50):
+                if not transport._running:
+                    break
+                await asyncio.sleep(0.01)
+
+        assert transport._running is False  # gave up, disabled
+        # Attempted the initial connection plus _max_retries reconnects.
+        assert mock_pubsub.listen.call_count >= transport._max_retries + 1
+
+        await transport.stop()
+        await bus.stop()
+
+    @pytest.mark.asyncio
     async def test_stop_cleans_up(self):
         """stop() closes all connections and cancels tasks."""
         transport = RedisEventTransport()
@@ -334,3 +427,10 @@ async def _empty_async_iter():
 async def _async_iter(items):
     for item in items:
         yield item
+
+
+async def _raising_async_iter(exc):
+    """An async iterator that raises ``exc`` on first iteration (simulates a
+    dropped/timed-out pubsub connection)."""
+    raise exc
+    yield  # noqa: unreachable — makes this a proper async generator
