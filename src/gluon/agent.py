@@ -32,6 +32,7 @@ from claude_agent_sdk import (
     TaskNotificationMessage,
     TaskProgressMessage,
     TaskStartedMessage,
+    TaskUpdatedMessage,
     TextBlock,
     ThinkingBlock,
     ToolPermissionContext,
@@ -956,6 +957,23 @@ class GluonAgent:
                                     "status": msg.status,
                                     "output_file": msg.output_file,
                                     "usage": dict(msg.usage) if msg.usage else None,
+                                },
+                            )
+
+                        elif isinstance(msg, TaskUpdatedMessage):
+                            # Terminal background-task lifecycle event (SDK >=0.2.101).
+                            # Subclasses SystemMessage, so it must be matched before the
+                            # SystemMessage catch-all. Surfacing the typed terminal status
+                            # keeps active-task bookkeeping reliable when a task finishes
+                            # via task_updated without a paired TaskNotificationMessage.
+                            yield AgentMessage(
+                                type="task_updated",
+                                content=f"Task {msg.status}" if msg.status else "task_updated",
+                                metadata={
+                                    "task_id": msg.task_id,
+                                    "status": msg.status,
+                                    "patch": msg.patch,
+                                    "session_id": msg.session_id,
                                 },
                             )
 

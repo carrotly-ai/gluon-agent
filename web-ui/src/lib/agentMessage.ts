@@ -33,6 +33,7 @@ export interface AgentMessage {
     | 'task_started'
     | 'task_progress'
     | 'task_notification'
+    | 'task_updated'
     | 'usage'
     | 'hook_event'
     | 'rate_limit'

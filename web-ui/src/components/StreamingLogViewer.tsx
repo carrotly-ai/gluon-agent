@@ -1347,7 +1347,10 @@ export function StreamingLogViewer({
       // Handles both new format (type="task_progress") and old format (type="system", content="task_progress")
       if (msg.type === 'task_progress') return false
       if (msg.type === 'system' && msg.content === 'task_progress') return false
-      // Filter out task_updated noise (system messages with no useful content)
+      // Filter out task_updated noise (terminal lifecycle events; status is surfaced
+      // via task_notification). Handles both new format (type="task_updated") and old
+      // format (type="system", content="task_updated").
+      if (msg.type === 'task_updated') return false
       if (msg.type === 'system' && msg.content === 'task_updated') return false
       // Tool results carry no display value here — the tool card already shows the
       // action, and genuine failures surface as `error` messages. They'd otherwise

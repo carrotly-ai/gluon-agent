@@ -628,6 +628,7 @@ export interface AgentMessageData {
     | 'task_started'
     | 'task_progress'
     | 'task_notification'
+    | 'task_updated'
     // Additional AgentMessage types the backend emits (agent.py)
     | 'hook_event'
     | 'rate_limit'
