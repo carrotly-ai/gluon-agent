@@ -342,6 +342,67 @@ class TestRedisEventTransport:
         await bus.stop()
 
     @pytest.mark.asyncio
+    async def test_listener_disables_when_subscribe_ok_but_reads_fail(self):
+        """Subscribe succeeds but every read times out → must give up, not loop forever.
+
+        Regression for the counter resetting on the subscribe-confirmation frame:
+        the failure counter must only reset on a real pmessage, otherwise this
+        scenario spins reconnecting indefinitely (observed against an external
+        Redis where the pubsub read kept timing out).
+        """
+        transport = RedisEventTransport()
+        transport._max_retries = 2
+        transport._retry_base_delay = 0.0
+        bus = EventBus()
+        await bus.start()
+
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock()
+        mock_pubsub = AsyncMock()
+        mock_pubsub.psubscribe = AsyncMock()
+        mock_pubsub.punsubscribe = AsyncMock()
+        mock_pubsub.close = AsyncMock()
+        # Each connection yields only the subscribe-confirmation, then the read fails.
+        mock_pubsub.listen = MagicMock(side_effect=lambda: _confirm_then_raise(TimeoutError("idle")))
+        mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        with patch("gluon.events.redis_transport.aioredis.from_url", return_value=mock_redis):
+            await transport.start_subscriber(bus)
+            for _ in range(50):
+                if not transport._running:
+                    break
+                await asyncio.sleep(0.01)
+
+        assert transport._running is False  # gave up despite repeated subscribe confirmations
+
+        await transport.stop()
+        await bus.stop()
+
+    @pytest.mark.asyncio
+    async def test_subscriber_uses_blocking_socket_timeout(self):
+        """Subscriber connects with socket_timeout=None so idle pubsub reads block."""
+        transport = RedisEventTransport()
+        bus = EventBus()
+        await bus.start()
+
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock()
+        mock_pubsub = AsyncMock()
+        mock_pubsub.psubscribe = AsyncMock()
+        mock_pubsub.listen = MagicMock(return_value=_empty_async_iter())
+        mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        with patch("gluon.events.redis_transport.aioredis.from_url", return_value=mock_redis) as from_url:
+            await transport.start_subscriber(bus)
+            kwargs = from_url.call_args.kwargs
+            assert kwargs["socket_timeout"] is None
+            assert kwargs["socket_keepalive"] is True
+            assert kwargs["health_check_interval"] == 30
+
+        await transport.stop()
+        await bus.stop()
+
+    @pytest.mark.asyncio
     async def test_stop_cleans_up(self):
         """stop() closes all connections and cancels tasks."""
         transport = RedisEventTransport()
@@ -434,3 +495,10 @@ async def _raising_async_iter(exc):
     dropped/timed-out pubsub connection)."""
     raise exc
     yield  # noqa: unreachable — makes this a proper async generator
+
+
+async def _confirm_then_raise(exc):
+    """Yield a subscribe-confirmation frame, then raise ``exc`` on the next read
+    (simulates a connection that subscribes fine but whose reads keep timing out)."""
+    yield {"type": "psubscribe", "pattern": f"{CHANNEL_PREFIX}:*", "channel": None, "data": 1}
+    raise exc

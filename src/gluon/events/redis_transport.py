@@ -102,17 +102,28 @@ class RedisEventTransport:
         """(Re)establish the subscriber connection and pattern subscription.
 
         Closes any prior subscriber connection first so reconnects don't leak.
-        ``health_check_interval`` + ``socket_keepalive`` let redis-py detect and
-        recover dead/idle pubsub sockets instead of silently hanging until a read
-        timeout — the root cause of the original listener crash.
+
+        Connection options matter for pubsub correctness:
+        - ``socket_timeout=None``: a pubsub listener must *block* on reads waiting
+          for messages. A non-None socket timeout (e.g. inherited from a
+          ``?socket_timeout=`` in the URL) makes idle reads raise ``TimeoutError``
+          even against a healthy Redis — the root cause of the listener churn.
+        - ``socket_connect_timeout``: still bound the initial connect so an
+          unreachable Redis fails fast into the reconnect/giveup path instead of
+          hanging forever.
+        - ``socket_keepalive`` + ``health_check_interval``: detect genuinely dead
+          peers so a half-open socket surfaces as an error (→ reconnect) rather
+          than blocking indefinitely.
         """
         await self._close_subscriber()
         self._sub_client = aioredis.from_url(
             self.redis_url,
             encoding="utf-8",
             decode_responses=True,
-            health_check_interval=30,
+            socket_timeout=None,
+            socket_connect_timeout=5,
             socket_keepalive=True,
+            health_check_interval=30,
         )
         await self._sub_client.ping()  # type: ignore[misc]
 
@@ -143,9 +154,13 @@ class RedisEventTransport:
         is rebuilt and the loop retries, up to ``_max_retries`` consecutive
         failures. Past that, the transport gives up and disables itself
         (``_running = False``) so the UI falls back to polling — Redis is
-        best-effort cross-process push, never required. A successful message
-        receipt resets the failure counter, so isolated blips never accumulate
-        toward the cap over a long-lived connection.
+        best-effort cross-process push, never required. Receiving an actual
+        cross-process message resets the failure counter, so isolated blips never
+        accumulate toward the cap over a long-lived connection. The reset happens
+        only on a genuine ``pmessage`` — not on the subscribe-confirmation frame —
+        otherwise a connection that subscribes successfully but then fails every
+        read would reset to zero each cycle and retry forever instead of
+        eventually giving up.
         """
         from gluon.events.types import GluonEvent
 
@@ -161,9 +176,9 @@ class RedisEventTransport:
                 async for message in self._pubsub.listen():
                     if not self._running:
                         break
-                    attempt = 0  # connection is healthy
                     if message["type"] != "pmessage":
                         continue
+                    attempt = 0  # genuine cross-process delivery → healthy
 
                     try:
                         data = json.loads(message["data"])
