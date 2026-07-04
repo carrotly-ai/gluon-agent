@@ -29,14 +29,19 @@ def test_run_formula_not_found_404(api_client):
 
 
 def test_run_formula_success(api_client):
+    from gluon.formula_executor import FormulaRunOutcome
+
     client, _ = api_client
     template = SimpleNamespace(steps=[object(), object()])  # step_count == 2
+    outcome = FormulaRunOutcome(kind="workflow", chain_id="chain-xyz", step_count=2)
     with (
         patch("gluon.formulas.FormulaLoader.load", return_value=template),
-        patch("gluon.formula_executor.FormulaExecutor.execute", new=AsyncMock(return_value="chain-xyz")),
+        patch("gluon.formula_executor.FormulaExecutor.execute", new=AsyncMock(return_value=outcome)),
     ):
         resp = client.post("/api/formulas/my-formula/run", json={"project_id": "p", "variables": {"k": "v"}})
     assert resp.status_code == 200, resp.text
     body = resp.json()
+    assert body["kind"] == "workflow"
     assert body["chain_id"] == "chain-xyz"
+    assert body["loop_id"] is None
     assert body["step_count"] == 2

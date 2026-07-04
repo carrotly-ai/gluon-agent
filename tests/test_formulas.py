@@ -125,17 +125,19 @@ async def test_formula_executor_creates_chain(tmp_path):
         ],
     )
 
-    chain_id = await executor.execute(
+    outcome = await executor.execute(
         template=template,
         project_id=project.id,
         variables={"desc": "test feature"},
         initiator="test",
     )
 
-    assert chain_id
-    chain_executor.start_chain.assert_called_once_with(chain_id)
+    assert outcome.kind == "workflow"
+    assert outcome.chain_id
+    assert outcome.step_count == 2
+    chain_executor.start_chain.assert_called_once_with(outcome.chain_id)
 
     # Verify steps were created
-    steps = store.list_steps(chain_id)
+    steps = store.list_steps(outcome.chain_id)
     assert len(steps) == 2
     assert steps[0].prompt == "Do test feature"

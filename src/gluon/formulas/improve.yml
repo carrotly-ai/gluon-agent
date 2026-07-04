@@ -1,0 +1,30 @@
+# Builtin loop template (loop-engineering Phase 2 — docs/design/agent-loops.md).
+# Instantiates an AgentLoop instead of a TaskChain: the agent authors each
+# iteration's follow-up tasks; the harness enforces the gate, budgets, and
+# stop conditions. Run: gluon formula run improve <project> --var focus="..."
+name: improve
+kind: loop
+description: "Continuous-improvement agent loop: iteratively improve one focus area, gated on the test suite"
+variables:
+  - name: focus
+    type: string
+    required: true
+    help: "What to improve (e.g. 'test coverage of the auth module', 'API error handling')"
+  - name: verify
+    type: string
+    required: false
+    default: "uv run pytest"
+    help: "Gate command — loop completion requires exit 0"
+objective: |
+  Continuously improve the following aspect of this project: {{focus}}
+
+  Work in small, verifiable increments. Each iteration should leave the
+  project strictly better: passing tests, no regressions, changes committed.
+  The loop is complete when the focus area is in a demonstrably good state
+  and further iterations would add negligible value.
+verify_cmd: "{{verify}}"
+agent_verifier: true
+max_iterations: 15
+max_cost_usd: 25.0
+profile: standard
+use_worktree: true

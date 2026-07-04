@@ -52,6 +52,7 @@ export function useRouteSync() {
     if (path.startsWith('/cost')) return 'usage' as const
     if (path.startsWith('/sessions')) return 'sessions' as const
     if (path.startsWith('/schedules')) return 'schedules' as const
+    if (path.startsWith('/loops')) return 'loops' as const
     if (path.startsWith('/list')) return 'list' as const
     if (path.startsWith('/admin/users')) return 'admin-users' as const
     if (path.startsWith('/settings')) return 'settings' as const
@@ -110,6 +111,7 @@ export function useRouteSync() {
         | 'usage'
         | 'sessions'
         | 'schedules'
+        | 'loops'
         | 'settings'
         | 'admin-users'
     ) => {
@@ -137,6 +139,9 @@ export function useRouteSync() {
           break
         case 'schedules':
           navigate('/schedules')
+          break
+        case 'loops':
+          navigate('/loops')
           break
         case 'settings':
           navigate('/settings')

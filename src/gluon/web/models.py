@@ -1157,6 +1157,9 @@ class WorkQueueItemResponse(BaseModel):
     claimed_at: str | None = None
     completed_at: str | None = None
     error_message: str | None = None
+    # Agent-loop linkage (loop-engineering Phase 2); None for ordinary items.
+    loop_id: str | None = None
+    source: str | None = None
 
 
 class WorkQueueListResponse(BaseModel):
@@ -1173,6 +1176,85 @@ class WorkQueueAddRequest(BaseModel):
     prompt: str = Field(description="Task prompt")
     profile: str = Field(default="standard", description="Task profile")
     priority: int = Field(default=10, description="Priority (lower = higher)")
+
+
+# ========== Agent Loop API Models (loop-engineering Phase 2) ==========
+
+
+class CreateAgentLoopRequest(BaseModel):
+    """Request model for creating an agent loop (docs/design/agent-loops.md)."""
+
+    project_name: str = Field(description="Project to run the loop in")
+    objective: str = Field(description="The durable objective the loop works toward")
+    verify_cmd: str | None = Field(
+        default=None,
+        description="Objective gate: loop completion is granted only when this shell command exits 0",
+    )
+    agent_verifier: bool = Field(
+        default=False,
+        description="Independent-verifier subagent (I2): completion claims are judged by a fresh verifier iteration",
+    )
+    profile: str = Field(default="standard", description="Task profile for iteration runs")
+    model: str | None = Field(default=None, description="Model override for iteration runs")
+    use_worktree: bool = Field(default=False, description="Run iterations in isolated Git worktrees")
+    max_iterations: int = Field(default=20, ge=1, le=500, description="Hard iteration ceiling")
+    max_cost_usd: float | None = Field(default=None, gt=0, description="Loop-level spend cap in USD")
+    max_stalls: int = Field(default=2, ge=1, le=10, description="Consecutive no-progress iterations before pause")
+    max_fanout: int = Field(default=10, ge=1, le=50, description="Max pending tasks a loop may accumulate")
+
+
+class LoopRunSummary(BaseModel):
+    """One iteration run in a loop's timeline (detail endpoint only)."""
+
+    id: str
+    status: str
+    cost_usd: float | None = None
+    title: str
+    verifier: bool = False  # True for independent-verifier iterations
+    created_at: str
+    completed_at: str | None = None
+
+
+class AgentLoopResponse(BaseModel):
+    """Response model for an agent loop."""
+
+    id: str
+    project_id: str
+    project_name: str | None = None
+    # Per-loop effectiveness (I5 metrics scoped to this loop's runs)
+    metrics: GateabilityBucket | None = None
+    # Iteration timeline, newest first — populated on GET /api/loops/{id} only
+    recent_runs: list[LoopRunSummary] = Field(default_factory=list)
+    objective: str
+    verify_cmd: str | None = None
+    agent_verifier: bool = False
+    readiness: str  # "gated" | "gateless"
+    profile: str
+    model: str | None = None
+    use_worktree: bool
+    status: str
+    status_reason: str | None = None
+    iteration_count: int
+    max_iterations: int
+    total_cost_usd: float
+    max_cost_usd: float | None = None
+    stall_count: int
+    max_stalls: int
+    max_fanout: int
+    completion_requested: bool
+    completion_summary: str | None = None
+    pending_tasks: int
+    initiator: str | None = None
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+
+
+class AgentLoopListResponse(BaseModel):
+    """Response model for the agent-loop list."""
+
+    loops: list[AgentLoopResponse]
+    total: int
 
 
 # ========== Merge Queue API Models ==========
@@ -1253,10 +1335,18 @@ class FormulaTemplateResponse(BaseModel):
     """Response model for a formula template."""
 
     name: str
+    kind: str = "workflow"  # "workflow" | "loop"
     description: str | None = None
     variables: list[FormulaVariableResponse]
     steps: list[FormulaStepResponse]
     use_worktree: bool = True
+    # Loop-template fields (kind == "loop")
+    objective: str | None = None
+    verify_cmd: str | None = None
+    agent_verifier: bool = False
+    max_iterations: int = 20
+    max_cost_usd: float | None = None
+    profile: str = "standard"
 
 
 class FormulaListResponse(BaseModel):
@@ -1273,9 +1363,14 @@ class FormulaRunRequest(BaseModel):
 
 
 class FormulaRunResponse(BaseModel):
-    """Response model for formula execution."""
+    """Response model for formula execution.
 
-    chain_id: str
+    ``chain_id`` is set for workflow formulas; ``loop_id`` for loop formulas.
+    """
+
+    kind: str = "workflow"
+    chain_id: str | None = None
+    loop_id: str | None = None
     step_count: int
 
 

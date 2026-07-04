@@ -17,12 +17,16 @@ from gluon.cli import app
 
 
 def test_formula_run_executes_without_runtime_error() -> None:
+    from gluon.formula_executor import FormulaRunOutcome
+
     template = SimpleNamespace(name="my-formula", steps=[])
     orchestrator = MagicMock()
     orchestrator.get_project.return_value = SimpleNamespace(id="proj-123")
 
     formula_executor = MagicMock()
-    formula_executor.execute = AsyncMock(return_value="chain-xyz")
+    formula_executor.execute = AsyncMock(
+        return_value=FormulaRunOutcome(kind="workflow", chain_id="chain-xyz", step_count=0)
+    )
 
     with (
         patch("gluon.formulas.FormulaLoader.load", return_value=template),
