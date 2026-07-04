@@ -15,6 +15,7 @@ from gluon.models import (
     TASK_LOCK_TTL_SECS,
     ActivityEvent,
     Agent,
+    AgentLoop,
     AgentSchedule,
     ApprovalPolicy,
     ApprovalStatus,
@@ -33,6 +34,7 @@ from gluon.models import (
     HeartbeatStatus,
     ImageAttachment,
     LinkCode,
+    LoopStatus,
     MergeQueueEntry,
     MergeQueueStatus,
     MessageRunMapping,
@@ -784,6 +786,47 @@ MIGRATIONS = [
     # Loop-engineering I4/I1: optional objective gate command for ralph loops.
     "ALTER TABLE execution_runs ADD COLUMN verify_cmd TEXT;",
     "CREATE INDEX IF NOT EXISTS idx_runs_schedule_id ON execution_runs(schedule_id);",
+    # Agent loops (loop-engineering Phase 2 — docs/design/agent-loops.md).
+    # The outer loop: a persistent objective iterated across runs, where the
+    # agent authors follow-up tasks and the harness enforces stop conditions.
+    """
+    CREATE TABLE IF NOT EXISTS agent_loops (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        verify_cmd TEXT,
+        profile TEXT NOT NULL DEFAULT 'standard',
+        model TEXT,
+        use_worktree INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'running',
+        iteration_count INTEGER NOT NULL DEFAULT 0,
+        total_cost_usd REAL NOT NULL DEFAULT 0,
+        stall_count INTEGER NOT NULL DEFAULT 0,
+        max_iterations INTEGER NOT NULL DEFAULT 20,
+        max_cost_usd REAL,
+        max_stalls INTEGER NOT NULL DEFAULT 2,
+        max_fanout INTEGER NOT NULL DEFAULT 10,
+        completion_requested INTEGER NOT NULL DEFAULT 0,
+        completion_summary TEXT,
+        status_reason TEXT,
+        initiator TEXT,
+        created_by_user_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_agent_loops_project ON agent_loops(project_id);",
+    "CREATE INDEX IF NOT EXISTS idx_agent_loops_status ON agent_loops(status);",
+    # Loop linkage on queue items (which loop a task belongs to, who authored it,
+    # and the normalized-prompt dedup key for agent-authored tasks).
+    "ALTER TABLE work_queue ADD COLUMN loop_id TEXT;",
+    "ALTER TABLE work_queue ADD COLUMN source TEXT;",
+    "ALTER TABLE work_queue ADD COLUMN prompt_hash TEXT;",
+    "CREATE INDEX IF NOT EXISTS idx_work_queue_loop ON work_queue(loop_id);",
+    # Loop linkage on runs (which loop this run is an iteration of).
+    "ALTER TABLE execution_runs ADD COLUMN loop_id TEXT;",
+    "CREATE INDEX IF NOT EXISTS idx_runs_loop_id ON execution_runs(loop_id);",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -3111,6 +3154,7 @@ class GluonStore:
         claude_session_id: str | None = None,
         schedule_id: str | None = None,
         verify_cmd: str | None = None,
+        loop_id: str | None = None,
     ) -> ExecutionRun:
         """Create a new execution run.
 
@@ -3148,6 +3192,7 @@ class GluonStore:
             forked_from_run_id=forked_from_run_id,
             schedule_id=schedule_id,
             verify_cmd=verify_cmd,
+            loop_id=loop_id,
         )
         # Seed last_activity_at so the new run sorts correctly under "Recent activity".
         run.last_activity_at = run.created_at
@@ -3160,9 +3205,10 @@ class GluonStore:
                  started_at, completed_at, exit_code, log_path, error_message, model,
                  ralph_enabled, max_loops, max_calls_per_hour, max_cost_usd, agent_id, approval_policy,
                  max_tool_calls, max_duration_minutes, tool_call_count, user_id,
-                 custom_title, kind, last_activity_at, forked_from_run_id, schedule_id, verify_cmd)
+                 custom_title, kind, last_activity_at, forked_from_run_id, schedule_id, verify_cmd,
+                 loop_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?)
+                        ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -3197,6 +3243,7 @@ class GluonStore:
                     run.forked_from_run_id,
                     run.schedule_id,
                     run.verify_cmd,
+                    run.loop_id,
                 ),
             )
         return run
@@ -3589,6 +3636,8 @@ class GluonStore:
             schedule_id=row["schedule_id"],
             # Loop-engineering: optional objective gate command (I4/I1)
             verify_cmd=row["verify_cmd"],
+            # Agent-loop linkage (loop-engineering Phase 2)
+            loop_id=row["loop_id"],
         )
 
     def get_run_with_project(self, run_id: str) -> tuple[ExecutionRun, Project] | None:
@@ -5464,21 +5513,31 @@ class GluonStore:
         prompt: str,
         profile: str = "standard",
         priority: int = 10,
+        loop_id: str | None = None,
+        source: str | None = None,
+        prompt_hash: str | None = None,
     ) -> WorkQueueItem:
-        """Add an item to the work queue."""
+        """Add an item to the work queue.
+
+        ``loop_id`` / ``source`` / ``prompt_hash`` are the agent-loop fields
+        (loop-engineering Phase 2) — all None for ordinary queue items.
+        """
         item = WorkQueueItem(
             project_id=project_id,
             prompt=prompt,
             profile=profile,
             priority=priority,
+            loop_id=loop_id,
+            source=source,
+            prompt_hash=prompt_hash,
         )
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO work_queue (id, project_id, prompt, profile, priority, status,
                     claimed_by, created_at, claimed_at, started_at, completed_at,
-                    last_heartbeat_at, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_heartbeat_at, error_message, loop_id, source, prompt_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -5494,21 +5553,31 @@ class GluonStore:
                     None,
                     None,
                     None,
+                    item.loop_id,
+                    item.source,
+                    item.prompt_hash,
                 ),
             )
         return item
 
     def claim_work(self, project_id: str) -> WorkQueueItem | None:
-        """Atomically claim highest-priority unclaimed item. Returns None if empty."""
+        """Atomically claim highest-priority unclaimed item. Returns None if empty.
+
+        Items belonging to a non-RUNNING agent loop are skipped (not claimed):
+        a paused loop keeps its pending tasks inert but preserved, so a human
+        can raise the budget and resume without losing the agent-authored plan.
+        """
         with self._get_conn() as conn:
             row = conn.execute(
                 """
                 SELECT * FROM work_queue
                 WHERE project_id = ? AND status = ?
+                AND (loop_id IS NULL
+                     OR loop_id IN (SELECT id FROM agent_loops WHERE status = ?))
                 ORDER BY priority ASC, created_at ASC
                 LIMIT 1
                 """,
-                (project_id, WorkQueueStatus.PENDING.value),
+                (project_id, WorkQueueStatus.PENDING.value, LoopStatus.RUNNING.value),
             ).fetchone()
             if not row:
                 return None
@@ -5605,6 +5674,189 @@ class GluonStore:
             completed_at=_parse_datetime(row["completed_at"]),
             last_heartbeat_at=_parse_datetime(row["last_heartbeat_at"]),
             error_message=row["error_message"],
+            loop_id=row["loop_id"],
+            source=row["source"],
+            prompt_hash=row["prompt_hash"],
+        )
+
+    # ========== Agent Loop CRUD (loop-engineering Phase 2) ==========
+    # docs/design/agent-loops.md — the outer loop entity + its queue queries.
+
+    def create_agent_loop(self, loop: AgentLoop) -> AgentLoop:
+        """Persist a new agent loop."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_loops (id, project_id, objective, verify_cmd, profile,
+                    model, use_worktree, status, iteration_count, total_cost_usd,
+                    stall_count, max_iterations, max_cost_usd, max_stalls, max_fanout,
+                    completion_requested, completion_summary, status_reason, initiator,
+                    created_by_user_id, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    loop.id,
+                    loop.project_id,
+                    loop.objective,
+                    loop.verify_cmd,
+                    loop.profile,
+                    loop.model,
+                    1 if loop.use_worktree else 0,
+                    loop.status.value,
+                    loop.iteration_count,
+                    loop.total_cost_usd,
+                    loop.stall_count,
+                    loop.max_iterations,
+                    loop.max_cost_usd,
+                    loop.max_stalls,
+                    loop.max_fanout,
+                    1 if loop.completion_requested else 0,
+                    loop.completion_summary,
+                    loop.status_reason,
+                    loop.initiator,
+                    loop.created_by_user_id,
+                    loop.created_at.isoformat(),
+                    loop.updated_at.isoformat(),
+                    loop.completed_at.isoformat() if loop.completed_at else None,
+                ),
+            )
+        return loop
+
+    def get_agent_loop(self, loop_id: str) -> AgentLoop | None:
+        """Get an agent loop by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM agent_loops WHERE id = ?", (loop_id,)).fetchone()
+            return self._row_to_agent_loop(row) if row else None
+
+    def update_agent_loop(self, loop: AgentLoop) -> None:
+        """Update a persisted agent loop (all mutable fields)."""
+        loop.updated_at = utc_now()
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE agent_loops
+                SET status = ?, iteration_count = ?, total_cost_usd = ?, stall_count = ?,
+                    max_iterations = ?, max_cost_usd = ?, max_stalls = ?, max_fanout = ?,
+                    completion_requested = ?, completion_summary = ?, status_reason = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    loop.status.value,
+                    loop.iteration_count,
+                    loop.total_cost_usd,
+                    loop.stall_count,
+                    loop.max_iterations,
+                    loop.max_cost_usd,
+                    loop.max_stalls,
+                    loop.max_fanout,
+                    1 if loop.completion_requested else 0,
+                    loop.completion_summary,
+                    loop.status_reason,
+                    loop.updated_at.isoformat(),
+                    loop.completed_at.isoformat() if loop.completed_at else None,
+                    loop.id,
+                ),
+            )
+
+    def list_agent_loops(
+        self,
+        project_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[AgentLoop]:
+        """List agent loops, newest first, with optional filters."""
+        conditions: list[str] = []
+        params: list[str | int] = []
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM agent_loops{where} ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_agent_loop(row) for row in rows]
+
+    def count_pending_loop_items(self, loop_id: str) -> int:
+        """Count PENDING work-queue items belonging to a loop."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM work_queue WHERE loop_id = ? AND status = ?",
+                (loop_id, WorkQueueStatus.PENDING.value),
+            ).fetchone()
+            return int(row["n"])
+
+    def loop_prompt_seen(self, loop_id: str, prompt_hash: str) -> bool:
+        """True if any queue item in this loop (any status) has this prompt hash."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM work_queue WHERE loop_id = ? AND prompt_hash = ? LIMIT 1",
+                (loop_id, prompt_hash),
+            ).fetchone()
+            return row is not None
+
+    def cancel_pending_loop_items(self, loop_id: str) -> int:
+        """Cancel all PENDING/CLAIMED queue items of a loop. Returns count.
+
+        Used when a loop leaves RUNNING (paused/completed/cancelled) so the
+        drain loop cannot dispatch stragglers for a stopped loop.
+        """
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE work_queue SET status = ?, completed_at = ?
+                WHERE loop_id = ? AND status IN (?, ?)
+                """,
+                (
+                    WorkQueueStatus.CANCELLED.value,
+                    now,
+                    loop_id,
+                    WorkQueueStatus.PENDING.value,
+                    WorkQueueStatus.CLAIMED.value,
+                ),
+            )
+            return cursor.rowcount
+
+    def list_runs_for_loop(self, loop_id: str, limit: int = 10) -> list[ExecutionRun]:
+        """List runs belonging to a loop, newest first."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM execution_runs WHERE loop_id = ? ORDER BY created_at DESC LIMIT ?",
+                (loop_id, limit),
+            ).fetchall()
+            return [self._row_to_run(row) for row in rows]
+
+    def _row_to_agent_loop(self, row: sqlite3.Row) -> AgentLoop:
+        """Convert database row to AgentLoop model."""
+        return AgentLoop(
+            id=row["id"],
+            project_id=row["project_id"],
+            objective=row["objective"],
+            verify_cmd=row["verify_cmd"],
+            profile=row["profile"] or "standard",
+            model=row["model"],
+            use_worktree=bool(row["use_worktree"]),
+            status=LoopStatus(row["status"]),
+            iteration_count=row["iteration_count"] or 0,
+            total_cost_usd=row["total_cost_usd"] or 0.0,
+            stall_count=row["stall_count"] or 0,
+            max_iterations=row["max_iterations"] or 20,
+            max_cost_usd=row["max_cost_usd"],
+            max_stalls=row["max_stalls"] if row["max_stalls"] is not None else 2,
+            max_fanout=row["max_fanout"] or 10,
+            completion_requested=bool(row["completion_requested"]),
+            completion_summary=row["completion_summary"],
+            status_reason=row["status_reason"],
+            initiator=row["initiator"],
+            created_by_user_id=row["created_by_user_id"],
+            created_at=_parse_datetime(row["created_at"]),  # type: ignore[arg-type]
+            updated_at=_parse_datetime(row["updated_at"]),  # type: ignore[arg-type]
+            completed_at=_parse_datetime(row["completed_at"]),
         )
 
     # ========== Merge Queue CRUD (F8) ==========

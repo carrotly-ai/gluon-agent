@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 import logging
 import mimetypes
 import os
@@ -50,6 +51,7 @@ from gluon.agent_hooks import ScreenshotCollector, SubagentTracker, TodoCollecto
 from gluon.models import (
     AGENT_BROWSER_SYSTEM_PROMPT,
     GLUON_SYSTEM_PROMPT,
+    LOOP_SYSTEM_PROMPT_TEMPLATE,
     PLANNING_AUTONOMOUS_PROMPT,
     PLANNING_SYSTEM_PROMPT,
     RALPH_SYSTEM_PROMPT,
@@ -668,6 +670,65 @@ class GluonAgent:
                 else:
                     extra_pre_tool_hooks.append(hard_caps_hook)
 
+        # Agent-loop injection (loop-engineering Phase 2, docs/design/agent-loops.md):
+        # when this run is one iteration of an AgentLoop, give the worker the
+        # gluon-loop MCP tools (enqueue/complete/status) and the iteration
+        # contract (appended to the system prompt below). Non-loop runs are
+        # untouched — `loop_prompt_append` stays None.
+        loop_prompt_append: str | None = None
+        if self.store is not None and self.run_id is not None:
+            try:
+                _loop_run = self.store.get_run(self.run_id)
+                _loop = (
+                    self.store.get_agent_loop(_loop_run.loop_id)
+                    if _loop_run is not None and _loop_run.loop_id
+                    else None
+                )
+            except Exception:
+                _loop = None
+            if _loop is not None:
+                from gluon.loop_tools import LOOP_TOOL_NAMES, build_loop_mcp_server
+
+                loop_server = build_loop_mcp_server(self.store, _loop.id, self.run_id)
+                if isinstance(options.mcp_servers, dict):
+                    options.mcp_servers["gluon-loop"] = loop_server
+                    # A restricted allowed_tools list must name the loop tools;
+                    # an empty list (MCP-unrestricted) stays unrestricted.
+                    if options.allowed_tools:
+                        options.allowed_tools = [*options.allowed_tools, *LOOP_TOOL_NAMES]
+                else:
+                    # mcp_servers is a .mcp.json path — merge its servers into a
+                    # dict so the in-process gluon-loop server can ride along.
+                    try:
+                        with open(options.mcp_servers) as f:
+                            file_servers = json.load(f).get("mcpServers", {})
+                        options.mcp_servers = {**file_servers, "gluon-loop": loop_server}
+                    except Exception:
+                        # Keep the project MCP config; the loop degrades
+                        # gracefully (stall → continuation → pause) without
+                        # its tools rather than breaking the actual work.
+                        logger.warning(
+                            "Failed to merge .mcp.json with gluon-loop server; loop tools unavailable for run %s",
+                            self.run_id[:8],
+                            exc_info=True,
+                        )
+                cost_cap_text = f" of ${_loop.max_cost_usd:.2f} cap" if _loop.max_cost_usd else " (no cost cap)"
+                gate_text = (
+                    f"`{_loop.verify_cmd}` must exit 0 — completion is only granted when it passes"
+                    if _loop.verify_cmd
+                    else "none (gateless) — loop_complete is accepted on your word; be certain"
+                )
+                loop_prompt_append = LOOP_SYSTEM_PROMPT_TEMPLATE.format(
+                    iteration=_loop.iteration_count + 1,
+                    loop_id=_loop.id,
+                    objective=_loop.objective,
+                    max_iterations=_loop.max_iterations,
+                    total_cost=_loop.total_cost_usd,
+                    cost_cap_text=cost_cap_text,
+                    gate_text=gate_text,
+                    gate_reminder=" AND the verification gate passes" if _loop.verify_cmd else "",
+                )
+
         # Wire SDK hooks for structured tool-use logging (and team tracking when enabled)
         options.hooks = build_hooks(
             tracker=subagent_tracker,
@@ -756,6 +817,10 @@ class GluonAgent:
         # Append Ralph status reporting instructions for Ralph Loop runs
         if ralph_mode:
             append_parts.append(RALPH_SYSTEM_PROMPT)
+
+        # Append the agent-loop iteration contract (loop-engineering Phase 2)
+        if loop_prompt_append:
+            append_parts.append(loop_prompt_append)
 
         # Use SDK-supported system_prompt with preset and append
         options.system_prompt = {

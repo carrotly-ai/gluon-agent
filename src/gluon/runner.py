@@ -31,7 +31,15 @@ from gluon.budgets import enforce_workspace_budget as _enforce_workspace_budget
 from gluon.budgets import touch_agent_last_active as _touch_agent_last_active
 from gluon.git_manager import GitManager
 from gluon.image_storage import ImageStorageService
-from gluon.models import ExecutionRun, PendingQuestion, QuestionStatus, RunStatus, SupervisionConfig, utc_now
+from gluon.models import (
+    ExecutionRun,
+    PendingQuestion,
+    QuestionStatus,
+    RunStatus,
+    SupervisionConfig,
+    WorkQueueItem,
+    utc_now,
+)
 from gluon.notifier import NotificationDispatcher
 from gluon.ralph_manager import RalphManager
 from gluon.resume_coordinator import ResumeCoordinator
@@ -541,6 +549,7 @@ class TaskRunner:
         user_id: str | None = None,
         schedule_id: str | None = None,
         verify_cmd: str | None = None,
+        loop_id: str | None = None,
     ) -> ExecutionRun:
         """
         Submit a task for execution.
@@ -627,6 +636,7 @@ class TaskRunner:
             claude_session_id=claude_session_id,
             schedule_id=schedule_id,
             verify_cmd=verify_cmd,
+            loop_id=loop_id,
         )
         run.claude_session_id = claude_session_id  # Set for resume
 
@@ -1873,6 +1883,24 @@ but explicit commits with good messages are preferred.
             # terminal, so queue items leaked in RUNNING forever.
             self._finalize_queue_item(run)
 
+            # Agent-loop advancement (loop-engineering Phase 2): the harness
+            # decides whether the loop continues / completes / pauses. Runs
+            # BEFORE self-propelling dispatch so a continuation task enqueued
+            # here is claimable in the very next step, and a stopped loop's
+            # tasks are already inert (claim_work skips non-RUNNING loops).
+            if run.loop_id:
+                try:
+                    from gluon.loop_manager import LoopManager
+
+                    await LoopManager(self.store).on_run_completed(run)
+                except Exception:
+                    logger.error(
+                        "Agent-loop advancement failed for loop %s (run %s); loop may stall",
+                        run.loop_id,
+                        run.id[:8],
+                        exc_info=True,
+                    )
+
             # Self-propelling queue: dispatch next queued work item
             if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:
                 try:
@@ -1881,16 +1909,7 @@ but explicit commits with good messages are preferred.
                     wq = WorkQueueManager(self.store)
                     item = wq.claim_next(run.project_id)
                     if item:
-                        from gluon.models import resolve_task_options
-
-                        task_options = resolve_task_options(profile=item.profile)
-                        new_run = await self.submit(
-                            project_id=item.project_id,
-                            prompt=item.prompt,
-                            model=task_options["model"],
-                            profile=item.profile,
-                            initiator=f"queue:{item.id}",
-                        )
+                        new_run = await self._submit_from_queue_item(item, initiator=f"queue:{item.id}")
                         wq.mark_running(item.id, new_run.id)
                 except Exception:
                     logger.debug("Work queue dispatch failed", exc_info=True)
@@ -2404,7 +2423,7 @@ but explicit commits with good messages are preferred.
 
         Returns the number of items dispatched this cycle.
         """
-        from gluon.models import WorkQueueStatus, resolve_task_options
+        from gluon.models import WorkQueueStatus
         from gluon.work_queue import WorkQueueManager
 
         pending = self.store.list_work_items(status=WorkQueueStatus.PENDING.value, limit=200)
@@ -2442,14 +2461,7 @@ but explicit commits with good messages are preferred.
                 continue
 
             try:
-                task_options = resolve_task_options(profile=claimed.profile)
-                new_run = await self.submit(
-                    project_id=claimed.project_id,
-                    prompt=claimed.prompt,
-                    model=task_options["model"],
-                    profile=claimed.profile,
-                    initiator=f"queue_drain:{claimed.id}",
-                )
+                new_run = await self._submit_from_queue_item(claimed, initiator=f"queue_drain:{claimed.id}")
                 wq.mark_running(claimed.id, new_run.id)
                 dispatched += 1
                 active_count += 1
@@ -2472,6 +2484,42 @@ but explicit commits with good messages are preferred.
                 break
 
         return dispatched
+
+    async def kick_queue_drain(self) -> int:
+        """Run one drain cycle immediately (e.g. right after seeding a loop)."""
+        return await self._drain_queue_once()
+
+    async def _submit_from_queue_item(self, item: WorkQueueItem, initiator: str) -> ExecutionRun:
+        """Submit a run for a claimed queue item — the single dispatch path.
+
+        Loop items (loop-engineering Phase 2) inherit their loop's execution
+        settings (model/use_worktree/verify_cmd) and carry ``loop_id`` so the
+        worker gets the gluon-loop tools and the completion seam advances the
+        loop. Non-loop items behave exactly as before.
+        """
+        from gluon.models import resolve_task_options
+
+        loop = self.store.get_agent_loop(item.loop_id) if item.loop_id else None
+        if loop is not None:
+            return await self.submit(
+                project_id=item.project_id,
+                prompt=item.prompt,
+                model=loop.model or resolve_task_options(profile=item.profile)["model"],
+                profile=item.profile,
+                use_worktree=loop.use_worktree,
+                verify_cmd=loop.verify_cmd,
+                initiator=initiator,
+                user_id=loop.created_by_user_id,
+                loop_id=loop.id,
+            )
+        task_options = resolve_task_options(profile=item.profile)
+        return await self.submit(
+            project_id=item.project_id,
+            prompt=item.prompt,
+            model=task_options["model"],
+            profile=item.profile,
+            initiator=initiator,
+        )
 
     async def evaluate_supervision(self, run_id: str) -> dict | None:
         """Manually trigger supervision evaluation for a run.

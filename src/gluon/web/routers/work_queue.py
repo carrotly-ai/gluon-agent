@@ -37,6 +37,8 @@ def work_item_to_response(item: WorkQueueItem) -> WorkQueueItemResponse:
         claimed_at=item.claimed_at.isoformat() if item.claimed_at else None,
         completed_at=item.completed_at.isoformat() if item.completed_at else None,
         error_message=item.error_message,
+        loop_id=item.loop_id,
+        source=item.source,
     )
 
 

@@ -1157,6 +1157,9 @@ class WorkQueueItemResponse(BaseModel):
     claimed_at: str | None = None
     completed_at: str | None = None
     error_message: str | None = None
+    # Agent-loop linkage (loop-engineering Phase 2); None for ordinary items.
+    loop_id: str | None = None
+    source: str | None = None
 
 
 class WorkQueueListResponse(BaseModel):
@@ -1173,6 +1176,64 @@ class WorkQueueAddRequest(BaseModel):
     prompt: str = Field(description="Task prompt")
     profile: str = Field(default="standard", description="Task profile")
     priority: int = Field(default=10, description="Priority (lower = higher)")
+
+
+# ========== Agent Loop API Models (loop-engineering Phase 2) ==========
+
+
+class CreateAgentLoopRequest(BaseModel):
+    """Request model for creating an agent loop (docs/design/agent-loops.md)."""
+
+    project_name: str = Field(description="Project to run the loop in")
+    objective: str = Field(description="The durable objective the loop works toward")
+    verify_cmd: str | None = Field(
+        default=None,
+        description="Objective gate: loop completion is granted only when this shell command exits 0",
+    )
+    profile: str = Field(default="standard", description="Task profile for iteration runs")
+    model: str | None = Field(default=None, description="Model override for iteration runs")
+    use_worktree: bool = Field(default=False, description="Run iterations in isolated Git worktrees")
+    max_iterations: int = Field(default=20, ge=1, le=500, description="Hard iteration ceiling")
+    max_cost_usd: float | None = Field(default=None, gt=0, description="Loop-level spend cap in USD")
+    max_stalls: int = Field(default=2, ge=1, le=10, description="Consecutive no-progress iterations before pause")
+    max_fanout: int = Field(default=10, ge=1, le=50, description="Max pending tasks a loop may accumulate")
+
+
+class AgentLoopResponse(BaseModel):
+    """Response model for an agent loop."""
+
+    id: str
+    project_id: str
+    project_name: str | None = None
+    objective: str
+    verify_cmd: str | None = None
+    readiness: str  # "gated" | "gateless"
+    profile: str
+    model: str | None = None
+    use_worktree: bool
+    status: str
+    status_reason: str | None = None
+    iteration_count: int
+    max_iterations: int
+    total_cost_usd: float
+    max_cost_usd: float | None = None
+    stall_count: int
+    max_stalls: int
+    max_fanout: int
+    completion_requested: bool
+    completion_summary: str | None = None
+    pending_tasks: int
+    initiator: str | None = None
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+
+
+class AgentLoopListResponse(BaseModel):
+    """Response model for the agent-loop list."""
+
+    loops: list[AgentLoopResponse]
+    total: int
 
 
 # ========== Merge Queue API Models ==========

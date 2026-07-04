@@ -98,6 +98,7 @@ from gluon.web.routers import (
     approvals,
     auth,
     formulas,
+    loops,
     merge_queue,
     notifications,
     projects,
@@ -286,6 +287,7 @@ def create_app(
     app.include_router(system.router)
     app.include_router(activity.router)
     app.include_router(work_queue.router)
+    app.include_router(loops.router)
     app.include_router(merge_queue.router)
     app.include_router(settings.router)
     app.include_router(users.router)

@@ -60,6 +60,9 @@ app.add_typer(webhook_app, name="webhook")
 ralph_app = typer.Typer(help="Ralph loop commands")
 app.add_typer(ralph_app, name="ralph")
 
+loop_app = typer.Typer(help="Agent loops (loop engineering) — objective-driven, agent-authored iterations")
+app.add_typer(loop_app, name="loop")
+
 supervision_app = typer.Typer(help="Supervision and auto-resume commands")
 app.add_typer(supervision_app, name="supervision")
 
@@ -5746,6 +5749,198 @@ def user_set_password(
         raise typer.Exit(1)
 
     console.print(f"[green]Password updated[/green] for {user.username}. All active sessions rotated.")
+
+
+# ========== Agent Loop Commands (loop-engineering Phase 2) ==========
+# docs/design/agent-loops.md — CLI writes to the store; the running server's
+# queue-drain loop dispatches iterations (within GLUON_QUEUE_DRAIN_INTERVAL_SECS).
+
+
+def _get_loop_or_exit(store: GluonStore, loop_id: str) -> Any:
+    loops = store.list_agent_loops(limit=500)
+    loop = next((lp for lp in loops if lp.id == loop_id or lp.id.startswith(loop_id)), None)
+    if loop is None:
+        console.print(f"[red]Error:[/red] Agent loop not found: {loop_id}")
+        raise typer.Exit(1)
+    return loop
+
+
+@loop_app.command("create")
+def loop_create(
+    project: Annotated[str, typer.Argument(help="Project name")],
+    objective: Annotated[str, typer.Argument(help="The durable objective the loop works toward")],
+    verify_cmd: Annotated[
+        str | None,
+        typer.Option("--verify-cmd", help="Objective gate: completion granted only when this command exits 0"),
+    ] = None,
+    profile: Annotated[str, typer.Option("--profile", "-P", help="Task profile for iterations")] = "standard",
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Model override for iterations")] = None,
+    worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Run iterations in isolated worktrees")] = False,
+    max_iterations: Annotated[int, typer.Option("--max-iterations", help="Hard iteration ceiling")] = 20,
+    max_cost: Annotated[float | None, typer.Option("--max-cost", help="Loop-level spend cap in USD")] = None,
+    max_stalls: Annotated[int, typer.Option("--max-stalls", help="Consecutive stalls before pause")] = 2,
+    max_fanout: Annotated[int, typer.Option("--max-fanout", help="Max pending tasks the loop may hold")] = 10,
+):
+    """Create an agent loop: seed iteration 1; the agent authors what comes next."""
+    from gluon.loop_manager import LoopManager
+
+    orchestrator = get_orchestrator()
+    try:
+        proj = orchestrator.get_project(project)
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from None
+
+    loop = LoopManager(orchestrator.store).create_loop(
+        project_id=proj.id,
+        objective=objective,
+        verify_cmd=verify_cmd,
+        profile=profile,
+        model=model,
+        use_worktree=worktree,
+        max_iterations=max_iterations,
+        max_cost_usd=max_cost,
+        max_stalls=max_stalls,
+        max_fanout=max_fanout,
+        initiator="cli",
+    )
+    readiness = "[green]gated[/green]" if verify_cmd else "[yellow]gateless[/yellow]"
+    console.print(f"[green]Agent loop created:[/green] {loop.id} ({readiness})")
+    console.print(f"[bold]Objective:[/bold] {objective}")
+    if verify_cmd:
+        console.print(f"[bold]Gate:[/bold] {verify_cmd}")
+    console.print(
+        f"[bold]Budget:[/bold] {max_iterations} iterations"
+        + (f", ${max_cost:.2f} cap" if max_cost else ", no cost cap")
+    )
+    console.print("Iteration 1 seeded — the server's queue drain will dispatch it.")
+
+
+@loop_app.command("list")
+def loop_list(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Filter by project name")] = None,
+    status: Annotated[str | None, typer.Option("--status", "-s", help="Filter by status")] = None,
+):
+    """List agent loops."""
+    store = GluonStore()
+    project_id: str | None = None
+    if project:
+        try:
+            project_id = get_orchestrator().get_project(project).id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1) from None
+
+    loops = store.list_agent_loops(project_id=project_id, status=status)
+    if not loops:
+        console.print("[dim]No agent loops found[/dim]")
+        return
+
+    table = Table(title="Agent Loops")
+    table.add_column("ID", style="cyan")
+    table.add_column("Project")
+    table.add_column("Status")
+    table.add_column("Iter", justify="right")
+    table.add_column("Cost", justify="right")
+    table.add_column("Gate")
+    table.add_column("Objective")
+    status_colors = {"running": "green", "paused": "yellow", "completed": "blue", "failed": "red", "cancelled": "dim"}
+    for lp in loops:
+        proj = store.get_project(lp.project_id)
+        color = status_colors.get(lp.status.value, "white")
+        table.add_row(
+            lp.id[:8],
+            proj.name if proj else lp.project_id[:8],
+            f"[{color}]{lp.status.value}[/{color}]",
+            f"{lp.iteration_count}/{lp.max_iterations}",
+            f"${lp.total_cost_usd:.2f}",
+            "gated" if lp.verify_cmd else "gateless",
+            lp.objective[:60] + ("…" if len(lp.objective) > 60 else ""),
+        )
+    console.print(table)
+
+
+@loop_app.command("show")
+def loop_show(loop_id: Annotated[str, typer.Argument(help="Loop ID (short prefix ok)")]):
+    """Show one agent loop: state, budgets, pending tasks, recent iterations."""
+    store = GluonStore()
+    loop = _get_loop_or_exit(store, loop_id)
+
+    proj = store.get_project(loop.project_id)
+    console.print(f"[bold]Agent Loop:[/bold] {loop.id} [{loop.status.value}]")
+    console.print(f"[bold]Project:[/bold] {proj.name if proj else loop.project_id}")
+    console.print(f"[bold]Objective:[/bold] {loop.objective}")
+    console.print(f"[bold]Gate:[/bold] {loop.verify_cmd or '(gateless)'}")
+    console.print(
+        f"[bold]Budget:[/bold] iteration {loop.iteration_count}/{loop.max_iterations}, "
+        f"${loop.total_cost_usd:.2f}" + (f" of ${loop.max_cost_usd:.2f}" if loop.max_cost_usd else " (no cap)")
+    )
+    console.print(f"[bold]Stalls:[/bold] {loop.stall_count}/{loop.max_stalls}")
+    if loop.status_reason:
+        console.print(f"[bold]Status reason:[/bold] {loop.status_reason}")
+    if loop.completion_summary:
+        console.print(f"[bold]Completion summary:[/bold] {loop.completion_summary}")
+
+    pending = [
+        i
+        for i in store.list_work_items(project_id=loop.project_id, status="pending", limit=100)
+        if i.loop_id == loop.id
+    ]
+    console.print(f"\n[bold]Pending tasks ({len(pending)}):[/bold]")
+    for item in pending:
+        console.print(f"  [{item.id[:8]}] ({item.source}) {item.prompt[:100]}")
+
+    runs = store.list_runs_for_loop(loop.id, limit=10)
+    console.print(f"\n[bold]Iteration runs ({len(runs)} most recent):[/bold]")
+    for r in runs:
+        emoji, color = format_run_status(r.status)
+        cost = f"${r.cost_usd:.2f}" if r.cost_usd else "$0.00"
+        console.print(f"  [{r.id[:8]}] [{color}]{emoji} {r.status.value}[/{color}] {cost} — {r.prompt[:80]}")
+
+
+@loop_app.command("pause")
+def loop_pause(loop_id: Annotated[str, typer.Argument(help="Loop ID (short prefix ok)")]):
+    """Pause a running loop (pending tasks preserved, inert until resume)."""
+    from gluon.loop_manager import LoopManager
+
+    store = GluonStore()
+    loop = _get_loop_or_exit(store, loop_id)
+    updated = LoopManager(store).pause_loop(loop.id)
+    if updated and updated.status.value == "paused":
+        console.print(f"[yellow]Paused[/yellow] agent loop {updated.id[:8]}")
+    else:
+        console.print(f"[red]Error:[/red] loop is {loop.status.value}, cannot pause")
+        raise typer.Exit(1)
+
+
+@loop_app.command("resume")
+def loop_resume(loop_id: Annotated[str, typer.Argument(help="Loop ID (short prefix ok)")]):
+    """Resume a paused loop (re-seeds a continuation if nothing is pending)."""
+    from gluon.loop_manager import LoopManager
+
+    store = GluonStore()
+    loop = _get_loop_or_exit(store, loop_id)
+    updated = LoopManager(store).resume_loop(loop.id)
+    if updated and updated.status.value == "running":
+        console.print(f"[green]Resumed[/green] agent loop {updated.id[:8]}")
+    else:
+        console.print(f"[red]Error:[/red] loop is {loop.status.value}, cannot resume")
+        raise typer.Exit(1)
+
+
+@loop_app.command("cancel")
+def loop_cancel(loop_id: Annotated[str, typer.Argument(help="Loop ID (short prefix ok)")]):
+    """Cancel a loop and drop its pending tasks."""
+    from gluon.loop_manager import LoopManager
+
+    store = GluonStore()
+    loop = _get_loop_or_exit(store, loop_id)
+    updated = LoopManager(store).cancel_loop(loop.id)
+    if updated and updated.status.value == "cancelled":
+        console.print(f"[red]Cancelled[/red] agent loop {updated.id[:8]}")
+    else:
+        console.print(f"[red]Error:[/red] loop is {loop.status.value}, cannot cancel")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

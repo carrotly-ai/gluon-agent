@@ -1,5 +1,6 @@
 """Pydantic models for Gluon Agent."""
 
+import hashlib
 import os
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -262,6 +263,42 @@ RECOMMENDATION: <one line summary of what to do next>
 2. STATUS=COMPLETE means THIS ITERATION is done, NOT the entire project
 3. The most common pattern is `STATUS: COMPLETE` + `EXIT_SIGNAL: false` (iteration done, project continues)
 4. Only set `EXIT_SIGNAL: true` when there is genuinely NO remaining work whatsoever
+"""
+
+
+# Loop-engineering Phase 2 (docs/design/agent-loops.md): the iteration contract
+# appended to the system prompt of every run that belongs to an AgentLoop.
+# Rendered via .format() — literal braces must be doubled.
+LOOP_SYSTEM_PROMPT_TEMPLATE = """
+## AGENT LOOP — Iteration {iteration} (loop {loop_id})
+
+You are ONE iteration of an ongoing autonomous loop. Another agent (or you, in a
+previous run) authored your task prompt; the loop continues after you exit.
+
+**Loop objective:**
+{objective}
+
+**Budget:** iteration {iteration} of {max_iterations}; loop cost so far ${total_cost:.2f}{cost_cap_text}.
+**Verification gate:** {gate_text}
+
+**Your contract for this iteration:**
+1. Do the focused work in your task prompt — this iteration's slice of the
+   objective. Do NOT attempt the whole objective in one iteration.
+2. THEN author what happens next, using the gluon-loop MCP tools:
+   - `mcp__gluon-loop__loop_status` — check pending tasks, budgets, and recent
+     iteration history BEFORE deciding (avoid duplicating queued/done work).
+   - `mcp__gluon-loop__loop_enqueue_task` — enqueue the next focused task(s)
+     toward the objective. Each prompt must be self-contained: the next agent
+     has NO memory of this session. Enqueue several tasks to fan out
+     independent work in parallel.
+   - `mcp__gluon-loop__loop_complete` — ONLY when the objective is fully met{gate_reminder}.
+3. If your task is done but the objective is not, you MUST enqueue at least one
+   follow-up task. Exiting with nothing enqueued and no completion counts as a
+   stall — two consecutive stalls pause the loop.
+4. Duplicate task prompts are rejected — vary the work, not the wording.
+
+The harness enforces the gate, budgets, and stop conditions. Your job is this
+iteration's work plus authoring the next iteration's tasks.
 """
 
 
@@ -1121,6 +1158,12 @@ class ExecutionRun(BaseModel):
     # render a "📅 daily 9am" chip linking back to the schedule.
     schedule_id: str | None = None
 
+    # Agent-loop linkage (loop-engineering Phase 2). Nullable; populated when
+    # this run is one iteration of an AgentLoop. Triggers the gluon-loop MCP
+    # tools + LOOP_SYSTEM_PROMPT in the worker, and LoopManager advancement
+    # on completion. docs/design/agent-loops.md
+    loop_id: str | None = None
+
     def mark_running(self, pid: int, log_path: Path) -> None:
         """Mark run as started."""
         self.status = RunStatus.RUNNING
@@ -1780,6 +1823,88 @@ class WorkQueueItem(BaseModel):
     completed_at: datetime | None = None
     last_heartbeat_at: datetime | None = None
     error_message: str | None = None
+    # Agent-loop linkage (loop-engineering Phase 2 — docs/design/agent-loops.md).
+    # loop_id: item belongs to an AgentLoop; source: who authored it —
+    # "seed" (loop creation), "agent" (loop_enqueue_task tool), "continuation"
+    # (harness stall-recovery). prompt_hash: normalized-prompt dedup key,
+    # set for agent-authored items only.
+    loop_id: str | None = None
+    source: str | None = None
+    prompt_hash: str | None = None
+
+
+# ========== Agent Loop Models (loop-engineering Phase 2) ==========
+# Outer loop: the agent authors the next iteration's tasks; the harness keeps
+# authority over verification, budgets, and stopping. docs/design/agent-loops.md
+
+
+class LoopStatus(StrEnum):
+    """Status of an agent loop (the outer, cross-run loop)."""
+
+    RUNNING = "running"  # Actively iterating (tasks pending or in flight)
+    PAUSED = "paused"  # Stopped by budget/stall/failure — human can resume
+    COMPLETED = "completed"  # Objective met (gate-confirmed when gated)
+    FAILED = "failed"  # Unrecoverable error
+    CANCELLED = "cancelled"  # Explicitly cancelled
+
+
+def normalize_prompt_hash(prompt: str) -> str:
+    """Stable dedup key for loop task prompts: lowercase, collapsed whitespace, sha256."""
+    normalized = " ".join(prompt.lower().split())
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+class AgentLoop(BaseModel):
+    """An ongoing agent loop: a persistent objective iterated across many runs.
+
+    Each iteration is an ordinary ExecutionRun dispatched from a work-queue item
+    carrying ``loop_id``. The running agent authors follow-up tasks via the
+    ``gluon-loop`` MCP tools (fan-out = multiple enqueues); the harness enforces
+    the stop conditions below — never the agent's self-report alone.
+    """
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    project_id: str
+    objective: str  # The durable "why" — what the loop is working toward
+    # Loop-level objective gate: completion is only accepted when this shell
+    # command exits 0 (run via gate.run_gate). None = gateless (agent's word).
+    verify_cmd: str | None = None
+    profile: str = "standard"
+    model: str | None = None
+    use_worktree: bool = False
+    status: LoopStatus = LoopStatus.RUNNING
+    # Accounting
+    iteration_count: int = 0  # Completed iteration runs
+    total_cost_usd: float = 0.0  # Sum of iteration run costs
+    stall_count: int = 0  # Consecutive iterations with no follow-ups enqueued
+    # Stop conditions / guards (the loop-engineering discipline)
+    max_iterations: int = 20  # Hard iteration ceiling
+    max_cost_usd: float | None = None  # Loop-level spend cap (on top of per-run)
+    max_stalls: int = 2  # Consecutive stalls before PAUSED
+    max_fanout: int = 10  # Max PENDING tasks a loop may accumulate
+    # Completion handshake: the agent *requests* completion (loop_complete tool);
+    # LoopManager grants it — gate authority when verify_cmd is set.
+    completion_requested: bool = False
+    completion_summary: str | None = None
+    # Why the loop is in its current terminal/paused state (human-readable)
+    status_reason: str | None = None
+    initiator: str | None = None
+    created_by_user_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == LoopStatus.RUNNING
+
+    def budget_exhausted(self) -> str | None:
+        """Return the exhausted-budget reason, or None if budget remains."""
+        if self.iteration_count >= self.max_iterations:
+            return f"max_iterations reached ({self.iteration_count}/{self.max_iterations})"
+        if self.max_cost_usd is not None and self.total_cost_usd >= self.max_cost_usd:
+            return f"cost budget exhausted (${self.total_cost_usd:.2f} of ${self.max_cost_usd:.2f})"
+        return None
 
 
 # ========== Merge Queue Models (F8) ==========
