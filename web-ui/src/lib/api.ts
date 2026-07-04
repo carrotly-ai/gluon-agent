@@ -1,11 +1,15 @@
 import type {
   // Activity Log types
   ActivityEvent,
+  // Agent Loops (loop-engineering Phase 2)
+  AgentLoop,
+  AgentLoopListResponse,
   AttentionCountsResponse,
   AuthProvidersResponse,
   ChangePasswordRequest,
   CloneResultResponse,
   CommitDetail,
+  CreateAgentLoopRequest,
   // Advanced Git Operations types
   CreateRunRequest,
   CreateTaskScheduleRequest,
@@ -1028,4 +1032,40 @@ export async function unlinkMyChat(transport: LinkTransport): Promise<LinkStatus
   return fetchJson<LinkStatusResponse>(`/auth/links/${transport}`, {
     method: 'DELETE',
   })
+}
+
+// ========== Agent Loops (loop-engineering Phase 2) ==========
+
+export async function fetchLoops(opts?: {
+  project_id?: string
+  status?: string
+}): Promise<AgentLoopListResponse> {
+  const params = new URLSearchParams()
+  if (opts?.project_id) params.set('project_id', opts.project_id)
+  if (opts?.status) params.set('status', opts.status)
+  const qs = params.toString()
+  return fetchJson<AgentLoopListResponse>(`/loops${qs ? `?${qs}` : ''}`)
+}
+
+export async function fetchLoop(loopId: string): Promise<AgentLoop> {
+  return fetchJson<AgentLoop>(`/loops/${loopId}`)
+}
+
+export async function createLoop(body: CreateAgentLoopRequest): Promise<AgentLoop> {
+  return fetchJson<AgentLoop>('/loops', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function pauseLoop(loopId: string): Promise<AgentLoop> {
+  return fetchJson<AgentLoop>(`/loops/${loopId}/pause`, { method: 'POST' })
+}
+
+export async function resumeLoop(loopId: string): Promise<AgentLoop> {
+  return fetchJson<AgentLoop>(`/loops/${loopId}/resume`, { method: 'POST' })
+}
+
+export async function cancelLoop(loopId: string): Promise<AgentLoop> {
+  return fetchJson<AgentLoop>(`/loops/${loopId}/cancel`, { method: 'POST' })
 }

@@ -1,6 +1,8 @@
-"""Executes workflow formulas by creating and starting task chains."""
+"""Executes formulas: workflow templates become task chains; loop templates
+become agent loops (loop-engineering Phase 2 — docs/design/agent-loops.md)."""
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from gluon.formulas import FormulaTemplate, render_prompt, resolve_variables
@@ -13,8 +15,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class FormulaRunOutcome:
+    """What instantiating a formula produced."""
+
+    kind: str  # "workflow" | "loop"
+    chain_id: str | None = None  # kind == "workflow"
+    loop_id: str | None = None  # kind == "loop"
+    step_count: int = 0  # steps for workflows; 1 (the seed) for loops
+
+
 class FormulaExecutor:
-    """Creates and starts task chains from formula templates."""
+    """Instantiates formula templates: task chains or agent loops by kind."""
 
     def __init__(self, store: "GluonStore", chain_executor: "ChainExecutor"):
         self.store = store
@@ -26,10 +38,37 @@ class FormulaExecutor:
         project_id: str,
         variables: dict[str, str],
         initiator: str | None = None,
-    ) -> str:
-        """Create and start a TaskChain from template. Returns chain_id."""
+    ) -> FormulaRunOutcome:
+        """Instantiate a formula for a project. Routes by ``template.kind``."""
         # 1. Resolve variables
         resolved = resolve_variables(template, variables)
+
+        # Loop templates: render the objective and create an AgentLoop; the
+        # queue machinery dispatches the seed like any loop (no chain).
+        if template.kind == "loop":
+            from gluon.loop_manager import LoopManager
+
+            # verify_cmd may be templated too (e.g. "{{verify}}"); an empty
+            # render means gateless.
+            rendered_verify = render_prompt(template.verify_cmd, resolved) if template.verify_cmd else None
+            loop = LoopManager(self.store).create_loop(
+                project_id=project_id,
+                objective=render_prompt(template.objective or "", resolved),
+                verify_cmd=rendered_verify or None,
+                agent_verifier=template.agent_verifier,
+                profile=template.profile,
+                use_worktree=template.use_worktree,
+                max_iterations=template.max_iterations,
+                max_cost_usd=template.max_cost_usd,
+                initiator=initiator or f"formula:{template.name}",
+            )
+            logger.info(
+                "Formula '%s' created agent loop %s for project %s",
+                template.name,
+                loop.id,
+                project_id,
+            )
+            return FormulaRunOutcome(kind="loop", loop_id=loop.id, step_count=1)
 
         # 2. Create the chain
         chain = TaskChain(
@@ -77,4 +116,4 @@ class FormulaExecutor:
             len(template.steps),
             project_id,
         )
-        return chain.id
+        return FormulaRunOutcome(kind="workflow", chain_id=chain.id, step_count=len(template.steps))

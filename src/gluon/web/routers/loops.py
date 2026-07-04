@@ -19,7 +19,13 @@ from gluon.models import AgentLoop
 from gluon.models import User as UserModel
 from gluon.runner import TaskRunner
 from gluon.store import GluonStore
-from gluon.web.models import AgentLoopListResponse, AgentLoopResponse, CreateAgentLoopRequest
+from gluon.web.models import (
+    AgentLoopListResponse,
+    AgentLoopResponse,
+    CreateAgentLoopRequest,
+    GateabilityBucket,
+    LoopRunSummary,
+)
 from gluon.web.routers._deps import get_current_user, get_runner, get_store
 
 logger = logging.getLogger(__name__)
@@ -31,14 +37,33 @@ Runner = Annotated[TaskRunner, Depends(get_runner)]
 CurrentUser = Annotated[UserModel, Depends(get_current_user)]
 
 
-def loop_to_response(loop: AgentLoop, store: GluonStore) -> AgentLoopResponse:
+def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = False) -> AgentLoopResponse:
+    from gluon.loop_manager import VERIFICATION_MARKER
+
     project = store.get_project(loop.project_id)
+    metrics = store.get_agent_loop_metrics(loop.id)
+    recent_runs: list[LoopRunSummary] = []
+    if include_runs:
+        recent_runs = [
+            LoopRunSummary(
+                id=r.id,
+                status=r.status.value,
+                cost_usd=r.cost_usd,
+                title=(r.custom_title or r.prompt)[:140],
+                verifier=VERIFICATION_MARKER in (r.prompt or ""),
+                created_at=r.created_at.isoformat(),
+                completed_at=r.completed_at.isoformat() if r.completed_at else None,
+            )
+            for r in store.list_runs_for_loop(loop.id, limit=25)
+        ]
     return AgentLoopResponse(
         id=loop.id,
         project_id=loop.project_id,
         project_name=project.name if project else None,
+        metrics=GateabilityBucket(**metrics) if metrics["runs"] else None,
         objective=loop.objective,
         verify_cmd=loop.verify_cmd,
+        agent_verifier=loop.agent_verifier,
         readiness="gated" if loop.verify_cmd else "gateless",
         profile=loop.profile,
         model=loop.model,
@@ -55,6 +80,7 @@ def loop_to_response(loop: AgentLoop, store: GluonStore) -> AgentLoopResponse:
         completion_requested=loop.completion_requested,
         completion_summary=loop.completion_summary,
         pending_tasks=store.count_pending_loop_items(loop.id),
+        recent_runs=recent_runs,
         initiator=loop.initiator,
         created_at=loop.created_at.isoformat(),
         updated_at=loop.updated_at.isoformat(),
@@ -87,6 +113,7 @@ async def create_loop(
         project_id=project.id,
         objective=body.objective,
         verify_cmd=body.verify_cmd,
+        agent_verifier=body.agent_verifier,
         profile=body.profile,
         model=body.model,
         use_worktree=body.use_worktree,
@@ -120,8 +147,8 @@ async def list_loops(
 
 @router.get("/api/loops/{loop_id}", response_model=AgentLoopResponse)
 async def get_loop(loop_id: str, store: Store) -> AgentLoopResponse:
-    """Get one agent loop."""
-    return loop_to_response(_get_loop_or_404(store, loop_id), store)
+    """Get one agent loop, including its iteration timeline."""
+    return loop_to_response(_get_loop_or_404(store, loop_id), store, include_runs=True)
 
 
 @router.post("/api/loops/{loop_id}/pause", response_model=AgentLoopResponse)

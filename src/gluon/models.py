@@ -1869,6 +1869,11 @@ class AgentLoop(BaseModel):
     # Loop-level objective gate: completion is only accepted when this shell
     # command exits 0 (run via gate.run_gate). None = gateless (agent's word).
     verify_cmd: str | None = None
+    # Independent-verifier subagent (I2): when True, a completion request from
+    # a work iteration is judged by a FRESH verifier iteration (generator never
+    # grades its own work). Composes with verify_cmd — the deterministic gate
+    # still runs beneath the verifier's approval.
+    agent_verifier: bool = False
     profile: str = "standard"
     model: str | None = None
     use_worktree: bool = False

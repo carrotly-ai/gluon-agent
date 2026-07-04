@@ -113,10 +113,32 @@ graceful handoff ✓ (PAUSED + `status_reason`, never silent, never infinite).
   non-regression)
 - [x] Gate: ruff + mypy clean on touched files; full pytest suite green
 
-## Future (documented, not built here)
+## Phase 2 follow-ups — ALL IMPLEMENTED (second commit on this branch)
 
-- Web-UI Loops page (list + detail timeline of iterations)
-- Loop-level effectiveness metrics (extend `get_loop_effectiveness` with a
-  per-loop breakdown; cost-per-accepted-change per loop)
-- Independent-verifier subagent as an alternative gate type (Phase 1's I2)
-- Cross-project loops / loop templates ("formulas" integration)
+- [x] **Web-UI Loops page**: `/loops` route + nav item; list (status, budgets,
+  pending, gate/verifier chips, pause/resume/cancel) + detail dialog
+  (objective, stop-condition state, effectiveness metrics, iteration timeline
+  with verifier badges) + create dialog. `web-ui/src/components/LoopsPage.tsx`;
+  detail timeline served by `GET /api/loops/{id}` → `recent_runs`.
+- [x] **Per-loop effectiveness metrics** (I5 per loop):
+  `store.get_agent_loop_metrics(loop_id)` — acceptance rate +
+  cost-per-accepted-change over the loop's runs; surfaced as
+  `AgentLoopResponse.metrics` and in the detail dialog.
+- [x] **Independent-verifier subagent (I2)**: `AgentLoop.agent_verifier`.
+  A work iteration's completion claim is demoted and judged by a FRESH
+  verifier iteration (source="verifier", prompt carries `VERIFICATION_MARKER`;
+  generator never grades its own work). The verifier confirms via
+  `loop_complete` (recursion-guarded by the marker) or rejects by enqueueing
+  fix tasks. The deterministic `verify_cmd` gate still runs beneath the
+  verifier's approval. `--agent-verifier` CLI flag / `agent_verifier` API field.
+- [x] **Loop templates (formulas integration)**: `FormulaTemplate.kind` =
+  `workflow` (default) | `loop`. Loop formulas define a templated `objective`
+  (+ `verify_cmd`/`agent_verifier`/budgets/profile) and instantiate an
+  AgentLoop via `FormulaExecutor` (returns `FormulaRunOutcome`); builtin
+  example `src/gluon/formulas/improve.yml`. `gluon formula run <tpl> <project>
+  --var …` and `POST /api/formulas/{name}/run` route by kind.
+
+## Future (documented, not built)
+
+- Cross-project loops (a loop spanning multiple projects/repos)
+- Loop-aware notifications (pause/complete pushed to Telegram/Discord)

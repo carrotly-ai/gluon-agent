@@ -12,6 +12,7 @@ import {
   Menu,
   MoreVertical,
   Plus,
+  Repeat2,
   Settings,
   WifiOff,
 } from 'lucide-react'
@@ -23,6 +24,7 @@ import { CreateTaskDialog } from './components/CreateTaskDialog'
 import { KanbanBoard } from './components/KanbanBoard'
 import { ListViewPage } from './components/ListViewPage'
 import { LoginPage } from './components/LoginPage'
+import { LoopsPage } from './components/LoopsPage'
 import { MergeQueuePage } from './components/MergeQueuePage'
 import { NotificationBell } from './components/NotificationBell'
 import { OfflineOverlay } from './components/OfflineOverlay'
@@ -73,6 +75,7 @@ type ViewMode =
   | 'merge'
   | 'sessions'
   | 'schedules'
+  | 'loops'
   | 'usage'
   | 'settings'
   | 'admin-users'
@@ -84,6 +87,7 @@ const SECONDARY_NAV_ITEMS: { mode: ViewMode; icon: typeof Activity; label: strin
   { mode: 'activity', icon: Activity, label: 'Activity' },
   { mode: 'sessions', icon: Database, label: 'Sessions' },
   { mode: 'schedules', icon: CalendarClock, label: 'Schedules' },
+  { mode: 'loops', icon: Repeat2, label: 'Loops' },
 ]
 
 // Mobile-only extras — Merge demoted into the hamburger on small screens to
@@ -740,6 +744,8 @@ function AuthenticatedApp() {
             <SessionBrowserPage />
           ) : viewMode === 'schedules' ? (
             <SchedulesPage />
+          ) : viewMode === 'loops' ? (
+            <LoopsPage />
           ) : viewMode === 'list' ? (
             <ListViewPage
               runs={filteredRuns}

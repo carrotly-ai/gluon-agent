@@ -66,6 +66,36 @@ Gate output (tail):
 {output}
 Make the gate pass (exit 0) before requesting completion again."""
 
+# Marker identifying a verifier iteration's prompt. on_run_completed uses it to
+# distinguish a verifier's verdict from a work iteration's completion request
+# (recursion guard: the verifier's own approval is not re-verified).
+VERIFICATION_MARKER = "[LOOP VERIFICATION]"
+
+_VERIFICATION_PROMPT_TEMPLATE = """{marker} — iteration {iteration}. You are an INDEPENDENT VERIFIER.
+
+A previous iteration claims this loop's objective is complete. You did NOT do
+that work — judge it skeptically, on the evidence in the repository, not on
+the claim.
+
+Objective:
+{objective}
+
+Claimed completion summary:
+{summary}
+
+Verify the objective is genuinely met: read the relevant code/artifacts, run
+tests or checks where they exist, and look specifically for gaps between the
+claim and reality (missing acceptance criteria, placeholder work, untested
+paths). Then issue your verdict via the gluon-loop MCP tools:
+
+- CONFIRM — call loop_complete with your own independent assessment of what
+  was verified and how.
+- REJECT — call loop_enqueue_task with specific, self-contained fix task(s)
+  for each gap you found. Do NOT call loop_complete.
+
+Report gaps that affect correctness or the stated objective, not style
+preferences."""
+
 
 class LoopManager:
     """Creates agent loops and advances them when iteration runs complete."""
@@ -81,6 +111,7 @@ class LoopManager:
         objective: str,
         *,
         verify_cmd: str | None = None,
+        agent_verifier: bool = False,
         profile: str = "standard",
         model: str | None = None,
         use_worktree: bool = False,
@@ -100,6 +131,7 @@ class LoopManager:
             project_id=project_id,
             objective=objective,
             verify_cmd=verify_cmd,
+            agent_verifier=agent_verifier,
             profile=profile,
             model=model,
             use_worktree=use_worktree,
@@ -187,10 +219,34 @@ class LoopManager:
         self.store.update_agent_loop(loop)
 
     async def _resolve_completion_request(self, loop: AgentLoop, run: ExecutionRun) -> None:
-        """Grant or deny the agent's completion request (gate authority)."""
+        """Grant or deny the agent's completion request.
+
+        Authority order: independent-verifier subagent (I2, when enabled and
+        the requester was a WORK iteration) → deterministic ``verify_cmd`` gate
+        → gateless agent's word. The verifier's own approval is not re-verified
+        (recursion guard via VERIFICATION_MARKER), but the shell gate still
+        runs beneath it.
+        """
+        if loop.agent_verifier and VERIFICATION_MARKER not in (run.prompt or ""):
+            # A work iteration claimed completion: demote the request and hand
+            # judgment to a FRESH verifier iteration (generator never grades
+            # its own work). The verifier confirms via loop_complete or
+            # rejects by enqueueing fix tasks.
+            loop.completion_requested = False
+            loop.stall_count = 0
+            self._enqueue_verification(loop)
+            self.store.update_agent_loop(loop)
+            logger.info("Loop %s: completion claim from run %s sent to independent verifier", loop.id[:8], run.id[:8])
+            return
+
         if not loop.verify_cmd:
             # Gateless: the agent's word is authority (graceful-gateless semantics).
-            self._complete(loop, "objective met (gateless — agent-declared)")
+            reason = (
+                "objective met (independent verifier confirmed)"
+                if loop.agent_verifier
+                else "objective met (gateless — agent-declared)"
+            )
+            self._complete(loop, reason)
             return
 
         cwd = self._gate_cwd(run)
@@ -264,6 +320,29 @@ class LoopManager:
         cancelled = self.store.cancel_pending_loop_items(loop.id)
         self.store.update_agent_loop(loop)
         logger.info("Completed agent loop %s: %s (%d stale tasks dropped)", loop.id[:8], reason, cancelled)
+
+    def _enqueue_verification(self, loop: AgentLoop) -> None:
+        """Enqueue the independent-verifier iteration (I2).
+
+        Dispatches ahead of other loop tasks (priority) so the verdict lands
+        before more work piles onto a possibly-complete loop. Harness-authored:
+        bypasses dedup; the iteration number keeps repeated verifications
+        distinct.
+        """
+        prompt = _VERIFICATION_PROMPT_TEMPLATE.format(
+            marker=VERIFICATION_MARKER,
+            iteration=loop.iteration_count + 1,
+            objective=loop.objective,
+            summary=loop.completion_summary or "(no summary provided)",
+        )
+        self.store.enqueue_work(
+            project_id=loop.project_id,
+            prompt=prompt,
+            profile=loop.profile,
+            priority=LOOP_TASK_PRIORITY - 2,
+            loop_id=loop.id,
+            source="verifier",
+        )
 
     def _enqueue_continuation(self, loop: AgentLoop, gate_failure: str | None = None) -> None:
         """Harness-authored recovery iteration (stall or denied completion).

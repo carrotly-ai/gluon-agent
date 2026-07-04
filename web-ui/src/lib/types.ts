@@ -1229,3 +1229,80 @@ export interface LinkStatusResponse {
   telegram_user_id: number | null
   discord_user_id: number | null
 }
+
+// ========== Agent Loops (loop-engineering Phase 2) ==========
+
+/** Per-loop effectiveness metrics (I5 scoped to one loop's runs). */
+export interface LoopMetrics {
+  runs: number
+  pr_producing: number
+  accepted: number
+  acceptance_rate: number
+  cost_usd: number
+  cost_per_accepted_usd: number | null
+}
+
+/** One iteration run in a loop's timeline (detail endpoint only). */
+export interface LoopRunSummary {
+  id: string
+  status: string
+  cost_usd: number | null
+  title: string
+  verifier: boolean
+  created_at: string
+  completed_at: string | null
+}
+
+export type AgentLoopStatus = 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
+
+/** An agent loop: a persistent objective iterated across runs. */
+export interface AgentLoop {
+  id: string
+  project_id: string
+  project_name: string | null
+  metrics: LoopMetrics | null
+  recent_runs: LoopRunSummary[]
+  objective: string
+  verify_cmd: string | null
+  agent_verifier: boolean
+  readiness: 'gated' | 'gateless'
+  profile: string
+  model: string | null
+  use_worktree: boolean
+  status: AgentLoopStatus
+  status_reason: string | null
+  iteration_count: number
+  max_iterations: number
+  total_cost_usd: number
+  max_cost_usd: number | null
+  stall_count: number
+  max_stalls: number
+  max_fanout: number
+  completion_requested: boolean
+  completion_summary: string | null
+  pending_tasks: number
+  initiator: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
+export interface AgentLoopListResponse {
+  loops: AgentLoop[]
+  total: number
+}
+
+/** Request body for POST /api/loops. */
+export interface CreateAgentLoopRequest {
+  project_name: string
+  objective: string
+  verify_cmd?: string | null
+  agent_verifier?: boolean
+  profile?: string
+  model?: string | null
+  use_worktree?: boolean
+  max_iterations?: number
+  max_cost_usd?: number | null
+  max_stalls?: number
+  max_fanout?: number
+}

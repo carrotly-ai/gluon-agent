@@ -3304,6 +3304,7 @@ def formula_list_cmd() -> None:
 
     table = Table(title="Available Formulas")
     table.add_column("Name", style="cyan")
+    table.add_column("Kind")
     table.add_column("Description")
     table.add_column("Steps", justify="right")
     table.add_column("Variables", justify="right")
@@ -3313,8 +3314,9 @@ def formula_list_cmd() -> None:
         source = str(t.source_path) if t.source_path else "builtin"
         table.add_row(
             t.name,
+            t.kind,
             t.description or "",
-            str(len(t.steps)),
+            "loop" if t.kind == "loop" else str(len(t.steps)),
             str(len(t.variables)),
             source,
         )
@@ -3332,7 +3334,9 @@ def formula_show(name: Annotated[str, typer.Argument(help="Formula name")]) -> N
         console.print(f"[red]Formula not found: {name}[/red]")
         raise typer.Exit(1)
 
-    console.print(Panel(f"[bold]{template.name}[/bold]\n{template.description or ''}", title="Formula"))
+    console.print(
+        Panel(f"[bold]{template.name}[/bold] ({template.kind})\n{template.description or ''}", title="Formula")
+    )
 
     if template.variables:
         var_table = Table(title="Variables")
@@ -3351,6 +3355,16 @@ def formula_show(name: Annotated[str, typer.Argument(help="Formula name")]) -> N
                 v.help or "",
             )
         console.print(var_table)
+
+    if template.kind == "loop":
+        console.print(Panel(template.objective or "", title="Loop objective (template)"))
+        console.print(f"[bold]Gate:[/bold] {template.verify_cmd or '(gateless)'}")
+        console.print(f"[bold]Independent verifier:[/bold] {'yes' if template.agent_verifier else 'no'}")
+        console.print(
+            f"[bold]Budget:[/bold] {template.max_iterations} iterations"
+            + (f", ${template.max_cost_usd:.2f} cap" if template.max_cost_usd else ", no cost cap")
+        )
+        return
 
     step_table = Table(title="Steps")
     step_table.add_column("ID", style="cyan")
@@ -3401,7 +3415,9 @@ def formula_run(
     chain_executor = ChainExecutor(store, runner)
     formula_executor = FormulaExecutor(store, chain_executor)
 
-    async def _run() -> str:
+    from gluon.formula_executor import FormulaRunOutcome
+
+    async def _run() -> FormulaRunOutcome:
         return await formula_executor.execute(
             template=template,
             project_id=proj.id,
@@ -3409,8 +3425,12 @@ def formula_run(
             initiator="cli",
         )
 
-    chain_id = anyio.run(_run)
-    console.print(f"[green]Formula '{name}' started as chain {chain_id}[/green]")
+    outcome = anyio.run(_run)
+    if outcome.kind == "loop":
+        console.print(f"[green]Formula '{name}' created agent loop {outcome.loop_id}[/green]")
+        console.print("Iteration 1 seeded — the server's queue drain will dispatch it. See `gluon loop show`.")
+    else:
+        console.print(f"[green]Formula '{name}' started as chain {outcome.chain_id}[/green]")
 
 
 @formula_app.command("validate")
@@ -3425,7 +3445,8 @@ def formula_validate(path: Annotated[Path, typer.Argument(help="Path to YAML for
         for err in errors:
             console.print(f"[red]  {err}[/red]")
         raise typer.Exit(1)
-    console.print(f"[green]Formula '{template.name}' is valid ({len(template.steps)} steps).[/green]")
+    detail = "loop template" if template.kind == "loop" else f"{len(template.steps)} steps"
+    console.print(f"[green]Formula '{template.name}' is valid ({detail}).[/green]")
 
 
 # ========== Work Queue Commands (F12) ==========
@@ -5773,6 +5794,10 @@ def loop_create(
         str | None,
         typer.Option("--verify-cmd", help="Objective gate: completion granted only when this command exits 0"),
     ] = None,
+    agent_verifier: Annotated[
+        bool,
+        typer.Option("--agent-verifier", help="Judge completion claims with an independent verifier iteration (I2)"),
+    ] = False,
     profile: Annotated[str, typer.Option("--profile", "-P", help="Task profile for iterations")] = "standard",
     model: Annotated[str | None, typer.Option("--model", "-m", help="Model override for iterations")] = None,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Run iterations in isolated worktrees")] = False,
@@ -5795,6 +5820,7 @@ def loop_create(
         project_id=proj.id,
         objective=objective,
         verify_cmd=verify_cmd,
+        agent_verifier=agent_verifier,
         profile=profile,
         model=model,
         use_worktree=worktree,

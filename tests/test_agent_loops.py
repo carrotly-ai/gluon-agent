@@ -26,8 +26,10 @@ from gluon.store import GluonStore
 
 
 def _project(store: GluonStore, name: str = "p"):
-    ws = store.create_workspace(f"w-{name}", f"/tmp/w-{name}")
-    return store.create_project(name=name, path=f"/tmp/w-{name}/{name}", workspace_id=ws.id)
+    from pathlib import Path
+
+    ws = store.create_workspace(f"w-{name}", Path(f"/tmp/w-{name}"))
+    return store.create_project(name=name, path=Path(f"/tmp/w-{name}/{name}"), workspace_id=ws.id)
 
 
 def _make_loop(store: GluonStore, project_id: str, **kwargs) -> AgentLoop:
@@ -495,6 +497,226 @@ def test_api_queue_response_exposes_loop_fields(api_client_with_mocks, temp_stor
     assert seed["source"] == "seed"
 
 
+# ========== independent-verifier subagent (I2) ==========
+
+
+def test_completion_request_routes_to_verifier(temp_store: GluonStore) -> None:
+    """agent_verifier: a work iteration's completion claim spawns a verifier
+    iteration instead of completing the loop."""
+    from gluon.loop_manager import VERIFICATION_MARKER
+
+    proj = _project(temp_store)
+    loop = _make_loop(temp_store, proj.id, agent_verifier=True)
+    temp_store.cancel_pending_loop_items(loop.id)  # drop the seed for clarity
+    loop.completion_requested = True
+    loop.completion_summary = "did the thing"
+    temp_store.update_agent_loop(loop)
+    run = _finished_run(temp_store, loop)  # ordinary work run (no marker)
+
+    asyncio.run(LoopManager(temp_store).on_run_completed(run))
+    updated = temp_store.get_agent_loop(loop.id)
+    assert updated is not None
+    assert updated.status == LoopStatus.RUNNING
+    assert updated.completion_requested is False  # demoted, pending verdict
+    pending = [
+        i for i in temp_store.list_work_items(project_id=proj.id, status="pending", limit=50) if i.loop_id == loop.id
+    ]
+    assert len(pending) == 1
+    assert pending[0].source == "verifier"
+    assert VERIFICATION_MARKER in pending[0].prompt
+    assert "did the thing" in pending[0].prompt  # claim shown to the verifier
+
+
+def test_verifier_confirmation_completes_loop(temp_store: GluonStore) -> None:
+    """The verifier's own loop_complete is granted (recursion guard) — gateless."""
+    from gluon.loop_manager import VERIFICATION_MARKER
+
+    proj = _project(temp_store)
+    loop = _make_loop(temp_store, proj.id, agent_verifier=True)
+    loop.completion_requested = True
+    loop.completion_summary = "verified independently"
+    temp_store.update_agent_loop(loop)
+    run = _finished_run(temp_store, loop)
+    run.prompt = f"{VERIFICATION_MARKER} — iteration 2. You are an INDEPENDENT VERIFIER..."
+    temp_store.update_run(run)
+
+    asyncio.run(LoopManager(temp_store).on_run_completed(run))
+    updated = temp_store.get_agent_loop(loop.id)
+    assert updated is not None
+    assert updated.status == LoopStatus.COMPLETED
+    assert "verifier" in (updated.status_reason or "")
+
+
+def test_verifier_confirmation_still_gated(temp_store: GluonStore, tmp_path) -> None:
+    """The deterministic gate runs beneath the verifier: a confirmed claim with
+    a failing verify_cmd is still denied."""
+    from gluon.loop_manager import VERIFICATION_MARKER
+
+    proj = _project(temp_store)
+    loop = _make_loop(temp_store, proj.id, agent_verifier=True, verify_cmd="false")
+    temp_store.cancel_pending_loop_items(loop.id)
+    loop.completion_requested = True
+    temp_store.update_agent_loop(loop)
+    run = _finished_run(temp_store, loop)
+    run.prompt = f"{VERIFICATION_MARKER} verifier iteration"
+    run.use_worktree = True
+    run.worktree_path = str(tmp_path)
+    temp_store.update_run(run)
+
+    asyncio.run(LoopManager(temp_store).on_run_completed(run))
+    updated = temp_store.get_agent_loop(loop.id)
+    assert updated is not None
+    assert updated.status == LoopStatus.RUNNING  # denied by the gate
+    assert updated.completion_requested is False
+    pending = [
+        i for i in temp_store.list_work_items(project_id=proj.id, status="pending", limit=50) if i.loop_id == loop.id
+    ]
+    assert any("DENIED" in i.prompt for i in pending)
+
+
+def test_verifier_rejection_continues_loop(temp_store: GluonStore) -> None:
+    """A verifier that enqueues fix tasks (no loop_complete) keeps the loop
+    running on the agent-authored plan."""
+    from gluon.loop_manager import VERIFICATION_MARKER
+
+    proj = _project(temp_store)
+    loop = _make_loop(temp_store, proj.id, agent_verifier=True)
+    temp_store.cancel_pending_loop_items(loop.id)
+    # Verifier rejected: enqueued a fix task, did not request completion
+    temp_store.enqueue_work(project_id=proj.id, prompt="fix the gap", loop_id=loop.id, source="agent")
+    run = _finished_run(temp_store, loop)
+    run.prompt = f"{VERIFICATION_MARKER} verifier iteration"
+    temp_store.update_run(run)
+
+    asyncio.run(LoopManager(temp_store).on_run_completed(run))
+    updated = temp_store.get_agent_loop(loop.id)
+    assert updated is not None
+    assert updated.status == LoopStatus.RUNNING
+    assert updated.stall_count == 0
+
+
+# ========== per-loop effectiveness metrics ==========
+
+
+def test_get_agent_loop_metrics(temp_store: GluonStore) -> None:
+    proj = _project(temp_store)
+    loop = _make_loop(temp_store, proj.id)
+
+    r1 = temp_store.create_run(project_id=proj.id, prompt="a", loop_id=loop.id)
+    r1.cost_usd = 2.0
+    r1.pr_number = 7
+    r1.pr_status = "merged"
+    temp_store.update_run(r1)
+    r2 = temp_store.create_run(project_id=proj.id, prompt="b", loop_id=loop.id)
+    r2.cost_usd = 1.0
+    r2.pr_number = 8
+    r2.pr_status = "open"
+    temp_store.update_run(r2)
+    # Unrelated run must not count
+    temp_store.create_run(project_id=proj.id, prompt="c")
+
+    m = temp_store.get_agent_loop_metrics(loop.id)
+    assert m["runs"] == 2
+    assert m["pr_producing"] == 2
+    assert m["accepted"] == 1
+    assert m["acceptance_rate"] == 0.5
+    assert m["cost_usd"] == pytest.approx(3.0)
+    assert m["cost_per_accepted_usd"] == pytest.approx(3.0)
+
+
+def test_api_loop_detail_includes_metrics(api_client_with_mocks, temp_store: GluonStore) -> None:
+    client, _mock_runner, _ = api_client_with_mocks
+    proj = _project(temp_store)
+    body = client.post(
+        "/api/loops", json={"project_name": proj.name, "objective": "obj", "agent_verifier": True}
+    ).json()
+    assert body["agent_verifier"] is True
+    assert body["metrics"] is None  # no runs yet
+
+    run = temp_store.create_run(project_id=proj.id, prompt="iter", loop_id=body["id"])
+    run.cost_usd = 0.4
+    temp_store.update_run(run)
+    detail = client.get(f"/api/loops/{body['id']}").json()
+    assert detail["metrics"]["runs"] == 1
+    assert detail["metrics"]["cost_usd"] == pytest.approx(0.4)
+
+
+# ========== loop formulas (templates) ==========
+
+
+def test_loop_formula_creates_agent_loop(temp_store: GluonStore) -> None:
+    import asyncio as _asyncio
+    from unittest.mock import MagicMock
+
+    from gluon.formula_executor import FormulaExecutor
+    from gluon.formulas import FormulaTemplate, FormulaVariable
+
+    proj = _project(temp_store)
+    template = FormulaTemplate(
+        name="loop-tpl",
+        kind="loop",
+        variables=[
+            FormulaVariable(name="focus", required=True),
+            FormulaVariable(name="verify", default="uv run pytest"),
+        ],
+        objective="Improve {{focus}} until done",
+        verify_cmd="{{verify}}",
+        agent_verifier=True,
+        max_iterations=7,
+        max_cost_usd=5.0,
+        profile="quick",
+    )
+    executor = FormulaExecutor(temp_store, MagicMock())
+    outcome = _asyncio.run(
+        executor.execute(template=template, project_id=proj.id, variables={"focus": "test coverage"})
+    )
+
+    assert outcome.kind == "loop"
+    assert outcome.loop_id
+    assert outcome.chain_id is None
+    loop = temp_store.get_agent_loop(outcome.loop_id)
+    assert loop is not None
+    assert loop.objective == "Improve test coverage until done"
+    assert loop.verify_cmd == "uv run pytest"  # rendered from {{verify}} default
+    assert loop.agent_verifier is True
+    assert loop.max_iterations == 7
+    assert loop.max_cost_usd == 5.0
+    assert loop.profile == "quick"
+    assert loop.initiator == "formula:loop-tpl"
+    assert temp_store.count_pending_loop_items(loop.id) == 1  # seed queued
+
+
+def test_validate_loop_formula() -> None:
+    from gluon.formulas import FormulaStepDef, FormulaTemplate, validate_formula
+
+    ok = FormulaTemplate(name="t", kind="loop", objective="do things")
+    assert validate_formula(ok) == []
+
+    no_objective = FormulaTemplate(name="t", kind="loop")
+    assert any("objective" in e for e in validate_formula(no_objective))
+
+    with_steps = FormulaTemplate(
+        name="t",
+        kind="loop",
+        objective="o",
+        steps=[FormulaStepDef(id="s", name="s", prompt="p")],
+    )
+    assert any("steps" in e for e in validate_formula(with_steps))
+
+    bad_kind = FormulaTemplate(name="t", kind="banana")
+    assert any("Unknown formula kind" in e for e in validate_formula(bad_kind))
+
+
+def test_builtin_improve_loop_formula_loads() -> None:
+    from gluon.formulas import FormulaLoader, validate_formula
+
+    template = FormulaLoader.load("improve")
+    assert template is not None
+    assert template.kind == "loop"
+    assert template.agent_verifier is True
+    assert validate_formula(template) == []
+
+
 # ========== worker-agent injection (agent.py) ==========
 
 
@@ -519,7 +741,8 @@ def test_build_options_injects_loop_tools_and_prompt(temp_store: GluonStore, tmp
     assert "gluon-loop" in options.mcp_servers
     for name in LOOP_TOOL_NAMES:
         assert name in options.allowed_tools
-    append = options.system_prompt["append"]
+    assert isinstance(options.system_prompt, dict)
+    append = str(dict(options.system_prompt).get("append", ""))
     assert "AGENT LOOP — Iteration 1" in append
     assert "Build the widget" in append
     assert "uv run pytest" in append
@@ -537,4 +760,5 @@ def test_build_options_non_loop_run_unchanged(temp_store: GluonStore, tmp_path) 
 
     if isinstance(options.mcp_servers, dict):
         assert "gluon-loop" not in options.mcp_servers
-    assert "AGENT LOOP" not in options.system_prompt["append"]
+    assert isinstance(options.system_prompt, dict)
+    assert "AGENT LOOP" not in str(dict(options.system_prompt).get("append", ""))

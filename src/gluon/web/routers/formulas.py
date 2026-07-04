@@ -40,6 +40,7 @@ async def list_formulas() -> FormulaListResponse:
         formulas=[
             FormulaTemplateResponse(
                 name=t.name,
+                kind=t.kind,
                 description=t.description,
                 variables=[
                     FormulaVariableResponse(
@@ -54,6 +55,12 @@ async def list_formulas() -> FormulaListResponse:
                     for s in t.steps
                 ],
                 use_worktree=t.use_worktree,
+                objective=t.objective,
+                verify_cmd=t.verify_cmd,
+                agent_verifier=t.agent_verifier,
+                max_iterations=t.max_iterations,
+                max_cost_usd=t.max_cost_usd,
+                profile=t.profile,
             )
             for t in templates
         ]
@@ -82,7 +89,7 @@ async def run_formula(
 
     executor = FormulaExecutor(store=store, chain_executor=chain_executor)
     try:
-        chain_id = await executor.execute(
+        outcome = await executor.execute(
             template=template,
             project_id=req.project_id,
             variables=req.variables,
@@ -90,7 +97,16 @@ async def run_formula(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Loop formulas: dispatch the seed immediately (same UX as POST /api/loops).
+    if outcome.kind == "loop":
+        try:
+            await runner.kick_queue_drain()
+        except Exception:
+            pass  # drain loop will pick up the seed
+
     return FormulaRunResponse(
-        chain_id=chain_id,
-        step_count=len(template.steps),
+        kind=outcome.kind,
+        chain_id=outcome.chain_id,
+        loop_id=outcome.loop_id,
+        step_count=outcome.step_count,
     )

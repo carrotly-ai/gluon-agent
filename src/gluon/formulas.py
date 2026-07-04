@@ -36,14 +36,29 @@ class FormulaStepDef(BaseModel):
 
 
 class FormulaTemplate(BaseModel):
-    """A reusable workflow formula template."""
+    """A reusable formula template.
+
+    Two kinds (loop-engineering Phase 2 follow-up):
+    - ``workflow`` (default): a DAG of steps instantiated as a TaskChain.
+    - ``loop``: an agent-loop template — ``objective`` (with ``{{var}}``
+      placeholders) plus loop config, instantiated as an AgentLoop
+      (docs/design/agent-loops.md).
+    """
 
     name: str
+    kind: str = "workflow"  # "workflow" | "loop"
     description: str | None = None
     variables: list[FormulaVariable] = Field(default_factory=list)
     steps: list[FormulaStepDef] = Field(default_factory=list)
     use_worktree: bool = True
     source_path: Path | None = None
+    # Loop-template fields (kind == "loop" only)
+    objective: str | None = None  # Contains {{var}} placeholders
+    verify_cmd: str | None = None
+    agent_verifier: bool = False
+    max_iterations: int = 20
+    max_cost_usd: float | None = None
+    profile: str = "standard"  # Profile for loop iterations
 
 
 class FormulaLoader:
@@ -102,17 +117,39 @@ class FormulaLoader:
 
         return FormulaTemplate(
             name=data["name"],
+            kind=data.get("kind", "workflow"),
             description=data.get("description"),
             variables=variables,
             steps=steps,
             use_worktree=data.get("use_worktree", True),
             source_path=path,
+            objective=data.get("objective"),
+            verify_cmd=data.get("verify_cmd"),
+            agent_verifier=bool(data.get("agent_verifier", False)),
+            max_iterations=int(data.get("max_iterations", 20)),
+            max_cost_usd=(float(data["max_cost_usd"]) if data.get("max_cost_usd") is not None else None),
+            profile=data.get("profile", "standard"),
         )
 
 
 def validate_formula(template: FormulaTemplate) -> list[str]:
     """Validate template: check cycles, missing deps, required vars. Returns errors."""
     errors: list[str] = []
+
+    if template.kind not in ("workflow", "loop"):
+        errors.append(f"Unknown formula kind '{template.kind}' (expected 'workflow' or 'loop')")
+        return errors
+
+    # Loop templates: an objective instead of steps (docs/design/agent-loops.md)
+    if template.kind == "loop":
+        if not (template.objective or "").strip():
+            errors.append("Loop formula requires an 'objective'")
+        if template.steps:
+            errors.append("Loop formula must not define 'steps' (the agent authors iterations)")
+        if template.max_iterations < 1:
+            errors.append("max_iterations must be >= 1")
+        return errors
+
     step_ids = {s.id for s in template.steps}
 
     # Check for empty steps

@@ -223,9 +223,11 @@ harness keeps authority over verification, budgets, and stopping.
 
 ```bash
 gluon loop create myproject "Migrate all API routes to v2" \
-  --verify-cmd "uv run pytest" --max-iterations 20 --max-cost 25
+  --verify-cmd "uv run pytest" --agent-verifier --max-iterations 20 --max-cost 25
 gluon loop list / show / pause / resume / cancel <id>
+gluon formula run improve myproject --var focus="test coverage"  # loop template
 # API: POST/GET /api/loops, POST /api/loops/{id}/pause|resume|cancel
+# Web UI: /loops (list + detail timeline + create)
 ```
 
 - Iterations are ordinary work-queue items (`loop_id` set) dispatched by the
@@ -233,10 +235,18 @@ gluon loop list / show / pause / resume / cancel <id>
 - Workers get the in-process `gluon-loop` MCP tools: `loop_enqueue_task`
   (fan-out = multiple calls; dedup + `max_fanout` enforced), `loop_complete`
   (granted only when `verify_cmd` exits 0 — gate is authority), `loop_status`.
+- `--agent-verifier` (I2): completion claims are judged by a fresh
+  independent-verifier iteration (confirms via `loop_complete`, rejects by
+  enqueueing fix tasks); the shell gate still runs beneath its approval.
 - Stop conditions: `max_iterations`, `max_cost_usd`, stall detection
   (`max_stalls` consecutive no-progress iterations → PAUSED). Paused loops
   keep pending tasks inert (resumable); `LoopManager` (loop_manager.py) is
   the advancement seam, called on run completion in runner.py.
+- **Loop templates**: formulas with `kind: loop` (templated `objective` +
+  gate/budgets) instantiate an AgentLoop instead of a TaskChain — builtin
+  example `src/gluon/formulas/improve.yml`.
+- Per-loop effectiveness (acceptance rate, cost-per-accepted-change) on
+  `GET /api/loops/{id}` → `metrics`.
 
 **Loop lifecycle:** `RUNNING → PAUSED (budget/stall/failure — resumable) → RUNNING | COMPLETED/CANCELLED`
 

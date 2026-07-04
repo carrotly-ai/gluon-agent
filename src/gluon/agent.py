@@ -718,6 +718,11 @@ class GluonAgent:
                     if _loop.verify_cmd
                     else "none (gateless) — loop_complete is accepted on your word; be certain"
                 )
+                if _loop.agent_verifier:
+                    gate_text += (
+                        "; additionally, an INDEPENDENT verifier iteration will judge any "
+                        "completion claim — it rejects work that doesn't hold up to scrutiny"
+                    )
                 loop_prompt_append = LOOP_SYSTEM_PROMPT_TEMPLATE.format(
                     iteration=_loop.iteration_count + 1,
                     loop_id=_loop.id,

@@ -827,6 +827,9 @@ MIGRATIONS = [
     # Loop linkage on runs (which loop this run is an iteration of).
     "ALTER TABLE execution_runs ADD COLUMN loop_id TEXT;",
     "CREATE INDEX IF NOT EXISTS idx_runs_loop_id ON execution_runs(loop_id);",
+    # Independent-verifier subagent (I2): completion requests judged by a fresh
+    # verifier iteration instead of (or on top of) the shell gate.
+    "ALTER TABLE agent_loops ADD COLUMN agent_verifier INTEGER NOT NULL DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -4461,6 +4464,38 @@ class GluonStore:
             "by_kind": [{"kind": k, **_finalize(by_kind[k])} for k in sorted(by_kind)],
         }
 
+    def get_agent_loop_metrics(self, loop_id: str) -> dict:
+        """Per-loop effectiveness (loop-engineering Phase 2 follow-up): the I5
+        metrics — acceptance rate + cost-per-accepted-change — computed over the
+        runs belonging to one agent loop. Read-only.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS runs,
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                    COALESCE(SUM(CASE WHEN pr_number IS NOT NULL THEN 1 ELSE 0 END), 0) AS pr_producing,
+                    COALESCE(SUM(CASE WHEN pr_status = 'merged' THEN 1 ELSE 0 END), 0) AS accepted
+                FROM execution_runs
+                WHERE loop_id = ?
+                """,
+                (loop_id,),
+            ).fetchone()
+
+        runs = int(row["runs"])
+        pr_producing = int(row["pr_producing"])
+        accepted = int(row["accepted"])
+        cost_usd = float(row["cost_usd"])
+        return {
+            "runs": runs,
+            "pr_producing": pr_producing,
+            "accepted": accepted,
+            "acceptance_rate": (accepted / pr_producing) if pr_producing else 0.0,
+            "cost_usd": round(cost_usd, 6),
+            "cost_per_accepted_usd": (round(cost_usd / accepted, 6) if accepted else None),
+        }
+
     def get_usage_by_project(
         self,
         since: datetime | None = None,
@@ -5687,18 +5722,19 @@ class GluonStore:
         with self._get_conn() as conn:
             conn.execute(
                 """
-                INSERT INTO agent_loops (id, project_id, objective, verify_cmd, profile,
-                    model, use_worktree, status, iteration_count, total_cost_usd,
+                INSERT INTO agent_loops (id, project_id, objective, verify_cmd, agent_verifier,
+                    profile, model, use_worktree, status, iteration_count, total_cost_usd,
                     stall_count, max_iterations, max_cost_usd, max_stalls, max_fanout,
                     completion_requested, completion_summary, status_reason, initiator,
                     created_by_user_id, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     loop.id,
                     loop.project_id,
                     loop.objective,
                     loop.verify_cmd,
+                    1 if loop.agent_verifier else 0,
                     loop.profile,
                     loop.model,
                     1 if loop.use_worktree else 0,
@@ -5838,6 +5874,7 @@ class GluonStore:
             project_id=row["project_id"],
             objective=row["objective"],
             verify_cmd=row["verify_cmd"],
+            agent_verifier=bool(row["agent_verifier"]),
             profile=row["profile"] or "standard",
             model=row["model"],
             use_worktree=bool(row["use_worktree"]),
