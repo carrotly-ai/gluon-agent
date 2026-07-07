@@ -52,12 +52,21 @@ class FormulaExecutor:
             # render means gateless.
             rendered_verify = render_prompt(template.verify_cmd, resolved) if template.verify_cmd else None
             rendered_autonomy = render_prompt(template.autonomy, resolved) if template.autonomy else "L3"
+            # watch_cmd and executor_model may be templated (e.g. a "{{repo}}"
+            # in the watch, or a per-run "{{executor_model}}" override) — render
+            # them so an unset variable collapses to "" (→ None), not a literal
+            # "{{executor_model}}" masquerading as a model id.
+            rendered_watch = render_prompt(template.watch_cmd, resolved) if template.watch_cmd else None
+            rendered_executor = render_prompt(template.executor_model, resolved) if template.executor_model else None
             loop = LoopManager(self.store).create_loop(
                 project_id=project_id,
                 objective=render_prompt(template.objective or "", resolved),
                 verify_cmd=rendered_verify or None,
                 agent_verifier=template.agent_verifier,
                 profile=template.profile,
+                model=template.model,
+                executor_model=rendered_executor or None,
+                watch_cmd=rendered_watch or None,
                 use_worktree=template.use_worktree,
                 autonomy=rendered_autonomy,
                 max_iterations=template.max_iterations,

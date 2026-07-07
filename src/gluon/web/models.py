@@ -1195,7 +1195,15 @@ class CreateAgentLoopRequest(BaseModel):
         description="Independent-verifier subagent (I2): completion claims are judged by a fresh verifier iteration",
     )
     profile: str = Field(default="standard", description="Task profile for iteration runs")
-    model: str | None = Field(default=None, description="Model override for iteration runs")
+    model: str | None = Field(default=None, description="Judgment model (surveyor / verifier / fixes)")
+    executor_model: str | None = Field(
+        default=None,
+        description="Cheaper/faster model for mechanical agent-authored fan-out tasks (default: inherit model)",
+    )
+    watch_cmd: str | None = Field(
+        default=None,
+        description="Event-reactive loop: when idle, re-seed a surveyor cycle from this command's output if it exits 0",
+    )
     use_worktree: bool = Field(default=False, description="Run iterations in isolated Git worktrees")
     autonomy: str = Field(
         default="L3",
@@ -1249,6 +1257,8 @@ class AgentLoopResponse(BaseModel):
     readiness: str  # "gated" | "gateless"
     profile: str
     model: str | None = None
+    executor_model: str | None = None
+    watch_cmd: str | None = None
     use_worktree: bool
     autonomy: str = "L3"
     status: str

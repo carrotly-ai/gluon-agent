@@ -193,7 +193,33 @@ escalation on pause. The vision becomes visible in the product.*
 *Deferred to Phase C: campaign-level (cross-loop) allowlists and schedule
 presets; the per-loop `claim_work` budget guard already bounds token burn.*
 
-**Phase C — consolidation (debt paydown)**
+**Phase C — taxonomy parity (close the gaps vs. the Claude Code loop taxonomy)**
+*STATUS: IMPLEMENTED 2026-07-07 (N1–N3, + tests in
+`tests/test_loop_pivot_phase_c.py`; loop suites green, ruff + mypy clean).*
+The ClaudeDevs loop taxonomy (turn / goal / time / proactive) exposed three
+places our single-primitive AgentLoop was thinner than their composable
+primitives. Each is now a first-class field on the loop:
+1. ✅ **Intra-loop model routing** (`model_routing`): `loop.model` is the
+   JUDGMENT model (surveyor / independent verifier / harness continuations +
+   fixes); `loop.executor_model`, when set, runs the mechanical agent-authored
+   fan-out tasks (`source == "agent"`) on a cheaper/faster tier. Decision is a
+   pure `resolve_loop_iteration_model(loop, source, profile)` used at dispatch.
+   Their "route routines to smaller models, capable models for judgment" — but
+   automatic, per-iteration, inside one loop.
+2. ✅ **Event-reactive ("watch") loops** (`watch_cmd`): a loop that would stall
+   on an empty queue instead runs `watch_cmd` in the project dir; exit 0 →
+   re-seed a surveyor cycle carrying its stdout (react to external state), exit
+   != 0 → fall through to normal stall/idle bounds. This is their time/proactive
+   "stop when the queue is empty / react to external systems" shape — pair with
+   a `TaskSchedule` to re-arm a quiet watch loop. `pr-babysitter` is now the
+   canonical watch SKU.
+3. ✅ **Verification-skill convention** (`verify-loop-work`): a shipped skill
+   encoding the two-tier discipline (deterministic gate + reviewer-grade
+   qualitative check), plus seed/continuation prompt guidance to verify before
+   claiming completion. Their SKILL.md verification pattern, made the loop
+   default.
+
+**Phase D — consolidation (debt paydown)**
 - Ralph→node-loop merge; chains→campaign migration; scheduler unification;
   webhook→campaign-node; retire duplicate completion detectors.
 

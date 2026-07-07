@@ -475,6 +475,22 @@ def resolve_task_options(
     }
 
 
+def resolve_loop_iteration_model(loop: "AgentLoop", source: str | None, profile: str) -> str:
+    """Which model runs one loop iteration (loop-first pivot Phase C routing).
+
+    ``loop.model`` is the JUDGMENT model — used for the surveyor, the independent
+    verifier, and harness continuations/fixes (planning + grading want the
+    capable tier). ``loop.executor_model``, when set, runs only the mechanical
+    agent-authored fan-out tasks (``source == "agent"``) on a cheaper/faster
+    tier. Everything falls back to the profile default when ``loop.model`` is
+    unset. Pure + total so the dispatch decision is unit-testable.
+    """
+    judgment = loop.model or resolve_task_options(profile=profile)["model"]
+    if source == "agent" and loop.executor_model:
+        return loop.executor_model
+    return judgment
+
+
 class SupervisionConfig(BaseModel):
     """Configuration for task supervision and auto-resume.
 
@@ -1884,7 +1900,21 @@ class AgentLoop(BaseModel):
     agent_verifier: bool = False
     profile: str = "standard"
     model: str | None = None
+    # Intra-loop model routing (loop-first pivot Phase C): ``model`` is the
+    # JUDGMENT model — used for the surveyor, the independent verifier, and
+    # harness continuations/fixes (planning + grading want the capable model).
+    # ``executor_model``, when set, runs the mechanical agent-authored fan-out
+    # tasks on a cheaper/faster tier. None = executors inherit ``model``.
+    executor_model: str | None = None
     use_worktree: bool = False
+    # Event-reactive ("watch") loop shape (loop-first pivot Phase C): when set,
+    # a loop that would otherwise stall on an empty queue instead runs this
+    # command in the project dir and, if it exits 0, re-seeds a surveyor
+    # iteration carrying the command's stdout as the fresh external signal
+    # (e.g. `gh pr list --json ...`, a queue-depth probe). Exit != 0 means "no
+    # work right now" and falls through to normal stall/idle bounds. Pair with a
+    # TaskSchedule to re-arm a quiet watch loop periodically.
+    watch_cmd: str | None = None
     # Autonomy ladder (loop-first pivot Phase B): L1 report-only (pause after
     # the surveyor authors the plan; execution needs explicit resume), L2
     # assisted (same checkpoint, framed as plan approval), L3 unattended (no

@@ -77,9 +77,13 @@ Objective:
      work so it never merges back. Refer to files ONLY by repo-relative paths
      (e.g. `src/strings.py`), and do NOT do the implementation work yourself
      in this survey — author the tasks and let them run.
+   - give each authored task a verification step: reference any available
+     verification skill (e.g. `verify-loop-work`) in the task prompt and/or set
+     a `verify_cmd` so the executor proves its work before the task counts done.
 3. If the objective is genuinely a single small task, you may instead do it now
    and call loop_complete. If your survey finds the objective already met,
-   call loop_complete with the evidence.
+   call loop_complete with the evidence. Before claiming completion, VERIFY —
+   use any available verification skill and run the gate yourself.
 
 Before finishing you MUST have either enqueued the task graph or called
 loop_complete — ending with neither counts as a stall."""
@@ -119,7 +123,24 @@ Objective:
 
 Assess what remains, then EITHER do the next focused slice of work and enqueue
 follow-up task(s) via loop_enqueue_task, OR call loop_complete if the objective
-is fully met."""
+is fully met. Before claiming completion, VERIFY — use any available
+verification skill (e.g. `verify-loop-work`) and run the gate yourself."""
+
+_WATCH_SEED_TEMPLATE = """[WATCH TRIGGER — iteration {iteration}] This is an event-reactive loop. Its
+watch command reported new external state to act on. You are the SURVEYOR for
+this reactive cycle: read the signal below, then author the work it implies.
+
+Objective:
+{objective}
+
+Watch signal (stdout of `{watch_cmd}`, tail):
+{output}
+
+DECOMPOSE the work this signal implies via loop_enqueue_task (one task per
+independent unit; use depends_on for ordering; repo-relative paths only — each
+task runs in its own fresh checkout). If the signal turns out to need no action,
+call loop_complete for this cycle instead. Do NOT do the implementation work
+here — author the tasks and let them run."""
 
 _GATE_DENIED_BLOCK = """
 
@@ -177,6 +198,8 @@ class LoopManager:
         agent_verifier: bool = False,
         profile: str = "standard",
         model: str | None = None,
+        executor_model: str | None = None,
+        watch_cmd: str | None = None,
         use_worktree: bool = False,
         autonomy: str = "L3",
         max_iterations: int = 20,
@@ -217,6 +240,10 @@ class LoopManager:
         # (a false "gated" loop that grants every completion).
         if verify_cmd is not None and not verify_cmd.strip():
             verify_cmd = None
+        # Same normalization for the optional routing/watch config — an empty
+        # string is "unset", not a real model id or a watch that always fires.
+        executor_model = (executor_model or "").strip() or None
+        watch_cmd = (watch_cmd or "").strip() or None
 
         loop = AgentLoop(
             project_id=project_id,
@@ -225,6 +252,8 @@ class LoopManager:
             agent_verifier=agent_verifier,
             profile=profile,
             model=model,
+            executor_model=executor_model,
+            watch_cmd=watch_cmd,
             use_worktree=use_worktree,
             autonomy=autonomy,
             max_iterations=max_iterations,
@@ -387,6 +416,15 @@ class LoopManager:
         # 4. No-progress detection: nothing pending → stall.
         pending = self.store.count_pending_loop_items(loop.id)
         if pending == 0:
+            # 4a. Event-reactive (watch) loops re-seed from external state instead
+            #     of stalling: if the watch command reports work (exit 0), enqueue
+            #     a fresh surveyor iteration carrying its output. Only when it
+            #     reports "no work" (non-zero) do we fall through to stall/idle
+            #     bounds — so a quiet watch loop still parks after max_stalls
+            #     (resumable; re-arm with a schedule). Budgets already checked above.
+            if loop.watch_cmd and self._watch_reseed(loop):
+                self.store.reset_loop_stall(loop.id)
+                return
             new_stall = self.store.bump_loop_stall(loop.id)
             if new_stall < 0:
                 return  # loop stopped concurrently — nothing to advance
@@ -556,6 +594,39 @@ class LoopManager:
             loop_id=loop.id,
             source="verifier",
         )
+
+    def _watch_reseed(self, loop: AgentLoop) -> bool:
+        """Event-reactive re-seed: run the watch command; on exit 0 enqueue a
+        fresh surveyor iteration carrying its output. Returns True iff work was
+        re-seeded (caller then resets the stall counter and returns).
+
+        Exit != 0 (or a missing project dir) means "no work right now" → return
+        False so the caller applies the normal stall/idle bounds. Never raises:
+        run_gate reports timeouts/spawn failures as not-passed.
+        """
+        project = self.store.get_project(loop.project_id)
+        if project is None or not loop.watch_cmd:
+            return False
+        result = run_gate(loop.watch_cmd, str(project.expanded_path))
+        if not result.passed:
+            logger.info("Loop %s: watch reported no work (exit %d) — idling", loop.id[:8], result.exit_code)
+            return False
+        prompt = _WATCH_SEED_TEMPLATE.format(
+            iteration=loop.iteration_count + 1,
+            objective=loop.objective,
+            watch_cmd=loop.watch_cmd,
+            output=result.output or "(watch command produced no output)",
+        )
+        self.store.enqueue_work(
+            project_id=loop.project_id,
+            prompt=prompt,
+            profile=loop.profile,
+            priority=LOOP_TASK_PRIORITY,
+            loop_id=loop.id,
+            source="seed",  # a reactive surveyor cycle — L1/L2 re-approve its plan
+        )
+        logger.info("Loop %s: watch fired — re-seeded a reactive surveyor iteration", loop.id[:8])
+        return True
 
     def _enqueue_continuation(self, loop: AgentLoop, gate_failure: str | None = None) -> None:
         """Harness-authored recovery iteration (stall or denied completion).

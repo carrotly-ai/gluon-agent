@@ -2571,10 +2571,17 @@ but explicit commits with good messages are preferred.
 
         loop = self.store.get_agent_loop(item.loop_id) if item.loop_id else None
         if loop is not None:
+            # Intra-loop model routing (Phase C): agent-authored fan-out tasks
+            # (source="agent") are the mechanical executor work — run them on
+            # executor_model when set. Harness-authored iterations (seed /
+            # verifier / continuation / fix) are judgment work and use the
+            # capable loop.model. Falls back to the profile default.
+            from gluon.models import resolve_loop_iteration_model
+
             return await self.submit(
                 project_id=item.project_id,
                 prompt=item.prompt,
-                model=loop.model or resolve_task_options(profile=item.profile)["model"],
+                model=resolve_loop_iteration_model(loop, item.source, item.profile),
                 profile=item.profile,
                 use_worktree=loop.use_worktree,
                 verify_cmd=loop.verify_cmd,

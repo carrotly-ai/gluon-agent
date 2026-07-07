@@ -1278,6 +1278,8 @@ export interface AgentLoop {
   readiness: 'gated' | 'gateless'
   profile: string
   model: string | null
+  executor_model: string | null
+  watch_cmd: string | null
   use_worktree: boolean
   autonomy: 'L1' | 'L2' | 'L3'
   status: AgentLoopStatus
@@ -1311,6 +1313,8 @@ export interface CreateAgentLoopRequest {
   agent_verifier?: boolean
   profile?: string
   model?: string | null
+  executor_model?: string | null
+  watch_cmd?: string | null
   use_worktree?: boolean
   autonomy?: 'L1' | 'L2' | 'L3'
   max_iterations?: number

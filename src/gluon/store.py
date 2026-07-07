@@ -843,6 +843,10 @@ MIGRATIONS = [
     "ALTER TABLE work_queue ADD COLUMN verify_cmd TEXT;",
     # Phase B: autonomy ladder on loops (L1 report-only / L2 assisted / L3 unattended).
     "ALTER TABLE agent_loops ADD COLUMN autonomy TEXT NOT NULL DEFAULT 'L3';",
+    # Phase C: intra-loop model routing (cheaper executor tier) + event-reactive
+    # watch loops (re-seed from external state instead of stalling).
+    "ALTER TABLE agent_loops ADD COLUMN executor_model TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN watch_cmd TEXT;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -5815,11 +5819,12 @@ class GluonStore:
             conn.execute(
                 """
                 INSERT INTO agent_loops (id, project_id, objective, verify_cmd, agent_verifier,
-                    profile, model, use_worktree, autonomy, status, iteration_count, total_cost_usd,
+                    profile, model, executor_model, watch_cmd, use_worktree, autonomy, status,
+                    iteration_count, total_cost_usd,
                     stall_count, max_iterations, max_cost_usd, max_stalls, max_fanout,
                     completion_requested, completion_summary, status_reason, initiator,
                     created_by_user_id, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     loop.id,
@@ -5829,6 +5834,8 @@ class GluonStore:
                     1 if loop.agent_verifier else 0,
                     loop.profile,
                     loop.model,
+                    loop.executor_model,
+                    loop.watch_cmd,
                     1 if loop.use_worktree else 0,
                     loop.autonomy,
                     loop.status.value,
@@ -6238,6 +6245,8 @@ class GluonStore:
             agent_verifier=bool(row["agent_verifier"]),
             profile=row["profile"] or "standard",
             model=row["model"],
+            executor_model=(row["executor_model"] if "executor_model" in row.keys() else None),
+            watch_cmd=(row["watch_cmd"] if "watch_cmd" in row.keys() else None),
             use_worktree=bool(row["use_worktree"]),
             autonomy=(row["autonomy"] if "autonomy" in row.keys() else None) or "L3",
             status=LoopStatus(row["status"]),

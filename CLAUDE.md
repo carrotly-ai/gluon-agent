@@ -268,11 +268,23 @@ gluon formula run issue-triage myproject                          # loop SKU (Ph
   (report-only) / L2 (assisted) loops PAUSE after the surveyor authors the plan
   — the plan-approval trust boundary; `gluon loop resume` executes it. L3 runs
   unattended. Validated at `create_loop`; plumbed through CLI, formulas, and API.
+- **Intra-loop model routing (Phase C):** `loop.model` is the JUDGMENT model
+  (surveyor / verifier / continuations); `--executor-model` runs the mechanical
+  agent-authored fan-out tasks (`source == "agent"`) on a cheaper tier. Decision:
+  `resolve_loop_iteration_model(loop, source, profile)` at dispatch.
+- **Event-reactive "watch" loops (Phase C):** `--watch-cmd` — when the loop would
+  stall on an empty queue, it runs the command in the project dir; exit 0 →
+  re-seed a surveyor cycle carrying its stdout (react to external state), exit
+  != 0 → normal stall/idle bounds. Pair with `gluon schedule` to re-arm a quiet
+  watch loop. `pr-babysitter` is the canonical watch SKU.
+- **Verification-skill convention (Phase C):** ships `.claude/skills/verify-loop-work`
+  (two-tier discipline: deterministic gate + reviewer-grade check); the seed and
+  continuation prompts tell iterations to verify before claiming completion.
 - **Loop templates & SKUs**: formulas with `kind: loop` (templated `objective` +
-  gate/budgets/`autonomy`) instantiate an AgentLoop instead of a TaskChain —
-  `improve.yml`, plus the Phase B SKU library (`issue-triage`, `pr-babysitter`,
-  `ci-sweeper`, `daily-triage`, `dependency-sweeper`, `post-merge-cleanup`,
-  `changelog-drafter`).
+  gate/budgets/`autonomy`/`executor_model`/`watch_cmd`) instantiate an AgentLoop
+  instead of a TaskChain — `improve.yml`, plus the SKU library (`issue-triage`,
+  `pr-babysitter`, `ci-sweeper`, `daily-triage`, `dependency-sweeper`,
+  `post-merge-cleanup`, `changelog-drafter`).
 - Per-loop effectiveness (acceptance rate, cost-per-accepted-change) on
   `GET /api/loops/{id}` → `metrics`; the work-graph nodes on `graph`.
 

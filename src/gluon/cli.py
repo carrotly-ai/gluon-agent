@@ -5799,7 +5799,18 @@ def loop_create(
         typer.Option("--agent-verifier", help="Judge completion claims with an independent verifier iteration (I2)"),
     ] = False,
     profile: Annotated[str, typer.Option("--profile", "-P", help="Task profile for iterations")] = "standard",
-    model: Annotated[str | None, typer.Option("--model", "-m", help="Model override for iterations")] = None,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Judgment model (surveyor/verifier/fixes)")] = None,
+    executor_model: Annotated[
+        str | None,
+        typer.Option("--executor-model", help="Cheaper model for mechanical fan-out tasks (default: --model)"),
+    ] = None,
+    watch_cmd: Annotated[
+        str | None,
+        typer.Option(
+            "--watch-cmd",
+            help="Event-reactive loop: when idle, re-seed from this command's output if it exits 0",
+        ),
+    ] = None,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Run iterations in isolated worktrees")] = False,
     autonomy: Annotated[
         str,
@@ -5831,6 +5842,8 @@ def loop_create(
         agent_verifier=agent_verifier,
         profile=profile,
         model=model,
+        executor_model=executor_model,
+        watch_cmd=watch_cmd,
         use_worktree=worktree,
         autonomy=autonomy,
         max_iterations=max_iterations,
@@ -5848,6 +5861,15 @@ def loop_create(
         f"[bold]Budget:[/bold] {max_iterations} iterations"
         + (f", ${max_cost:.2f} cap" if max_cost else ", no cost cap")
     )
+    if loop.executor_model:
+        console.print(
+            f"[bold]Model routing:[/bold] judgment={model or 'profile default'}, executor={loop.executor_model}"
+        )
+    if loop.watch_cmd:
+        console.print(
+            f"[bold]Watch:[/bold] event-reactive — when idle, re-seeds from `{loop.watch_cmd}` (exit 0 = work). "
+            "Pair with `gluon schedule` to re-arm it periodically."
+        )
     if loop.autonomy in ("L1", "L2"):
         console.print(
             f"[bold]Autonomy:[/bold] {loop.autonomy} — the loop will PAUSE after the surveyor "

@@ -167,6 +167,12 @@ async def _status_impl(store: GluonStore, loop_id: str, run_id: str, args: dict[
         f"**Agent Loop {loop.id}** — {loop.status.value}",
         f"Objective: {loop.objective}",
         f"Gate: {loop.verify_cmd or '(gateless — completion on agent request)'} | Autonomy: {loop.autonomy}",
+        *(
+            [f"Model routing: judgment={loop.model or 'default'}, executor={loop.executor_model}"]
+            if loop.executor_model
+            else []
+        ),
+        *([f"Watch (event-reactive): `{loop.watch_cmd}`"] if loop.watch_cmd else []),
         f"Iterations: {loop.iteration_count}/{loop.max_iterations}"
         + (
             f" | Cost: ${loop.total_cost_usd:.2f} of ${loop.max_cost_usd:.2f}"

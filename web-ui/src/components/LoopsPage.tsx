@@ -357,6 +357,12 @@ function LoopDetailDialog({ loopId, onClose }: { loopId: string | null; onClose:
               />
               <DetailStat label="Independent verifier" value={loop.agent_verifier ? 'yes' : 'no'} />
               <DetailStat label="Autonomy" value={loop.autonomy} />
+              {loop.executor_model && (
+                <DetailStat label="Executor model" value={loop.executor_model} title={loop.executor_model} />
+              )}
+              {loop.watch_cmd && (
+                <DetailStat label="Watch (reactive)" value={loop.watch_cmd} title={loop.watch_cmd} />
+              )}
             </section>
 
             {loop.status_reason && (
@@ -536,6 +542,8 @@ function CreateLoopDialog({
   const [projectName, setProjectName] = useState('')
   const [objective, setObjective] = useState('')
   const [verifyCmd, setVerifyCmd] = useState('')
+  const [executorModel, setExecutorModel] = useState('')
+  const [watchCmd, setWatchCmd] = useState('')
   const [agentVerifier, setAgentVerifier] = useState(false)
   const [useWorktree, setUseWorktree] = useState(true)
   const [autonomy, setAutonomy] = useState<'L1' | 'L2' | 'L3'>('L3')
@@ -553,6 +561,8 @@ function CreateLoopDialog({
         project_name: projectName,
         objective: objective.trim(),
         verify_cmd: verifyCmd.trim() || null,
+        executor_model: executorModel.trim() || null,
+        watch_cmd: watchCmd.trim() || null,
         agent_verifier: agentVerifier,
         use_worktree: useWorktree,
         autonomy,
@@ -563,6 +573,8 @@ function CreateLoopDialog({
       onCreated(loop)
       setObjective('')
       setVerifyCmd('')
+      setExecutorModel('')
+      setWatchCmd('')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to create loop')
     } finally {
@@ -617,6 +629,28 @@ function CreateLoopDialog({
               value={verifyCmd}
               onChange={(e) => setVerifyCmd(e.target.value)}
               placeholder="e.g. uv run pytest"
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className="text-caption text-[var(--color-stone)] block mb-1">
+              Executor model (optional) — cheaper tier for mechanical fan-out tasks
+            </span>
+            <input
+              value={executorModel}
+              onChange={(e) => setExecutorModel(e.target.value)}
+              placeholder="e.g. claude-haiku-4-5 (surveyor/verifier still use the judgment model)"
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className="text-caption text-[var(--color-stone)] block mb-1">
+              Watch command (optional) — event-reactive: re-seed from this when idle if it exits 0
+            </span>
+            <input
+              value={watchCmd}
+              onChange={(e) => setWatchCmd(e.target.value)}
+              placeholder="e.g. gh pr list --json number,title --jq '.[]'"
               className={inputClass}
             />
           </label>
