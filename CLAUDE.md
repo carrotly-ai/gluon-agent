@@ -232,9 +232,22 @@ gluon formula run improve myproject --var focus="test coverage"  # loop template
 
 - Iterations are ordinary work-queue items (`loop_id` set) dispatched by the
   existing drain loop; runs carry `loop_id`.
+- **Work graph (loop-first pivot Phase A — docs/design/loop-first-pivot.md):**
+  iteration 1 is a SURVEYOR (survey the landscape — incl. `gh issue/pr list` —
+  then decompose). Tasks may declare `depends_on=[task IDs]` (ready-set
+  dispatch: claimable only when deps COMPLETED; failed deps cascade-cancel
+  dependents) and per-task `verify_cmd` (task gate at run completion; failure
+  spawns a `[TASK GATE FAILED]` fix task). Independent tasks of a `--worktree`
+  loop run in PARALLEL within the project (cap:
+  `GLUON_MAX_PARALLEL_RUNS_PER_PROJECT`, default 3); non-worktree work stays
+  serialized per project.
 - Workers get the in-process `gluon-loop` MCP tools: `loop_enqueue_task`
-  (fan-out = multiple calls; dedup + `max_fanout` enforced), `loop_complete`
+  (fan-out = multiple calls; dedup + `max_fanout` enforced; `depends_on` +
+  `verify_cmd` author the graph), `loop_complete`
   (granted only when `verify_cmd` exits 0 — gate is authority), `loop_status`.
+- A loop leaving RUNNING publishes `loop.paused|completed|cancelled` events
+  (worker → Redis → server bus) → decision card in the project's
+  Telegram/Discord channels.
 - `--agent-verifier` (I2): completion claims are judged by a fresh
   independent-verifier iteration (confirms via `loop_complete`, rejects by
   enqueueing fix tasks); the shell gate still runs beneath its approval.

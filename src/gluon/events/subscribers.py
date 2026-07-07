@@ -20,6 +20,9 @@ from typing import TYPE_CHECKING
 
 from gluon.events.bus import EventBus
 from gluon.events.types import (
+    LOOP_CANCELLED,
+    LOOP_COMPLETED,
+    LOOP_PAUSED,
     QUESTION_ANSWERED,
     QUESTION_CREATED,
     QUESTION_ESCALATED,
@@ -250,6 +253,39 @@ def _make_question_escalator(store: GluonStore, notifier: NotificationDispatcher
     return question_escalator
 
 
+def _make_loop_event_notifier(store: GluonStore, notifier: NotificationDispatcher | None):
+    """Create a loop lifecycle subscriber (loop-first pivot Phase A).
+
+    A loop leaving RUNNING (paused on budget/stall/failure, completed, or
+    cancelled) is an objective-level handoff — surface it in the project's
+    channels via the shared notifier. Workers publish the event over Redis;
+    this runs in the server where the live transports are registered.
+    """
+
+    async def loop_event_notifier(event: GluonEvent) -> None:
+        if notifier is None or not notifier.transports:
+            return
+        try:
+            d = event.data or {}
+            project_id = event.project_id or ""
+            if not project_id or not d.get("loop_id"):
+                return
+            await notifier.notify_loop_event(
+                project_id=project_id,
+                objective=d.get("objective", ""),
+                status=d.get("status", "paused"),
+                reason=d.get("reason"),
+                loop_id=d.get("loop_id", ""),
+                iteration_count=int(d.get("iteration_count") or 0),
+                max_iterations=int(d.get("max_iterations") or 0),
+                total_cost_usd=float(d.get("total_cost_usd") or 0.0),
+            )
+        except Exception:
+            logger.debug("Loop event notification dispatch failed", exc_info=True)
+
+    return loop_event_notifier
+
+
 def register_subscribers(
     bus: EventBus,
     store: GluonStore,
@@ -263,6 +299,7 @@ def register_subscribers(
     """
     notification_persister = _make_notification_persister(store)
     question_escalator = _make_question_escalator(store, notifier)
+    loop_event_notifier = _make_loop_event_notifier(store, notifier)
 
     # Notification persister — only for notification-worthy events
     bus.subscribe(QUESTION_CREATED, notification_persister)
@@ -277,4 +314,9 @@ def register_subscribers(
     # Question escalation — send to Telegram/Discord at 3 minute mark
     bus.subscribe(QUESTION_ESCALATED, question_escalator)
 
-    logger.info("Registered event bus subscribers: websocket, notification, escalation")
+    # Loop lifecycle → objective-level escalation to project channels
+    bus.subscribe(LOOP_PAUSED, loop_event_notifier)
+    bus.subscribe(LOOP_COMPLETED, loop_event_notifier)
+    bus.subscribe(LOOP_CANCELLED, loop_event_notifier)
+
+    logger.info("Registered event bus subscribers: websocket, notification, escalation, loop-events")

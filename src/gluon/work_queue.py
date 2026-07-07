@@ -38,11 +38,18 @@ class WorkQueueManager:
         logger.info("Enqueued work item %s for project %s (priority=%d)", item.id, project_id, priority)
         return item
 
-    def claim_next(self, project_id: str) -> WorkQueueItem | None:
-        """Atomically claim highest-priority unclaimed item. Returns None if empty."""
-        item = self.store.claim_work(project_id)
+    def claim_next(self, project_id: str, parallel_only: bool = False) -> WorkQueueItem | None:
+        """Atomically claim highest-priority unclaimed READY item. Returns None if empty.
+
+        ``parallel_only=True`` claims only items safe to run beside an active
+        run of the same project (worktree-isolated loop tasks) — the loop-first
+        pivot's within-project fan-out path.
+        """
+        item = self.store.claim_work(project_id, parallel_only=parallel_only)
         if item:
-            logger.info("Claimed work item %s for project %s", item.id, project_id)
+            logger.info(
+                "Claimed work item %s for project %s%s", item.id, project_id, " (parallel)" if parallel_only else ""
+            )
         return item
 
     def mark_running(self, item_id: str, run_id: str) -> None:

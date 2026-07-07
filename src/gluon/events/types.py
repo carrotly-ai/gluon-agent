@@ -43,3 +43,10 @@ QUESTION_CREATED = "question.created"
 QUESTION_ANSWERED = "question.answered"
 QUESTION_ESCALATED = "question.escalated"
 QUESTION_EXPIRED = "question.expired"
+
+# Agent-loop lifecycle events (loop-first pivot Phase A) — a loop leaving
+# RUNNING is a human handoff point; workers publish these over Redis so the
+# server-side subscriber can notify the project's channels.
+LOOP_PAUSED = "loop.paused"
+LOOP_COMPLETED = "loop.completed"
+LOOP_CANCELLED = "loop.cancelled"

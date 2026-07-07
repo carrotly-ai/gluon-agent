@@ -1831,6 +1831,14 @@ class WorkQueueItem(BaseModel):
     loop_id: str | None = None
     source: str | None = None
     prompt_hash: str | None = None
+    # Dependency edges (loop-first pivot Phase A — docs/design/loop-first-pivot.md).
+    # depends_on: item IDs that must COMPLETE before this item becomes claimable
+    # (ready-set dispatch). Cycle-free by construction: an item can only depend
+    # on items that already exist. verify_cmd: optional task-level gate —
+    # evaluated when this item's run completes; failure feeds a fix continuation
+    # (distinct from the loop-level gate, which judges the whole objective).
+    depends_on: list[str] | None = None
+    verify_cmd: str | None = None
 
 
 # ========== Agent Loop Models (loop-engineering Phase 2) ==========
