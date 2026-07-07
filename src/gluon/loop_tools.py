@@ -217,7 +217,11 @@ def build_loop_mcp_server(store: GluonStore, loop_id: str, run_id: str) -> McpSd
         "DEPENDENT tasks declare depends_on=[task IDs from earlier calls] and wait for them to "
         "complete. Optional verify_cmd: a shell command gating THIS task (exit 0 = pass; failure "
         "spawns a fix task). Each prompt must be self-contained — the executing agent has no "
-        "memory of this session. Duplicates and over-fan-out are rejected.",
+        "memory of this session. Refer to files by REPO-RELATIVE paths only (e.g. `src/foo.py`) — "
+        "NEVER embed an absolute or worktree/temp path (e.g. `/tmp/gluon-worktrees/...` or your "
+        "current directory): each task runs in its own fresh checkout at the repo root, and work "
+        "written to another worktree's path is orphaned and never merges back. Duplicates and "
+        "over-fan-out are rejected.",
         {"prompt": str, "priority": int, "depends_on": list, "verify_cmd": str},
     )
     async def loop_enqueue_task(args: dict[str, Any]) -> dict[str, Any]:

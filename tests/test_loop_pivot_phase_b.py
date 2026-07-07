@@ -307,3 +307,34 @@ def test_create_loop_normalizes_autonomy_case(temp_store: GluonStore, tmp_path: 
     assert loop.autonomy == expected
     # Persisted + round-tripped through the store.
     assert temp_store.get_agent_loop(loop.id).autonomy == expected  # type: ignore[union-attr]
+
+
+# ===========================================================================
+# B — worktree-path hygiene guidance (regression guard)
+# ===========================================================================
+#
+# Live edge case: a surveyor embedded its own ephemeral worktree path
+# (/tmp/gluon-worktrees/wt-XXXX) into the tasks it authored; the executor
+# agents wrote there instead of their own fresh worktrees, so every task
+# branch was empty (merge-back saw no_changes) and the work was orphaned in
+# an abandoned branch that never merged — the loop "completed" with nothing
+# on main. The fix is prompt guidance; these guard it from silent removal.
+
+
+def test_seed_prompt_warns_against_absolute_worktree_paths() -> None:
+    from gluon.loop_manager import _SEED_PROMPT_TEMPLATE
+
+    t = _SEED_PROMPT_TEMPLATE.lower()
+    assert "repo-relative" in t
+    assert "gluon-worktrees" in t  # names the concrete trap
+    assert "never" in t
+
+
+def test_enqueue_tool_description_warns_against_absolute_paths() -> None:
+    # The @tool decorator captures the description on the wrapped fn; assert the
+    # guidance is present in the source-of-truth string used to build the tool.
+    import gluon.loop_tools as lt
+
+    src = Path(lt.__file__).read_text()
+    assert "repo-relative" in src.lower()
+    assert "gluon-worktrees" in src.lower()

@@ -69,6 +69,14 @@ Objective:
    - every prompt must be fully self-contained: the executing agent has no
      memory of this session, so include file paths, issue/PR numbers, and the
      acceptance criteria.
+   - CRITICAL — worktree isolation: each task you author runs in its OWN fresh
+     checkout of the repository, cwd already at the repo root. NEVER put an
+     absolute path or a worktree/temp location (e.g. `/tmp/gluon-worktrees/...`,
+     or the directory YOU are currently in) into a task prompt — that path
+     belongs to a different, ephemeral worktree and writing there orphans the
+     work so it never merges back. Refer to files ONLY by repo-relative paths
+     (e.g. `src/strings.py`), and do NOT do the implementation work yourself
+     in this survey — author the tasks and let them run.
 3. If the objective is genuinely a single small task, you may instead do it now
    and call loop_complete. If your survey finds the objective already met,
    call loop_complete with the evidence.
