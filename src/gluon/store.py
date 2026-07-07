@@ -841,6 +841,8 @@ MIGRATIONS = [
     # items whose deps are all COMPLETED) and per-task verification gates.
     "ALTER TABLE work_queue ADD COLUMN depends_on TEXT;",
     "ALTER TABLE work_queue ADD COLUMN verify_cmd TEXT;",
+    # Phase B: autonomy ladder on loops (L1 report-only / L2 assisted / L3 unattended).
+    "ALTER TABLE agent_loops ADD COLUMN autonomy TEXT NOT NULL DEFAULT 'L3';",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -5726,6 +5728,16 @@ class GluonStore:
             row = conn.execute("SELECT * FROM work_queue WHERE id = ?", (item_id,)).fetchone()
             return self._row_to_work_queue_item(row) if row else None
 
+    def list_loop_work_items(self, loop_id: str, limit: int = 200) -> list[WorkQueueItem]:
+        """All work-queue items belonging to a loop (the campaign task graph),
+        oldest first — nodes carry depends_on edges and per-task verify_cmd."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM work_queue WHERE loop_id = ? ORDER BY created_at ASC LIMIT ?",
+                (loop_id, limit),
+            ).fetchall()
+            return [self._row_to_work_queue_item(row) for row in rows]
+
     def list_work_items(
         self,
         project_id: str | None = None,
@@ -5803,11 +5815,11 @@ class GluonStore:
             conn.execute(
                 """
                 INSERT INTO agent_loops (id, project_id, objective, verify_cmd, agent_verifier,
-                    profile, model, use_worktree, status, iteration_count, total_cost_usd,
+                    profile, model, use_worktree, autonomy, status, iteration_count, total_cost_usd,
                     stall_count, max_iterations, max_cost_usd, max_stalls, max_fanout,
                     completion_requested, completion_summary, status_reason, initiator,
                     created_by_user_id, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     loop.id,
@@ -5818,6 +5830,7 @@ class GluonStore:
                     loop.profile,
                     loop.model,
                     1 if loop.use_worktree else 0,
+                    loop.autonomy,
                     loop.status.value,
                     loop.iteration_count,
                     loop.total_cost_usd,
@@ -6226,6 +6239,7 @@ class GluonStore:
             profile=row["profile"] or "standard",
             model=row["model"],
             use_worktree=bool(row["use_worktree"]),
+            autonomy=(row["autonomy"] if "autonomy" in row.keys() else None) or "L3",
             status=LoopStatus(row["status"]),
             iteration_count=row["iteration_count"] or 0,
             total_cost_usd=row["total_cost_usd"] or 0.0,

@@ -166,7 +166,7 @@ async def _status_impl(store: GluonStore, loop_id: str, run_id: str, args: dict[
     lines = [
         f"**Agent Loop {loop.id}** — {loop.status.value}",
         f"Objective: {loop.objective}",
-        f"Gate: {loop.verify_cmd or '(gateless — completion on agent request)'}",
+        f"Gate: {loop.verify_cmd or '(gateless — completion on agent request)'} | Autonomy: {loop.autonomy}",
         f"Iterations: {loop.iteration_count}/{loop.max_iterations}"
         + (
             f" | Cost: ${loop.total_cost_usd:.2f} of ${loop.max_cost_usd:.2f}"

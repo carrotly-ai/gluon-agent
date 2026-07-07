@@ -1,0 +1,27 @@
+# Loop SKU (loop-first pivot Phase B). Off-peak hygiene after merges: dead
+# branches, stale worktrees, TODO/FIXME follow-ups from recent commits.
+# Run: gluon formula run post-merge-cleanup <project>
+name: post-merge-cleanup
+kind: loop
+description: "Post-merge hygiene: prune merged branches, sweep new TODO/FIXMEs into tasks (L1 report-only by default)"
+variables:
+  - name: autonomy
+    type: string
+    required: false
+    default: "L1"
+    help: "L1 report-only / L2 assisted / L3 unattended"
+objective: |
+  Clean up after recently merged work.
+
+  Survey: branches already merged into the default branch (`git branch
+  --merged`), TODO/FIXME comments introduced by the last 20 commits
+  (`git log -20 -p | grep -n "TODO\|FIXME"` or equivalent), and leftover
+  scratch files. Author tasks: one listing safe-to-delete merged branches,
+  one per meaningful TODO/FIXME cluster that deserves real follow-up work.
+  Complete when the hygiene report/tasks cover everything found.
+agent_verifier: false
+max_iterations: 6
+max_cost_usd: 5.0
+profile: quick
+use_worktree: true
+autonomy: "{{autonomy}}"

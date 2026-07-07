@@ -5801,6 +5801,14 @@ def loop_create(
     profile: Annotated[str, typer.Option("--profile", "-P", help="Task profile for iterations")] = "standard",
     model: Annotated[str | None, typer.Option("--model", "-m", help="Model override for iterations")] = None,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Run iterations in isolated worktrees")] = False,
+    autonomy: Annotated[
+        str,
+        typer.Option(
+            "--autonomy",
+            "-a",
+            help="Autonomy ladder: L1 report-only / L2 assisted (pause at plan for approval) / L3 unattended",
+        ),
+    ] = "L3",
     max_iterations: Annotated[int, typer.Option("--max-iterations", help="Hard iteration ceiling")] = 20,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Loop-level spend cap in USD")] = None,
     max_stalls: Annotated[int, typer.Option("--max-stalls", help="Consecutive stalls before pause")] = 2,
@@ -5824,6 +5832,7 @@ def loop_create(
         profile=profile,
         model=model,
         use_worktree=worktree,
+        autonomy=autonomy,
         max_iterations=max_iterations,
         max_cost_usd=max_cost,
         max_stalls=max_stalls,
@@ -5839,6 +5848,11 @@ def loop_create(
         f"[bold]Budget:[/bold] {max_iterations} iterations"
         + (f", ${max_cost:.2f} cap" if max_cost else ", no cost cap")
     )
+    if loop.autonomy in ("L1", "L2"):
+        console.print(
+            f"[bold]Autonomy:[/bold] {loop.autonomy} — the loop will PAUSE after the surveyor "
+            "authors the plan; inspect the graph, then `gluon loop resume` to execute."
+        )
     console.print("Iteration 1 seeded — the server's queue drain will dispatch it.")
 
 

@@ -51,6 +51,7 @@ class FormulaExecutor:
             # verify_cmd may be templated too (e.g. "{{verify}}"); an empty
             # render means gateless.
             rendered_verify = render_prompt(template.verify_cmd, resolved) if template.verify_cmd else None
+            rendered_autonomy = render_prompt(template.autonomy, resolved) if template.autonomy else "L3"
             loop = LoopManager(self.store).create_loop(
                 project_id=project_id,
                 objective=render_prompt(template.objective or "", resolved),
@@ -58,6 +59,7 @@ class FormulaExecutor:
                 agent_verifier=template.agent_verifier,
                 profile=template.profile,
                 use_worktree=template.use_worktree,
+                autonomy=rendered_autonomy,
                 max_iterations=template.max_iterations,
                 max_cost_usd=template.max_cost_usd,
                 initiator=initiator or f"formula:{template.name}",

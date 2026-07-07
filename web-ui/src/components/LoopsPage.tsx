@@ -356,6 +356,7 @@ function LoopDetailDialog({ loopId, onClose }: { loopId: string | null; onClose:
                 title={loop.verify_cmd ?? undefined}
               />
               <DetailStat label="Independent verifier" value={loop.agent_verifier ? 'yes' : 'no'} />
+              <DetailStat label="Autonomy" value={loop.autonomy} />
             </section>
 
             {loop.status_reason && (
@@ -402,6 +403,50 @@ function LoopDetailDialog({ loopId, onClose }: { loopId: string | null; onClose:
                     }
                   />
                 </div>
+              </section>
+            )}
+
+            {loop.graph.filter((n) => n.source !== 'seed').length > 0 && (
+              <section>
+                <h3 className="text-caption uppercase tracking-widest text-[var(--color-stone)]/60 mb-1">
+                  Campaign task graph
+                </h3>
+                <ol className="space-y-1.5">
+                  {loop.graph
+                    .filter((n) => n.source !== 'seed')
+                    .map((n) => (
+                      <li key={n.id} className="flex items-start gap-2">
+                        <StatusDot
+                          state={
+                            (['pending', 'running', 'completed', 'failed', 'cancelled'].includes(
+                              n.status
+                            )
+                              ? n.status
+                              : 'pending') as
+                              | 'pending'
+                              | 'running'
+                              | 'completed'
+                              | 'failed'
+                              | 'cancelled'
+                          }
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate text-[var(--color-paper)]">{n.prompt}</span>
+                          <span className="text-caption text-[var(--color-stone)]/60">
+                            {n.id.slice(0, 8)} · {n.status}
+                            {n.depends_on.length > 0 && (
+                              <span title={`waits on ${n.depends_on.join(', ')}`}>
+                                {' '}
+                                · ⇐ {n.depends_on.length} dep{n.depends_on.length > 1 ? 's' : ''}
+                              </span>
+                            )}
+                            {n.verify_cmd && <span title={`task gate: ${n.verify_cmd}`}> · 🔒 gated</span>}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                </ol>
               </section>
             )}
 
@@ -493,6 +538,7 @@ function CreateLoopDialog({
   const [verifyCmd, setVerifyCmd] = useState('')
   const [agentVerifier, setAgentVerifier] = useState(false)
   const [useWorktree, setUseWorktree] = useState(true)
+  const [autonomy, setAutonomy] = useState<'L1' | 'L2' | 'L3'>('L3')
   const [maxIterations, setMaxIterations] = useState(20)
   const [maxCost, setMaxCost] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -509,6 +555,7 @@ function CreateLoopDialog({
         verify_cmd: verifyCmd.trim() || null,
         agent_verifier: agentVerifier,
         use_worktree: useWorktree,
+        autonomy,
         max_iterations: maxIterations,
         max_cost_usd: maxCost.trim() ? Number(maxCost) : null,
       })
@@ -622,6 +669,33 @@ function CreateLoopDialog({
               Run iterations in isolated Git worktrees
             </span>
           </label>
+          <div>
+            <label className="text-caption uppercase tracking-widest text-[var(--color-stone)]/50">
+              Autonomy
+            </label>
+            <div className="flex gap-1.5 mt-1">
+              {(['L1', 'L2', 'L3'] as const).map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setAutonomy(lvl)}
+                  className={cn(
+                    'flex-1 px-2 py-1 rounded-sm text-caption transition-colors border',
+                    autonomy === lvl
+                      ? 'bg-[var(--color-sky)]/15 border-[var(--color-sky)]/40 text-[var(--color-paper)]'
+                      : 'border-[rgba(163,163,163,0.15)] text-[var(--color-stone)]/70 hover:bg-[var(--color-paper)]/5'
+                  )}
+                >
+                  {lvl === 'L1' ? 'L1 · report' : lvl === 'L2' ? 'L2 · approve plan' : 'L3 · unattended'}
+                </button>
+              ))}
+            </div>
+            <p className="text-caption text-[var(--color-stone)]/50 mt-1">
+              {autonomy === 'L3'
+                ? 'Runs unattended until done or a budget/stop condition fires.'
+                : 'Pauses after the surveyor authors the plan — review the graph, then resume to execute.'}
+            </p>
+          </div>
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"

@@ -1,0 +1,27 @@
+# Loop SKU (loop-first pivot Phase B). The L1 starter loop: a read-only daily
+# sweep that reports repo health. Safe to schedule from day one.
+# Run: gluon formula run daily-triage <project>
+name: daily-triage
+kind: loop
+description: "Read-only daily repo health report: issues, PRs, CI, dependencies (L1 report-only)"
+variables:
+  - name: autonomy
+    type: string
+    required: false
+    default: "L1"
+    help: "Keep L1 (report-only) unless you want it to act on findings"
+objective: |
+  Produce today's repository health report — READ-ONLY, change nothing.
+
+  Survey: open issues (`gh issue list`), open PRs + their CI state
+  (`gh pr list`, `gh pr checks`), the test suite's current state, and any
+  obviously stale branches. Author ONE task that writes the report to
+  TRIAGE.md at the repo root: what's red, what's stalled, what deserves
+  attention first, with issue/PR numbers. Complete when the report exists
+  and is current.
+agent_verifier: false
+max_iterations: 5
+max_cost_usd: 5.0
+profile: quick
+use_worktree: true
+autonomy: "{{autonomy}}"

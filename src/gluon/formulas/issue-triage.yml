@@ -1,0 +1,35 @@
+# Loop SKU (loop-first pivot Phase B — docs/design/loop-first-pivot.md).
+# The practice library's canonical starter loop: enumerate open issues, triage,
+# and propose an execution plan. Defaults to L1 (report-only): the surveyor
+# authors the plan and the loop PAUSES for review — promote to L2/L3 once you
+# trust its judgment. Run: gluon formula run issue-triage <project>
+name: issue-triage
+kind: loop
+description: "Triage open GitHub issues into a prioritized, dependency-ordered work plan (L1 report-only by default)"
+variables:
+  - name: scope
+    type: string
+    required: false
+    default: "all open issues"
+    help: "Which issues to triage (e.g. 'all open issues', 'label:bug', 'milestone:v2')"
+  - name: autonomy
+    type: string
+    required: false
+    default: "L1"
+    help: "L1 report-only / L2 assisted / L3 unattended"
+objective: |
+  Triage this repository's GitHub issues ({{scope}}).
+
+  Survey with `gh issue list --limit 100` (and `gh issue view <n>` where the
+  body matters). For each actionable issue author one self-contained task
+  carrying the issue number, a summary of what needs doing, and acceptance
+  criteria; chain with depends_on only where issues genuinely block each
+  other; mark duplicates/stale issues in a triage report task instead of
+  authoring work for them. The loop is complete when every in-scope issue is
+  either covered by a task or explicitly triaged out.
+agent_verifier: false
+max_iterations: 10
+max_cost_usd: 10.0
+profile: standard
+use_worktree: true
+autonomy: "{{autonomy}}"

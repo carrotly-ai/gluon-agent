@@ -1885,6 +1885,11 @@ class AgentLoop(BaseModel):
     profile: str = "standard"
     model: str | None = None
     use_worktree: bool = False
+    # Autonomy ladder (loop-first pivot Phase B): L1 report-only (pause after
+    # the surveyor authors the plan; execution needs explicit resume), L2
+    # assisted (same checkpoint, framed as plan approval), L3 unattended (no
+    # plan pause — today's behavior, the default for compatibility).
+    autonomy: str = "L3"
     status: LoopStatus = LoopStatus.RUNNING
     # Accounting
     iteration_count: int = 0  # Completed iteration runs

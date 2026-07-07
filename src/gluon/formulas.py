@@ -59,6 +59,7 @@ class FormulaTemplate(BaseModel):
     max_iterations: int = 20
     max_cost_usd: float | None = None
     profile: str = "standard"  # Profile for loop iterations
+    autonomy: str = "L3"  # L1 report-only / L2 assisted (plan approval) / L3 unattended
 
 
 class FormulaLoader:
@@ -129,6 +130,7 @@ class FormulaLoader:
             max_iterations=int(data.get("max_iterations", 20)),
             max_cost_usd=(float(data["max_cost_usd"]) if data.get("max_cost_usd") is not None else None),
             profile=data.get("profile", "standard"),
+            autonomy=str(data.get("autonomy", "L3")),  # may be templated; rendered at run
         )
 
 

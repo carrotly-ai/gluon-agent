@@ -25,6 +25,7 @@ from gluon.web.models import (
     CreateAgentLoopRequest,
     GateabilityBucket,
     LoopRunSummary,
+    LoopTaskNode,
 )
 from gluon.web.routers._deps import get_current_user, get_runner, get_store
 
@@ -43,7 +44,19 @@ def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = Fa
     project = store.get_project(loop.project_id)
     metrics = store.get_agent_loop_metrics(loop.id)
     recent_runs: list[LoopRunSummary] = []
+    graph: list[LoopTaskNode] = []
     if include_runs:
+        graph = [
+            LoopTaskNode(
+                id=it.id,
+                status=it.status.value,
+                source=it.source,
+                prompt=it.prompt[:200],
+                depends_on=it.depends_on or [],
+                verify_cmd=it.verify_cmd,
+            )
+            for it in store.list_loop_work_items(loop.id)
+        ]
         recent_runs = [
             LoopRunSummary(
                 id=r.id,
@@ -68,6 +81,7 @@ def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = Fa
         profile=loop.profile,
         model=loop.model,
         use_worktree=loop.use_worktree,
+        autonomy=loop.autonomy,
         status=loop.status.value,
         status_reason=loop.status_reason,
         iteration_count=loop.iteration_count,
@@ -81,6 +95,7 @@ def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = Fa
         completion_summary=loop.completion_summary,
         pending_tasks=store.count_pending_loop_items(loop.id),
         recent_runs=recent_runs,
+        graph=graph,
         initiator=loop.initiator,
         created_at=loop.created_at.isoformat(),
         updated_at=loop.updated_at.isoformat(),
@@ -117,6 +132,7 @@ async def create_loop(
         profile=body.profile,
         model=body.model,
         use_worktree=body.use_worktree,
+        autonomy=body.autonomy,
         max_iterations=body.max_iterations,
         max_cost_usd=body.max_cost_usd,
         max_stalls=body.max_stalls,

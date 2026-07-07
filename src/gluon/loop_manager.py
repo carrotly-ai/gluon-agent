@@ -90,6 +90,19 @@ Failing output (tail):
 Fix the underlying problem, run the gate yourself to confirm it passes, then
 finish. Do NOT call loop_complete unless the whole loop objective is also met."""
 
+_INTEGRATION_FIX_TEMPLATE = """[INTEGRATION CONFLICT — iteration {iteration}] A completed task's branch could
+not be merged back into the project.
+
+Branch with the completed work: {branch}
+Target (source) branch: {source}
+Merge failure detail:
+{detail}
+
+In your working directory, run `git merge {branch}`, resolve every conflict
+faithfully (keep BOTH sides' intent — the branch carries completed loop work),
+commit the resolution, and finish. Do NOT call loop_complete unless the whole
+loop objective is also met."""
+
 _CONTINUATION_PROMPT_TEMPLATE = """[LOOP CONTINUATION — iteration {iteration}] The loop objective is not yet
 complete and no follow-up tasks are pending.{gate_block}
 
@@ -157,6 +170,7 @@ class LoopManager:
         profile: str = "standard",
         model: str | None = None,
         use_worktree: bool = False,
+        autonomy: str = "L3",
         max_iterations: int = 20,
         max_cost_usd: float | None = None,
         max_stalls: int = 2,
@@ -187,6 +201,9 @@ class LoopManager:
             raise ValueError(f"max_fanout must be >= 1 (got {max_fanout}).")
         if max_cost_usd is not None and max_cost_usd <= 0:
             raise ValueError(f"max_cost_usd must be > 0 when set (got {max_cost_usd}).")
+        autonomy = (autonomy or "L3").upper()
+        if autonomy not in ("L1", "L2", "L3"):
+            raise ValueError(f"autonomy must be L1, L2 or L3 (got {autonomy!r}).")
         # A blank/whitespace verify_cmd is not a gate — normalize to gateless
         # rather than silently running an empty shell command that always exits 0
         # (a false "gated" loop that grants every completion).
@@ -201,6 +218,7 @@ class LoopManager:
             profile=profile,
             model=model,
             use_worktree=use_worktree,
+            autonomy=autonomy,
             max_iterations=max_iterations,
             max_cost_usd=max_cost_usd,
             max_stalls=max_stalls,
@@ -291,6 +309,54 @@ class LoopManager:
                     self._enqueue_task_fix(loop, task_gate, result.output)
                     return
 
+        # 1c. Worktree merge-back (loop-first pivot Phase B): a completed
+        #     worktree task's branch is merged into the project's source branch
+        #     so siblings and later verification build on integrated state
+        #     (Phase A live-validation showed parallel outputs were otherwise
+        #     invisible to each other). Runs AFTER the task gate (never
+        #     integrate work that failed its own gate). Conflicts spawn an
+        #     agent resolution task; the checkout is left pristine either way.
+        if run.use_worktree:
+            project = self.store.get_project(run.project_id)
+            if project is not None:
+                from gluon.loop_integration import INTEGRATED_STATUSES, integrate_run_branch
+
+                integ = await integrate_run_branch(project.expanded_path, run)
+                if integ.status == "conflict":
+                    self.store.set_loop_completion(loop.id, False, None)
+                    budget_reason = loop.budget_exhausted()
+                    if budget_reason is not None:
+                        self._pause(loop, budget_reason)
+                        return
+                    self._enqueue_integration_fix(loop, run, integ.detail)
+                    return
+                if integ.status not in INTEGRATED_STATUSES and integ.status != "skipped":
+                    # branch_moved / error: never silently lose work — surface it.
+                    logger.warning(
+                        "Loop %s: integration of run %s not performed (%s: %s)",
+                        loop.id[:8],
+                        run.id[:8],
+                        integ.status,
+                        integ.detail,
+                    )
+
+        # 1d. Plan checkpoint (Phase B autonomy ladder): when the SURVEYOR
+        #     iteration has authored the work graph and the loop is not fully
+        #     unattended (L1/L2), pause for a human before executing — the
+        #     plan-approval trust boundary. Pending tasks stay inert while
+        #     PAUSED (claim_work skips non-RUNNING loops); `gluon loop resume`
+        #     executes the plan.
+        if loop.autonomy in ("L1", "L2") and self._is_seed_run(run) and not loop.completion_requested:
+            pending = self.store.count_pending_loop_items(loop.id)
+            if pending > 0:
+                label = "L1 report-only" if loop.autonomy == "L1" else "L2 assisted"
+                self._pause(
+                    loop,
+                    f"plan ready for review ({label}): {pending} task(s) authored — "
+                    f"inspect the graph, then resume to execute",
+                )
+                return
+
         # 2. Completion handshake — the gate/verifier, not the agent, is authority.
         #    Its non-completing branches enforce budgets too (they used to skip the
         #    step-3 check below, the original runaway-quota bug).
@@ -364,7 +430,16 @@ class LoopManager:
             self._complete(loop, reason)
             return
 
-        cwd = self._gate_cwd(run)
+        # For worktree loops the PROJECT checkout is authoritative: completed
+        # tasks were merged back (Phase B integration), while any single run's
+        # worktree only holds its own slice — judging the objective there would
+        # wrongly fail on siblings' work. Non-worktree loops keep judging the
+        # run's own directory (which IS the project checkout).
+        if loop.use_worktree:
+            project = self.store.get_project(run.project_id)
+            cwd = str(project.expanded_path) if project else None
+        else:
+            cwd = self._gate_cwd(run)
         if cwd is None:
             self.store.set_loop_completion(loop.id, False, None)
             self._pause(loop, "completion requested but no directory to run verify_cmd in")
@@ -513,13 +588,48 @@ class LoopManager:
         handshake, and inherited run.verify_cmd would wrongly gate every
         intermediate iteration.
         """
+        item = self._item_for_run(run)
+        if item is None or not item.verify_cmd:
+            return None
+        return _TaskGate(item_id=item.id, cmd=item.verify_cmd, task_prompt=item.prompt)
+
+    def _item_for_run(self, run: ExecutionRun):
+        """The work-queue item this run was dispatched from (via ``initiator``)."""
         initiator = run.initiator or ""
         if not (initiator.startswith("queue:") or initiator.startswith("queue_drain:")):
             return None
         item = self.store.get_work_item(initiator.split(":", 1)[1])
-        if item is None or not item.verify_cmd or item.loop_id != run.loop_id:
+        if item is None or item.loop_id != run.loop_id:
             return None
-        return _TaskGate(item_id=item.id, cmd=item.verify_cmd, task_prompt=item.prompt)
+        return item
+
+    def _is_seed_run(self, run: ExecutionRun) -> bool:
+        """True when this run executed the loop's SURVEYOR (seed) item."""
+        item = self._item_for_run(run)
+        return item is not None and item.source == "seed"
+
+    def _enqueue_integration_fix(self, loop: AgentLoop, run: ExecutionRun, conflict_detail: str) -> None:
+        """Harness-authored task to resolve a merge conflict from integration.
+
+        The resolution task runs like any loop task (fresh worktree branched
+        from the current source): the agent merges the conflicted branch there,
+        resolves, and its own completion is integrated back — pure graph flow,
+        no special executor. Harness-authored → bypasses dedup.
+        """
+        prompt = _INTEGRATION_FIX_TEMPLATE.format(
+            iteration=loop.iteration_count + 1,
+            branch=run.branch_name or "(unknown branch)",
+            source=run.source_branch or "the project's main branch",
+            detail=conflict_detail or "(no detail captured)",
+        )
+        self.store.enqueue_work(
+            project_id=loop.project_id,
+            prompt=prompt,
+            profile=loop.profile,
+            priority=LOOP_TASK_PRIORITY - 1,  # resolve before new fan-out work
+            loop_id=loop.id,
+            source="continuation",
+        )
 
     def _enqueue_task_fix(self, loop: AgentLoop, gate: _TaskGate, gate_output: str) -> None:
         """Harness-authored fix task for a failed task-level gate.
