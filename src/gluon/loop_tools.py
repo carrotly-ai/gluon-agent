@@ -51,6 +51,8 @@ async def _enqueue_task_impl(store: GluonStore, loop_id: str, run_id: str, args:
     """Enqueue one agent-authored follow-up task, with all guards applied."""
     prompt = (args.get("prompt") or "").strip()
     priority = args.get("priority")
+    depends_on_raw = args.get("depends_on")
+    verify_cmd = (args.get("verify_cmd") or "").strip() or None
     if not prompt:
         return _text("Error: prompt is required")
     if len(prompt) < 20:
@@ -58,6 +60,24 @@ async def _enqueue_task_impl(store: GluonStore, loop_id: str, run_id: str, args:
             "Error: task prompt too short — each task must be self-contained "
             "(the next agent has no memory of this session)"
         )
+    # depends_on: list of task IDs returned by earlier loop_enqueue_task calls.
+    # Tolerate a single string or a comma-separated string.
+    depends_on: list[str] | None = None
+    if depends_on_raw:
+        if isinstance(depends_on_raw, str):
+            depends_on = [d.strip() for d in depends_on_raw.split(",") if d.strip()]
+        elif isinstance(depends_on_raw, list):
+            depends_on = [str(d).strip() for d in depends_on_raw if str(d).strip()]
+        else:
+            return _text("Error: depends_on must be a list of task IDs (from earlier loop_enqueue_task results)")
+
+    from gluon.loop_manager import LOOP_TASK_PRIORITY, VERIFICATION_MARKER
+
+    if VERIFICATION_MARKER in prompt:
+        # The marker identifies harness-authored independent-verifier iterations.
+        # An agent that embeds it in its own task would masquerade as the trusted
+        # verifier and bypass verification (loop_manager recursion guard). Reserve it.
+        return _text(f"Error: task prompt may not contain the reserved marker '{VERIFICATION_MARKER}'.")
 
     loop = store.get_agent_loop(loop_id)
     if loop is None:
@@ -67,33 +87,46 @@ async def _enqueue_task_impl(store: GluonStore, loop_id: str, run_id: str, args:
             f"Error: loop is {loop.status.value} ({loop.status_reason or 'no reason recorded'}) — no new tasks accepted"
         )
 
-    pending = store.count_pending_loop_items(loop.id)
-    if pending >= loop.max_fanout:
-        return _text(
-            f"Error: fan-out cap reached — {pending} tasks already pending (max_fanout={loop.max_fanout}). "
-            "Let queued work drain before enqueueing more."
-        )
-
     prompt_hash = normalize_prompt_hash(prompt)
-    if store.loop_prompt_seen(loop.id, prompt_hash):
-        return _text(
-            "Error: duplicate task rejected — this loop has already seen an identical prompt. "
-            "Check loop_status for pending/completed work; author genuinely new work, not a rewording."
-        )
-
-    from gluon.loop_manager import LOOP_TASK_PRIORITY
-
-    item = store.enqueue_work(
+    # Fan-out cap + dedup + dependency validation are enforced atomically
+    # (single BEGIN IMMEDIATE txn) so concurrent enqueues from sibling worker
+    # subprocesses can't slip past the guards.
+    item, reject = store.enqueue_loop_task_atomic(
+        loop_id=loop.id,
         project_id=loop.project_id,
         prompt=prompt,
         profile=loop.profile,
         priority=priority if isinstance(priority, int) else LOOP_TASK_PRIORITY,
-        loop_id=loop.id,
-        source="agent",
         prompt_hash=prompt_hash,
+        depends_on=depends_on,
+        verify_cmd=verify_cmd,
     )
+    if reject == "not_running":
+        return _text("Error: loop is no longer running — no new tasks accepted")
+    if reject == "fanout":
+        return _text(
+            f"Error: fan-out cap reached (max_fanout={loop.max_fanout}). Let queued work drain before enqueueing more."
+        )
+    if reject == "duplicate":
+        return _text(
+            "Error: duplicate task rejected — this loop has already seen an identical prompt. "
+            "Check loop_status for pending/completed work; author genuinely new work, not a rewording."
+        )
+    if reject == "bad_dependency":
+        return _text(
+            "Error: invalid depends_on — every ID must be an existing task of THIS loop "
+            "(use the IDs returned by loop_enqueue_task / shown by loop_status) that has not failed or been cancelled."
+        )
+    assert item is not None  # no reject reason ⇒ enqueued
+    pending = store.count_pending_loop_items(loop.id)
     logger.info("Loop %s: run %s enqueued task %s", loop.id[:8], run_id[:8], item.id[:8])
-    return _text(f"Task enqueued (id {item.id}, priority {item.priority}). Loop now has {pending + 1} pending task(s).")
+    dep_note = f" Depends on: {', '.join(depends_on)}." if depends_on else ""
+    gate_note = f" Task gate: `{verify_cmd}`." if verify_cmd else ""
+    return _text(
+        f"Task enqueued (id {item.id}, priority {item.priority}).{dep_note}{gate_note} "
+        f"Loop now has {pending} pending task(s). Independent tasks run in PARALLEL when the loop "
+        f"uses worktrees; dependent tasks wait for their dependencies to complete."
+    )
 
 
 async def _complete_impl(store: GluonStore, loop_id: str, run_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -108,9 +141,11 @@ async def _complete_impl(store: GluonStore, loop_id: str, run_id: str, args: dic
     if loop.status != LoopStatus.RUNNING:
         return _text(f"Error: loop is already {loop.status.value}")
 
-    loop.completion_requested = True
-    loop.completion_summary = summary
-    store.update_agent_loop(loop)
+    # Atomic, guarded on RUNNING. A full-row write here could clobber a concurrent
+    # pause/advance from the server or a sibling worker; this touches only the
+    # completion fields and no-ops if the loop just stopped.
+    if not store.set_loop_completion(loop_id, True, summary):
+        return _text("Error: loop is no longer running — completion not recorded")
     logger.info("Loop %s: run %s requested completion", loop.id[:8], run_id[:8])
 
     if loop.verify_cmd:
@@ -149,7 +184,9 @@ async def _status_impl(store: GluonStore, loop_id: str, run_id: str, args: dict[
     lines.append(f"\n**Pending tasks ({len(pending_items)}/{loop.max_fanout} fan-out cap):**")
     if pending_items:
         for i in pending_items:
-            lines.append(f"- [{i.id}] ({i.source}) {i.prompt[:120]}")
+            dep = f" ⇐ waits on {','.join(i.depends_on)}" if i.depends_on else ""
+            gate = f" [gate: {i.verify_cmd}]" if i.verify_cmd else ""
+            lines.append(f"- [{i.id}] ({i.source}){dep}{gate} {i.prompt[:110]}")
     else:
         lines.append("- (none — enqueue follow-ups or complete the loop before finishing)")
 
@@ -175,10 +212,13 @@ def build_loop_mcp_server(store: GluonStore, loop_id: str, run_id: str) -> McpSd
 
     @tool(
         "loop_enqueue_task",
-        "Enqueue the next task(s) for this agent loop. Call multiple times to fan out "
-        "independent work. Each prompt must be self-contained — the executing agent has "
-        "no memory of this session. Duplicates and over-fan-out are rejected.",
-        {"prompt": str, "priority": int},
+        "Enqueue the next task(s) for this agent loop — this is how you author the work graph. "
+        "Call multiple times to fan out; INDEPENDENT tasks run in parallel (worktree loops), "
+        "DEPENDENT tasks declare depends_on=[task IDs from earlier calls] and wait for them to "
+        "complete. Optional verify_cmd: a shell command gating THIS task (exit 0 = pass; failure "
+        "spawns a fix task). Each prompt must be self-contained — the executing agent has no "
+        "memory of this session. Duplicates and over-fan-out are rejected.",
+        {"prompt": str, "priority": int, "depends_on": list, "verify_cmd": str},
     )
     async def loop_enqueue_task(args: dict[str, Any]) -> dict[str, Any]:
         return await _enqueue_task_impl(store, loop_id, run_id, args)

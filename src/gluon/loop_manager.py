@@ -24,10 +24,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from gluon.gate import run_gate
 from gluon.models import AgentLoop, ExecutionRun, LoopStatus, RunStatus
+
+
+@dataclass(frozen=True)
+class _TaskGate:
+    """A task-level verification gate: the item that declared it + its command."""
+
+    item_id: str
+    cmd: str
+    task_prompt: str
+
 
 if TYPE_CHECKING:
     from gluon.store import GluonStore
@@ -38,15 +49,46 @@ logger = logging.getLogger(__name__)
 # loop keeps momentum, but behind anything an operator marks truly urgent.
 LOOP_TASK_PRIORITY = 5
 
-_SEED_PROMPT_TEMPLATE = """This is iteration 1 of a new agent loop.
+_SEED_PROMPT_TEMPLATE = """This is iteration 1 of a new agent loop. You are the SURVEYOR — your job
+this iteration is to map the landscape and author the work graph, not to do the work.
 
 Objective:
 {objective}
 
-Assess the project state relative to the objective, then do the FIRST focused
-slice of work toward it. Before finishing you MUST either enqueue the next
-task(s) with the loop_enqueue_task tool, or call loop_complete if the objective
-is already fully met."""
+1. SURVEY the landscape relevant to the objective. Depending on what it needs:
+   inspect the code and tests; run the test suite; check `git status`; and where
+   the objective concerns issues or pull requests, enumerate them (`gh issue list`,
+   `gh pr list` — read-only). Build a concrete picture of everything the
+   objective requires.
+2. DECOMPOSE into tasks via loop_enqueue_task — this authors the work graph:
+   - one task per independent unit of work (independent tasks run in PARALLEL
+     when the loop uses worktrees) — e.g. one task per bug, per issue, per PR;
+   - use depends_on=[earlier task IDs] to chain work that must be sequential;
+   - give each task its own verify_cmd where an objective check exists (its
+     gate must exit 0 before the task counts as done);
+   - every prompt must be fully self-contained: the executing agent has no
+     memory of this session, so include file paths, issue/PR numbers, and the
+     acceptance criteria.
+3. If the objective is genuinely a single small task, you may instead do it now
+   and call loop_complete. If your survey finds the objective already met,
+   call loop_complete with the evidence.
+
+Before finishing you MUST have either enqueued the task graph or called
+loop_complete — ending with neither counts as a stall."""
+
+_TASK_GATE_FIX_TEMPLATE = """[TASK GATE FAILED — iteration {iteration}] A completed task did not pass its
+verification gate. Fix it so the gate passes.
+
+Original task:
+{task_prompt}
+
+Gate command (must exit 0):
+  {verify_cmd}
+Failing output (tail):
+{output}
+
+Fix the underlying problem, run the gate yourself to confirm it passes, then
+finish. Do NOT call loop_complete unless the whole loop objective is also met."""
 
 _CONTINUATION_PROMPT_TEMPLATE = """[LOOP CONTINUATION — iteration {iteration}] The loop objective is not yet
 complete and no follow-up tasks are pending.{gate_block}
@@ -126,7 +168,31 @@ class LoopManager:
 
         The seed task is dispatched by the existing queue machinery (drain loop
         or self-propelling dispatch) — no new execution engine.
+
+        Raises ValueError on an out-of-range budget/objective — validated here so
+        every entry path (CLI, formula, API) is covered, not just the web request
+        model.
         """
+        # Bomb-proofing: reject invariants that would let the loop misbehave —
+        # instant stall (max_stalls<1), never author work (max_fanout<1), instant
+        # or never budget-stop (max_iterations<1, max_cost_usd<=0), or a blank gate.
+        objective = (objective or "").strip()
+        if not objective:
+            raise ValueError("Loop objective must be a non-empty string.")
+        if max_iterations < 1:
+            raise ValueError(f"max_iterations must be >= 1 (got {max_iterations}).")
+        if max_stalls < 1:
+            raise ValueError(f"max_stalls must be >= 1 (got {max_stalls}).")
+        if max_fanout < 1:
+            raise ValueError(f"max_fanout must be >= 1 (got {max_fanout}).")
+        if max_cost_usd is not None and max_cost_usd <= 0:
+            raise ValueError(f"max_cost_usd must be > 0 when set (got {max_cost_usd}).")
+        # A blank/whitespace verify_cmd is not a gate — normalize to gateless
+        # rather than silently running an empty shell command that always exits 0
+        # (a false "gated" loop that grants every completion).
+        if verify_cmd is not None and not verify_cmd.strip():
+            verify_cmd = None
+
         loop = AgentLoop(
             project_id=project_id,
             objective=objective,
@@ -170,25 +236,64 @@ class LoopManager:
         """
         if not run.loop_id:
             return
-        loop = self.store.get_agent_loop(run.loop_id)
-        if loop is None:
-            logger.warning("Run %s references unknown loop %s", run.id[:8], run.loop_id[:8])
-            return
-        if loop.status != LoopStatus.RUNNING:
-            return  # Loop already stopped (raced with a manual pause/cancel)
 
-        loop.iteration_count += 1
-        loop.total_cost_usd += run.cost_usd or 0.0
+        # Atomically add this iteration + its cost, but ONLY if the loop is still
+        # RUNNING. Returns the authoritative post-increment snapshot, or None if the
+        # loop already stopped (a manual pause/cancel, budget, or completion won a
+        # race). Never derive iteration_count/total_cost_usd from an unlocked read —
+        # sibling worker subprocesses would clobber each other's increments.
+        loop = self.store.advance_loop_counters(run.loop_id, run.cost_usd or 0.0)
+        if loop is None:
+            # Loop not RUNNING: still record this run's cost so the ceiling stays
+            # accurate across pause windows, but do not advance or decide.
+            self.store.add_loop_cost(run.loop_id, run.cost_usd or 0.0)
+            return
 
         # 1. Fail-safe: a failed/cancelled iteration pauses the loop for a human.
+        #    Clear any pending completion request so a later resume can't fire it
+        #    off this dead iteration.
         if run.status == RunStatus.FAILED:
+            self.store.set_loop_completion(loop.id, False, None)
             self._pause(loop, f"iteration run {run.id[:8]} failed: {(run.error_message or 'unknown error')[:200]}")
             return
         if run.status == RunStatus.CANCELLED:
+            self.store.set_loop_completion(loop.id, False, None)
             self._pause(loop, f"iteration run {run.id[:8]} was cancelled")
             return
 
-        # 2. Completion handshake — the gate, not the agent, is authority.
+        # 1b. Task-level gate (loop-first pivot Phase A): if this iteration's
+        #     queue item declared its own verify_cmd, that gate judges THIS task
+        #     (distinct from loop.verify_cmd, which judges the whole objective).
+        #     Failure spawns a targeted fix task and demotes any completion claim
+        #     made this iteration — a task that can't pass its own gate cannot be
+        #     evidence the objective is met. Budgets still bound the fix cycle.
+        task_gate = self._task_gate_for_run(run)
+        if task_gate is not None:
+            cwd = self._gate_cwd(run)
+            if cwd is not None:
+                result = await asyncio.to_thread(run_gate, task_gate.cmd, cwd)
+                if not result.passed:
+                    logger.info(
+                        "Loop %s: task gate failed for item %s (exit %d) — spawning fix task",
+                        loop.id[:8],
+                        task_gate.item_id[:8],
+                        result.exit_code,
+                    )
+                    # All mutations here are atomic store helpers — a full-row
+                    # update_agent_loop(loop) from this stale snapshot would
+                    # clobber the completion clear back to True (the lost-update
+                    # class the bomb-proofing pass eliminated).
+                    self.store.set_loop_completion(loop.id, False, None)
+                    budget_reason = loop.budget_exhausted()
+                    if budget_reason is not None:
+                        self._pause(loop, budget_reason)
+                        return
+                    self._enqueue_task_fix(loop, task_gate, result.output)
+                    return
+
+        # 2. Completion handshake — the gate/verifier, not the agent, is authority.
+        #    Its non-completing branches enforce budgets too (they used to skip the
+        #    step-3 check below, the original runaway-quota bug).
         if loop.completion_requested:
             await self._resolve_completion_request(loop, run)
             return
@@ -199,24 +304,28 @@ class LoopManager:
             self._pause(loop, budget_reason)
             return
 
+        # 3b. Dependency hygiene: cascade-cancel pending items whose deps
+        #     failed/cancelled (they can never become ready). Without this the
+        #     loop can deadlock silently: pending>0 keeps stall detection quiet
+        #     while nothing is ever claimable.
+        self.store.cancel_dead_loop_items(loop.id)
+
         # 4. No-progress detection: nothing pending → stall.
         pending = self.store.count_pending_loop_items(loop.id)
         if pending == 0:
-            loop.stall_count += 1
-            if loop.stall_count > loop.max_stalls:
+            new_stall = self.store.bump_loop_stall(loop.id)
+            if new_stall < 0:
+                return  # loop stopped concurrently — nothing to advance
+            if new_stall > loop.max_stalls:
                 self._pause(
                     loop,
-                    f"stalled: {loop.stall_count} consecutive iterations without follow-up tasks or completion",
+                    f"stalled: {new_stall} consecutive iterations without follow-up tasks or completion",
                 )
                 return
             self._enqueue_continuation(loop)
-            logger.info(
-                "Loop %s stalled (%d/%d); continuation enqueued", loop.id[:8], loop.stall_count, loop.max_stalls
-            )
+            logger.info("Loop %s stalled (%d/%d); continuation enqueued", loop.id[:8], new_stall, loop.max_stalls)
         else:
-            loop.stall_count = 0
-
-        self.store.update_agent_loop(loop)
+            self.store.reset_loop_stall(loop.id)
 
     async def _resolve_completion_request(self, loop: AgentLoop, run: ExecutionRun) -> None:
         """Grant or deny the agent's completion request.
@@ -229,13 +338,19 @@ class LoopManager:
         """
         if loop.agent_verifier and VERIFICATION_MARKER not in (run.prompt or ""):
             # A work iteration claimed completion: demote the request and hand
-            # judgment to a FRESH verifier iteration (generator never grades
-            # its own work). The verifier confirms via loop_complete or
-            # rejects by enqueueing fix tasks.
-            loop.completion_requested = False
-            loop.stall_count = 0
+            # judgment to a FRESH verifier iteration (generator never grades its own
+            # work). The verifier confirms via loop_complete or rejects by
+            # enqueueing fix tasks. (The marker can't be forged: loop_enqueue_task
+            # rejects agent prompts containing it, so only harness-authored verifier
+            # prompts ever match.)
+            self.store.set_loop_completion(loop.id, False, None)  # demote the claim (atomic)
+            # This path skips the step-3 budget check, so enforce it here — without
+            # it a claim-every-iteration loop would spawn verifier iterations forever.
+            budget_reason = loop.budget_exhausted()
+            if budget_reason is not None:
+                self._pause(loop, budget_reason)
+                return
             self._enqueue_verification(loop)
-            self.store.update_agent_loop(loop)
             logger.info("Loop %s: completion claim from run %s sent to independent verifier", loop.id[:8], run.id[:8])
             return
 
@@ -251,6 +366,7 @@ class LoopManager:
 
         cwd = self._gate_cwd(run)
         if cwd is None:
+            self.store.set_loop_completion(loop.id, False, None)
             self._pause(loop, "completion requested but no directory to run verify_cmd in")
             return
 
@@ -259,67 +375,81 @@ class LoopManager:
             self._complete(loop, "objective met; verify_cmd passed")
             return
 
-        # Denied: demote the request and feed the gate output into a
-        # continuation iteration (evaluator-optimizer at the loop level).
+        # Denied: clear the request, then — because this branch also skips the
+        # step-3 budget check — enforce budgets BEFORE feeding the gate output into
+        # another continuation. A denied completion is NOT progress, so stall_count
+        # is deliberately left to keep climbing toward max_stalls (no false reset).
         logger.info("Loop %s completion DENIED — gate failed (exit %d)", loop.id[:8], result.exit_code)
-        loop.completion_requested = False
-        loop.completion_summary = None
-        loop.stall_count = 0
+        self.store.set_loop_completion(loop.id, False, None)
+        budget_reason = loop.budget_exhausted()
+        if budget_reason is not None:
+            self._pause(loop, budget_reason)
+            return
         self._enqueue_continuation(loop, gate_failure=result.output)
-        self.store.update_agent_loop(loop)
 
     # ---------- manual controls ----------
 
     def pause_loop(self, loop_id: str, reason: str = "paused by user") -> AgentLoop | None:
-        loop = self.store.get_agent_loop(loop_id)
-        if loop is None or loop.status != LoopStatus.RUNNING:
-            return loop
-        self._pause(loop, reason)
-        return loop
+        # Atomic + guarded on RUNNING so a concurrent worker advance can't undo it.
+        self.store.try_transition_loop(loop_id, LoopStatus.PAUSED, reason=reason, expect_status=LoopStatus.RUNNING)
+        return self.store.get_agent_loop(loop_id)
 
     def resume_loop(self, loop_id: str) -> AgentLoop | None:
         """Resume a paused loop; re-seed a continuation if nothing is pending."""
         loop = self.store.get_agent_loop(loop_id)
         if loop is None or loop.status != LoopStatus.PAUSED:
             return loop
-        loop.status = LoopStatus.RUNNING
-        loop.status_reason = None
-        loop.stall_count = 0
-        if self.store.count_pending_loop_items(loop.id) == 0:
-            self._enqueue_continuation(loop)
-        self.store.update_agent_loop(loop)
-        logger.info("Resumed agent loop %s", loop.id[:8])
-        return loop
+        # Clear any completion request captured before the pause — otherwise the
+        # first post-resume iteration could fire an unverified completion off a
+        # superseded/failed iteration. Then flip PAUSED -> RUNNING atomically.
+        self.store.set_loop_completion(loop_id, False, None, expect_status=LoopStatus.PAUSED)
+        if not self.store.try_transition_loop(
+            loop_id, LoopStatus.RUNNING, reason=None, expect_status=LoopStatus.PAUSED
+        ):
+            return self.store.get_agent_loop(loop_id)  # lost a race (e.g. cancel)
+        self.store.reset_loop_stall(loop_id)
+        # Dependency hygiene on resume: drop pending items whose deps failed
+        # before the pause — otherwise they'd block the ready-set forever while
+        # keeping stall detection quiet (silent deadlock).
+        self.store.cancel_dead_loop_items(loop_id)
+        if self.store.count_pending_loop_items(loop_id) == 0:
+            fresh = self.store.get_agent_loop(loop_id)
+            if fresh is not None:
+                self._enqueue_continuation(fresh)
+        logger.info("Resumed agent loop %s", loop_id[:8])
+        return self.store.get_agent_loop(loop_id)
 
     def cancel_loop(self, loop_id: str, reason: str = "cancelled by user") -> AgentLoop | None:
         loop = self.store.get_agent_loop(loop_id)
         if loop is None or loop.status not in (LoopStatus.RUNNING, LoopStatus.PAUSED):
             return loop
-        loop.status = LoopStatus.CANCELLED
-        loop.status_reason = reason
-        cancelled = self.store.cancel_pending_loop_items(loop.id)
-        self.store.update_agent_loop(loop)
-        logger.info("Cancelled agent loop %s (%d pending tasks dropped)", loop.id[:8], cancelled)
-        return loop
+        # Atomically cancel from whichever active status it is currently in.
+        cancelled_ok = self.store.try_transition_loop(
+            loop_id, LoopStatus.CANCELLED, reason=reason, expect_status=LoopStatus.RUNNING
+        ) or self.store.try_transition_loop(
+            loop_id, LoopStatus.CANCELLED, reason=reason, expect_status=LoopStatus.PAUSED
+        )
+        if cancelled_ok:
+            dropped = self.store.cancel_pending_loop_items(loop_id)
+            logger.info("Cancelled agent loop %s (%d pending tasks dropped)", loop_id[:8], dropped)
+        return self.store.get_agent_loop(loop_id)
 
     # ---------- internals ----------
 
     def _pause(self, loop: AgentLoop, reason: str) -> None:
-        """PAUSED preserves pending tasks (claim_work keeps them inert)."""
-        loop.status = LoopStatus.PAUSED
-        loop.status_reason = reason
-        self.store.update_agent_loop(loop)
+        """PAUSED preserves pending tasks (claim_work keeps them inert). Atomic +
+        guarded on RUNNING so we never clobber a concurrent cancel/complete."""
+        self.store.try_transition_loop(loop.id, LoopStatus.PAUSED, reason=reason, expect_status=LoopStatus.RUNNING)
         logger.info("Paused agent loop %s: %s", loop.id[:8], reason)
 
     def _complete(self, loop: AgentLoop, reason: str) -> None:
-        from gluon.models import utc_now
-
-        loop.status = LoopStatus.COMPLETED
-        loop.status_reason = reason
-        loop.completed_at = utc_now()
-        cancelled = self.store.cancel_pending_loop_items(loop.id)
-        self.store.update_agent_loop(loop)
-        logger.info("Completed agent loop %s: %s (%d stale tasks dropped)", loop.id[:8], reason, cancelled)
+        # Atomic RUNNING -> COMPLETED; only drop pending tasks if we actually won
+        # the transition (else a concurrent pause/cancel already owns the loop).
+        if self.store.try_transition_loop(
+            loop.id, LoopStatus.COMPLETED, reason=reason, expect_status=LoopStatus.RUNNING, set_completed_at=True
+        ):
+            dropped = self.store.cancel_pending_loop_items(loop.id)
+            logger.info("Completed agent loop %s: %s (%d stale tasks dropped)", loop.id[:8], reason, dropped)
 
     def _enqueue_verification(self, loop: AgentLoop) -> None:
         """Enqueue the independent-verifier iteration (I2).
@@ -373,3 +503,44 @@ class LoopManager:
             return str(run.worktree_path)
         project = self.store.get_project(run.project_id)
         return str(project.expanded_path) if project else None
+
+    def _task_gate_for_run(self, run: ExecutionRun) -> _TaskGate | None:
+        """The task-level gate of the queue item this run executed, if any.
+
+        The run's originating item is linked via ``initiator`` ("queue:<id>" /
+        "queue_drain:<id>") — no extra plumbing. Only item-level verify_cmds
+        count: the loop-level gate is judged separately at the completion
+        handshake, and inherited run.verify_cmd would wrongly gate every
+        intermediate iteration.
+        """
+        initiator = run.initiator or ""
+        if not (initiator.startswith("queue:") or initiator.startswith("queue_drain:")):
+            return None
+        item = self.store.get_work_item(initiator.split(":", 1)[1])
+        if item is None or not item.verify_cmd or item.loop_id != run.loop_id:
+            return None
+        return _TaskGate(item_id=item.id, cmd=item.verify_cmd, task_prompt=item.prompt)
+
+    def _enqueue_task_fix(self, loop: AgentLoop, gate: _TaskGate, gate_output: str) -> None:
+        """Harness-authored fix task for a failed task-level gate.
+
+        Targeted evaluator-optimizer at the task scope: carries the original
+        task, the gate command, and its failing output; keeps the same task
+        gate so the fix is judged by the same standard. Harness-authored →
+        bypasses dedup (embeds iteration number to stay distinct).
+        """
+        prompt = _TASK_GATE_FIX_TEMPLATE.format(
+            iteration=loop.iteration_count + 1,
+            task_prompt=gate.task_prompt,
+            verify_cmd=gate.cmd,
+            output=gate_output,
+        )
+        self.store.enqueue_work(
+            project_id=loop.project_id,
+            prompt=prompt,
+            profile=loop.profile,
+            priority=LOOP_TASK_PRIORITY - 1,  # fix ahead of new fan-out work
+            loop_id=loop.id,
+            source="continuation",
+            verify_cmd=gate.cmd,
+        )
