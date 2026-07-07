@@ -62,10 +62,13 @@ services:
       - AWS_BEARER_TOKEN_BEDROCK
 
       # Claude configuration
-      - CLAUDE_API_KEY
+      # SUBSCRIPTION LOCK: hard-empty so a stray host CLAUDE_API_KEY can't reach
+      # the CLI and switch it to metered billing (empty is skipped by the provider).
+      - CLAUDE_API_KEY=
       - CLAUDE_LOG_LEVEL=info
-      # Pass through from .env.local — set to "1" for Bedrock, unset for direct Anthropic
-      - CLAUDE_CODE_USE_BEDROCK
+      # SUBSCRIPTION LOCK: hard-empty so a leaked host CLAUDE_CODE_USE_BEDROCK=1
+      # can't reroute inference away from the Max subscription.
+      - CLAUDE_CODE_USE_BEDROCK=
 
       # Note: These are loaded from .env.local via env_file directive above:
       # - GH_TOKEN (GitHub personal access token for PR operations)
@@ -80,10 +83,15 @@ services:
       #
       # Gluon automatically exports the matching CLAUDE_CODE_USE_* flag plus any
       # per-provider config below into the Claude Code subprocess.
-      - GLUON_LLM_PROVIDER
+      # SUBSCRIPTION LOCK: pinned to "anthropic" (no CLAUDE_CODE_USE_* flag emitted)
+      # so the CLI authenticates via the mounted ~/.claude Max-subscription OAuth.
+      - GLUON_LLM_PROVIDER=anthropic
 
       # --- Anthropic (direct API / Claude CLI subscription) ---
-      - ANTHROPIC_API_KEY
+      # SUBSCRIPTION LOCK: hard-empty ANTHROPIC_API_KEY so the CLI falls back to the
+      # subscription OAuth creds instead of billing a metered API key. To use a paid
+      # API key instead, set a value here (and unpin GLUON_LLM_PROVIDER above).
+      - ANTHROPIC_API_KEY=
       - ANTHROPIC_BASE_URL
 
       # --- Google Vertex AI ---
