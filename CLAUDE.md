@@ -223,11 +223,13 @@ harness keeps authority over verification, budgets, and stopping.
 
 ```bash
 gluon loop create myproject "Migrate all API routes to v2" \
-  --verify-cmd "uv run pytest" --agent-verifier --max-iterations 20 --max-cost 25
+  --verify-cmd "uv run pytest" --agent-verifier --autonomy L2 \
+  --max-iterations 20 --max-cost 25
 gluon loop list / show / pause / resume / cancel <id>
-gluon formula run improve myproject --var focus="test coverage"  # loop template
+gluon formula run improve myproject --var focus="test coverage"   # loop template
+gluon formula run issue-triage myproject                          # loop SKU (Phase B)
 # API: POST/GET /api/loops, POST /api/loops/{id}/pause|resume|cancel
-# Web UI: /loops (list + detail timeline + create)
+# Web UI: /loops (list + detail timeline + campaign task graph + create)
 ```
 
 - Iterations are ordinary work-queue items (`loop_id` set) dispatched by the
@@ -255,11 +257,24 @@ gluon formula run improve myproject --var focus="test coverage"  # loop template
   (`max_stalls` consecutive no-progress iterations → PAUSED). Paused loops
   keep pending tasks inert (resumable); `LoopManager` (loop_manager.py) is
   the advancement seam, called on run completion in runner.py.
-- **Loop templates**: formulas with `kind: loop` (templated `objective` +
-  gate/budgets) instantiate an AgentLoop instead of a TaskChain — builtin
-  example `src/gluon/formulas/improve.yml`.
+- **Worktree merge-back (loop-first pivot Phase B — loop_integration.py):** a
+  completed worktree task's branch (`gluon-task/<run_id>`) is merged into the
+  project's source branch under a cross-process `fcntl` lock, so siblings and
+  later verification build on integrated state (without it, parallel outputs are
+  invisible to each other). Typed `IntegrationResult` (never raises); conflicts
+  spawn an agent resolution task, the checkout is left pristine. Runs in
+  `on_run_completed` after the task gate, before the plan checkpoint.
+- **Autonomy ladder (Phase B):** `--autonomy L1|L2|L3` (default `L3`). L1
+  (report-only) / L2 (assisted) loops PAUSE after the surveyor authors the plan
+  — the plan-approval trust boundary; `gluon loop resume` executes it. L3 runs
+  unattended. Validated at `create_loop`; plumbed through CLI, formulas, and API.
+- **Loop templates & SKUs**: formulas with `kind: loop` (templated `objective` +
+  gate/budgets/`autonomy`) instantiate an AgentLoop instead of a TaskChain —
+  `improve.yml`, plus the Phase B SKU library (`issue-triage`, `pr-babysitter`,
+  `ci-sweeper`, `daily-triage`, `dependency-sweeper`, `post-merge-cleanup`,
+  `changelog-drafter`).
 - Per-loop effectiveness (acceptance rate, cost-per-accepted-change) on
-  `GET /api/loops/{id}` → `metrics`.
+  `GET /api/loops/{id}` → `metrics`; the work-graph nodes on `graph`.
 
 **Loop lifecycle:** `RUNNING → PAUSED (budget/stall/failure — resumable) → RUNNING | COMPLETED/CANCELLED`
 

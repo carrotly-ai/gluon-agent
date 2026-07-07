@@ -167,9 +167,31 @@ Gluon's — the SDK explicitly leaves that to orchestrators.
 escalation on pause. The vision becomes visible in the product.*
 
 **Phase B — the campaign experience**
-- Campaign UI (live DAG), plan-approval checkpoint (L2), autonomy ladder +
-  allowlists (L3), loop SKUs as builtin formulas + schedule presets,
-  cost/acceptance evidence on the promotion path.
+*STATUS: IMPLEMENTED 2026-07-07 (B1–B5, + tests in
+`tests/test_loop_pivot_phase_b.py`; loop suites 66 green, ruff + mypy clean).*
+1. ✅ **Worktree merge-back** (`src/gluon/loop_integration.py`): a completed
+   loop-task's branch is merged into the project's source branch under a
+   cross-process `fcntl` lock, so siblings and later verification build on
+   integrated state — closing the Phase-A integration gap. Typed statuses
+   (`merged`/`up_to_date`/`no_changes`/`conflict`/`branch_moved`/`skipped`/
+   `error`); never raises into the advancement seam. Conflicts spawn an agent
+   resolution task; the checkout is left pristine. Wired into
+   `on_run_completed` after the task gate, before the plan checkpoint.
+2. ✅ **Autonomy ladder** (L1 report-only / L2 assisted / L3 unattended): L1/L2
+   loops PAUSE after the surveyor authors the plan (plan-approval trust
+   boundary); `gluon loop resume` executes. L3 runs straight through. `autonomy`
+   validated at `create_loop` (every entry path) and plumbed through CLI
+   (`--autonomy`), formulas (templated), web API, and the store.
+3. ✅ **Loop SKU library** (`kind: loop`, `use_worktree`, templated autonomy):
+   `issue-triage`, `pr-babysitter`, `ci-sweeper`, `daily-triage`,
+   `dependency-sweeper`, `post-merge-cleanup`, `changelog-drafter` — the
+   practice library of ready-to-run campaigns (`gluon formula run <sku> <proj>`).
+4. ✅ **Campaign task graph UI**: `GET /api/loops/{id}` returns work-graph nodes;
+   LoopsPage renders the campaign graph (deps + gate markers), an autonomy
+   selector in the create dialog, and an autonomy detail stat.
+
+*Deferred to Phase C: campaign-level (cross-loop) allowlists and schedule
+presets; the per-loop `claim_work` budget guard already bounds token burn.*
 
 **Phase C — consolidation (debt paydown)**
 - Ralph→node-loop merge; chains→campaign migration; scheduler unification;
