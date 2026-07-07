@@ -765,7 +765,7 @@ class Orchestrator:
             model_id = get_model_id(task_options["model"])
 
             # Read experimental feature settings
-            agent_teams_enabled = self.store.get_setting("agent_teams_enabled", "false") == "true"
+            agent_teams_enabled = self.store.get_setting("agent_teams_enabled", "true") == "true"
             skills_enabled = self.store.get_setting("skills_enabled", "true") == "true"
 
             # Create agent with resolved options
