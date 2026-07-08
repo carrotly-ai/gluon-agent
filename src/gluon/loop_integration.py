@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,10 +60,23 @@ async def _git(cwd: Path | str, *args: str) -> tuple[int, str, str]:
     return proc.returncode or 0, out.decode(errors="replace").strip(), err.decode(errors="replace").strip()
 
 
+def _project_lock_key(project_path: Path) -> str:
+    """Stable, cross-process filename token for a project's integration lock.
+
+    MUST be deterministic across separate OS processes: loop iterations run as
+    detached ``python -m gluon.runner`` subprocesses, so two siblings need to
+    compute the SAME lock filename to serialize their merges. Python's builtin
+    ``hash(str)`` is per-process randomized (PYTHONHASHSEED) and would give each
+    subprocess a different filename — a lock that excludes nothing (audit
+    finding #1). SHA-256 is stable across processes.
+    """
+    return hashlib.sha256(str(project_path).encode()).hexdigest()[:16]
+
+
 def _acquire_project_lock(project_path: Path):
     """Blocking flock scoped to the project — released by closing the handle."""
     _LOCK_DIR.mkdir(parents=True, exist_ok=True)
-    lock_file = _LOCK_DIR / f"integrate-{abs(hash(str(project_path)))}.lock"
+    lock_file = _LOCK_DIR / f"integrate-{_project_lock_key(project_path)}.lock"
     handle = open(lock_file, "w")  # noqa: SIM115 — held past this frame, closed by caller
     fcntl.flock(handle, fcntl.LOCK_EX)
     return handle
@@ -82,6 +96,23 @@ async def integrate_run_branch(project_path: Path, run: ExecutionRun) -> Integra
         return IntegrationResult("skipped", "worktree path missing")
 
     try:
+        # 0. Resolve the effective source branch. run.source_branch is normally
+        #    set at worktree creation, but be defensive: if it's missing or a
+        #    detached "HEAD", fall back to the project's current branch (the
+        #    branch was cut from the project checkout). Using a literal "HEAD"
+        #    as the rev-list base would resolve INSIDE the worktree to the task
+        #    branch itself → always "0 commits" → work silently dropped as
+        #    no_changes (audit finding #8).
+        source_branch = run.source_branch
+        if not source_branch or source_branch == "HEAD":
+            rc, cur, _ = await _git(project_path, "rev-parse", "--abbrev-ref", "HEAD")
+            source_branch = cur if (rc == 0 and cur and cur != "HEAD") else None
+        if not source_branch:
+            return IntegrationResult(
+                "error",
+                "cannot resolve a named source branch (detached HEAD?) — refusing to guess a merge target",
+            )
+
         # 1. Safety net: commit any residual uncommitted work in the worktree.
         rc, out, _ = await _git(wt, "status", "--porcelain")
         if rc == 0 and out:
@@ -90,9 +121,9 @@ async def integrate_run_branch(project_path: Path, run: ExecutionRun) -> Integra
             if rc != 0 and "nothing to commit" not in err.lower():
                 return IntegrationResult("error", f"auto-commit failed: {err[:200]}")
 
-        # 2. Anything to integrate at all?
-        base = run.source_branch or "HEAD"
-        rc, out, _ = await _git(wt, "rev-list", "--count", f"{base}..{run.branch_name}")
+        # 2. Anything to integrate at all? (source_branch ref is visible in the
+        #    worktree — worktrees share the repo's git dir.)
+        rc, out, _ = await _git(wt, "rev-list", "--count", f"{source_branch}..{run.branch_name}")
         if rc == 0 and out == "0":
             return IntegrationResult("no_changes", "branch has no commits beyond source")
 
@@ -102,10 +133,10 @@ async def integrate_run_branch(project_path: Path, run: ExecutionRun) -> Integra
             rc, current, _ = await _git(project_path, "rev-parse", "--abbrev-ref", "HEAD")
             if rc != 0:
                 return IntegrationResult("error", "cannot resolve project HEAD")
-            if run.source_branch and current != run.source_branch:
+            if current != source_branch:
                 return IntegrationResult(
                     "branch_moved",
-                    f"project is on '{current}', task branched from '{run.source_branch}' — not merging",
+                    f"project is on '{current}', task branched from '{source_branch}' — not merging",
                 )
 
             rc, out, err = await _git(project_path, "merge", "--no-edit", run.branch_name)

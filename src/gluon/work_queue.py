@@ -54,58 +54,56 @@ class WorkQueueManager:
 
     def mark_running(self, item_id: str, run_id: str) -> None:
         """Link claimed item to a run."""
-        items = self.store.list_work_items()
-        for item in items:
-            if item.id == item_id:
-                item.status = WorkQueueStatus.RUNNING
-                item.claimed_by = run_id
-                item.started_at = utc_now()
-                self.store.update_work_item(item)
-                logger.info("Work item %s now running as run %s", item_id, run_id)
-                return
+        item = self.store.get_work_item(item_id)
+        if item is None:
+            logger.warning("mark_running: work item %s not found", item_id)
+            return
+        item.status = WorkQueueStatus.RUNNING
+        item.claimed_by = run_id
+        item.started_at = utc_now()
+        self.store.update_work_item(item)
+        logger.info("Work item %s now running as run %s", item_id, run_id)
 
     def mark_completed(self, item_id: str) -> None:
         """Mark a work item as completed."""
-        items = self.store.list_work_items()
-        for item in items:
-            if item.id == item_id:
-                item.status = WorkQueueStatus.COMPLETED
-                item.completed_at = utc_now()
-                self.store.update_work_item(item)
-                return
+        item = self.store.get_work_item(item_id)
+        if item is None:
+            logger.warning("mark_completed: work item %s not found", item_id)
+            return
+        item.status = WorkQueueStatus.COMPLETED
+        item.completed_at = utc_now()
+        self.store.update_work_item(item)
 
     def mark_failed(self, item_id: str, error: str) -> None:
         """Mark a work item as failed."""
-        items = self.store.list_work_items()
-        for item in items:
-            if item.id == item_id:
-                item.status = WorkQueueStatus.FAILED
-                item.error_message = error
-                item.completed_at = utc_now()
-                self.store.update_work_item(item)
-                return
+        item = self.store.get_work_item(item_id)
+        if item is None:
+            logger.warning("mark_failed: work item %s not found", item_id)
+            return
+        item.status = WorkQueueStatus.FAILED
+        item.error_message = error
+        item.completed_at = utc_now()
+        self.store.update_work_item(item)
 
     def release(self, item_id: str) -> None:
         """Release claimed item back to pending."""
-        items = self.store.list_work_items()
-        for item in items:
-            if item.id == item_id:
-                item.status = WorkQueueStatus.PENDING
-                item.claimed_by = None
-                item.claimed_at = None
-                self.store.update_work_item(item)
-                return
+        item = self.store.get_work_item(item_id)
+        if item is None:
+            return
+        item.status = WorkQueueStatus.PENDING
+        item.claimed_by = None
+        item.claimed_at = None
+        self.store.update_work_item(item)
 
     def cancel(self, item_id: str) -> None:
         """Cancel a queued work item."""
-        items = self.store.list_work_items()
-        for item in items:
-            if item.id == item_id:
-                item.status = WorkQueueStatus.CANCELLED
-                item.completed_at = utc_now()
-                self.store.update_work_item(item)
-                logger.info("Cancelled work item %s", item_id)
-                return
+        item = self.store.get_work_item(item_id)
+        if item is None:
+            return
+        item.status = WorkQueueStatus.CANCELLED
+        item.completed_at = utc_now()
+        self.store.update_work_item(item)
+        logger.info("Cancelled work item %s", item_id)
 
     def release_stale_claims(self, threshold_secs: int = 1800) -> int:
         """Release items claimed >threshold ago with no heartbeat. Returns count."""

@@ -1892,16 +1892,19 @@ but explicit commits with good messages are preferred.
                 except Exception:
                     logger.debug("Session cleanup failed", exc_info=True)
 
-            # Close out the work-queue item this run was dispatched from. It was
-            # set RUNNING on dispatch (mark_running) but nothing ever marked it
-            # terminal, so queue items leaked in RUNNING forever.
-            self._finalize_queue_item(run)
-
             # Agent-loop advancement (loop-engineering Phase 2): the harness
             # decides whether the loop continues / completes / pauses. Runs
             # BEFORE self-propelling dispatch so a continuation task enqueued
             # here is claimable in the very next step, and a stopped loop's
             # tasks are already inert (claim_work skips non-RUNNING loops).
+            #
+            # CRITICAL ORDERING (audit finding #3): on_run_completed integrates
+            # this run's worktree branch back into the source branch. The queue
+            # item is finalized to COMPLETED only AFTER that returns, so a
+            # dependent (claimable once its dep is COMPLETED) can never branch
+            # from source before this task's work is merged in. If advancement
+            # crashes, the item stays RUNNING and reconcile_orphaned_work_items
+            # settles it from the terminal run.
             if run.loop_id:
                 try:
                     from gluon.loop_manager import LoopManager
@@ -1950,6 +1953,13 @@ but explicit commits with good messages are preferred.
                         run.id[:8],
                         exc_info=True,
                     )
+
+            # Close out the work-queue item this run was dispatched from. It was
+            # set RUNNING on dispatch (mark_running); nothing else marks it
+            # terminal. Deliberately AFTER loop advancement so integration has
+            # already merged this task's branch before any dependent sees it
+            # COMPLETED (audit finding #3), and before self-propel dispatch below.
+            self._finalize_queue_item(run)
 
             # Self-propelling queue: dispatch next queued work item.
             # Loop-first pivot Phase A: with within-project parallelism, sibling

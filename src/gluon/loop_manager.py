@@ -367,15 +367,27 @@ class LoopManager:
                         return
                     self._enqueue_integration_fix(loop, run, integ.detail)
                     return
-                if integ.status not in INTEGRATED_STATUSES and integ.status != "skipped":
-                    # branch_moved / error: never silently lose work — surface it.
+                if integ.status not in INTEGRATED_STATUSES and integ.status not in ("skipped", "conflict"):
+                    # branch_moved / error / denylist_violation: the completed
+                    # task's work is stranded on its branch. Do NOT silently
+                    # proceed (audit finding #5) — a later verify_cmd against the
+                    # project checkout would fail against work it can't see.
+                    # PAUSE for a human with the branch preserved; resume after
+                    # they resolve the branch state or the transient fault.
+                    self.store.set_loop_completion(loop.id, False, None)
                     logger.warning(
-                        "Loop %s: integration of run %s not performed (%s: %s)",
+                        "Loop %s: integration of run %s not performed (%s: %s) — pausing for review",
                         loop.id[:8],
                         run.id[:8],
                         integ.status,
                         integ.detail,
                     )
+                    self._pause(
+                        loop,
+                        f"integration {integ.status} for run {run.id[:8]}: {integ.detail[:200]} "
+                        f"(work preserved on branch {run.branch_name or '?'}; resume after resolving)",
+                    )
+                    return
 
         # 1d. Plan checkpoint (Phase B autonomy ladder): when the SURVEYOR
         #     iteration has authored the work graph and the loop is not fully
@@ -413,16 +425,22 @@ class LoopManager:
         #     while nothing is ever claimable.
         self.store.cancel_dead_loop_items(loop.id)
 
-        # 4. No-progress detection: nothing pending → stall.
+        # 4. No-progress detection: nothing pending AND nothing in flight → stall.
+        #    A parallel worktree loop dispatches independent tasks that sit in
+        #    CLAIMED/RUNNING (not PENDING); if a sibling is still executing the
+        #    loop has NOT stalled — treating it as stalled injects spurious
+        #    continuations and can false-pause a healthy loop (audit finding #4).
+        #    Exclude this run's own item: it is mid-completion, not a live sibling.
         pending = self.store.count_pending_loop_items(loop.id)
-        if pending == 0:
+        in_flight = self.store.count_active_loop_items(loop.id, exclude_run_id=run.id)
+        if pending == 0 and in_flight == 0:
             # 4a. Event-reactive (watch) loops re-seed from external state instead
             #     of stalling: if the watch command reports work (exit 0), enqueue
             #     a fresh surveyor iteration carrying its output. Only when it
             #     reports "no work" (non-zero) do we fall through to stall/idle
             #     bounds — so a quiet watch loop still parks after max_stalls
             #     (resumable; re-arm with a schedule). Budgets already checked above.
-            if loop.watch_cmd and self._watch_reseed(loop):
+            if loop.watch_cmd and await self._watch_reseed(loop):
                 self.store.reset_loop_stall(loop.id)
                 return
             new_stall = self.store.bump_loop_stall(loop.id)
@@ -595,19 +613,21 @@ class LoopManager:
             source="verifier",
         )
 
-    def _watch_reseed(self, loop: AgentLoop) -> bool:
+    async def _watch_reseed(self, loop: AgentLoop) -> bool:
         """Event-reactive re-seed: run the watch command; on exit 0 enqueue a
         fresh surveyor iteration carrying its output. Returns True iff work was
         re-seeded (caller then resets the stall counter and returns).
 
         Exit != 0 (or a missing project dir) means "no work right now" → return
         False so the caller applies the normal stall/idle bounds. Never raises:
-        run_gate reports timeouts/spawn failures as not-passed.
+        run_gate reports timeouts/spawn failures as not-passed. The watch command
+        runs on a worker thread (audit finding #5): a slow/hung watch_cmd must not
+        block the runner's event loop while on_run_completed is advancing.
         """
         project = self.store.get_project(loop.project_id)
         if project is None or not loop.watch_cmd:
             return False
-        result = run_gate(loop.watch_cmd, str(project.expanded_path))
+        result = await asyncio.to_thread(run_gate, loop.watch_cmd, str(project.expanded_path))
         if not result.passed:
             logger.info("Loop %s: watch reported no work (exit %d) — idling", loop.id[:8], result.exit_code)
             return False

@@ -108,7 +108,7 @@ def test_watch_reseed_enqueues_seed_when_command_reports_work(temp_store: GluonS
     loop = _make_loop(temp_store, proj.id, watch_cmd="echo NEW-PR-123")
     mgr = LoopManager(temp_store)
 
-    seeded = mgr._watch_reseed(loop)
+    seeded = asyncio.run(mgr._watch_reseed(loop))
 
     assert seeded is True
     fresh_seeds = [i for i in _loop_items(temp_store, loop, status="pending") if i.source == "seed"]
@@ -126,7 +126,7 @@ def test_watch_reseed_noops_when_command_reports_no_work(temp_store: GluonStore,
     loop = _make_loop(temp_store, proj.id, watch_cmd="false")  # exit 1 → no work
     mgr = LoopManager(temp_store)
 
-    seeded = mgr._watch_reseed(loop)
+    seeded = asyncio.run(mgr._watch_reseed(loop))
 
     assert seeded is False
     seeds = [i for i in _loop_items(temp_store, loop, status="pending") if i.source == "seed"]

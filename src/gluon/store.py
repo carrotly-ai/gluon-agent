@@ -5630,10 +5630,14 @@ class GluonStore:
         can raise the budget and resume without losing the agent-authored plan.
 
         A **budget-exhausted** loop (iteration_count >= max_iterations, or
-        total_cost_usd >= max_cost_usd) is likewise skipped — a hard dispatch
-        ceiling that holds even if a per-iteration advancement path failed to pause
-        the loop. The whole claim is a single BEGIN IMMEDIATE transaction with a
-        conditional UPDATE, so an item can never be dispatched to two workers.
+        total_cost_usd >= max_cost_usd) is likewise skipped, a dispatch guard that
+        holds even if a per-iteration advancement path failed to pause the loop.
+        Note this is a SOFT ceiling under parallel fan-out (audit finding #6):
+        counters advance only on run completion, so up to (parallel_cap - 1)
+        in-flight siblings can each pass the guard on the same pre-increment
+        snapshot and overshoot the cap by that bounded amount. The whole claim is
+        a single BEGIN IMMEDIATE transaction with a conditional UPDATE, so an item
+        can never be dispatched to two workers.
 
         **Ready-set dispatch** (loop-first pivot Phase A): an item with
         ``depends_on`` is claimable only when every referenced item is COMPLETED.
@@ -5787,8 +5791,52 @@ class GluonStore:
             )
             return cursor.rowcount
 
+    def reconcile_orphaned_work_items(self) -> int:
+        """Finalize RUNNING/CLAIMED items whose linked run is already terminal.
+
+        A crash (or, historically, a mark_completed that silently missed — audit
+        finding #2) can leave a work item stuck RUNNING/CLAIMED after its run
+        reached a terminal status. ``release_stale_work_claims`` only reaps
+        CLAIMED, so a stuck RUNNING item would block its dependents forever. This
+        settles the item to match its run's terminal status via a single atomic
+        UPDATE keyed on the run linked through ``claimed_by``. Returns the count
+        settled.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE work_queue
+                SET status = (
+                        SELECT CASE r.status
+                                 WHEN 'completed' THEN 'completed'
+                                 WHEN 'failed'    THEN 'failed'
+                                 WHEN 'cancelled' THEN 'cancelled'
+                               END
+                        FROM execution_runs r WHERE r.id = work_queue.claimed_by
+                    ),
+                    completed_at = COALESCE(completed_at, ?)
+                WHERE status IN (?, ?)
+                  AND claimed_by IN (
+                        SELECT id FROM execution_runs
+                        WHERE status IN ('completed', 'failed', 'cancelled')
+                    )
+                """,
+                (
+                    utc_now().isoformat(),
+                    WorkQueueStatus.RUNNING.value,
+                    WorkQueueStatus.CLAIMED.value,
+                ),
+            )
+            return cursor.rowcount
+
     def _row_to_work_queue_item(self, row: sqlite3.Row) -> WorkQueueItem:
         """Convert database row to WorkQueueItem model."""
+        # Defensive column reads: the depends_on / verify_cmd columns are added
+        # by migrations (loop-first pivot Phase A). If a migration was skipped on
+        # a partial DB, reading them unconditionally would crash every queue read;
+        # guard them the way _row_to_agent_loop guards its added columns.
+        keys = row.keys()
+        depends_on_raw = row["depends_on"] if "depends_on" in keys else None
         return WorkQueueItem(
             id=row["id"],
             project_id=row["project_id"],
@@ -5806,8 +5854,8 @@ class GluonStore:
             loop_id=row["loop_id"],
             source=row["source"],
             prompt_hash=row["prompt_hash"],
-            depends_on=json.loads(row["depends_on"]) if row["depends_on"] else None,
-            verify_cmd=row["verify_cmd"],
+            depends_on=json.loads(depends_on_raw) if depends_on_raw else None,
+            verify_cmd=row["verify_cmd"] if "verify_cmd" in keys else None,
         )
 
     # ========== Agent Loop CRUD (loop-engineering Phase 2) ==========
@@ -6191,6 +6239,31 @@ class GluonStore:
             row = conn.execute(
                 "SELECT COUNT(*) AS n FROM work_queue WHERE loop_id = ? AND status = ?",
                 (loop_id, WorkQueueStatus.PENDING.value),
+            ).fetchone()
+            return int(row["n"])
+
+    def count_active_loop_items(self, loop_id: str, exclude_run_id: str | None = None) -> int:
+        """Count IN-FLIGHT (CLAIMED/RUNNING) work-queue items for a loop.
+
+        Stall detection must not treat a parallel worktree loop as "no progress"
+        while sibling tasks are still executing — they sit in CLAIMED/RUNNING,
+        not PENDING (audit finding #4). ``exclude_run_id`` drops the item linked
+        to the run currently being advanced (it is mid-completion, not a live
+        sibling) so a loop isn't kept alive by its own finishing iteration.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM work_queue
+                WHERE loop_id = ? AND status IN (?, ?)
+                  AND (claimed_by IS NULL OR claimed_by != ?)
+                """,
+                (
+                    loop_id,
+                    WorkQueueStatus.CLAIMED.value,
+                    WorkQueueStatus.RUNNING.value,
+                    exclude_run_id or "",
+                ),
             ).fetchone()
             return int(row["n"])
 
