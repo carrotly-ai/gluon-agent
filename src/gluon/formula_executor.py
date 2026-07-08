@@ -63,6 +63,7 @@ class FormulaExecutor:
                 objective=render_prompt(template.objective or "", resolved),
                 verify_cmd=rendered_verify or None,
                 agent_verifier=template.agent_verifier,
+                agent_verifier_model=template.agent_verifier_model,
                 profile=template.profile,
                 model=template.model,
                 executor_model=rendered_executor or None,

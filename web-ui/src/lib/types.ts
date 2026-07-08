@@ -1279,7 +1279,9 @@ export interface AgentLoop {
   profile: string
   model: string | null
   executor_model: string | null
+  agent_verifier_model: string | null
   watch_cmd: string | null
+  last_verdict: string | null
   use_worktree: boolean
   autonomy: 'L1' | 'L2' | 'L3'
   status: AgentLoopStatus
@@ -1311,6 +1313,7 @@ export interface CreateAgentLoopRequest {
   objective: string
   verify_cmd?: string | null
   agent_verifier?: boolean
+  agent_verifier_model?: string | null
   profile?: string
   model?: string | null
   executor_model?: string | null

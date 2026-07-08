@@ -847,6 +847,12 @@ MIGRATIONS = [
     # watch loops (re-seed from external state instead of stalling).
     "ALTER TABLE agent_loops ADD COLUMN executor_model TEXT;",
     "ALTER TABLE agent_loops ADD COLUMN watch_cmd TEXT;",
+    # Phase E: structured verifier verdict, cross-family judge model, and
+    # failure-signature stall detection.
+    "ALTER TABLE agent_loops ADD COLUMN last_verdict TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN agent_verifier_model TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN last_failure_sig TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN failure_sig_count INTEGER NOT NULL DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -5867,12 +5873,13 @@ class GluonStore:
             conn.execute(
                 """
                 INSERT INTO agent_loops (id, project_id, objective, verify_cmd, agent_verifier,
+                    agent_verifier_model,
                     profile, model, executor_model, watch_cmd, use_worktree, autonomy, status,
                     iteration_count, total_cost_usd,
                     stall_count, max_iterations, max_cost_usd, max_stalls, max_fanout,
                     completion_requested, completion_summary, status_reason, initiator,
                     created_by_user_id, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     loop.id,
@@ -5880,6 +5887,7 @@ class GluonStore:
                     loop.objective,
                     loop.verify_cmd,
                     1 if loop.agent_verifier else 0,
+                    loop.agent_verifier_model,
                     loop.profile,
                     loop.model,
                     loop.executor_model,
@@ -6060,6 +6068,50 @@ class GluonStore:
             conn.execute(
                 "UPDATE agent_loops SET stall_count = 0, updated_at = ? WHERE id = ? AND status = ?",
                 (now, loop_id, LoopStatus.RUNNING.value),
+            )
+
+    def set_loop_verdict(self, loop_id: str, verdict_json: str | None) -> None:
+        """Store the most recent structured verifier verdict (Phase E1). Config
+        field, not lifecycle — a plain guarded UPDATE is sufficient."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE agent_loops SET last_verdict = ?, updated_at = ? WHERE id = ?",
+                (verdict_json, now, loop_id),
+            )
+
+    def record_loop_failure_signature(self, loop_id: str, signature: str) -> int:
+        """Atomically track consecutive identical gate-failure signatures (Phase
+        E5). If ``signature`` matches ``last_failure_sig`` increment the count;
+        otherwise reset it to 1 and store the new signature. Returns the new
+        consecutive count, or -1 if the loop is not RUNNING. A loop failing the
+        SAME way repeatedly trips this even while it keeps producing 'work'."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE agent_loops
+                SET failure_sig_count = CASE WHEN last_failure_sig = ? THEN failure_sig_count + 1 ELSE 1 END,
+                    last_failure_sig = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (signature, signature, now, loop_id, LoopStatus.RUNNING.value),
+            )
+            if cur.rowcount == 0:
+                return -1
+            row = conn.execute("SELECT failure_sig_count FROM agent_loops WHERE id = ?", (loop_id,)).fetchone()
+            return int(row["failure_sig_count"]) if row else -1
+
+    def reset_loop_failure_signature(self, loop_id: str) -> None:
+        """Clear the failure-signature streak (Phase E5) — called when a gate
+        PASSES or genuine progress is made, so an intermittent repeat doesn't
+        accumulate across unrelated iterations."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE agent_loops SET last_failure_sig = NULL, failure_sig_count = 0, updated_at = ? WHERE id = ?",
+                (now, loop_id),
             )
 
     def enqueue_loop_task_atomic(
@@ -6320,6 +6372,10 @@ class GluonStore:
             model=row["model"],
             executor_model=(row["executor_model"] if "executor_model" in row.keys() else None),
             watch_cmd=(row["watch_cmd"] if "watch_cmd" in row.keys() else None),
+            last_verdict=(row["last_verdict"] if "last_verdict" in row.keys() else None),
+            agent_verifier_model=(row["agent_verifier_model"] if "agent_verifier_model" in row.keys() else None),
+            last_failure_sig=(row["last_failure_sig"] if "last_failure_sig" in row.keys() else None),
+            failure_sig_count=(row["failure_sig_count"] if "failure_sig_count" in row.keys() else 0) or 0,
             use_worktree=bool(row["use_worktree"]),
             autonomy=(row["autonomy"] if "autonomy" in row.keys() else None) or "L3",
             status=LoopStatus(row["status"]),

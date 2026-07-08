@@ -62,6 +62,7 @@ class FormulaTemplate(BaseModel):
     autonomy: str = "L3"  # L1 report-only / L2 assisted (plan approval) / L3 unattended
     model: str | None = None  # Judgment model (surveyor / verifier / fixes)
     executor_model: str | None = None  # Cheaper model for mechanical fan-out tasks
+    agent_verifier_model: str | None = None  # Cross-family judge model for the verifier
     watch_cmd: str | None = None  # Event-reactive loop: re-seed from this command when idle
 
 
@@ -136,6 +137,7 @@ class FormulaLoader:
             autonomy=str(data.get("autonomy", "L3")),  # may be templated; rendered at run
             model=data.get("model"),
             executor_model=data.get("executor_model"),
+            agent_verifier_model=data.get("agent_verifier_model"),
             watch_cmd=data.get("watch_cmd"),  # may be templated; rendered at run
         )
 

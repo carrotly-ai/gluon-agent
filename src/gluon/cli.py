@@ -5798,6 +5798,13 @@ def loop_create(
         bool,
         typer.Option("--agent-verifier", help="Judge completion claims with an independent verifier iteration (I2)"),
     ] = False,
+    verifier_model: Annotated[
+        str | None,
+        typer.Option(
+            "--verifier-model",
+            help="Cross-family judge model for the verifier (e.g. an Ollama model); implies --agent-verifier",
+        ),
+    ] = None,
     profile: Annotated[str, typer.Option("--profile", "-P", help="Task profile for iterations")] = "standard",
     model: Annotated[str | None, typer.Option("--model", "-m", help="Judgment model (surveyor/verifier/fixes)")] = None,
     executor_model: Annotated[
@@ -5840,6 +5847,7 @@ def loop_create(
         objective=objective,
         verify_cmd=verify_cmd,
         agent_verifier=agent_verifier,
+        agent_verifier_model=verifier_model,
         profile=profile,
         model=model,
         executor_model=executor_model,

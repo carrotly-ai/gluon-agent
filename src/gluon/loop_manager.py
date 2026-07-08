@@ -23,8 +23,11 @@ Design + rationale: docs/design/agent-loops.md
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from gluon.gate import run_gate
@@ -120,7 +123,7 @@ complete and no follow-up tasks are pending.{gate_block}
 
 Objective:
 {objective}
-
+{ledger}
 Assess what remains, then EITHER do the next focused slice of work and enqueue
 follow-up task(s) via loop_enqueue_task, OR call loop_complete if the objective
 is fully met. Before claiming completion, VERIFY — use any available
@@ -158,27 +161,103 @@ VERIFICATION_MARKER = "[LOOP VERIFICATION]"
 _VERIFICATION_PROMPT_TEMPLATE = """{marker} — iteration {iteration}. You are an INDEPENDENT VERIFIER.
 
 A previous iteration claims this loop's objective is complete. You did NOT do
-that work — judge it skeptically, on the evidence in the repository, not on
-the claim.
+that work — judge it SKEPTICALLY, on the evidence in the repository, not on the
+claim. Your default stance is to REJECT unless the evidence is strong. Do not
+trust the implementer's word that tests pass — run them yourself.
 
 Objective:
 {objective}
 
 Claimed completion summary:
 {summary}
+{ledger}
+Read the relevant code/artifacts, run the tests/checks that exist, and look
+specifically for gaps between the claim and reality (missing acceptance
+criteria, placeholder work, untested paths, unrelated changes).
 
-Verify the objective is genuinely met: read the relevant code/artifacts, run
-tests or checks where they exist, and look specifically for gaps between the
-claim and reality (missing acceptance criteria, placeholder work, untested
-paths). Then issue your verdict via the gluon-loop MCP tools:
+Then call loop_complete ONCE, with a summary that ENDS with a fenced JSON
+verdict block in exactly this shape (do NOT enqueue tasks yourself — the harness
+acts on your verdict):
 
-- CONFIRM — call loop_complete with your own independent assessment of what
-  was verified and how.
-- REJECT — call loop_enqueue_task with specific, self-contained fix task(s)
-  for each gap you found. Do NOT call loop_complete.
+```json
+{{"verdict": "pass|revise|escalate", "blocking_issues": ["..."], "confidence": 0.0, "notes": "..."}}
+```
 
-Report gaps that affect correctness or the stated objective, not style
-preferences."""
+- "pass" — the objective is genuinely and fully met (blocking_issues empty).
+- "revise" — real gaps remain; list each as a specific, self-contained
+  blocking issue. The harness will spawn a fix task per issue.
+- "escalate" — you cannot decide safely (ambiguous requirements, risky change,
+  can't run the checks). The harness pauses the loop for a human.
+
+Report only issues that affect correctness or the stated objective, not style.
+A missing or malformed verdict block is treated as "revise" (fail-closed)."""
+
+_VALID_VERDICTS = ("pass", "revise", "escalate")
+_JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class VerifierVerdict:
+    """A structured, fail-closed verdict from the independent verifier (Phase E1).
+
+    ``parsed`` is False when we could not read a valid verdict and fell closed to
+    ``revise`` — never to ``pass``: an unreadable verdict must not grant
+    completion.
+    """
+
+    verdict: str  # pass | revise | escalate
+    blocking_issues: list[str] = field(default_factory=list)
+    confidence: float | None = None
+    notes: str = ""
+    parsed: bool = True
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "verdict": self.verdict,
+                "blocking_issues": self.blocking_issues,
+                "confidence": self.confidence,
+                "notes": self.notes,
+                "parsed": self.parsed,
+            }
+        )
+
+
+def parse_verifier_verdict(text: str) -> VerifierVerdict:
+    """Extract the fenced JSON verdict from a verifier's completion summary.
+
+    Fail-closed: any problem (no block, bad JSON, missing/invalid ``verdict``)
+    yields ``revise`` with ``parsed=False`` so a malformed verifier output can
+    never be mistaken for a pass. Uses the LAST fenced block in the text.
+    """
+    text = text or ""
+    matches = _JSON_BLOCK_RE.findall(text)
+    # Fall back to a bare trailing object if no fenced block was found.
+    if not matches:
+        brace = text.rfind("{")
+        if brace != -1:
+            matches = [text[brace:]]
+    for raw in reversed(matches):
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        verdict = str(data.get("verdict", "")).strip().lower()
+        if verdict not in _VALID_VERDICTS:
+            continue
+        issues_raw = data.get("blocking_issues") or []
+        issues = [str(i).strip() for i in issues_raw if str(i).strip()] if isinstance(issues_raw, list) else []
+        conf = data.get("confidence")
+        return VerifierVerdict(
+            verdict=verdict,
+            blocking_issues=issues,
+            confidence=float(conf) if isinstance(conf, (int, float)) else None,
+            notes=str(data.get("notes", "")).strip(),
+            parsed=True,
+        )
+    return VerifierVerdict(verdict="revise", parsed=False, notes="verdict block missing or unparseable")
 
 
 class LoopManager:
@@ -196,6 +275,7 @@ class LoopManager:
         *,
         verify_cmd: str | None = None,
         agent_verifier: bool = False,
+        agent_verifier_model: str | None = None,
         profile: str = "standard",
         model: str | None = None,
         executor_model: str | None = None,
@@ -244,12 +324,17 @@ class LoopManager:
         # string is "unset", not a real model id or a watch that always fires.
         executor_model = (executor_model or "").strip() or None
         watch_cmd = (watch_cmd or "").strip() or None
+        agent_verifier_model = (agent_verifier_model or "").strip() or None
+        # A verifier model only means anything with the verifier enabled.
+        if agent_verifier_model and not agent_verifier:
+            agent_verifier = True
 
         loop = AgentLoop(
             project_id=project_id,
             objective=objective,
             verify_cmd=verify_cmd,
             agent_verifier=agent_verifier,
+            agent_verifier_model=agent_verifier_model,
             profile=profile,
             model=model,
             executor_model=executor_model,
@@ -343,8 +428,18 @@ class LoopManager:
                     if budget_reason is not None:
                         self._pause(loop, budget_reason)
                         return
+                    # E5: pause if this task keeps failing its gate the SAME way.
+                    if self._register_gate_failure(loop, f"taskgate:{task_gate.item_id}:{result.output}"):
+                        self._pause(
+                            loop,
+                            f"repeating failure: task gate `{task_gate.cmd}` failed the same way "
+                            f"{loop.failure_sig_count} times — a different approach is needed",
+                        )
+                        return
                     self._enqueue_task_fix(loop, task_gate, result.output)
                     return
+                # Task gate passed: clear any prior failure-signature streak.
+                self.store.reset_loop_failure_signature(loop.id)
 
         # 1c. Worktree merge-back (loop-first pivot Phase B): a completed
         #     worktree task's branch is merged into the project's source branch
@@ -484,6 +579,52 @@ class LoopManager:
             logger.info("Loop %s: completion claim from run %s sent to independent verifier", loop.id[:8], run.id[:8])
             return
 
+        if loop.agent_verifier and VERIFICATION_MARKER in (run.prompt or ""):
+            # The independent verifier is reporting its verdict via loop_complete.
+            # Parse the structured, fail-closed verdict from its summary (Phase E1)
+            # and act on it — the verdict, not the mere fact it called
+            # loop_complete, is authority. This closes "verifier theater": a
+            # verifier that rubber-stamps with a malformed/non-pass verdict does
+            # NOT complete the loop.
+            verdict = parse_verifier_verdict(loop.completion_summary or "")
+            self.store.set_loop_verdict(loop.id, verdict.to_json())
+            if verdict.verdict == "escalate":
+                # E2: the verifier can't decide safely → human handoff.
+                self.store.set_loop_completion(loop.id, False, None)
+                self._pause(
+                    loop,
+                    f"verifier escalated to human: {verdict.notes[:200] or 'see blocking_issues'}",
+                )
+                return
+            if verdict.verdict != "pass":
+                # revise, or fail-closed on an unparseable verdict.
+                self.store.set_loop_completion(loop.id, False, None)
+                logger.info(
+                    "Loop %s: verifier verdict=%s (parsed=%s) — completion denied",
+                    loop.id[:8],
+                    verdict.verdict,
+                    verdict.parsed,
+                )
+                budget_reason = loop.budget_exhausted()
+                if budget_reason is not None:
+                    self._pause(loop, budget_reason)
+                    return
+                # E5: pause if the verifier keeps rejecting for the SAME reasons.
+                if verdict.parsed and self._register_gate_failure(
+                    loop, "verifier:" + " | ".join(sorted(verdict.blocking_issues))
+                ):
+                    self._pause(
+                        loop,
+                        f"repeating failure: verifier rejected for the same reasons "
+                        f"{loop.failure_sig_count} times — escalating for a human",
+                    )
+                    return
+                self._enqueue_verifier_rejection(loop, verdict)
+                return
+            # verdict == "pass": fall through to the gate/gateless completion
+            # below (the deterministic verify_cmd gate still runs beneath a
+            # passing verifier — evidence plus the gate, not either alone).
+
         if not loop.verify_cmd:
             # Gateless: the agent's word is authority (graceful-gateless semantics).
             reason = (
@@ -511,6 +652,7 @@ class LoopManager:
 
         result = await asyncio.to_thread(run_gate, loop.verify_cmd, cwd)
         if result.passed:
+            self.store.reset_loop_failure_signature(loop.id)
             self._complete(loop, "objective met; verify_cmd passed")
             return
 
@@ -523,6 +665,14 @@ class LoopManager:
         budget_reason = loop.budget_exhausted()
         if budget_reason is not None:
             self._pause(loop, budget_reason)
+            return
+        # E5: pause if the objective gate keeps failing the SAME way.
+        if self._register_gate_failure(loop, f"loopgate:{result.output}"):
+            self._pause(
+                loop,
+                f"repeating failure: objective gate `{loop.verify_cmd}` failed the same way "
+                f"{loop.failure_sig_count} times — a different approach is needed",
+            )
             return
         self._enqueue_continuation(loop, gate_failure=result.output)
 
@@ -603,6 +753,7 @@ class LoopManager:
             iteration=loop.iteration_count + 1,
             objective=loop.objective,
             summary=loop.completion_summary or "(no summary provided)",
+            ledger=self._attempt_ledger(loop),
         )
         self.store.enqueue_work(
             project_id=loop.project_id,
@@ -612,6 +763,81 @@ class LoopManager:
             loop_id=loop.id,
             source="verifier",
         )
+
+    def _enqueue_verifier_rejection(self, loop: AgentLoop, verdict: VerifierVerdict) -> None:
+        """Harness-authored fix work from a verifier's ``revise`` verdict (Phase E1).
+
+        The verifier no longer enqueues tasks itself; it reports blocking issues
+        and the harness authors one self-contained fix task per issue (bypassing
+        dedup, iteration-numbered to stay distinct). With no issues listed — e.g.
+        a fail-closed unparseable verdict — a single continuation is enqueued so
+        the loop makes another attempt rather than silently stalling.
+        """
+        issues = verdict.blocking_issues
+        if not issues:
+            self._enqueue_continuation(loop)
+            return
+        for idx, issue in enumerate(issues, 1):
+            prompt = (
+                f"[VERIFIER REJECTION — iteration {loop.iteration_count + 1}, issue {idx}/{len(issues)}] "
+                f"The independent verifier rejected the completion of this loop. Fix this specific "
+                f"blocking issue, self-contained (you have no memory of prior sessions):\n\n{issue}\n\n"
+                f"Objective for context:\n{loop.objective}\n\n"
+                f"Make the smallest change that resolves the issue; verify it; do not call loop_complete "
+                f"unless the whole loop objective is also met."
+            )
+            self.store.enqueue_work(
+                project_id=loop.project_id,
+                prompt=prompt,
+                profile=loop.profile,
+                priority=LOOP_TASK_PRIORITY - 1,  # ahead of new fan-out
+                loop_id=loop.id,
+                source="continuation",
+            )
+
+    def _attempt_ledger(self, loop: AgentLoop, limit: int = 6) -> str:
+        """A compact, deterministic digest of recent iteration outcomes (Phase E5).
+
+        Injected into verifier/continuation/fix prompts so an iteration can see
+        what was already tried and how it failed — cheap (no LLM), and the
+        countermeasure to a loop repeating the same failed approach. Returns ""
+        when there is no useful history (first iterations).
+        """
+        runs = self.store.list_runs_for_loop(loop.id, limit=limit + 1)
+        # Drop the run currently being processed / the in-flight verifier itself;
+        # keep prior terminal attempts.
+        past = [r for r in runs if r.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)][:limit]
+        if not past:
+            return ""
+        lines = ["", "Prior attempts (most recent first — do not repeat what already failed):"]
+        for r in past:
+            cost = f"${r.cost_usd:.2f}" if r.cost_usd else "$0.00"
+            tail = ""
+            if r.status == RunStatus.FAILED and r.error_message:
+                tail = f" — {r.error_message.strip().splitlines()[-1][:120]}"
+            title = (r.custom_title or r.prompt or "").strip().splitlines()[0][:80]
+            lines.append(f"- [{r.id[:8]}] {r.status.value} {cost} {title}{tail}")
+        if loop.failure_sig_count >= 2 and loop.last_failure_sig:
+            lines.append(
+                f"- NOTE: the same failure signature has repeated {loop.failure_sig_count}× — "
+                f"a different approach is required, not another attempt at the same fix."
+            )
+        return "\n".join(lines) + "\n"
+
+    def _register_gate_failure(self, loop: AgentLoop, failure_output: str) -> bool:
+        """Record a gate-failure signature and report whether the loop should
+        pause for repeating the SAME failure (Phase E5).
+
+        Returns True when the identical failure signature has now occurred
+        ``max_stalls`` times in a row — the caller should pause. This catches
+        the repeat-failure blind spot that emptiness-based stall detection
+        misses (harness fix tasks embed iteration numbers, so a loop failing the
+        same way forever never trips the ordinary stall counter).
+        """
+        norm = re.sub(r"\s+", " ", (failure_output or "").strip()).lower()
+        sig = hashlib.sha256(norm.encode()).hexdigest()[:16] if norm else "empty"
+        count = self.store.record_loop_failure_signature(loop.id, sig)
+        return count >= max(2, loop.max_stalls)
 
     async def _watch_reseed(self, loop: AgentLoop) -> bool:
         """Event-reactive re-seed: run the watch command; on exit 0 enqueue a
@@ -661,6 +887,7 @@ class LoopManager:
             iteration=loop.iteration_count + 1,
             objective=loop.objective,
             gate_block=gate_block,
+            ledger=self._attempt_ledger(loop),
         )
         self.store.enqueue_work(
             project_id=loop.project_id,

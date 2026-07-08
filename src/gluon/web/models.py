@@ -1194,6 +1194,10 @@ class CreateAgentLoopRequest(BaseModel):
         default=False,
         description="Independent-verifier subagent (I2): completion claims are judged by a fresh verifier iteration",
     )
+    agent_verifier_model: str | None = Field(
+        default=None,
+        description="Cross-family judge model for the verifier (e.g. an Ollama model); implies agent_verifier",
+    )
     profile: str = Field(default="standard", description="Task profile for iteration runs")
     model: str | None = Field(default=None, description="Judgment model (surveyor / verifier / fixes)")
     executor_model: str | None = Field(
@@ -1258,7 +1262,9 @@ class AgentLoopResponse(BaseModel):
     profile: str
     model: str | None = None
     executor_model: str | None = None
+    agent_verifier_model: str | None = None
     watch_cmd: str | None = None
+    last_verdict: str | None = None
     use_worktree: bool
     autonomy: str = "L3"
     status: str

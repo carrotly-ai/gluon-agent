@@ -486,6 +486,11 @@ def resolve_loop_iteration_model(loop: "AgentLoop", source: str | None, profile:
     unset. Pure + total so the dispatch decision is unit-testable.
     """
     judgment = loop.model or resolve_task_options(profile=profile)["model"]
+    if source == "verifier" and loop.agent_verifier_model:
+        # Cross-family judge (Phase E4): the independent verifier can run on a
+        # different model family than the generator to close self-grading blind
+        # spots — e.g. a local Ollama model. Falls back to the judgment model.
+        return loop.agent_verifier_model
     if source == "agent" and loop.executor_model:
         return loop.executor_model
     return judgment
@@ -1934,6 +1939,20 @@ class AgentLoop(BaseModel):
     # LoopManager grants it — gate authority when verify_cmd is set.
     completion_requested: bool = False
     completion_summary: str | None = None
+    # Verification (loop-hardening Phase E): the independent verifier returns a
+    # structured, fail-closed verdict (pass|revise|escalate). last_verdict holds
+    # the most recent parsed verdict as JSON for the UI/metrics; None until a
+    # verifier has run.
+    last_verdict: str | None = None
+    # Optional cross-family judge model for the verifier (Phase E4). None →
+    # verifier runs on the loop's judgment model (same family as the generator).
+    agent_verifier_model: str | None = None
+    # Failure-signature stall (Phase E5): a hash of the most recent gate-failure
+    # output + a consecutive-repeat count. A loop failing the SAME way N times
+    # (max_stalls) is paused even though it keeps producing "progress" — the
+    # repeat-failure blind spot the emptiness-based stall counter misses.
+    last_failure_sig: str | None = None
+    failure_sig_count: int = 0
     # Why the loop is in its current terminal/paused state (human-readable)
     status_reason: str | None = None
     initiator: str | None = None
