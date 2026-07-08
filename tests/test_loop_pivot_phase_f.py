@@ -208,3 +208,114 @@ def test_loop_pauses_at_degradation_threshold(temp_store: GluonStore, tmp_path: 
     assert after is not None
     assert after.status == LoopStatus.PAUSED
     assert "degradation" in (after.status_reason or "")
+
+
+# ===========================================================================
+# F6 — earned-autonomy promotion hint
+# ===========================================================================
+
+
+def test_promotion_hint_eligible() -> None:
+    from gluon.loop_manager import autonomy_promotion_hint
+
+    loop = AgentLoop(project_id="p", objective="x", autonomy="L2")
+    hint = autonomy_promotion_hint(loop, {"runs": 8, "pr_producing": 5, "accepted": 5})
+    assert hint is not None and "eligible for L3" in hint
+
+
+def test_promotion_hint_not_enough_evidence() -> None:
+    from gluon.loop_manager import autonomy_promotion_hint
+
+    loop = AgentLoop(project_id="p", objective="x", autonomy="L1")
+    assert autonomy_promotion_hint(loop, {"runs": 2, "pr_producing": 1, "accepted": 1}) is None
+
+
+def test_promotion_hint_low_acceptance_declined() -> None:
+    from gluon.loop_manager import autonomy_promotion_hint
+
+    loop = AgentLoop(project_id="p", objective="x", autonomy="L2")
+    assert autonomy_promotion_hint(loop, {"runs": 10, "pr_producing": 5, "accepted": 2}) is None
+
+
+def test_promotion_hint_none_for_l3() -> None:
+    from gluon.loop_manager import autonomy_promotion_hint
+
+    loop = AgentLoop(project_id="p", objective="x", autonomy="L3")
+    assert autonomy_promotion_hint(loop, {"runs": 99, "pr_producing": 99, "accepted": 99}) is None
+
+
+# ===========================================================================
+# F7 — repo-visible state projection
+# ===========================================================================
+
+
+def test_state_projection_written_when_gluon_dir_exists(temp_store: GluonStore, tmp_path: Path) -> None:
+    proj_dir = tmp_path / "p"
+    proj_dir.mkdir()
+    (proj_dir / ".gluon").mkdir()  # operator opts in
+    proj = _project(temp_store, proj_dir)
+    loop = _loop(temp_store, proj.id, max_iterations=1)
+    LoopManager(temp_store)._write_state_projection(loop.id)
+    projection = proj_dir / ".gluon" / "LOOP-STATE.md"
+    assert projection.is_file()
+    assert "LOOP-STATE" in projection.read_text()
+    assert "database is authoritative" in projection.read_text()
+
+
+def test_state_projection_skipped_without_gluon_dir(temp_store: GluonStore, tmp_path: Path) -> None:
+    proj_dir = tmp_path / "p"
+    proj_dir.mkdir()  # no .gluon/ → opt-out
+    proj = _project(temp_store, proj_dir)
+    loop = _loop(temp_store, proj.id)
+    LoopManager(temp_store)._write_state_projection(loop.id)
+    assert not (proj_dir / ".gluon" / "LOOP-STATE.md").exists()
+
+
+# ===========================================================================
+# F9 — formula lint
+# ===========================================================================
+
+
+def test_lint_flags_all_vibe_loop() -> None:
+    from gluon.formulas import FormulaTemplate, lint_loop_formula
+
+    t = FormulaTemplate(name="vibe", kind="loop", objective="do stuff", max_cost_usd=None)
+    checks = {f["check"] for f in lint_loop_formula(t)}
+    assert "all-vibe-verification" in checks
+    assert "no-cost-cap" in checks
+
+
+def test_lint_clean_loop_has_no_findings() -> None:
+    from gluon.formulas import FormulaTemplate, lint_loop_formula
+
+    t = FormulaTemplate(
+        name="solid",
+        kind="loop",
+        objective="do stuff",
+        verify_cmd="pytest",
+        max_cost_usd=10.0,
+        autonomy="L2",
+    )
+    assert lint_loop_formula(t) == []
+
+
+def test_lint_flags_undeclared_placeholder() -> None:
+    from gluon.formulas import FormulaTemplate, FormulaVariable, lint_loop_formula
+
+    t = FormulaTemplate(
+        name="tpl",
+        kind="loop",
+        objective="work on {{repo}} using {{undeclared}}",
+        verify_cmd="pytest",
+        max_cost_usd=5.0,
+        variables=[FormulaVariable(name="repo")],
+    )
+    checks = {f["check"]: f for f in lint_loop_formula(t)}
+    assert "undeclared-placeholder" in checks
+    assert "undeclared" in checks["undeclared-placeholder"]["message"]
+
+
+def test_lint_ignores_non_loop() -> None:
+    from gluon.formulas import FormulaTemplate, lint_loop_formula
+
+    assert lint_loop_formula(FormulaTemplate(name="wf", kind="workflow")) == []

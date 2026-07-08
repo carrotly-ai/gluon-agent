@@ -38,6 +38,12 @@ Runner = Annotated[TaskRunner, Depends(get_runner)]
 CurrentUser = Annotated[UserModel, Depends(get_current_user)]
 
 
+def _promotion_hint(loop: AgentLoop, metrics: dict) -> str | None:
+    from gluon.loop_manager import autonomy_promotion_hint
+
+    return autonomy_promotion_hint(loop, metrics)
+
+
 def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = False) -> AgentLoopResponse:
     from gluon.loop_manager import VERIFICATION_MARKER
 
@@ -84,6 +90,7 @@ def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = Fa
         agent_verifier_model=loop.agent_verifier_model,
         watch_cmd=loop.watch_cmd,
         last_verdict=loop.last_verdict,
+        promotion_hint=_promotion_hint(loop, metrics),
         use_worktree=loop.use_worktree,
         autonomy=loop.autonomy,
         status=loop.status.value,

@@ -1282,6 +1282,7 @@ export interface AgentLoop {
   agent_verifier_model: string | null
   watch_cmd: string | null
   last_verdict: string | null
+  promotion_hint: string | null
   use_worktree: boolean
   autonomy: 'L1' | 'L2' | 'L3'
   status: AgentLoopStatus

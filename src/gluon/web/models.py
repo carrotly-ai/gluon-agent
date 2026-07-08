@@ -1265,6 +1265,7 @@ class AgentLoopResponse(BaseModel):
     agent_verifier_model: str | None = None
     watch_cmd: str | None = None
     last_verdict: str | None = None
+    promotion_hint: str | None = None  # Phase F6: earned-autonomy suggestion (human decides)
     use_worktree: bool
     autonomy: str = "L3"
     status: str

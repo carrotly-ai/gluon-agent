@@ -3449,6 +3449,39 @@ def formula_validate(path: Annotated[Path, typer.Argument(help="Path to YAML for
     console.print(f"[green]Formula '{template.name}' is valid ({detail}).[/green]")
 
 
+@formula_app.command("lint")
+def formula_lint_cmd(
+    name: Annotated[str | None, typer.Argument(help="Loop formula name (omit to lint all built-in loop SKUs)")] = None,
+    strict: Annotated[bool, typer.Option("--strict", help="Exit non-zero on warnings too")] = False,
+) -> None:
+    """Lint loop formulas against the design-rubric anti-patterns (Phase F9)."""
+    from gluon.formulas import FormulaLoader, lint_loop_formula
+
+    loops = [t for t in FormulaLoader().discover() if t.kind == "loop"]
+    if name:
+        loops = [t for t in loops if t.name == name]
+        if not loops:
+            console.print(f"[red]Error:[/red] no loop formula named '{name}'")
+            raise typer.Exit(1)
+    any_error = False
+    any_warning = False
+    for t in loops:
+        findings = lint_loop_formula(t)
+        if not findings:
+            console.print(f"[green]✓[/green] {t.name}: clean")
+            continue
+        console.print(f"[bold]{t.name}[/bold]")
+        for f in findings:
+            if f["severity"] == "error":
+                any_error = True
+                console.print(f"  [red]error[/red] [{f['check']}] {f['message']}")
+            else:
+                any_warning = True
+                console.print(f"  [yellow]warning[/yellow] [{f['check']}] {f['message']}")
+    if any_error or (strict and any_warning):
+        raise typer.Exit(1)
+
+
 # ========== Work Queue Commands (F12) ==========
 
 queue_app = typer.Typer(help="Work queue management")
