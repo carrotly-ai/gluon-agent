@@ -223,13 +223,17 @@ harness keeps authority over verification, budgets, and stopping.
 
 ```bash
 gluon loop create myproject "Migrate all API routes to v2" \
-  --verify-cmd "uv run pytest" --agent-verifier --autonomy L2 \
-  --max-iterations 20 --max-cost 25
+  --verify-cmd "uv run pytest" --agent-verifier --verifier-model qwen3:14b \
+  --autonomy L2 --max-iterations 20 --max-cost 25
 gluon loop list / show / pause / resume / cancel <id>
+gluon loop pause-all [--project X] / resume-all   # kill switch (Phase F2)
+gluon loop cost [sku]                             # SKU cost/risk metadata (F4)
+gluon formula lint [sku] [--strict]               # anti-pattern lint (F9)
 gluon formula run improve myproject --var focus="test coverage"   # loop template
 gluon formula run issue-triage myproject                          # loop SKU (Phase B)
 # API: POST/GET /api/loops, POST /api/loops/{id}/pause|resume|cancel
 # Web UI: /loops (list + detail timeline + campaign task graph + create)
+# Repo-local: .gluon/constraints.md (binding, denylist enforced); .gluon/LOOP-STATE.md (generated view)
 ```
 
 - Iterations are ordinary work-queue items (`loop_id` set) dispatched by the
@@ -287,8 +291,32 @@ gluon formula run issue-triage myproject                          # loop SKU (Ph
   `post-merge-cleanup`, `changelog-drafter`).
 - Per-loop effectiveness (acceptance rate, cost-per-accepted-change) on
   `GET /api/loops/{id}` → `metrics`; the work-graph nodes on `graph`.
+- **Trustworthy verification (Phase E — docs/design/loop-hardening-and-discipline-plan.md):**
+  the independent verifier returns a structured **fail-closed** verdict (fenced
+  JSON `verdict: pass|revise|escalate`; a malformed/non-pass verdict NEVER grants
+  completion — `parse_verifier_verdict`). `escalate` → PAUSED decision card.
+  `--verifier-model` runs the verifier cross-family (e.g. a local Ollama judge).
+  **Failure-signature stall:** the SAME gate failure `max_stalls` times in a row
+  pauses the loop (`record_loop_failure_signature`) — the repeat-failure blind
+  spot emptiness-based stall misses. A deterministic **attempt ledger**
+  (`_attempt_ledger`, no LLM) is injected into verifier/continuation prompts.
+- **Operator surface (Phase F):** repo-local `.gluon/constraints.md` is injected
+  into every iteration prompt AND its path denylist is enforced mechanically —
+  merge-back refuses to integrate a branch touching a denylisted path
+  (`loop_constraints.py`; default denylist protects `.env*`/`secrets/**`/etc.
+  even with no file). Global **kill switch** `gluon loop pause-all [--project X]`
+  halts dispatch at `claim_work` (`is_dispatch_paused`). **Budget degradation**:
+  at `GLUON_LOOP_BUDGET_DEGRADE_FRACTION` (default 80%) of the cost cap the loop
+  pauses report-only. `gluon formula lint` catches all-vibe/missing-cap/
+  undeclared-placeholder anti-patterns. Earned-autonomy promotion hint +
+  opt-in repo-visible `.gluon/LOOP-STATE.md` projection (DB stays authoritative).
+- **Correctness (Phase D):** the audit's concurrency fixes (deterministic
+  merge-back lock, by-id work-item transitions, integrate-before-finalize,
+  in-flight-aware stall detection) are proved by a fake-agent **conformance
+  harness** (`tests/conformance/`) that runs real primitives across real
+  processes/git — no model calls.
 
-**Loop lifecycle:** `RUNNING → PAUSED (budget/stall/failure — resumable) → RUNNING | COMPLETED/CANCELLED`
+**Loop lifecycle:** `RUNNING → PAUSED (budget/degradation/stall/repeat-failure/escalation/failure — resumable) → RUNNING | COMPLETED/CANCELLED`
 
 ## Extension Patterns
 

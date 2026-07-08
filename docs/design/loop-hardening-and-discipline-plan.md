@@ -8,6 +8,15 @@ diluting the recentered vision.*
 Companion to [loop-first-pivot.md](loop-first-pivot.md) (Phases A–C, shipped on
 `feat/loop-first-pivot` / PR #172).
 
+> **STATUS (2026-07-08): IMPLEMENTED.** Phase D (audit fixes + conformance
+> harness), Phase E (E1–E5), and Phase F (F1–F4, F6, F7, F9) shipped on
+> `feat/loop-first-pivot`. **Deferred:** F5 run-outcome telemetry
+> (`items_found`/`actions_taken`/`escalations` are agent-reported fields we
+> don't yet capture — needs an agent-side reporting channel first) and F8
+> cross-loop coordination (the plan itself flags it "last / as-needed"; a single
+> project running multiple simultaneous loops isn't a live usage pattern yet).
+> Commits: D `4698034`, E `5c61b89`, F1–F4 `e567fdc`, F6/F7/F9 `082dc7b`.
+
 ---
 
 ## 0. The vision guardrail (read first)
