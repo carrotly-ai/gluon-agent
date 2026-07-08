@@ -6013,5 +6013,73 @@ def loop_cancel(loop_id: Annotated[str, typer.Argument(help="Loop ID (short pref
         raise typer.Exit(1)
 
 
+@loop_app.command("cost")
+def loop_cost(
+    formula: Annotated[str | None, typer.Argument(help="SKU/formula name (omit to list all with metadata)")] = None,
+):
+    """Show a SKU's operating metadata + token-cost estimate (loop-hardening F4)."""
+    from gluon.formulas import FormulaLoader
+
+    loops = [t for t in FormulaLoader().discover() if t.kind == "loop"]
+    if formula:
+        loops = [t for t in loops if t.name == formula]
+        if not loops:
+            console.print(f"[red]Error:[/red] no loop formula named '{formula}'")
+            raise typer.Exit(1)
+    table = Table(title="Loop SKU cost & operating metadata")
+    table.add_column("SKU")
+    table.add_column("Cadence")
+    table.add_column("Risk")
+    table.add_column("Week-1")
+    table.add_column("noop/report/action tok", justify="right")
+    table.add_column("Suggested daily cap", justify="right")
+    for t in loops:
+        cm = t.cost_model or {}
+        tok = "/".join(str(int(cm.get(k, 0))) for k in ("tokens_noop", "tokens_report", "tokens_action"))
+        cap = f"{int(cm['suggested_daily_cap']):,}" if cm.get("suggested_daily_cap") else "—"
+        table.add_row(t.name, t.cadence or "—", t.risk or "—", t.week_one_autonomy or "—", tok, cap)
+    console.print(table)
+
+
+@loop_app.command("pause-all")
+def loop_pause_all(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Pause only this project's loops")] = None,
+):
+    """KILL SWITCH — halt all loop dispatch (fleet-wide, or one project).
+
+    In-flight runs finish; nothing new is claimed until `loop resume-all`.
+    Enforced in the harness at the dispatch seam, not by asking agents to stop.
+    """
+    store = GluonStore()
+    project_id = None
+    if project:
+        try:
+            project_id = get_orchestrator().get_project(project).id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1) from None
+    store.set_dispatch_pause(True, project_id=project_id)
+    scope = f"project '{project}'" if project else "ALL projects"
+    console.print(f"[red]Kill switch ENGAGED[/red] — loop dispatch halted for {scope}. In-flight runs finish.")
+
+
+@loop_app.command("resume-all")
+def loop_resume_all(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Resume only this project's loops")] = None,
+):
+    """Clear the kill switch and let loop dispatch resume."""
+    store = GluonStore()
+    project_id = None
+    if project:
+        try:
+            project_id = get_orchestrator().get_project(project).id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1) from None
+    store.set_dispatch_pause(False, project_id=project_id)
+    scope = f"project '{project}'" if project else "ALL projects"
+    console.print(f"[green]Kill switch cleared[/green] — loop dispatch resumes for {scope}.")
+
+
 if __name__ == "__main__":
     app()

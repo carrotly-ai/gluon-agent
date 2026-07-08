@@ -25,3 +25,12 @@ max_cost_usd: 5.0
 profile: quick
 use_worktree: true
 autonomy: "{{autonomy}}"
+# SKU operating metadata (loop-hardening Phase F4) — informational.
+cadence: "1d-2h"
+risk: low
+week_one_autonomy: L1
+cost_model:
+  tokens_noop: 3000
+  tokens_report: 52000
+  tokens_action: 120000
+  suggested_daily_cap: 500000

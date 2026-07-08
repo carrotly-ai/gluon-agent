@@ -64,6 +64,14 @@ class FormulaTemplate(BaseModel):
     executor_model: str | None = None  # Cheaper model for mechanical fan-out tasks
     agent_verifier_model: str | None = None  # Cross-family judge model for the verifier
     watch_cmd: str | None = None  # Event-reactive loop: re-seed from this command when idle
+    # SKU operating metadata (loop-hardening Phase F4) — informational; powers
+    # `gluon loop cost`, create-time defaults, and cost-anomaly alarming. Does
+    # not affect execution.
+    cadence: str | None = None  # e.g. "5m-15m", "1d" — how often the pattern is meant to run
+    risk: str | None = None  # low | medium | high
+    human_gates: list[str] = Field(default_factory=list)  # named gates (security, payments, ...)
+    week_one_autonomy: str | None = None  # suggested starting autonomy (usually L1)
+    cost_model: dict[str, float] = Field(default_factory=dict)  # tokens_noop/report/action, suggested_daily_cap
 
 
 class FormulaLoader:
@@ -139,6 +147,11 @@ class FormulaLoader:
             executor_model=data.get("executor_model"),
             agent_verifier_model=data.get("agent_verifier_model"),
             watch_cmd=data.get("watch_cmd"),  # may be templated; rendered at run
+            cadence=data.get("cadence"),
+            risk=data.get("risk"),
+            human_gates=list(data.get("human_gates", []) or []),
+            week_one_autonomy=data.get("week_one_autonomy"),
+            cost_model={k: float(v) for k, v in (data.get("cost_model") or {}).items()},
         )
 
 

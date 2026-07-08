@@ -127,6 +127,27 @@ async def integrate_run_branch(project_path: Path, run: ExecutionRun) -> Integra
         if rc == 0 and out == "0":
             return IntegrationResult("no_changes", "branch has no commits beyond source")
 
+        # 2b. Constraints denylist (Phase F1): NEVER integrate a branch that
+        #     touches a denylisted path (secrets/creds by default, plus any
+        #     project .gluon/constraints.md paths). This is the mechanical layer
+        #     — it holds even if the agent ignored the injected constraints text,
+        #     and it stops the auto-commit safety net from carrying an .env onto
+        #     the source branch (audit finding #9). Work stays on the branch; the
+        #     loop pauses for a human (on_run_completed treats this like
+        #     branch_moved/error).
+        from gluon.loop_constraints import denylisted_paths, load_constraints
+
+        denylist = load_constraints(project_path).denylist
+        rc, changed, _ = await _git(wt, "diff", "--name-only", f"{source_branch}..{run.branch_name}")
+        if rc == 0 and changed:
+            hits = denylisted_paths(changed.splitlines(), denylist)
+            if hits:
+                return IntegrationResult(
+                    "denylist_violation",
+                    f"branch touches denylisted path(s): {', '.join(hits[:5])}"
+                    + (f" (+{len(hits) - 5} more)" if len(hits) > 5 else ""),
+                )
+
         # 3. Merge in the main checkout, under the cross-process project lock.
         lock = await asyncio.to_thread(_acquire_project_lock, project_path)
         try:

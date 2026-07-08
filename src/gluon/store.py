@@ -4675,6 +4675,42 @@ class GluonStore:
                 (key, value, utc_now().isoformat()),
             )
 
+    # ---- Loop kill switch (loop-hardening Phase F2) -------------------------
+    _KILL_ALL_KEY = "loop_pause_all"
+    _KILL_PROJECTS_KEY = "loop_paused_projects"
+
+    def is_dispatch_paused(self, project_id: str | None = None) -> bool:
+        """True when the global kill switch is set, or (when given) this project
+        is individually paused. Read at every claim to halt dispatch fleet-wide."""
+        if self.get_setting(self._KILL_ALL_KEY) == "1":
+            return True
+        if project_id is None:
+            return False
+        raw = self.get_setting(self._KILL_PROJECTS_KEY)
+        if not raw:
+            return False
+        try:
+            return project_id in set(json.loads(raw))
+        except (ValueError, TypeError):
+            return False
+
+    def set_dispatch_pause(self, paused: bool, project_id: str | None = None) -> None:
+        """Set/clear the kill switch. project_id=None toggles the GLOBAL flag;
+        a project_id toggles that project's entry in the paused-projects set."""
+        if project_id is None:
+            self.set_setting(self._KILL_ALL_KEY, "1" if paused else "0")
+            return
+        raw = self.get_setting(self._KILL_PROJECTS_KEY)
+        try:
+            current = set(json.loads(raw)) if raw else set()
+        except (ValueError, TypeError):
+            current = set()
+        if paused:
+            current.add(project_id)
+        else:
+            current.discard(project_id)
+        self.set_setting(self._KILL_PROJECTS_KEY, json.dumps(sorted(current)))
+
     def get_all_settings(self) -> dict[str, str]:
         """Get all settings as a dictionary."""
         with self._get_conn() as conn:
@@ -5654,7 +5690,16 @@ class GluonStore:
         an active run of the same project: loop items whose loop runs in
         isolated worktrees (``agent_loops.use_worktree=1``). Used by dispatchers
         to fan out within a project without colliding on the working dir.
+
+        **Kill switch** (loop-hardening Phase F2): when the global
+        ``loop_pause_all`` flag is set, or this project is in
+        ``loop_paused_projects``, NO work is dispatched — the operator's
+        "stop the fleet now" halt, enforced in the harness at the dispatch seam
+        (not a prompt an agent is asked to obey). In-flight runs finish; nothing
+        new starts until the flag is cleared.
         """
+        if self.is_dispatch_paused(project_id):
+            return None
         parallel_clause = (
             """
             AND loop_id IN (SELECT id FROM agent_loops WHERE use_worktree = 1)

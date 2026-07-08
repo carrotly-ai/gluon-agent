@@ -45,3 +45,12 @@ executor_model: "{{executor_model}}"
 # idle. `gh pr list` prints nothing and exits 0 when there are no matching PRs,
 # so guard with grep to make "no work" a non-zero exit.
 watch_cmd: "gh pr list --state open --json number --jq '.[].number' | grep -q ."
+# SKU operating metadata (loop-hardening Phase F4) — informational.
+cadence: "5m-15m"
+risk: medium
+week_one_autonomy: L1
+cost_model:
+  tokens_noop: 3000
+  tokens_report: 80000
+  tokens_action: 250000
+  suggested_daily_cap: 2000000

@@ -52,6 +52,21 @@ logger = logging.getLogger(__name__)
 # loop keeps momentum, but behind anything an operator marks truly urgent.
 LOOP_TASK_PRIORITY = 5
 
+
+def _budget_degrade_fraction() -> float:
+    """Fraction of the cost cap at which a loop degrades to report-only + pause
+    (Phase F3). Operator-tunable via GLUON_LOOP_BUDGET_DEGRADE_FRACTION; 0 or an
+    out-of-range value disables the tier. Default 0.8."""
+    import os
+
+    raw = os.environ.get("GLUON_LOOP_BUDGET_DEGRADE_FRACTION", "0.8")
+    try:
+        frac = float(raw)
+    except ValueError:
+        return 0.8
+    return frac if 0 < frac < 1 else 0.0
+
+
 _SEED_PROMPT_TEMPLATE = """This is iteration 1 of a new agent loop. You are the SURVEYOR — your job
 this iteration is to map the landscape and author the work graph, not to do the work.
 
@@ -513,6 +528,18 @@ class LoopManager:
         if budget_reason is not None:
             self._pause(loop, budget_reason)
             return
+
+        # 3a. Budget degradation tier (Phase F3): degrade-before-dying. When
+        #     spend crosses the configured fraction of the cost cap (default
+        #     80%), PAUSE report-only with the work preserved — the operator
+        #     gets a decision card at 80% instead of a silent stop at 100%, and
+        #     can review, raise --max-cost, and resume, or cancel. Only fires
+        #     once completion isn't already being granted this iteration.
+        if not loop.completion_requested:
+            degrade_reason = loop.budget_degraded(_budget_degrade_fraction())
+            if degrade_reason is not None:
+                self._pause(loop, degrade_reason)
+                return
 
         # 3b. Dependency hygiene: cascade-cancel pending items whose deps
         #     failed/cancelled (they can never become ready). Without this the

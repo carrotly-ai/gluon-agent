@@ -1973,6 +1973,23 @@ class AgentLoop(BaseModel):
             return f"cost budget exhausted (${self.total_cost_usd:.2f} of ${self.max_cost_usd:.2f})"
         return None
 
+    def budget_degraded(self, fraction: float) -> str | None:
+        """Return a degradation reason if spend has crossed ``fraction`` of the
+        cost cap (loop-hardening Phase F3), or None. Degrade-before-dying: the
+        operator gets a report-and-pause at, say, 80% rather than a silent stop
+        at 100%. Only meaningful when a cost cap is set and not already exhausted.
+        """
+        if self.max_cost_usd is None or fraction <= 0 or fraction >= 1:
+            return None
+        threshold = fraction * self.max_cost_usd
+        if self.total_cost_usd >= threshold and self.total_cost_usd < self.max_cost_usd:
+            pct = int(fraction * 100)
+            return (
+                f"budget {pct}% degradation: ${self.total_cost_usd:.2f} of ${self.max_cost_usd:.2f} spent — "
+                f"paused report-only. Review the work so far, then raise --max-cost and resume, or cancel."
+            )
+        return None
+
 
 # ========== Merge Queue Models (F8) ==========
 

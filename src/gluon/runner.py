@@ -2588,9 +2588,23 @@ but explicit commits with good messages are preferred.
             # capable loop.model. Falls back to the profile default.
             from gluon.models import resolve_loop_iteration_model
 
+            # Binding constraints injection (Phase F1): every loop iteration —
+            # seed, agent fan-out, continuation, verifier — is prefixed with the
+            # project's constraints text so the agent sees the rules on each run.
+            # The denylist is ALSO enforced mechanically at merge-back; this is
+            # the visibility layer, not the guarantee.
+            prompt = item.prompt
+            project = self.store.get_project(item.project_id)
+            if project is not None:
+                from gluon.loop_constraints import constraints_prompt_block
+
+                block = constraints_prompt_block(project.expanded_path)
+                if block:
+                    prompt = f"{item.prompt}{block}"
+
             return await self.submit(
                 project_id=item.project_id,
-                prompt=item.prompt,
+                prompt=prompt,
                 model=resolve_loop_iteration_model(loop, item.source, item.profile),
                 profile=item.profile,
                 use_worktree=loop.use_worktree,
