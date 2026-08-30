@@ -1253,6 +1253,15 @@ export interface LoopRunSummary {
   completed_at: string | null
 }
 
+export interface LoopTaskNode {
+  id: string
+  status: string
+  source: string | null
+  prompt: string
+  depends_on: string[]
+  verify_cmd: string | null
+}
+
 export type AgentLoopStatus = 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
 
 /** An agent loop: a persistent objective iterated across runs. */
@@ -1262,13 +1271,20 @@ export interface AgentLoop {
   project_name: string | null
   metrics: LoopMetrics | null
   recent_runs: LoopRunSummary[]
+  graph: LoopTaskNode[]
   objective: string
   verify_cmd: string | null
   agent_verifier: boolean
   readiness: 'gated' | 'gateless'
   profile: string
   model: string | null
+  executor_model: string | null
+  agent_verifier_model: string | null
+  watch_cmd: string | null
+  last_verdict: string | null
+  promotion_hint: string | null
   use_worktree: boolean
+  autonomy: 'L1' | 'L2' | 'L3'
   status: AgentLoopStatus
   status_reason: string | null
   iteration_count: number
@@ -1298,9 +1314,13 @@ export interface CreateAgentLoopRequest {
   objective: string
   verify_cmd?: string | null
   agent_verifier?: boolean
+  agent_verifier_model?: string | null
   profile?: string
   model?: string | null
+  executor_model?: string | null
+  watch_cmd?: string | null
   use_worktree?: boolean
+  autonomy?: 'L1' | 'L2' | 'L3'
   max_iterations?: number
   max_cost_usd?: number | null
   max_stalls?: number

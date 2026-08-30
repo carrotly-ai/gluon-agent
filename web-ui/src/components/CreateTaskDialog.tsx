@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Settings,
   Trash2,
-  Users,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -130,20 +129,6 @@ const WORKTREE_STORAGE_KEY = 'gluon-use-worktree'
 const RALPH_ENABLED_STORAGE_KEY = 'gluon-ralph-enabled'
 const RALPH_MAX_LOOPS_STORAGE_KEY = 'gluon-ralph-max-loops'
 
-const AGENT_TEAMS_TEMPLATE = `Create an agent team to design and implement: [describe the feature]
-
-Spawn 3 teammates that actively debate and build on each other's ideas:
-
-- Product Thinker: explore user needs, propose UX flows, and define acceptance criteria. Challenge the Architect on complexity that doesn't serve users.
-- Architect: investigate the codebase, propose a technical design, and identify risks. Push back on Product when ideas conflict with existing patterns.
-- Critic: stress-test both proposals — find edge cases, security gaps, and missing requirements. Force the others to defend their choices.
-
-Phase 1 — Brainstorm: all three teammates explore the problem independently, then share findings and debate trade-offs with each other.
-Phase 2 — Converge: teammates work together to produce a single implementation plan that addresses the Critic's concerns. Require plan approval before proceeding.
-Phase 3 — Implement: Architect implements the feature, Product writes tests validating acceptance criteria, Critic reviews both for gaps. Each teammate owns separate files.
-
-Wait for all teammates to complete before synthesising a summary.`
-
 // Get last used profile from sessionStorage
 function getLastUsedProfile(): string {
   if (typeof window === 'undefined') return DEFAULT_PROFILE
@@ -254,7 +239,6 @@ export function CreateTaskDialog({
   const [profile, setProfile] = useState(getLastUsedProfile)
   const [useWorktree, setUseWorktree] = useState(getLastWorktreeSetting)
   const [ralphEnabled, setRalphEnabled] = useState(getLastRalphEnabledSetting)
-  const [agentTeams, setAgentTeams] = useState(false)
   const [maxLoops, setMaxLoops] = useState(getLastRalphMaxLoops)
   const [maxCostUsd, setMaxCostUsd] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
@@ -671,7 +655,6 @@ export function CreateTaskDialog({
         ralph_enabled: ralphEnabled,
         max_loops: ralphEnabled ? maxLoops : undefined,
         max_cost_usd: ralphEnabled && costValue && costValue > 0 ? costValue : undefined,
-        agent_teams: agentTeams || undefined,
         model_transition: modelTransition || undefined,
       })
 
@@ -1090,7 +1073,6 @@ export function CreateTaskDialog({
                   {!showAdvanced &&
                     (useWorktree ||
                       ralphEnabled ||
-                      agentTeams ||
                       modelOverride ||
                       thinkingOverride ||
                       effortOverride ||
@@ -1100,7 +1082,6 @@ export function CreateTaskDialog({
                         {[
                           useWorktree && 'worktree',
                           ralphEnabled && 'loop',
-                          agentTeams && 'teams',
                           modelOverride &&
                             MODEL_OPTIONS.find((m) => m.value === modelOverride)?.label,
                           effortOverride && `${effortOverride} effort`,
@@ -1228,53 +1209,6 @@ export function CreateTaskDialog({
                           </div>
                         </div>
                       )}
-                    </div>
-
-                    {/* Agent Teams Toggle */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Users
-                          className={cn(
-                            'w-4 h-4 transition-colors',
-                            agentTeams ? 'text-[var(--color-sky)]' : 'text-[var(--color-stone)]/60'
-                          )}
-                        />
-                        <div>
-                          <span className="text-body text-[var(--color-paper)]">
-                            Enable Agent Teams
-                          </span>
-                          <p className="text-caption text-[var(--color-stone)]/60">
-                            Coordinated multi-agent collaboration
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className={cn(
-                          'relative w-10 h-5 rounded-full transition-colors shrink-0',
-                          agentTeams ? 'bg-[var(--color-sky)]' : 'bg-[rgba(163,163,163,0.2)]'
-                        )}
-                        onClick={() => {
-                          const enabling = !agentTeams
-                          setAgentTeams(enabling)
-                          if (enabling && !prompt.trim()) {
-                            setPrompt(AGENT_TEAMS_TEMPLATE)
-                            setTimeout(() => {
-                              textareaRef.current?.focus()
-                              textareaRef.current?.setSelectionRange(0, 0)
-                              textareaRef.current?.scrollTo(0, 0)
-                            }, 0)
-                          }
-                        }}
-                      >
-                        <span
-                          className={cn(
-                            'absolute top-0.5 w-4 h-4 rounded-full transition-all',
-                            agentTeams ? 'bg-[var(--color-void)]' : 'bg-[var(--color-stone)]'
-                          )}
-                          style={{ left: agentTeams ? '22px' : '2px' }}
-                        />
-                      </button>
                     </div>
 
                     {/* Model override group — clarifies these are advanced overrides

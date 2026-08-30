@@ -1,0 +1,41 @@
+# Loop SKU (loop-first pivot Phase B). Hunts red CI to green. The costliest
+# pattern in the practice library — keep budgets tight. Default L2.
+# Run: gluon formula run ci-sweeper <project> --var verify="<test cmd>"
+name: ci-sweeper
+kind: loop
+description: "Drive the test suite/CI from red to green, one failure class per task (L2 assisted by default)"
+variables:
+  - name: verify
+    type: string
+    required: false
+    default: "uv run pytest -x -q"
+    help: "The command that must exit 0 for the sweep to be complete"
+  - name: autonomy
+    type: string
+    required: false
+    default: "L2"
+    help: "L1 report-only / L2 assisted / L3 unattended"
+objective: |
+  Make this project's test suite pass: `{{verify}}` must exit 0.
+
+  Survey by running it and clustering the failures by root cause. Author one
+  task per failure cluster (include the failing test names and error text);
+  chain with depends_on only where one fix unblocks another. Give each task a
+  verify_cmd scoped to its cluster where possible (e.g. a single test file).
+  Complete when the full command exits 0.
+verify_cmd: "{{verify}}"
+agent_verifier: false
+max_iterations: 20
+max_cost_usd: 25.0
+profile: standard
+use_worktree: true
+autonomy: "{{autonomy}}"
+# SKU operating metadata (loop-hardening Phase F4) — informational.
+cadence: "5m-15m"
+risk: high
+week_one_autonomy: L2
+cost_model:
+  tokens_noop: 3000
+  tokens_report: 90000
+  tokens_action: 300000
+  suggested_daily_cap: 2000000

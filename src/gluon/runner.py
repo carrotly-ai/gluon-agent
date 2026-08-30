@@ -271,11 +271,25 @@ def _default_max_concurrent() -> int:
         return 3
 
 
+def _default_max_parallel_per_project() -> int:
+    """Default cap on simultaneous runs within ONE project (loop-first pivot).
+
+    Worktree-isolated loop tasks may fan out in parallel inside a project;
+    non-worktree work stays serialized. Bounded by the global cap either way.
+    Override with GLUON_MAX_PARALLEL_RUNS_PER_PROJECT.
+    """
+    try:
+        return max(1, int(os.environ.get("GLUON_MAX_PARALLEL_RUNS_PER_PROJECT", "3")))
+    except ValueError:
+        return 3
+
+
 @dataclass
 class RunnerConfig:
     """Configuration for the task runner."""
 
     max_concurrent: int = field(default_factory=_default_max_concurrent)  # Max parallel runs
+    max_parallel_per_project: int = field(default_factory=_default_max_parallel_per_project)
     log_path: Path = DEFAULT_LOG_PATH
 
 
@@ -1225,7 +1239,7 @@ but explicit commits with good messages are preferred.
                 agent_teams_enabled = (
                     agent_teams_override
                     if agent_teams_override is not None
-                    else self.store.resolve_setting("agent_teams_enabled", "false", workspace_id) == "true"
+                    else self.store.resolve_setting("agent_teams_enabled", "true", workspace_id) == "true"
                 )
 
                 # SDK 0.1.35 feature settings
@@ -1878,21 +1892,60 @@ but explicit commits with good messages are preferred.
                 except Exception:
                     logger.debug("Session cleanup failed", exc_info=True)
 
-            # Close out the work-queue item this run was dispatched from. It was
-            # set RUNNING on dispatch (mark_running) but nothing ever marked it
-            # terminal, so queue items leaked in RUNNING forever.
-            self._finalize_queue_item(run)
-
             # Agent-loop advancement (loop-engineering Phase 2): the harness
             # decides whether the loop continues / completes / pauses. Runs
             # BEFORE self-propelling dispatch so a continuation task enqueued
             # here is claimable in the very next step, and a stopped loop's
             # tasks are already inert (claim_work skips non-RUNNING loops).
+            #
+            # CRITICAL ORDERING (audit finding #3): on_run_completed integrates
+            # this run's worktree branch back into the source branch. The queue
+            # item is finalized to COMPLETED only AFTER that returns, so a
+            # dependent (claimable once its dep is COMPLETED) can never branch
+            # from source before this task's work is merged in. If advancement
+            # crashes, the item stays RUNNING and reconcile_orphaned_work_items
+            # settles it from the terminal run.
             if run.loop_id:
                 try:
                     from gluon.loop_manager import LoopManager
+                    from gluon.models import LoopStatus
 
+                    loop_before = self.store.get_agent_loop(run.loop_id)
+                    status_before = loop_before.status if loop_before else None
                     await LoopManager(self.store).on_run_completed(run)
+                    # Objective-level escalation (loop-first pivot Phase A): a
+                    # loop leaving RUNNING is a human handoff point. Workers are
+                    # detached subprocesses with no transports, so publish over
+                    # Redis — the server's bus dispatches to the notifier
+                    # subscriber (same path as question.escalated).
+                    loop_after = self.store.get_agent_loop(run.loop_id)
+                    if (
+                        loop_after is not None
+                        and status_before == LoopStatus.RUNNING
+                        and loop_after.status != LoopStatus.RUNNING
+                    ):
+                        try:
+                            from gluon.events.redis_transport import publish_event_via_redis
+                            from gluon.events.types import EventCategory, GluonEvent
+
+                            event = GluonEvent(
+                                type=f"loop.{loop_after.status.value}",
+                                category=EventCategory.EXECUTION,
+                                project_id=loop_after.project_id,
+                                run_id=run.id,
+                                data={
+                                    "loop_id": loop_after.id,
+                                    "objective": loop_after.objective,
+                                    "status": loop_after.status.value,
+                                    "reason": loop_after.status_reason,
+                                    "iteration_count": loop_after.iteration_count,
+                                    "max_iterations": loop_after.max_iterations,
+                                    "total_cost_usd": loop_after.total_cost_usd,
+                                },
+                            )
+                            await publish_event_via_redis(event.model_dump_json(), event.type)
+                        except Exception:
+                            logger.debug("Loop event publish failed", exc_info=True)
                 except Exception:
                     logger.error(
                         "Agent-loop advancement failed for loop %s (run %s); loop may stall",
@@ -1901,16 +1954,33 @@ but explicit commits with good messages are preferred.
                         exc_info=True,
                     )
 
-            # Self-propelling queue: dispatch next queued work item
+            # Close out the work-queue item this run was dispatched from. It was
+            # set RUNNING on dispatch (mark_running); nothing else marks it
+            # terminal. Deliberately AFTER loop advancement so integration has
+            # already merged this task's branch before any dependent sees it
+            # COMPLETED (audit finding #3), and before self-propel dispatch below.
+            self._finalize_queue_item(run)
+
+            # Self-propelling queue: dispatch next queued work item.
+            # Loop-first pivot Phase A: with within-project parallelism, sibling
+            # runs may still be active when this one finishes — in that case only
+            # a worktree-isolated (parallel-safe) item may be claimed, and only
+            # under the per-project cap. When the project is idle, claim anything.
             if run.status in (RunStatus.COMPLETED, RunStatus.REVIEW) and not run.chain_id:
                 try:
                     from gluon.work_queue import WorkQueueManager
 
                     wq = WorkQueueManager(self.store)
-                    item = wq.claim_next(run.project_id)
-                    if item:
-                        new_run = await self._submit_from_queue_item(item, initiator=f"queue:{item.id}")
-                        wq.mark_running(item.id, new_run.id)
+                    siblings = [
+                        r
+                        for r in self.store.list_runs(statuses=[RunStatus.RUNNING], limit=1000)
+                        if r.project_id == run.project_id and r.id != run.id
+                    ]
+                    if len(siblings) < self.config.max_parallel_per_project:
+                        item = wq.claim_next(run.project_id, parallel_only=bool(siblings))
+                        if item:
+                            new_run = await self._submit_from_queue_item(item, initiator=f"queue:{item.id}")
+                            wq.mark_running(item.id, new_run.id)
                 except Exception:
                     logger.debug("Work queue dispatch failed", exc_info=True)
 
@@ -2439,24 +2509,33 @@ but explicit commits with good messages are preferred.
         # there is no live task set to count.
         active_runs = self.store.list_runs(statuses=[RunStatus.RUNNING], limit=1000)
         active_count = len(active_runs)
-        active_project_ids = {r.project_id for r in active_runs}
+        active_by_project: dict[str, int] = {}
+        for r in active_runs:
+            active_by_project[r.project_id] = active_by_project.get(r.project_id, 0) + 1
 
         # Respect global concurrency cap
         if active_count >= self.config.max_concurrent:
             return 0
 
         wq = WorkQueueManager(self.store)
+        per_project_cap = self.config.max_parallel_per_project
 
         for item in pending:
             if item.project_id in seen_projects:
                 continue
             seen_projects.add(item.project_id)
 
-            # Skip if this project already has an active run (serialize per project)
-            if item.project_id in active_project_ids:
+            # Loop-first pivot Phase A: a project with active run(s) is no longer
+            # skipped outright. Worktree-isolated loop tasks may run BESIDE the
+            # active run(s) (parallel fan-out within a project), bounded by
+            # per-project and global caps. Non-worktree items keep the historical
+            # serialize-per-project behavior (they'd collide on the working dir),
+            # which claim_next(parallel_only=True) enforces at the claim.
+            project_active = active_by_project.get(item.project_id, 0)
+            if project_active >= per_project_cap:
                 continue
 
-            claimed = wq.claim_next(item.project_id)
+            claimed = wq.claim_next(item.project_id, parallel_only=project_active > 0)
             if claimed is None:
                 continue
 
@@ -2465,12 +2544,13 @@ but explicit commits with good messages are preferred.
                 wq.mark_running(claimed.id, new_run.id)
                 dispatched += 1
                 active_count += 1
-                active_project_ids.add(claimed.project_id)
+                active_by_project[claimed.project_id] = active_by_project.get(claimed.project_id, 0) + 1
                 logger.info(
-                    "Queue drain dispatched item %s -> run %s (project %s)",
+                    "Queue drain dispatched item %s -> run %s (project %s%s)",
                     claimed.id[:8],
                     new_run.id[:8],
                     claimed.project_id[:8],
+                    " parallel" if project_active > 0 else "",
                 )
             except Exception:
                 logger.warning(
@@ -2501,10 +2581,31 @@ but explicit commits with good messages are preferred.
 
         loop = self.store.get_agent_loop(item.loop_id) if item.loop_id else None
         if loop is not None:
+            # Intra-loop model routing (Phase C): agent-authored fan-out tasks
+            # (source="agent") are the mechanical executor work — run them on
+            # executor_model when set. Harness-authored iterations (seed /
+            # verifier / continuation / fix) are judgment work and use the
+            # capable loop.model. Falls back to the profile default.
+            from gluon.models import resolve_loop_iteration_model
+
+            # Binding constraints injection (Phase F1): every loop iteration —
+            # seed, agent fan-out, continuation, verifier — is prefixed with the
+            # project's constraints text so the agent sees the rules on each run.
+            # The denylist is ALSO enforced mechanically at merge-back; this is
+            # the visibility layer, not the guarantee.
+            prompt = item.prompt
+            project = self.store.get_project(item.project_id)
+            if project is not None:
+                from gluon.loop_constraints import constraints_prompt_block
+
+                block = constraints_prompt_block(project.expanded_path)
+                if block:
+                    prompt = f"{item.prompt}{block}"
+
             return await self.submit(
                 project_id=item.project_id,
-                prompt=item.prompt,
-                model=loop.model or resolve_task_options(profile=item.profile)["model"],
+                prompt=prompt,
+                model=resolve_loop_iteration_model(loop, item.source, item.profile),
                 profile=item.profile,
                 use_worktree=loop.use_worktree,
                 verify_cmd=loop.verify_cmd,
@@ -2764,7 +2865,7 @@ but explicit commits with good messages are preferred.
             agent_teams_enabled = (
                 agent_teams_override
                 if agent_teams_override is not None
-                else _resolve("agent_teams_enabled", "false", workspace_id) == "true"
+                else _resolve("agent_teams_enabled", "true", workspace_id) == "true"
             )
             # Vercel CLI integration (optional)
             vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", workspace_id) == "true"
@@ -2992,7 +3093,7 @@ but explicit commits with good messages are preferred.
             agent_teams_enabled = (
                 agent_teams_override
                 if agent_teams_override is not None
-                else _resolve("agent_teams_enabled", "false", ws_id) == "true"
+                else _resolve("agent_teams_enabled", "true", ws_id) == "true"
             )
             # Vercel CLI integration (optional)
             vercel_cli_enabled = _resolve("vercel_cli_enabled", "false", ws_id) == "true"

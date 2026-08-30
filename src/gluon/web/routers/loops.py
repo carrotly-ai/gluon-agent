@@ -25,6 +25,7 @@ from gluon.web.models import (
     CreateAgentLoopRequest,
     GateabilityBucket,
     LoopRunSummary,
+    LoopTaskNode,
 )
 from gluon.web.routers._deps import get_current_user, get_runner, get_store
 
@@ -37,13 +38,31 @@ Runner = Annotated[TaskRunner, Depends(get_runner)]
 CurrentUser = Annotated[UserModel, Depends(get_current_user)]
 
 
+def _promotion_hint(loop: AgentLoop, metrics: dict) -> str | None:
+    from gluon.loop_manager import autonomy_promotion_hint
+
+    return autonomy_promotion_hint(loop, metrics)
+
+
 def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = False) -> AgentLoopResponse:
     from gluon.loop_manager import VERIFICATION_MARKER
 
     project = store.get_project(loop.project_id)
     metrics = store.get_agent_loop_metrics(loop.id)
     recent_runs: list[LoopRunSummary] = []
+    graph: list[LoopTaskNode] = []
     if include_runs:
+        graph = [
+            LoopTaskNode(
+                id=it.id,
+                status=it.status.value,
+                source=it.source,
+                prompt=it.prompt[:200],
+                depends_on=it.depends_on or [],
+                verify_cmd=it.verify_cmd,
+            )
+            for it in store.list_loop_work_items(loop.id)
+        ]
         recent_runs = [
             LoopRunSummary(
                 id=r.id,
@@ -67,7 +86,13 @@ def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = Fa
         readiness="gated" if loop.verify_cmd else "gateless",
         profile=loop.profile,
         model=loop.model,
+        executor_model=loop.executor_model,
+        agent_verifier_model=loop.agent_verifier_model,
+        watch_cmd=loop.watch_cmd,
+        last_verdict=loop.last_verdict,
+        promotion_hint=_promotion_hint(loop, metrics),
         use_worktree=loop.use_worktree,
+        autonomy=loop.autonomy,
         status=loop.status.value,
         status_reason=loop.status_reason,
         iteration_count=loop.iteration_count,
@@ -81,6 +106,7 @@ def loop_to_response(loop: AgentLoop, store: GluonStore, include_runs: bool = Fa
         completion_summary=loop.completion_summary,
         pending_tasks=store.count_pending_loop_items(loop.id),
         recent_runs=recent_runs,
+        graph=graph,
         initiator=loop.initiator,
         created_at=loop.created_at.isoformat(),
         updated_at=loop.updated_at.isoformat(),
@@ -114,9 +140,13 @@ async def create_loop(
         objective=body.objective,
         verify_cmd=body.verify_cmd,
         agent_verifier=body.agent_verifier,
+        agent_verifier_model=body.agent_verifier_model,
         profile=body.profile,
         model=body.model,
+        executor_model=body.executor_model,
+        watch_cmd=body.watch_cmd,
         use_worktree=body.use_worktree,
+        autonomy=body.autonomy,
         max_iterations=body.max_iterations,
         max_cost_usd=body.max_cost_usd,
         max_stalls=body.max_stalls,

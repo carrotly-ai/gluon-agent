@@ -1194,9 +1194,26 @@ class CreateAgentLoopRequest(BaseModel):
         default=False,
         description="Independent-verifier subagent (I2): completion claims are judged by a fresh verifier iteration",
     )
+    agent_verifier_model: str | None = Field(
+        default=None,
+        description="Cross-family judge model for the verifier (e.g. an Ollama model); implies agent_verifier",
+    )
     profile: str = Field(default="standard", description="Task profile for iteration runs")
-    model: str | None = Field(default=None, description="Model override for iteration runs")
+    model: str | None = Field(default=None, description="Judgment model (surveyor / verifier / fixes)")
+    executor_model: str | None = Field(
+        default=None,
+        description="Cheaper/faster model for mechanical agent-authored fan-out tasks (default: inherit model)",
+    )
+    watch_cmd: str | None = Field(
+        default=None,
+        description="Event-reactive loop: when idle, re-seed a surveyor cycle from this command's output if it exits 0",
+    )
     use_worktree: bool = Field(default=False, description="Run iterations in isolated Git worktrees")
+    autonomy: str = Field(
+        default="L3",
+        pattern="^(L1|L2|L3)$",
+        description="Autonomy ladder: L1 report-only / L2 assisted (pause at plan) / L3 unattended",
+    )
     max_iterations: int = Field(default=20, ge=1, le=500, description="Hard iteration ceiling")
     max_cost_usd: float | None = Field(default=None, gt=0, description="Loop-level spend cap in USD")
     max_stalls: int = Field(default=2, ge=1, le=10, description="Consecutive no-progress iterations before pause")
@@ -1215,6 +1232,17 @@ class LoopRunSummary(BaseModel):
     completed_at: str | None = None
 
 
+class LoopTaskNode(BaseModel):
+    """One node in a loop's campaign task graph (detail endpoint only)."""
+
+    id: str
+    status: str
+    source: str | None = None  # seed | agent | continuation | verifier
+    prompt: str
+    depends_on: list[str] = Field(default_factory=list)
+    verify_cmd: str | None = None
+
+
 class AgentLoopResponse(BaseModel):
     """Response model for an agent loop."""
 
@@ -1225,13 +1253,21 @@ class AgentLoopResponse(BaseModel):
     metrics: GateabilityBucket | None = None
     # Iteration timeline, newest first — populated on GET /api/loops/{id} only
     recent_runs: list[LoopRunSummary] = Field(default_factory=list)
+    # Campaign task graph (nodes + depends_on edges) — GET /api/loops/{id} only
+    graph: list[LoopTaskNode] = Field(default_factory=list)
     objective: str
     verify_cmd: str | None = None
     agent_verifier: bool = False
     readiness: str  # "gated" | "gateless"
     profile: str
     model: str | None = None
+    executor_model: str | None = None
+    agent_verifier_model: str | None = None
+    watch_cmd: str | None = None
+    last_verdict: str | None = None
+    promotion_hint: str | None = None  # Phase F6: earned-autonomy suggestion (human decides)
     use_worktree: bool
+    autonomy: str = "L3"
     status: str
     status_reason: str | None = None
     iteration_count: int

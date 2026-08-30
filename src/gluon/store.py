@@ -830,6 +830,29 @@ MIGRATIONS = [
     # Independent-verifier subagent (I2): completion requests judged by a fresh
     # verifier iteration instead of (or on top of) the shell gate.
     "ALTER TABLE agent_loops ADD COLUMN agent_verifier INTEGER NOT NULL DEFAULT 0;",
+    # Bomb-proofing (loop dedup): a partial UNIQUE index makes agent-authored
+    # dedup atomic under concurrent enqueues. Harness-authored items pass
+    # prompt_hash=None and ordinary items loop_id=None, so the partial WHERE
+    # exempts them — only agent-authored (loop_id, prompt_hash) pairs are unique.
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_work_queue_loop_prompt_dedup "
+    "ON work_queue(loop_id, prompt_hash) WHERE loop_id IS NOT NULL AND prompt_hash IS NOT NULL;",
+    # Loop-first pivot Phase A (docs/design/loop-first-pivot.md): dependency
+    # edges (JSON array of work_queue item IDs; ready-set dispatch claims only
+    # items whose deps are all COMPLETED) and per-task verification gates.
+    "ALTER TABLE work_queue ADD COLUMN depends_on TEXT;",
+    "ALTER TABLE work_queue ADD COLUMN verify_cmd TEXT;",
+    # Phase B: autonomy ladder on loops (L1 report-only / L2 assisted / L3 unattended).
+    "ALTER TABLE agent_loops ADD COLUMN autonomy TEXT NOT NULL DEFAULT 'L3';",
+    # Phase C: intra-loop model routing (cheaper executor tier) + event-reactive
+    # watch loops (re-seed from external state instead of stalling).
+    "ALTER TABLE agent_loops ADD COLUMN executor_model TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN watch_cmd TEXT;",
+    # Phase E: structured verifier verdict, cross-family judge model, and
+    # failure-signature stall detection.
+    "ALTER TABLE agent_loops ADD COLUMN last_verdict TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN agent_verifier_model TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN last_failure_sig TEXT;",
+    "ALTER TABLE agent_loops ADD COLUMN failure_sig_count INTEGER NOT NULL DEFAULT 0;",
 ]
 
 DEFAULT_LOG_PATH = Path.home() / ".gluon" / "logs"
@@ -4652,6 +4675,42 @@ class GluonStore:
                 (key, value, utc_now().isoformat()),
             )
 
+    # ---- Loop kill switch (loop-hardening Phase F2) -------------------------
+    _KILL_ALL_KEY = "loop_pause_all"
+    _KILL_PROJECTS_KEY = "loop_paused_projects"
+
+    def is_dispatch_paused(self, project_id: str | None = None) -> bool:
+        """True when the global kill switch is set, or (when given) this project
+        is individually paused. Read at every claim to halt dispatch fleet-wide."""
+        if self.get_setting(self._KILL_ALL_KEY) == "1":
+            return True
+        if project_id is None:
+            return False
+        raw = self.get_setting(self._KILL_PROJECTS_KEY)
+        if not raw:
+            return False
+        try:
+            return project_id in set(json.loads(raw))
+        except (ValueError, TypeError):
+            return False
+
+    def set_dispatch_pause(self, paused: bool, project_id: str | None = None) -> None:
+        """Set/clear the kill switch. project_id=None toggles the GLOBAL flag;
+        a project_id toggles that project's entry in the paused-projects set."""
+        if project_id is None:
+            self.set_setting(self._KILL_ALL_KEY, "1" if paused else "0")
+            return
+        raw = self.get_setting(self._KILL_PROJECTS_KEY)
+        try:
+            current = set(json.loads(raw)) if raw else set()
+        except (ValueError, TypeError):
+            current = set()
+        if paused:
+            current.add(project_id)
+        else:
+            current.discard(project_id)
+        self.set_setting(self._KILL_PROJECTS_KEY, json.dumps(sorted(current)))
+
     def get_all_settings(self) -> dict[str, str]:
         """Get all settings as a dictionary."""
         with self._get_conn() as conn:
@@ -5551,11 +5610,16 @@ class GluonStore:
         loop_id: str | None = None,
         source: str | None = None,
         prompt_hash: str | None = None,
+        depends_on: list[str] | None = None,
+        verify_cmd: str | None = None,
     ) -> WorkQueueItem:
         """Add an item to the work queue.
 
         ``loop_id`` / ``source`` / ``prompt_hash`` are the agent-loop fields
         (loop-engineering Phase 2) — all None for ordinary queue items.
+        ``depends_on`` / ``verify_cmd`` are the graph fields (loop-first pivot
+        Phase A): dependency edges gate claiming (ready-set dispatch); the
+        task-level verify_cmd is evaluated when the item's run completes.
         """
         item = WorkQueueItem(
             project_id=project_id,
@@ -5565,14 +5629,17 @@ class GluonStore:
             loop_id=loop_id,
             source=source,
             prompt_hash=prompt_hash,
+            depends_on=depends_on,
+            verify_cmd=verify_cmd,
         )
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO work_queue (id, project_id, prompt, profile, priority, status,
                     claimed_by, created_at, claimed_at, started_at, completed_at,
-                    last_heartbeat_at, error_message, loop_id, source, prompt_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_heartbeat_at, error_message, loop_id, source, prompt_hash,
+                    depends_on, verify_cmd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -5591,37 +5658,103 @@ class GluonStore:
                     item.loop_id,
                     item.source,
                     item.prompt_hash,
+                    json.dumps(item.depends_on) if item.depends_on else None,
+                    item.verify_cmd,
                 ),
             )
         return item
 
-    def claim_work(self, project_id: str) -> WorkQueueItem | None:
-        """Atomically claim highest-priority unclaimed item. Returns None if empty.
+    def claim_work(self, project_id: str, parallel_only: bool = False) -> WorkQueueItem | None:
+        """Atomically claim highest-priority unclaimed READY item. Returns None if empty.
 
         Items belonging to a non-RUNNING agent loop are skipped (not claimed):
         a paused loop keeps its pending tasks inert but preserved, so a human
         can raise the budget and resume without losing the agent-authored plan.
-        """
-        with self._get_conn() as conn:
-            row = conn.execute(
-                """
-                SELECT * FROM work_queue
-                WHERE project_id = ? AND status = ?
-                AND (loop_id IS NULL
-                     OR loop_id IN (SELECT id FROM agent_loops WHERE status = ?))
-                ORDER BY priority ASC, created_at ASC
-                LIMIT 1
-                """,
-                (project_id, WorkQueueStatus.PENDING.value, LoopStatus.RUNNING.value),
-            ).fetchone()
-            if not row:
-                return None
 
-            now = utc_now().isoformat()
-            conn.execute(
-                "UPDATE work_queue SET status = ?, claimed_at = ? WHERE id = ?",
-                (WorkQueueStatus.CLAIMED.value, now, row["id"]),
-            )
+        A **budget-exhausted** loop (iteration_count >= max_iterations, or
+        total_cost_usd >= max_cost_usd) is likewise skipped, a dispatch guard that
+        holds even if a per-iteration advancement path failed to pause the loop.
+        Note this is a SOFT ceiling under parallel fan-out (audit finding #6):
+        counters advance only on run completion, so up to (parallel_cap - 1)
+        in-flight siblings can each pass the guard on the same pre-increment
+        snapshot and overshoot the cap by that bounded amount. The whole claim is
+        a single BEGIN IMMEDIATE transaction with a conditional UPDATE, so an item
+        can never be dispatched to two workers.
+
+        **Ready-set dispatch** (loop-first pivot Phase A): an item with
+        ``depends_on`` is claimable only when every referenced item is COMPLETED.
+        A dangling/failed/cancelled dependency keeps it unclaimable (fail-closed);
+        ``cancel_dead_loop_items`` cascade-cancels those so the loop can re-plan.
+
+        ``parallel_only=True`` restricts the claim to items safe to run BESIDE
+        an active run of the same project: loop items whose loop runs in
+        isolated worktrees (``agent_loops.use_worktree=1``). Used by dispatchers
+        to fan out within a project without colliding on the working dir.
+
+        **Kill switch** (loop-hardening Phase F2): when the global
+        ``loop_pause_all`` flag is set, or this project is in
+        ``loop_paused_projects``, NO work is dispatched — the operator's
+        "stop the fleet now" halt, enforced in the harness at the dispatch seam
+        (not a prompt an agent is asked to obey). In-flight runs finish; nothing
+        new starts until the flag is cleared.
+        """
+        if self.is_dispatch_paused(project_id):
+            return None
+        parallel_clause = (
+            """
+            AND loop_id IN (SELECT id FROM agent_loops WHERE use_worktree = 1)
+            """
+            if parallel_only
+            else ""
+        )
+        with self._get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    f"""
+                    SELECT * FROM work_queue
+                    WHERE project_id = ? AND status = ?
+                    AND (loop_id IS NULL
+                         OR loop_id IN (
+                             SELECT id FROM agent_loops
+                             WHERE status = ?
+                               AND iteration_count < max_iterations
+                               AND (max_cost_usd IS NULL OR total_cost_usd < max_cost_usd)
+                         ))
+                    AND (depends_on IS NULL OR NOT EXISTS (
+                         SELECT 1 FROM json_each(work_queue.depends_on) je
+                         LEFT JOIN work_queue dep ON dep.id = je.value
+                         WHERE dep.id IS NULL OR dep.status != ?
+                    ))
+                    {parallel_clause}
+                    ORDER BY priority ASC, created_at ASC
+                    LIMIT 1
+                    """,
+                    (
+                        project_id,
+                        WorkQueueStatus.PENDING.value,
+                        LoopStatus.RUNNING.value,
+                        WorkQueueStatus.COMPLETED.value,
+                    ),
+                ).fetchone()
+                if not row:
+                    conn.execute("ROLLBACK")
+                    return None
+
+                now = utc_now().isoformat()
+                cur = conn.execute(
+                    "UPDATE work_queue SET status = ?, claimed_at = ? WHERE id = ? AND status = ?",
+                    (WorkQueueStatus.CLAIMED.value, now, row["id"], WorkQueueStatus.PENDING.value),
+                )
+                if cur.rowcount == 0:
+                    # Lost the race between SELECT and UPDATE — another claimer took it.
+                    conn.execute("ROLLBACK")
+                    return None
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
             item = self._row_to_work_queue_item(row)
             item.status = WorkQueueStatus.CLAIMED
             item.claimed_at = _parse_datetime(now)
@@ -5647,6 +5780,22 @@ class GluonStore:
                     item.id,
                 ),
             )
+
+    def get_work_item(self, item_id: str) -> WorkQueueItem | None:
+        """Get one work-queue item by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM work_queue WHERE id = ?", (item_id,)).fetchone()
+            return self._row_to_work_queue_item(row) if row else None
+
+    def list_loop_work_items(self, loop_id: str, limit: int = 200) -> list[WorkQueueItem]:
+        """All work-queue items belonging to a loop (the campaign task graph),
+        oldest first — nodes carry depends_on edges and per-task verify_cmd."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM work_queue WHERE loop_id = ? ORDER BY created_at ASC LIMIT ?",
+                (loop_id, limit),
+            ).fetchall()
+            return [self._row_to_work_queue_item(row) for row in rows]
 
     def list_work_items(
         self,
@@ -5693,8 +5842,52 @@ class GluonStore:
             )
             return cursor.rowcount
 
+    def reconcile_orphaned_work_items(self) -> int:
+        """Finalize RUNNING/CLAIMED items whose linked run is already terminal.
+
+        A crash (or, historically, a mark_completed that silently missed — audit
+        finding #2) can leave a work item stuck RUNNING/CLAIMED after its run
+        reached a terminal status. ``release_stale_work_claims`` only reaps
+        CLAIMED, so a stuck RUNNING item would block its dependents forever. This
+        settles the item to match its run's terminal status via a single atomic
+        UPDATE keyed on the run linked through ``claimed_by``. Returns the count
+        settled.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE work_queue
+                SET status = (
+                        SELECT CASE r.status
+                                 WHEN 'completed' THEN 'completed'
+                                 WHEN 'failed'    THEN 'failed'
+                                 WHEN 'cancelled' THEN 'cancelled'
+                               END
+                        FROM execution_runs r WHERE r.id = work_queue.claimed_by
+                    ),
+                    completed_at = COALESCE(completed_at, ?)
+                WHERE status IN (?, ?)
+                  AND claimed_by IN (
+                        SELECT id FROM execution_runs
+                        WHERE status IN ('completed', 'failed', 'cancelled')
+                    )
+                """,
+                (
+                    utc_now().isoformat(),
+                    WorkQueueStatus.RUNNING.value,
+                    WorkQueueStatus.CLAIMED.value,
+                ),
+            )
+            return cursor.rowcount
+
     def _row_to_work_queue_item(self, row: sqlite3.Row) -> WorkQueueItem:
         """Convert database row to WorkQueueItem model."""
+        # Defensive column reads: the depends_on / verify_cmd columns are added
+        # by migrations (loop-first pivot Phase A). If a migration was skipped on
+        # a partial DB, reading them unconditionally would crash every queue read;
+        # guard them the way _row_to_agent_loop guards its added columns.
+        keys = row.keys()
+        depends_on_raw = row["depends_on"] if "depends_on" in keys else None
         return WorkQueueItem(
             id=row["id"],
             project_id=row["project_id"],
@@ -5712,6 +5905,8 @@ class GluonStore:
             loop_id=row["loop_id"],
             source=row["source"],
             prompt_hash=row["prompt_hash"],
+            depends_on=json.loads(depends_on_raw) if depends_on_raw else None,
+            verify_cmd=row["verify_cmd"] if "verify_cmd" in keys else None,
         )
 
     # ========== Agent Loop CRUD (loop-engineering Phase 2) ==========
@@ -5723,11 +5918,13 @@ class GluonStore:
             conn.execute(
                 """
                 INSERT INTO agent_loops (id, project_id, objective, verify_cmd, agent_verifier,
-                    profile, model, use_worktree, status, iteration_count, total_cost_usd,
+                    agent_verifier_model,
+                    profile, model, executor_model, watch_cmd, use_worktree, autonomy, status,
+                    iteration_count, total_cost_usd,
                     stall_count, max_iterations, max_cost_usd, max_stalls, max_fanout,
                     completion_requested, completion_summary, status_reason, initiator,
                     created_by_user_id, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     loop.id,
@@ -5735,9 +5932,13 @@ class GluonStore:
                     loop.objective,
                     loop.verify_cmd,
                     1 if loop.agent_verifier else 0,
+                    loop.agent_verifier_model,
                     loop.profile,
                     loop.model,
+                    loop.executor_model,
+                    loop.watch_cmd,
                     1 if loop.use_worktree else 0,
+                    loop.autonomy,
                     loop.status.value,
                     loop.iteration_count,
                     loop.total_cost_usd,
@@ -5795,6 +5996,318 @@ class GluonStore:
                 ),
             )
 
+    # ---- Atomic loop-state mutations (cross-process safe) --------------------
+    # Loop iterations run as separate ``python -m gluon.runner`` subprocesses,
+    # each with its own SQLite connection, so a read-modify-write on the loop row
+    # races: lost updates could under-count budgets or let a stale worker write
+    # resurrect a cancelled/paused loop. These helpers mutate via atomic
+    # conditional ``UPDATE ... WHERE status = <expected>`` (single-statement =
+    # atomic; multi-statement wrapped in BEGIN IMMEDIATE) — the same idiom as
+    # ``checkout_task`` — so the harness never loses authority to a race.
+
+    def advance_loop_counters(self, loop_id: str, cost_usd: float) -> AgentLoop | None:
+        """Atomically add one iteration + ``cost_usd`` to a RUNNING loop and return
+        the fresh post-increment loop, or None if it is not RUNNING / not found.
+
+        The ONLY correct way to advance iteration_count/total_cost_usd — never
+        compute them from a prior unlocked SELECT (that loses concurrent updates).
+        """
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE agent_loops
+                SET iteration_count = iteration_count + 1,
+                    total_cost_usd = total_cost_usd + ?,
+                    updated_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (cost_usd or 0.0, now, loop_id, LoopStatus.RUNNING.value),
+            )
+            if cur.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM agent_loops WHERE id = ?", (loop_id,)).fetchone()
+            return self._row_to_agent_loop(row) if row else None
+
+    def add_loop_cost(self, loop_id: str, cost_usd: float) -> None:
+        """Fold a run's cost into the loop total regardless of loop status — keeps
+        accounting accurate for a run that finishes after the loop is paused."""
+        if not cost_usd:
+            return
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE agent_loops SET total_cost_usd = total_cost_usd + ?, updated_at = ? WHERE id = ?",
+                (cost_usd, now, loop_id),
+            )
+
+    def try_transition_loop(
+        self,
+        loop_id: str,
+        to_status: LoopStatus,
+        *,
+        reason: str | None,
+        expect_status: LoopStatus = LoopStatus.RUNNING,
+        set_completed_at: bool = False,
+    ) -> bool:
+        """Atomically move a loop to ``to_status`` iff it is currently
+        ``expect_status``. Returns True if the transition happened. A stale worker
+        write can no longer resurrect a cancelled/paused loop, because its expected
+        status no longer matches."""
+        now = utc_now().isoformat()
+        completed = now if set_completed_at else None
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE agent_loops
+                SET status = ?, status_reason = ?,
+                    completed_at = COALESCE(?, completed_at), updated_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (to_status.value, reason, completed, now, loop_id, expect_status.value),
+            )
+            return cur.rowcount > 0
+
+    def set_loop_completion(
+        self,
+        loop_id: str,
+        requested: bool,
+        summary: str | None,
+        *,
+        expect_status: LoopStatus = LoopStatus.RUNNING,
+    ) -> bool:
+        """Atomically set/clear completion_requested (+summary) on a loop in the
+        expected status. Returns True if applied. Prevents a worker's completion
+        signal from being clobbered by a concurrent full-row write, and lets the
+        harness clear a stale request without racing."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE agent_loops
+                SET completion_requested = ?, completion_summary = ?, updated_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (1 if requested else 0, summary, now, loop_id, expect_status.value),
+            )
+            return cur.rowcount > 0
+
+    def bump_loop_stall(self, loop_id: str) -> int:
+        """Atomically increment stall_count on a RUNNING loop; return the new count,
+        or -1 if the loop is not RUNNING."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "UPDATE agent_loops SET stall_count = stall_count + 1, updated_at = ? WHERE id = ? AND status = ?",
+                (now, loop_id, LoopStatus.RUNNING.value),
+            )
+            if cur.rowcount == 0:
+                return -1
+            row = conn.execute("SELECT stall_count FROM agent_loops WHERE id = ?", (loop_id,)).fetchone()
+            return int(row["stall_count"]) if row else -1
+
+    def reset_loop_stall(self, loop_id: str) -> None:
+        """Atomically reset stall_count to 0 on a RUNNING loop."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE agent_loops SET stall_count = 0, updated_at = ? WHERE id = ? AND status = ?",
+                (now, loop_id, LoopStatus.RUNNING.value),
+            )
+
+    def set_loop_verdict(self, loop_id: str, verdict_json: str | None) -> None:
+        """Store the most recent structured verifier verdict (Phase E1). Config
+        field, not lifecycle — a plain guarded UPDATE is sufficient."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE agent_loops SET last_verdict = ?, updated_at = ? WHERE id = ?",
+                (verdict_json, now, loop_id),
+            )
+
+    def record_loop_failure_signature(self, loop_id: str, signature: str) -> int:
+        """Atomically track consecutive identical gate-failure signatures (Phase
+        E5). If ``signature`` matches ``last_failure_sig`` increment the count;
+        otherwise reset it to 1 and store the new signature. Returns the new
+        consecutive count, or -1 if the loop is not RUNNING. A loop failing the
+        SAME way repeatedly trips this even while it keeps producing 'work'."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE agent_loops
+                SET failure_sig_count = CASE WHEN last_failure_sig = ? THEN failure_sig_count + 1 ELSE 1 END,
+                    last_failure_sig = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (signature, signature, now, loop_id, LoopStatus.RUNNING.value),
+            )
+            if cur.rowcount == 0:
+                return -1
+            row = conn.execute("SELECT failure_sig_count FROM agent_loops WHERE id = ?", (loop_id,)).fetchone()
+            return int(row["failure_sig_count"]) if row else -1
+
+    def reset_loop_failure_signature(self, loop_id: str) -> None:
+        """Clear the failure-signature streak (Phase E5) — called when a gate
+        PASSES or genuine progress is made, so an intermittent repeat doesn't
+        accumulate across unrelated iterations."""
+        now = utc_now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE agent_loops SET last_failure_sig = NULL, failure_sig_count = 0, updated_at = ? WHERE id = ?",
+                (now, loop_id),
+            )
+
+    def enqueue_loop_task_atomic(
+        self,
+        loop_id: str,
+        project_id: str,
+        prompt: str,
+        profile: str,
+        priority: int,
+        prompt_hash: str | None,
+        depends_on: list[str] | None = None,
+        verify_cmd: str | None = None,
+    ) -> tuple[WorkQueueItem | None, str | None]:
+        """Atomically enqueue an agent-authored loop task, enforcing — in one
+        BEGIN IMMEDIATE transaction — that the loop is RUNNING, the fan-out cap is
+        not exceeded, the prompt is not a duplicate, and every ``depends_on``
+        reference is an existing, non-terminal-failed item of THIS loop. Returns
+        ``(item, None)`` on success or ``(None, reason)`` with reason in
+        ``{"not_running", "fanout", "duplicate", "bad_dependency"}``. Closes the
+        TOCTOU that let two concurrent enqueues both pass the cap/dedup checks.
+
+        Dependencies are cycle-free by construction: a new item can only
+        reference items that already exist, so no edge can ever point forward.
+        """
+        item = WorkQueueItem(
+            project_id=project_id,
+            prompt=prompt,
+            profile=profile,
+            priority=priority,
+            loop_id=loop_id,
+            source="agent",
+            prompt_hash=prompt_hash,
+            depends_on=depends_on,
+            verify_cmd=verify_cmd,
+        )
+        with self._get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                lp = conn.execute("SELECT status, max_fanout FROM agent_loops WHERE id = ?", (loop_id,)).fetchone()
+                if lp is None or lp["status"] != LoopStatus.RUNNING.value:
+                    conn.execute("ROLLBACK")
+                    return None, "not_running"
+                pending = conn.execute(
+                    "SELECT COUNT(*) AS n FROM work_queue WHERE loop_id = ? AND status = ?",
+                    (loop_id, WorkQueueStatus.PENDING.value),
+                ).fetchone()["n"]
+                if pending >= lp["max_fanout"]:
+                    conn.execute("ROLLBACK")
+                    return None, "fanout"
+                # Validate dependency references inside the txn (fail-closed):
+                # each must exist, belong to this loop, and not already be
+                # failed/cancelled (depending on a dead task is authoring a
+                # task that can never run).
+                for dep_id in depends_on or []:
+                    dep = conn.execute("SELECT loop_id, status FROM work_queue WHERE id = ?", (dep_id,)).fetchone()
+                    if (
+                        dep is None
+                        or dep["loop_id"] != loop_id
+                        or dep["status"] in (WorkQueueStatus.FAILED.value, WorkQueueStatus.CANCELLED.value)
+                    ):
+                        conn.execute("ROLLBACK")
+                        return None, "bad_dependency"
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO work_queue (id, project_id, prompt, profile, priority, status,
+                            claimed_by, created_at, claimed_at, started_at, completed_at,
+                            last_heartbeat_at, error_message, loop_id, source, prompt_hash,
+                            depends_on, verify_cmd)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            item.id,
+                            item.project_id,
+                            item.prompt,
+                            item.profile,
+                            item.priority,
+                            item.status.value,
+                            item.claimed_by,
+                            item.created_at.isoformat(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            item.loop_id,
+                            item.source,
+                            item.prompt_hash,
+                            json.dumps(item.depends_on) if item.depends_on else None,
+                            item.verify_cmd,
+                        ),
+                    )
+                except sqlite3.IntegrityError:
+                    # Hit the partial UNIQUE(loop_id, prompt_hash) index — a
+                    # concurrent enqueue already inserted this exact prompt.
+                    conn.execute("ROLLBACK")
+                    return None, "duplicate"
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+        return item, None
+
+    def cancel_dead_loop_items(self, loop_id: str) -> int:
+        """Cascade-cancel PENDING loop items whose dependencies can never complete.
+
+        A pending item is *dead* when any of its ``depends_on`` references is
+        missing (dangling) or FAILED/CANCELLED. Cancelling a dead item can kill
+        its own dependents, so iterate to a fixpoint. Returns the number of items
+        cancelled. Without this sweep a loop could sit idle forever: pending
+        items exist (so stall detection stays quiet) but none can ever become
+        ready (deps failed) — the silent-deadlock edge case.
+        """
+        now = utc_now().isoformat()
+        total = 0
+        with self._get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                while True:
+                    cur = conn.execute(
+                        """
+                        UPDATE work_queue SET status = ?, completed_at = ?,
+                            error_message = 'dependency failed/cancelled — cascade-cancelled'
+                        WHERE loop_id = ? AND status = ?
+                        AND depends_on IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM json_each(work_queue.depends_on) je
+                            LEFT JOIN work_queue dep ON dep.id = je.value
+                            WHERE dep.id IS NULL OR dep.status IN (?, ?)
+                        )
+                        """,
+                        (
+                            WorkQueueStatus.CANCELLED.value,
+                            now,
+                            loop_id,
+                            WorkQueueStatus.PENDING.value,
+                            WorkQueueStatus.FAILED.value,
+                            WorkQueueStatus.CANCELLED.value,
+                        ),
+                    )
+                    if cur.rowcount == 0:
+                        break
+                    total += cur.rowcount
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+        if total:
+            logger.info("Loop %s: cascade-cancelled %d dead item(s) (failed dependencies)", loop_id[:8], total)
+        return total
+
     def list_agent_loops(
         self,
         project_id: str | None = None,
@@ -5823,6 +6336,31 @@ class GluonStore:
             row = conn.execute(
                 "SELECT COUNT(*) AS n FROM work_queue WHERE loop_id = ? AND status = ?",
                 (loop_id, WorkQueueStatus.PENDING.value),
+            ).fetchone()
+            return int(row["n"])
+
+    def count_active_loop_items(self, loop_id: str, exclude_run_id: str | None = None) -> int:
+        """Count IN-FLIGHT (CLAIMED/RUNNING) work-queue items for a loop.
+
+        Stall detection must not treat a parallel worktree loop as "no progress"
+        while sibling tasks are still executing — they sit in CLAIMED/RUNNING,
+        not PENDING (audit finding #4). ``exclude_run_id`` drops the item linked
+        to the run currently being advanced (it is mid-completion, not a live
+        sibling) so a loop isn't kept alive by its own finishing iteration.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM work_queue
+                WHERE loop_id = ? AND status IN (?, ?)
+                  AND (claimed_by IS NULL OR claimed_by != ?)
+                """,
+                (
+                    loop_id,
+                    WorkQueueStatus.CLAIMED.value,
+                    WorkQueueStatus.RUNNING.value,
+                    exclude_run_id or "",
+                ),
             ).fetchone()
             return int(row["n"])
 
@@ -5877,7 +6415,14 @@ class GluonStore:
             agent_verifier=bool(row["agent_verifier"]),
             profile=row["profile"] or "standard",
             model=row["model"],
+            executor_model=(row["executor_model"] if "executor_model" in row.keys() else None),
+            watch_cmd=(row["watch_cmd"] if "watch_cmd" in row.keys() else None),
+            last_verdict=(row["last_verdict"] if "last_verdict" in row.keys() else None),
+            agent_verifier_model=(row["agent_verifier_model"] if "agent_verifier_model" in row.keys() else None),
+            last_failure_sig=(row["last_failure_sig"] if "last_failure_sig" in row.keys() else None),
+            failure_sig_count=(row["failure_sig_count"] if "failure_sig_count" in row.keys() else 0) or 0,
             use_worktree=bool(row["use_worktree"]),
+            autonomy=(row["autonomy"] if "autonomy" in row.keys() else None) or "L3",
             status=LoopStatus(row["status"]),
             iteration_count=row["iteration_count"] or 0,
             total_cost_usd=row["total_cost_usd"] or 0.0,

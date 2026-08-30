@@ -3449,6 +3449,39 @@ def formula_validate(path: Annotated[Path, typer.Argument(help="Path to YAML for
     console.print(f"[green]Formula '{template.name}' is valid ({detail}).[/green]")
 
 
+@formula_app.command("lint")
+def formula_lint_cmd(
+    name: Annotated[str | None, typer.Argument(help="Loop formula name (omit to lint all built-in loop SKUs)")] = None,
+    strict: Annotated[bool, typer.Option("--strict", help="Exit non-zero on warnings too")] = False,
+) -> None:
+    """Lint loop formulas against the design-rubric anti-patterns (Phase F9)."""
+    from gluon.formulas import FormulaLoader, lint_loop_formula
+
+    loops = [t for t in FormulaLoader().discover() if t.kind == "loop"]
+    if name:
+        loops = [t for t in loops if t.name == name]
+        if not loops:
+            console.print(f"[red]Error:[/red] no loop formula named '{name}'")
+            raise typer.Exit(1)
+    any_error = False
+    any_warning = False
+    for t in loops:
+        findings = lint_loop_formula(t)
+        if not findings:
+            console.print(f"[green]✓[/green] {t.name}: clean")
+            continue
+        console.print(f"[bold]{t.name}[/bold]")
+        for f in findings:
+            if f["severity"] == "error":
+                any_error = True
+                console.print(f"  [red]error[/red] [{f['check']}] {f['message']}")
+            else:
+                any_warning = True
+                console.print(f"  [yellow]warning[/yellow] [{f['check']}] {f['message']}")
+    if any_error or (strict and any_warning):
+        raise typer.Exit(1)
+
+
 # ========== Work Queue Commands (F12) ==========
 
 queue_app = typer.Typer(help="Work queue management")
@@ -5798,9 +5831,35 @@ def loop_create(
         bool,
         typer.Option("--agent-verifier", help="Judge completion claims with an independent verifier iteration (I2)"),
     ] = False,
+    verifier_model: Annotated[
+        str | None,
+        typer.Option(
+            "--verifier-model",
+            help="Cross-family judge model for the verifier (e.g. an Ollama model); implies --agent-verifier",
+        ),
+    ] = None,
     profile: Annotated[str, typer.Option("--profile", "-P", help="Task profile for iterations")] = "standard",
-    model: Annotated[str | None, typer.Option("--model", "-m", help="Model override for iterations")] = None,
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Judgment model (surveyor/verifier/fixes)")] = None,
+    executor_model: Annotated[
+        str | None,
+        typer.Option("--executor-model", help="Cheaper model for mechanical fan-out tasks (default: --model)"),
+    ] = None,
+    watch_cmd: Annotated[
+        str | None,
+        typer.Option(
+            "--watch-cmd",
+            help="Event-reactive loop: when idle, re-seed from this command's output if it exits 0",
+        ),
+    ] = None,
     worktree: Annotated[bool, typer.Option("--worktree", "-w", help="Run iterations in isolated worktrees")] = False,
+    autonomy: Annotated[
+        str,
+        typer.Option(
+            "--autonomy",
+            "-a",
+            help="Autonomy ladder: L1 report-only / L2 assisted (pause at plan for approval) / L3 unattended",
+        ),
+    ] = "L3",
     max_iterations: Annotated[int, typer.Option("--max-iterations", help="Hard iteration ceiling")] = 20,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Loop-level spend cap in USD")] = None,
     max_stalls: Annotated[int, typer.Option("--max-stalls", help="Consecutive stalls before pause")] = 2,
@@ -5821,9 +5880,13 @@ def loop_create(
         objective=objective,
         verify_cmd=verify_cmd,
         agent_verifier=agent_verifier,
+        agent_verifier_model=verifier_model,
         profile=profile,
         model=model,
+        executor_model=executor_model,
+        watch_cmd=watch_cmd,
         use_worktree=worktree,
+        autonomy=autonomy,
         max_iterations=max_iterations,
         max_cost_usd=max_cost,
         max_stalls=max_stalls,
@@ -5839,6 +5902,20 @@ def loop_create(
         f"[bold]Budget:[/bold] {max_iterations} iterations"
         + (f", ${max_cost:.2f} cap" if max_cost else ", no cost cap")
     )
+    if loop.executor_model:
+        console.print(
+            f"[bold]Model routing:[/bold] judgment={model or 'profile default'}, executor={loop.executor_model}"
+        )
+    if loop.watch_cmd:
+        console.print(
+            f"[bold]Watch:[/bold] event-reactive — when idle, re-seeds from `{loop.watch_cmd}` (exit 0 = work). "
+            "Pair with `gluon schedule` to re-arm it periodically."
+        )
+    if loop.autonomy in ("L1", "L2"):
+        console.print(
+            f"[bold]Autonomy:[/bold] {loop.autonomy} — the loop will PAUSE after the surveyor "
+            "authors the plan; inspect the graph, then `gluon loop resume` to execute."
+        )
     console.print("Iteration 1 seeded — the server's queue drain will dispatch it.")
 
 
@@ -5967,6 +6044,74 @@ def loop_cancel(loop_id: Annotated[str, typer.Argument(help="Loop ID (short pref
     else:
         console.print(f"[red]Error:[/red] loop is {loop.status.value}, cannot cancel")
         raise typer.Exit(1)
+
+
+@loop_app.command("cost")
+def loop_cost(
+    formula: Annotated[str | None, typer.Argument(help="SKU/formula name (omit to list all with metadata)")] = None,
+):
+    """Show a SKU's operating metadata + token-cost estimate (loop-hardening F4)."""
+    from gluon.formulas import FormulaLoader
+
+    loops = [t for t in FormulaLoader().discover() if t.kind == "loop"]
+    if formula:
+        loops = [t for t in loops if t.name == formula]
+        if not loops:
+            console.print(f"[red]Error:[/red] no loop formula named '{formula}'")
+            raise typer.Exit(1)
+    table = Table(title="Loop SKU cost & operating metadata")
+    table.add_column("SKU")
+    table.add_column("Cadence")
+    table.add_column("Risk")
+    table.add_column("Week-1")
+    table.add_column("noop/report/action tok", justify="right")
+    table.add_column("Suggested daily cap", justify="right")
+    for t in loops:
+        cm = t.cost_model or {}
+        tok = "/".join(str(int(cm.get(k, 0))) for k in ("tokens_noop", "tokens_report", "tokens_action"))
+        cap = f"{int(cm['suggested_daily_cap']):,}" if cm.get("suggested_daily_cap") else "—"
+        table.add_row(t.name, t.cadence or "—", t.risk or "—", t.week_one_autonomy or "—", tok, cap)
+    console.print(table)
+
+
+@loop_app.command("pause-all")
+def loop_pause_all(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Pause only this project's loops")] = None,
+):
+    """KILL SWITCH — halt all loop dispatch (fleet-wide, or one project).
+
+    In-flight runs finish; nothing new is claimed until `loop resume-all`.
+    Enforced in the harness at the dispatch seam, not by asking agents to stop.
+    """
+    store = GluonStore()
+    project_id = None
+    if project:
+        try:
+            project_id = get_orchestrator().get_project(project).id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1) from None
+    store.set_dispatch_pause(True, project_id=project_id)
+    scope = f"project '{project}'" if project else "ALL projects"
+    console.print(f"[red]Kill switch ENGAGED[/red] — loop dispatch halted for {scope}. In-flight runs finish.")
+
+
+@loop_app.command("resume-all")
+def loop_resume_all(
+    project: Annotated[str | None, typer.Option("--project", "-p", help="Resume only this project's loops")] = None,
+):
+    """Clear the kill switch and let loop dispatch resume."""
+    store = GluonStore()
+    project_id = None
+    if project:
+        try:
+            project_id = get_orchestrator().get_project(project).id
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1) from None
+    store.set_dispatch_pause(False, project_id=project_id)
+    scope = f"project '{project}'" if project else "ALL projects"
+    console.print(f"[green]Kill switch cleared[/green] — loop dispatch resumes for {scope}.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+# Loop SKU (loop-first pivot Phase B). Drafts CHANGELOG entries from merged
+# work since the last tag/release. Low cost; L2 so a human approves the draft.
+# Run: gluon formula run changelog-drafter <project>
+name: changelog-drafter
+kind: loop
+description: "Draft CHANGELOG entries from commits/PRs since the last release (L2 assisted by default)"
+variables:
+  - name: autonomy
+    type: string
+    required: false
+    default: "L2"
+    help: "L1 report-only / L2 assisted / L3 unattended"
+objective: |
+  Draft the changelog for everything merged since the last release.
+
+  Survey: the last tag (`git describe --tags --abbrev=0`), commits and merged
+  PRs since it (`git log <tag>..HEAD --oneline`, `gh pr list --state merged`).
+  Author one task to write/update CHANGELOG.md: group by Added/Changed/Fixed,
+  one line per user-visible change with PR numbers, newest release section on
+  top, matching the file's existing style. Complete when the draft covers all
+  merged work since the tag.
+agent_verifier: false
+max_iterations: 5
+max_cost_usd: 5.0
+profile: quick
+use_worktree: true
+autonomy: "{{autonomy}}"
+# SKU operating metadata (loop-hardening Phase F4) — informational.
+cadence: "1d"
+risk: low
+week_one_autonomy: L1
+cost_model:
+  tokens_noop: 2000
+  tokens_report: 30000
+  tokens_action: 100000
+  suggested_daily_cap: 300000

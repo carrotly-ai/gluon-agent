@@ -187,6 +187,64 @@ class NotificationDispatcher:
         else:
             return f"{int(seconds // 3600)}h {int((seconds % 3600) // 60)}m"
 
+    async def notify_loop_event(
+        self,
+        project_id: str,
+        objective: str,
+        status: str,
+        reason: str | None,
+        loop_id: str,
+        iteration_count: int,
+        max_iterations: int,
+        total_cost_usd: float,
+    ) -> None:
+        """Objective-level escalation (loop-first pivot Phase A).
+
+        A loop leaving RUNNING is a human handoff point — surface it in every
+        channel mapped to the project as a decision card: what happened, where
+        it stands, and what to do next. Pauses used to be silent; a user only
+        found out by opening the dashboard.
+        """
+        if not self.transports:
+            return
+        mappings = self.store.list_channel_mappings_for_project(project_id)
+        if not mappings:
+            return
+        project = self.store.get_project(project_id)
+        project_name = project.name if project else project_id[:8]
+
+        icon = {"paused": "⏸️", "completed": "✅", "cancelled": "🚫"}.get(status, "🔁")
+        obj = objective if len(objective) <= 140 else objective[:137] + "…"
+        lines = [
+            f"{icon} **{project_name}** — loop {status.upper()}",
+            f"  Objective: {obj}",
+            f"  {iteration_count}/{max_iterations} iterations · ${total_cost_usd:.2f} spent",
+        ]
+        if reason:
+            lines.append(f"  Why: {reason}")
+        if status == "paused":
+            lines.append(f"  ▶ Resume: `gluon loop resume {loop_id[:12]}` (raise budgets first if exhausted)")
+        text = "\n".join(lines)
+
+        for mapping in mappings:
+            transport = self.transports.get(mapping.transport)
+            if not transport:
+                continue
+            try:
+                ctx = TransportContext(
+                    transport=mapping.transport,
+                    user_id="gluon:system",
+                    chat_id=mapping.channel_id,
+                )
+                await transport.send(ctx, TransportResponse(text=text, parse_mode="markdown"))
+            except Exception:
+                logger.debug(
+                    "Failed to send loop notification to %s:%s",
+                    mapping.transport,
+                    mapping.channel_id,
+                    exc_info=True,
+                )
+
     async def notify_chain_completed(
         self,
         chain_id: str,

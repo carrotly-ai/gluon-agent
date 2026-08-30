@@ -534,7 +534,8 @@ def test_verifier_confirmation_completes_loop(temp_store: GluonStore) -> None:
     proj = _project(temp_store)
     loop = _make_loop(temp_store, proj.id, agent_verifier=True)
     loop.completion_requested = True
-    loop.completion_summary = "verified independently"
+    # Phase E: the verifier confirms with a structured pass verdict.
+    loop.completion_summary = 'verified independently\n```json\n{"verdict": "pass"}\n```'
     temp_store.update_agent_loop(loop)
     run = _finished_run(temp_store, loop)
     run.prompt = f"{VERIFICATION_MARKER} — iteration 2. You are an INDEPENDENT VERIFIER..."
@@ -556,6 +557,9 @@ def test_verifier_confirmation_still_gated(temp_store: GluonStore, tmp_path) -> 
     loop = _make_loop(temp_store, proj.id, agent_verifier=True, verify_cmd="false")
     temp_store.cancel_pending_loop_items(loop.id)
     loop.completion_requested = True
+    # Phase E: the verifier passes, but the deterministic gate (`false`) runs
+    # beneath it and fails → completion is still denied.
+    loop.completion_summary = '```json\n{"verdict": "pass"}\n```'
     temp_store.update_agent_loop(loop)
     run = _finished_run(temp_store, loop)
     run.prompt = f"{VERIFICATION_MARKER} verifier iteration"

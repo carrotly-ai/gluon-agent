@@ -223,18 +223,37 @@ harness keeps authority over verification, budgets, and stopping.
 
 ```bash
 gluon loop create myproject "Migrate all API routes to v2" \
-  --verify-cmd "uv run pytest" --agent-verifier --max-iterations 20 --max-cost 25
+  --verify-cmd "uv run pytest" --agent-verifier --verifier-model qwen3:14b \
+  --autonomy L2 --max-iterations 20 --max-cost 25
 gluon loop list / show / pause / resume / cancel <id>
-gluon formula run improve myproject --var focus="test coverage"  # loop template
+gluon loop pause-all [--project X] / resume-all   # kill switch (Phase F2)
+gluon loop cost [sku]                             # SKU cost/risk metadata (F4)
+gluon formula lint [sku] [--strict]               # anti-pattern lint (F9)
+gluon formula run improve myproject --var focus="test coverage"   # loop template
+gluon formula run issue-triage myproject                          # loop SKU (Phase B)
 # API: POST/GET /api/loops, POST /api/loops/{id}/pause|resume|cancel
-# Web UI: /loops (list + detail timeline + create)
+# Web UI: /loops (list + detail timeline + campaign task graph + create)
+# Repo-local: .gluon/constraints.md (binding, denylist enforced); .gluon/LOOP-STATE.md (generated view)
 ```
 
 - Iterations are ordinary work-queue items (`loop_id` set) dispatched by the
   existing drain loop; runs carry `loop_id`.
+- **Work graph (loop-first pivot Phase A — docs/design/loop-first-pivot.md):**
+  iteration 1 is a SURVEYOR (survey the landscape — incl. `gh issue/pr list` —
+  then decompose). Tasks may declare `depends_on=[task IDs]` (ready-set
+  dispatch: claimable only when deps COMPLETED; failed deps cascade-cancel
+  dependents) and per-task `verify_cmd` (task gate at run completion; failure
+  spawns a `[TASK GATE FAILED]` fix task). Independent tasks of a `--worktree`
+  loop run in PARALLEL within the project (cap:
+  `GLUON_MAX_PARALLEL_RUNS_PER_PROJECT`, default 3); non-worktree work stays
+  serialized per project.
 - Workers get the in-process `gluon-loop` MCP tools: `loop_enqueue_task`
-  (fan-out = multiple calls; dedup + `max_fanout` enforced), `loop_complete`
+  (fan-out = multiple calls; dedup + `max_fanout` enforced; `depends_on` +
+  `verify_cmd` author the graph), `loop_complete`
   (granted only when `verify_cmd` exits 0 — gate is authority), `loop_status`.
+- A loop leaving RUNNING publishes `loop.paused|completed|cancelled` events
+  (worker → Redis → server bus) → decision card in the project's
+  Telegram/Discord channels.
 - `--agent-verifier` (I2): completion claims are judged by a fresh
   independent-verifier iteration (confirms via `loop_complete`, rejects by
   enqueueing fix tasks); the shell gate still runs beneath its approval.
@@ -242,13 +261,62 @@ gluon formula run improve myproject --var focus="test coverage"  # loop template
   (`max_stalls` consecutive no-progress iterations → PAUSED). Paused loops
   keep pending tasks inert (resumable); `LoopManager` (loop_manager.py) is
   the advancement seam, called on run completion in runner.py.
-- **Loop templates**: formulas with `kind: loop` (templated `objective` +
-  gate/budgets) instantiate an AgentLoop instead of a TaskChain — builtin
-  example `src/gluon/formulas/improve.yml`.
+- **Worktree merge-back (loop-first pivot Phase B — loop_integration.py):** a
+  completed worktree task's branch (`gluon-task/<run_id>`) is merged into the
+  project's source branch under a cross-process `fcntl` lock, so siblings and
+  later verification build on integrated state (without it, parallel outputs are
+  invisible to each other). Typed `IntegrationResult` (never raises); conflicts
+  spawn an agent resolution task, the checkout is left pristine. Runs in
+  `on_run_completed` after the task gate, before the plan checkpoint.
+- **Autonomy ladder (Phase B):** `--autonomy L1|L2|L3` (default `L3`). L1
+  (report-only) / L2 (assisted) loops PAUSE after the surveyor authors the plan
+  — the plan-approval trust boundary; `gluon loop resume` executes it. L3 runs
+  unattended. Validated at `create_loop`; plumbed through CLI, formulas, and API.
+- **Intra-loop model routing (Phase C):** `loop.model` is the JUDGMENT model
+  (surveyor / verifier / continuations); `--executor-model` runs the mechanical
+  agent-authored fan-out tasks (`source == "agent"`) on a cheaper tier. Decision:
+  `resolve_loop_iteration_model(loop, source, profile)` at dispatch.
+- **Event-reactive "watch" loops (Phase C):** `--watch-cmd` — when the loop would
+  stall on an empty queue, it runs the command in the project dir; exit 0 →
+  re-seed a surveyor cycle carrying its stdout (react to external state), exit
+  != 0 → normal stall/idle bounds. Pair with `gluon schedule` to re-arm a quiet
+  watch loop. `pr-babysitter` is the canonical watch SKU.
+- **Verification-skill convention (Phase C):** ships `.claude/skills/verify-loop-work`
+  (two-tier discipline: deterministic gate + reviewer-grade check); the seed and
+  continuation prompts tell iterations to verify before claiming completion.
+- **Loop templates & SKUs**: formulas with `kind: loop` (templated `objective` +
+  gate/budgets/`autonomy`/`executor_model`/`watch_cmd`) instantiate an AgentLoop
+  instead of a TaskChain — `improve.yml`, plus the SKU library (`issue-triage`,
+  `pr-babysitter`, `ci-sweeper`, `daily-triage`, `dependency-sweeper`,
+  `post-merge-cleanup`, `changelog-drafter`).
 - Per-loop effectiveness (acceptance rate, cost-per-accepted-change) on
-  `GET /api/loops/{id}` → `metrics`.
+  `GET /api/loops/{id}` → `metrics`; the work-graph nodes on `graph`.
+- **Trustworthy verification (Phase E — docs/design/loop-hardening-and-discipline-plan.md):**
+  the independent verifier returns a structured **fail-closed** verdict (fenced
+  JSON `verdict: pass|revise|escalate`; a malformed/non-pass verdict NEVER grants
+  completion — `parse_verifier_verdict`). `escalate` → PAUSED decision card.
+  `--verifier-model` runs the verifier cross-family (e.g. a local Ollama judge).
+  **Failure-signature stall:** the SAME gate failure `max_stalls` times in a row
+  pauses the loop (`record_loop_failure_signature`) — the repeat-failure blind
+  spot emptiness-based stall misses. A deterministic **attempt ledger**
+  (`_attempt_ledger`, no LLM) is injected into verifier/continuation prompts.
+- **Operator surface (Phase F):** repo-local `.gluon/constraints.md` is injected
+  into every iteration prompt AND its path denylist is enforced mechanically —
+  merge-back refuses to integrate a branch touching a denylisted path
+  (`loop_constraints.py`; default denylist protects `.env*`/`secrets/**`/etc.
+  even with no file). Global **kill switch** `gluon loop pause-all [--project X]`
+  halts dispatch at `claim_work` (`is_dispatch_paused`). **Budget degradation**:
+  at `GLUON_LOOP_BUDGET_DEGRADE_FRACTION` (default 80%) of the cost cap the loop
+  pauses report-only. `gluon formula lint` catches all-vibe/missing-cap/
+  undeclared-placeholder anti-patterns. Earned-autonomy promotion hint +
+  opt-in repo-visible `.gluon/LOOP-STATE.md` projection (DB stays authoritative).
+- **Correctness (Phase D):** the audit's concurrency fixes (deterministic
+  merge-back lock, by-id work-item transitions, integrate-before-finalize,
+  in-flight-aware stall detection) are proved by a fake-agent **conformance
+  harness** (`tests/conformance/`) that runs real primitives across real
+  processes/git — no model calls.
 
-**Loop lifecycle:** `RUNNING → PAUSED (budget/stall/failure — resumable) → RUNNING | COMPLETED/CANCELLED`
+**Loop lifecycle:** `RUNNING → PAUSED (budget/degradation/stall/repeat-failure/escalation/failure — resumable) → RUNNING | COMPLETED/CANCELLED`
 
 ## Extension Patterns
 

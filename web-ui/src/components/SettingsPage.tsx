@@ -221,7 +221,6 @@ export function SettingsPage({
   const [sandboxRuntime, setSandboxRuntime] = useState<string | null>(null)
 
   // Experimental features
-  const [agentTeamsEnabled, setAgentTeamsEnabled] = useState(false)
   const [skillsEnabled, setSkillsEnabled] = useState(false)
 
   // SDK 0.1.35 feature settings
@@ -270,7 +269,6 @@ export function SettingsPage({
       setSandboxEnabled(sandboxStatus.enabled)
       setSandboxAvailable(sandboxStatus.available)
       setSandboxRuntime(sandboxStatus.runtime)
-      setAgentTeamsEnabled(settings.agent_teams_enabled === 'true')
       setSkillsEnabled(settings.skills_enabled !== 'false')
       setExtendedContextEnabled(settings.extended_context_enabled === 'true')
       setFileCheckpointingEnabled(settings.file_checkpointing_enabled === 'true')
@@ -447,19 +445,6 @@ export function SettingsPage({
       setSandboxEnabled(newValue)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update sandbox setting')
-    } finally {
-      setSavingKey(null)
-    }
-  }
-
-  const handleToggleAgentTeams = async () => {
-    const newValue = !agentTeamsEnabled
-    setSavingKey('agent_teams')
-    try {
-      await updateSetting('agent_teams_enabled', newValue ? 'true' : 'false')
-      setAgentTeamsEnabled(newValue)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update setting')
     } finally {
       setSavingKey(null)
     }
@@ -1482,32 +1467,6 @@ export function SettingsPage({
               <h3 className="text-body uppercase tracking-widest text-[var(--color-stone)]/70">
                 Experimental
               </h3>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-title text-[var(--color-paper)]">Agent Teams</p>
-                  <p className="text-caption text-[var(--color-stone)]/70 mt-1">
-                    Enable coordinated multi-agent teams where Claude Code instances share task
-                    lists and communicate directly. This is an experimental Claude Code feature and
-                    may change without notice.
-                  </p>
-                </div>
-                <button
-                  onClick={handleToggleAgentTeams}
-                  disabled={savingKey === 'agent_teams'}
-                  className={cn(
-                    'relative w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0',
-                    agentTeamsEnabled ? 'bg-[var(--color-jade)]' : 'bg-[var(--color-stone)]/30',
-                    savingKey === 'agent_teams' && 'opacity-50 cursor-wait'
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform',
-                      agentTeamsEnabled && 'translate-x-5'
-                    )}
-                  />
-                </button>
-              </div>
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-title text-[var(--color-paper)]">Skills</p>

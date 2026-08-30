@@ -41,6 +41,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 from claude_agent_sdk.types import (
+    TERMINAL_TASK_STATUSES,
     TaskBudget,
     ThinkingConfigAdaptive,
     ThinkingConfigDisabled,
@@ -411,6 +412,23 @@ class MultimodalPrompt:
         blocks.append({"type": "text", "text": self.text})
 
         return blocks
+
+
+def _is_terminal_task_message(msg: object) -> bool:
+    """True if ``msg`` reports a background task reaching a terminal state.
+
+    The SDK signals a background (Agent-tool) task's completion via *either* a
+    :class:`TaskNotificationMessage` or a :class:`TaskUpdatedMessage` whose status
+    is in ``TERMINAL_TASK_STATUSES`` (completed/failed/stopped/killed) — consumers
+    tracking active task IDs must clear on a terminal from either. See the SDK
+    docstrings on those message types.
+    """
+    if isinstance(msg, TaskNotificationMessage):
+        return msg.status in TERMINAL_TASK_STATUSES
+    if isinstance(msg, TaskUpdatedMessage):
+        status = msg.status or (msg.patch or {}).get("status")
+        return status in TERMINAL_TASK_STATUSES
+    return False
 
 
 class GluonAgent:
@@ -990,12 +1008,20 @@ class GluonAgent:
                 # ---- Multi-turn loop ----
                 synthesis_rounds = 0
                 model_switched = False  # Track whether model transition has fired
+                # Background (Agent-tool) subagents run detached: the SDK returns the
+                # lead's ResultMessage while they're still working, reporting their
+                # completion later via terminal Task* messages. Track outstanding task
+                # IDs so we don't tear down the run — and lose their results — early.
+                active_task_ids: set[str] = set()
                 while True:
                     # Process one turn (query already issued above or at bottom of loop)
                     async for msg in client.receive_response():
                         # Task message types must be checked before SystemMessage
                         # because they inherit from SystemMessage
                         if isinstance(msg, TaskStartedMessage):
+                            # Track this background task so the run doesn't finish
+                            # while it's still working (see the drain after turn end).
+                            active_task_ids.add(msg.task_id)
                             yield AgentMessage(
                                 type="task_started",
                                 content=f"Task started: {msg.description}",
@@ -1019,6 +1045,8 @@ class GluonAgent:
                             )
 
                         elif isinstance(msg, TaskNotificationMessage):
+                            if _is_terminal_task_message(msg):
+                                active_task_ids.discard(msg.task_id)
                             yield AgentMessage(
                                 type="task_notification",
                                 content=f"Task {msg.status}: {msg.summary}",
@@ -1036,6 +1064,8 @@ class GluonAgent:
                             # SystemMessage catch-all. Surfacing the typed terminal status
                             # keeps active-task bookkeeping reliable when a task finishes
                             # via task_updated without a paired TaskNotificationMessage.
+                            if _is_terminal_task_message(msg):
+                                active_task_ids.discard(msg.task_id)
                             yield AgentMessage(
                                 type="task_updated",
                                 content=f"Task {msg.status}" if msg.status else "task_updated",
@@ -1311,6 +1341,85 @@ class GluonAgent:
                             )
 
                     # ---- Turn complete — decide whether to continue ----
+
+                    # Check 0: Are background (Agent-tool) subagents still running?
+                    # The lead's ResultMessage arrives while detached tasks work on;
+                    # breaking now would orphan them and lose their results. Drain the
+                    # message stream until every outstanding task reaches a terminal
+                    # status (bounded by _TEAM_WAIT_TIMEOUT), then nudge the lead to
+                    # synthesize. Independent of the experimental agent_teams flag —
+                    # it's driven by the SDK's Task* messages, which always fire.
+                    if active_task_ids:
+                        if synthesis_rounds >= self._MAX_TEAM_SYNTHESIS_ROUNDS:
+                            logger.warning(
+                                "Max synthesis rounds (%d) reached with %d background task(s) active; exiting",
+                                self._MAX_TEAM_SYNTHESIS_ROUNDS,
+                                len(active_task_ids),
+                            )
+                            break
+
+                        logger.info("Waiting for %d background task(s) to finish", len(active_task_ids))
+                        yield AgentMessage(
+                            type="system",
+                            content="awaiting_background_tasks",
+                            metadata={"active_tasks": len(active_task_ids)},
+                        )
+
+                        timed_out = False
+                        try:
+                            async with asyncio.timeout(self._TEAM_WAIT_TIMEOUT):
+                                async for dmsg in client.receive_messages():
+                                    if isinstance(dmsg, TaskStartedMessage):
+                                        active_task_ids.add(dmsg.task_id)
+                                        yield AgentMessage(
+                                            type="task_started",
+                                            content=f"Task started: {dmsg.description}",
+                                            metadata={"task_id": dmsg.task_id},
+                                        )
+                                    elif isinstance(dmsg, TaskProgressMessage):
+                                        yield AgentMessage(
+                                            type="task_progress",
+                                            content=dmsg.description,
+                                            metadata={"task_id": dmsg.task_id, "last_tool_name": dmsg.last_tool_name},
+                                        )
+                                    elif isinstance(dmsg, (TaskNotificationMessage, TaskUpdatedMessage)):
+                                        if _is_terminal_task_message(dmsg):
+                                            active_task_ids.discard(dmsg.task_id)
+                                        yield AgentMessage(
+                                            type=(
+                                                "task_notification"
+                                                if isinstance(dmsg, TaskNotificationMessage)
+                                                else "task_updated"
+                                            ),
+                                            content=f"Task {getattr(dmsg, 'status', None) or ''}".strip(),
+                                            metadata={"task_id": dmsg.task_id, "status": getattr(dmsg, "status", None)},
+                                        )
+                                    if not active_task_ids:
+                                        break
+                        except TimeoutError:
+                            timed_out = True
+                            logger.warning(
+                                "Background-task wait timed out after %ds with %d still active",
+                                self._TEAM_WAIT_TIMEOUT,
+                                len(active_task_ids),
+                            )
+
+                        if timed_out:
+                            # Tasks are wedged — don't nudge a synthesis against them; end.
+                            break
+
+                        synthesis_rounds += 1
+                        await client.query(
+                            "Your background subagent task(s) have finished — their results are now "
+                            "available in this conversation. Retrieve and synthesize those results, "
+                            "then continue toward the objective."
+                        )
+                        yield AgentMessage(
+                            type="system",
+                            content="team_synthesis",
+                            metadata={"synthesis_round": synthesis_rounds, "source": "background_tasks"},
+                        )
+                        continue
 
                     # Check 1: Are team subagents still running?
                     if tracker and tracker.active_count > 0:

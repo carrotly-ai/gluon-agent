@@ -141,3 +141,53 @@ async def test_formula_executor_creates_chain(tmp_path):
     steps = store.list_steps(outcome.chain_id)
     assert len(steps) == 2
     assert steps[0].prompt == "Do test feature"
+
+
+@pytest.mark.anyio
+async def test_loop_formula_renders_watch_and_executor_model(tmp_path):
+    """Phase C: a loop formula's templated watch_cmd/executor_model render to the
+    resolved values, and an unset (default-empty) executor_model collapses to
+    None rather than a literal '{{executor_model}}' masquerading as a model id."""
+    from gluon.formula_executor import FormulaExecutor
+    from gluon.store import GluonStore
+
+    store = GluonStore(db_path=tmp_path / "test.db")
+    project = store.create_project(name="test-proj", path=tmp_path)
+    executor = FormulaExecutor(store, MagicMock())
+
+    template = FormulaTemplate(
+        name="watcher",
+        kind="loop",
+        objective="Keep {{scope}} green",
+        watch_cmd="gh pr list --repo {{repo}} --json number --jq '.[].number' | grep -q .",
+        executor_model="{{executor_model}}",  # templated; unset below → ""
+        variables=[
+            FormulaVariable(name="scope", default="all PRs"),
+            FormulaVariable(name="repo", default="acme/widgets"),
+            FormulaVariable(name="executor_model", default=""),
+        ],
+    )
+
+    outcome = await executor.execute(
+        template=template,
+        project_id=project.id,
+        variables={},  # take all defaults
+        initiator="test",
+    )
+
+    assert outcome.kind == "loop"
+    loop = store.get_agent_loop(outcome.loop_id)
+    assert loop is not None
+    assert loop.watch_cmd == "gh pr list --repo acme/widgets --json number --jq '.[].number' | grep -q ."
+    assert loop.executor_model is None  # "{{executor_model}}" → "" → None, not a literal
+
+    # And when provided, the executor model is threaded through.
+    outcome2 = await executor.execute(
+        template=template,
+        project_id=project.id,
+        variables={"executor_model": "claude-haiku-4-5"},
+        initiator="test",
+    )
+    loop2 = store.get_agent_loop(outcome2.loop_id)
+    assert loop2 is not None
+    assert loop2.executor_model == "claude-haiku-4-5"

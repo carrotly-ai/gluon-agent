@@ -1,0 +1,56 @@
+# Loop SKU (loop-first pivot Phase B + C). Watches open PRs and shepherds them:
+# CI failures, review feedback, merge conflicts. This is the canonical
+# EVENT-REACTIVE loop (Phase C): a `watch_cmd` polls open-PR state, so when the
+# loop drains it re-seeds only if there are still non-green PRs — otherwise it
+# idles until a schedule re-arms it (pair with `gluon schedule`). Intra-loop
+# model routing keeps the surveyor/verifier on the judgment model while the
+# mechanical fix tasks run cheaper. Default L2: authors the plan, pauses for
+# approval. Run: gluon formula run pr-babysitter <project>
+name: pr-babysitter
+kind: loop
+description: "Shepherd open PRs to mergeable: fix CI, address reviews, resolve conflicts (event-reactive, L2 by default)"
+variables:
+  - name: scope
+    type: string
+    required: false
+    default: "all open PRs authored by this repo's agents or maintainers"
+    help: "Which PRs to babysit"
+  - name: autonomy
+    type: string
+    required: false
+    default: "L2"
+    help: "L1 report-only / L2 assisted / L3 unattended"
+  - name: executor_model
+    type: string
+    required: false
+    default: ""
+    help: "Optional cheaper model for the mechanical PR-fix tasks (surveyor/verifier stay on the judgment model)"
+objective: |
+  Get this repository's open pull requests ({{scope}}) to a mergeable state.
+
+  Survey with `gh pr list` + `gh pr checks <n>` + `gh pr view <n> --comments`.
+  Author one task per PR that needs work: failing CI (include the failing
+  check names), unresolved review comments (quote them), or merge conflicts.
+  Each task must state its PR number and what "mergeable" means for it. Do
+  NOT merge anything — mergeable, not merged, is the goal. Complete when
+  every in-scope PR is green, conflict-free, and review-addressed.
+agent_verifier: true
+max_iterations: 15
+max_cost_usd: 20.0
+profile: standard
+use_worktree: true
+autonomy: "{{autonomy}}"
+executor_model: "{{executor_model}}"
+# Event-reactive: exit 0 (PRs still need work) → re-seed; exit 1 (all green) →
+# idle. `gh pr list` prints nothing and exits 0 when there are no matching PRs,
+# so guard with grep to make "no work" a non-zero exit.
+watch_cmd: "gh pr list --state open --json number --jq '.[].number' | grep -q ."
+# SKU operating metadata (loop-hardening Phase F4) — informational.
+cadence: "5m-15m"
+risk: medium
+week_one_autonomy: L1
+cost_model:
+  tokens_noop: 3000
+  tokens_report: 80000
+  tokens_action: 250000
+  suggested_daily_cap: 2000000

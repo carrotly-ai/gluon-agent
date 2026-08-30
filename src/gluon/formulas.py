@@ -59,6 +59,98 @@ class FormulaTemplate(BaseModel):
     max_iterations: int = 20
     max_cost_usd: float | None = None
     profile: str = "standard"  # Profile for loop iterations
+    autonomy: str = "L3"  # L1 report-only / L2 assisted (plan approval) / L3 unattended
+    model: str | None = None  # Judgment model (surveyor / verifier / fixes)
+    executor_model: str | None = None  # Cheaper model for mechanical fan-out tasks
+    agent_verifier_model: str | None = None  # Cross-family judge model for the verifier
+    watch_cmd: str | None = None  # Event-reactive loop: re-seed from this command when idle
+    # SKU operating metadata (loop-hardening Phase F4) — informational; powers
+    # `gluon loop cost`, create-time defaults, and cost-anomaly alarming. Does
+    # not affect execution.
+    cadence: str | None = None  # e.g. "5m-15m", "1d" — how often the pattern is meant to run
+    risk: str | None = None  # low | medium | high
+    human_gates: list[str] = Field(default_factory=list)  # named gates (security, payments, ...)
+    week_one_autonomy: str | None = None  # suggested starting autonomy (usually L1)
+    cost_model: dict[str, float] = Field(default_factory=dict)  # tokens_noop/report/action, suggested_daily_cap
+
+
+def lint_loop_formula(t: "FormulaTemplate") -> list[dict[str, str]]:
+    """Static design-rubric checks for a loop formula (loop-hardening Phase F9).
+
+    Ported from the loop-engineering/Looper anti-pattern rubrics, adapted to our
+    schema. Returns a list of ``{severity, check, message}``; ``error`` means the
+    loop won't behave as it reads, ``warning`` is design coaching. Only meaningful
+    for ``kind == "loop"`` templates.
+    """
+    findings: list[dict[str, str]] = []
+
+    def add(sev: str, check: str, msg: str) -> None:
+        findings.append({"severity": sev, "check": check, "message": msg})
+
+    if t.kind != "loop":
+        return findings
+
+    # all-vibe verification: neither a deterministic gate nor an independent
+    # verifier — nothing objective can block a false completion.
+    if not (t.verify_cmd and t.verify_cmd.strip()) and not t.agent_verifier and not t.agent_verifier_model:
+        add(
+            "warning",
+            "all-vibe-verification",
+            "no verify_cmd AND no agent_verifier — completion rests on the agent's word alone; "
+            "add a programmatic gate or enable an independent verifier",
+        )
+
+    # missing budget cap: an unattended loop with no cost ceiling can run away.
+    if t.max_cost_usd is None:
+        add("warning", "no-cost-cap", "no max_cost_usd — set a spend ceiling so the loop can't run away")
+
+    # missing iteration cap sanity (schema defaults to 20, but 0/negative is a footgun).
+    if t.max_iterations is not None and t.max_iterations < 1:
+        add("error", "bad-max-iterations", f"max_iterations must be >= 1 (got {t.max_iterations})")
+
+    # unattended default without a verifier: L3 with no independent check is the
+    # "L3 before L1 quality" anti-pattern.
+    rendered_autonomy = (t.autonomy or "L3").strip()
+    if rendered_autonomy == "L3" and not t.agent_verifier and not t.agent_verifier_model and not t.verify_cmd:
+        add(
+            "warning",
+            "unattended-without-verifier",
+            "autonomy L3 (unattended) with no verifier or gate — start at L1/L2 and earn L3 on evidence",
+        )
+
+    # same-family verifier (best-effort family sniff on the model id prefix).
+    if t.agent_verifier_model and t.model:
+
+        def _family(m: str) -> str:
+            m = m.lower()
+            for fam in ("claude", "opus", "sonnet", "haiku", "gpt", "codex", "gemini", "qwen", "llama", "deepseek"):
+                if fam in m:
+                    return "anthropic" if fam in ("claude", "opus", "sonnet", "haiku") else fam
+            return m
+
+        if _family(t.agent_verifier_model) == _family(t.model):
+            add(
+                "warning",
+                "same-family-verifier",
+                f"verifier model ({t.agent_verifier_model}) shares a family with the host ({t.model}); "
+                "a different family closes self-grading blind spots",
+            )
+
+    # unresolved placeholder in a non-templated field that should have been a variable.
+    for fieldname, value in (("objective", t.objective), ("watch_cmd", t.watch_cmd), ("verify_cmd", t.verify_cmd)):
+        if value and "{{" in value:
+            declared = {v.name for v in t.variables}
+            used = set(re.findall(r"\{\{\s*(\w+)\s*\}\}", value))
+            missing = used - declared
+            if missing:
+                add(
+                    "error",
+                    "undeclared-placeholder",
+                    f"{fieldname} references undeclared variable(s) {sorted(missing)} — "
+                    "add them to `variables` or they will render empty",
+                )
+
+    return findings
 
 
 class FormulaLoader:
@@ -129,6 +221,16 @@ class FormulaLoader:
             max_iterations=int(data.get("max_iterations", 20)),
             max_cost_usd=(float(data["max_cost_usd"]) if data.get("max_cost_usd") is not None else None),
             profile=data.get("profile", "standard"),
+            autonomy=str(data.get("autonomy", "L3")),  # may be templated; rendered at run
+            model=data.get("model"),
+            executor_model=data.get("executor_model"),
+            agent_verifier_model=data.get("agent_verifier_model"),
+            watch_cmd=data.get("watch_cmd"),  # may be templated; rendered at run
+            cadence=data.get("cadence"),
+            risk=data.get("risk"),
+            human_gates=list(data.get("human_gates", []) or []),
+            week_one_autonomy=data.get("week_one_autonomy"),
+            cost_model={k: float(v) for k, v in (data.get("cost_model") or {}).items()},
         )
 
 

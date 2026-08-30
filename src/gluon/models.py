@@ -475,6 +475,27 @@ def resolve_task_options(
     }
 
 
+def resolve_loop_iteration_model(loop: "AgentLoop", source: str | None, profile: str) -> str:
+    """Which model runs one loop iteration (loop-first pivot Phase C routing).
+
+    ``loop.model`` is the JUDGMENT model — used for the surveyor, the independent
+    verifier, and harness continuations/fixes (planning + grading want the
+    capable tier). ``loop.executor_model``, when set, runs only the mechanical
+    agent-authored fan-out tasks (``source == "agent"``) on a cheaper/faster
+    tier. Everything falls back to the profile default when ``loop.model`` is
+    unset. Pure + total so the dispatch decision is unit-testable.
+    """
+    judgment = loop.model or resolve_task_options(profile=profile)["model"]
+    if source == "verifier" and loop.agent_verifier_model:
+        # Cross-family judge (Phase E4): the independent verifier can run on a
+        # different model family than the generator to close self-grading blind
+        # spots — e.g. a local Ollama model. Falls back to the judgment model.
+        return loop.agent_verifier_model
+    if source == "agent" and loop.executor_model:
+        return loop.executor_model
+    return judgment
+
+
 class SupervisionConfig(BaseModel):
     """Configuration for task supervision and auto-resume.
 
@@ -1831,6 +1852,14 @@ class WorkQueueItem(BaseModel):
     loop_id: str | None = None
     source: str | None = None
     prompt_hash: str | None = None
+    # Dependency edges (loop-first pivot Phase A — docs/design/loop-first-pivot.md).
+    # depends_on: item IDs that must COMPLETE before this item becomes claimable
+    # (ready-set dispatch). Cycle-free by construction: an item can only depend
+    # on items that already exist. verify_cmd: optional task-level gate —
+    # evaluated when this item's run completes; failure feeds a fix continuation
+    # (distinct from the loop-level gate, which judges the whole objective).
+    depends_on: list[str] | None = None
+    verify_cmd: str | None = None
 
 
 # ========== Agent Loop Models (loop-engineering Phase 2) ==========
@@ -1876,7 +1905,26 @@ class AgentLoop(BaseModel):
     agent_verifier: bool = False
     profile: str = "standard"
     model: str | None = None
+    # Intra-loop model routing (loop-first pivot Phase C): ``model`` is the
+    # JUDGMENT model — used for the surveyor, the independent verifier, and
+    # harness continuations/fixes (planning + grading want the capable model).
+    # ``executor_model``, when set, runs the mechanical agent-authored fan-out
+    # tasks on a cheaper/faster tier. None = executors inherit ``model``.
+    executor_model: str | None = None
     use_worktree: bool = False
+    # Event-reactive ("watch") loop shape (loop-first pivot Phase C): when set,
+    # a loop that would otherwise stall on an empty queue instead runs this
+    # command in the project dir and, if it exits 0, re-seeds a surveyor
+    # iteration carrying the command's stdout as the fresh external signal
+    # (e.g. `gh pr list --json ...`, a queue-depth probe). Exit != 0 means "no
+    # work right now" and falls through to normal stall/idle bounds. Pair with a
+    # TaskSchedule to re-arm a quiet watch loop periodically.
+    watch_cmd: str | None = None
+    # Autonomy ladder (loop-first pivot Phase B): L1 report-only (pause after
+    # the surveyor authors the plan; execution needs explicit resume), L2
+    # assisted (same checkpoint, framed as plan approval), L3 unattended (no
+    # plan pause — today's behavior, the default for compatibility).
+    autonomy: str = "L3"
     status: LoopStatus = LoopStatus.RUNNING
     # Accounting
     iteration_count: int = 0  # Completed iteration runs
@@ -1891,6 +1939,20 @@ class AgentLoop(BaseModel):
     # LoopManager grants it — gate authority when verify_cmd is set.
     completion_requested: bool = False
     completion_summary: str | None = None
+    # Verification (loop-hardening Phase E): the independent verifier returns a
+    # structured, fail-closed verdict (pass|revise|escalate). last_verdict holds
+    # the most recent parsed verdict as JSON for the UI/metrics; None until a
+    # verifier has run.
+    last_verdict: str | None = None
+    # Optional cross-family judge model for the verifier (Phase E4). None →
+    # verifier runs on the loop's judgment model (same family as the generator).
+    agent_verifier_model: str | None = None
+    # Failure-signature stall (Phase E5): a hash of the most recent gate-failure
+    # output + a consecutive-repeat count. A loop failing the SAME way N times
+    # (max_stalls) is paused even though it keeps producing "progress" — the
+    # repeat-failure blind spot the emptiness-based stall counter misses.
+    last_failure_sig: str | None = None
+    failure_sig_count: int = 0
     # Why the loop is in its current terminal/paused state (human-readable)
     status_reason: str | None = None
     initiator: str | None = None
@@ -1909,6 +1971,23 @@ class AgentLoop(BaseModel):
             return f"max_iterations reached ({self.iteration_count}/{self.max_iterations})"
         if self.max_cost_usd is not None and self.total_cost_usd >= self.max_cost_usd:
             return f"cost budget exhausted (${self.total_cost_usd:.2f} of ${self.max_cost_usd:.2f})"
+        return None
+
+    def budget_degraded(self, fraction: float) -> str | None:
+        """Return a degradation reason if spend has crossed ``fraction`` of the
+        cost cap (loop-hardening Phase F3), or None. Degrade-before-dying: the
+        operator gets a report-and-pause at, say, 80% rather than a silent stop
+        at 100%. Only meaningful when a cost cap is set and not already exhausted.
+        """
+        if self.max_cost_usd is None or fraction <= 0 or fraction >= 1:
+            return None
+        threshold = fraction * self.max_cost_usd
+        if self.total_cost_usd >= threshold and self.total_cost_usd < self.max_cost_usd:
+            pct = int(fraction * 100)
+            return (
+                f"budget {pct}% degradation: ${self.total_cost_usd:.2f} of ${self.max_cost_usd:.2f} spent — "
+                f"paused report-only. Review the work so far, then raise --max-cost and resume, or cancel."
+            )
         return None
 
 
