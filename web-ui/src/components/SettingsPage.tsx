@@ -450,7 +450,6 @@ export function SettingsPage({
     }
   }
 
-
   const handleToggleSkills = async () => {
     const newValue = !skillsEnabled
     setSavingKey('skills')

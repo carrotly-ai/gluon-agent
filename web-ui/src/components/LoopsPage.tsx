@@ -358,10 +358,18 @@ function LoopDetailDialog({ loopId, onClose }: { loopId: string | null; onClose:
               <DetailStat label="Independent verifier" value={loop.agent_verifier ? 'yes' : 'no'} />
               <DetailStat label="Autonomy" value={loop.autonomy} />
               {loop.executor_model && (
-                <DetailStat label="Executor model" value={loop.executor_model} title={loop.executor_model} />
+                <DetailStat
+                  label="Executor model"
+                  value={loop.executor_model}
+                  title={loop.executor_model}
+                />
               )}
               {loop.watch_cmd && (
-                <DetailStat label="Watch (reactive)" value={loop.watch_cmd} title={loop.watch_cmd} />
+                <DetailStat
+                  label="Watch (reactive)"
+                  value={loop.watch_cmd}
+                  title={loop.watch_cmd}
+                />
               )}
             </section>
 
@@ -438,7 +446,9 @@ function LoopDetailDialog({ loopId, onClose }: { loopId: string | null; onClose:
                           size="sm"
                         />
                         <div className="min-w-0 flex-1">
-                          <span className="block truncate text-[var(--color-paper)]">{n.prompt}</span>
+                          <span className="block truncate text-[var(--color-paper)]">
+                            {n.prompt}
+                          </span>
                           <span className="text-caption text-[var(--color-stone)]/60">
                             {n.id.slice(0, 8)} · {n.status}
                             {n.depends_on.length > 0 && (
@@ -447,7 +457,9 @@ function LoopDetailDialog({ loopId, onClose }: { loopId: string | null; onClose:
                                 · ⇐ {n.depends_on.length} dep{n.depends_on.length > 1 ? 's' : ''}
                               </span>
                             )}
-                            {n.verify_cmd && <span title={`task gate: ${n.verify_cmd}`}> · 🔒 gated</span>}
+                            {n.verify_cmd && (
+                              <span title={`task gate: ${n.verify_cmd}`}> · 🔒 gated</span>
+                            )}
                           </span>
                         </div>
                       </li>
@@ -720,7 +732,11 @@ function CreateLoopDialog({
                       : 'border-[rgba(163,163,163,0.15)] text-[var(--color-stone)]/70 hover:bg-[var(--color-paper)]/5'
                   )}
                 >
-                  {lvl === 'L1' ? 'L1 · report' : lvl === 'L2' ? 'L2 · approve plan' : 'L3 · unattended'}
+                  {lvl === 'L1'
+                    ? 'L1 · report'
+                    : lvl === 'L2'
+                      ? 'L2 · approve plan'
+                      : 'L3 · unattended'}
                 </button>
               ))}
             </div>
