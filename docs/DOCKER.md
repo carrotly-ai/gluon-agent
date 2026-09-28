@@ -589,16 +589,14 @@ The repository includes GitHub Actions workflows:
 
 ### CI Workflow (`.github/workflows/ci.yml`)
 
-Runs on every push and PR:
-- Lints Python code with `ruff`
-- Lints web-ui with `biome`
-- Runs `mypy` type checking
-- Runs `pytest` test suite
+Runs one Ruff check on PRs. Run the full local quality gate in
+[`plans/chore-reduce-actions-minutes.md`](../plans/chore-reduce-actions-minutes.md)
+before pushing changes.
 
 ### Docker Publish (`.github/workflows/docker-publish.yml`)
 
 Builds and publishes Docker images:
-- Triggers on pushes to `main` and version tags
+- Triggers on version tags or a manual run from `main`
 - Publishes to GitHub Container Registry (`ghcr.io`)
 - Supports multi-architecture builds (amd64, arm64)
 

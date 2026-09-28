@@ -2,13 +2,9 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*.*.*'
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -16,7 +12,9 @@ env:
 
 jobs:
   build-and-push:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -34,7 +32,6 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Login to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -47,13 +44,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha,prefix=main-,enable=${{ github.ref_type == 'branch' }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=main-
+            type=raw,value=latest
           labels: |
             org.opencontainers.image.title=Gluon Agent
             org.opencontainers.image.description=AI orchestrator for managing multiple Claude Code agents across projects
@@ -65,7 +60,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -74,7 +69,6 @@ jobs:
           sbom: false
 
       - name: Output image details
-        if: github.event_name != 'pull_request'
         run: |
           echo "### Docker Image Published :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
