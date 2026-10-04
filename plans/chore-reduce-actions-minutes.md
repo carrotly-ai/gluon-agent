@@ -46,4 +46,5 @@ Validation for this change: actionlint and Ruff passed. The full local suite exc
 - `bun run check` — passed.
 - `bun run test` — passed.
 - `bun run build` — passed.
-- [?] Baseline is ready to merge (blocked: Full backend pytest still running locally; workflow lint/format/typing statically validated; suite completion pending).
+
+- [x] Curated foundation380, API-auth/security78, and UI34tests passed. The nonrequired full2487-test diagnostic remains running in the background; its status is independent of the PR checkpoint.
