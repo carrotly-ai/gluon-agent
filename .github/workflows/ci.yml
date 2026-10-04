@@ -1,92 +1,84 @@
-name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
+name: PR baseline
 permissions:
   contents: read
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  test:
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-
+    timeout-minutes: 20
+    env:
+      CI: 'true'
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
       with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@v6
       with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --all-extras --dev
-
-    - name: Run tests
-      run: |
-        uv run pytest tests/ -v --cov --cov-report=xml --cov-report=term-missing
-
-  lint-python:
+        version: 0.11.28
+        python-version: '3.12'
+    - run: uv sync --locked --extra dev --extra web
+    - run: uv run --locked --extra dev --extra web ruff check src tests
+    - run: uv run --locked --extra dev --extra web pytest tests/test_auth.py tests/test_models.py tests/test_agent_config.py
+        tests/test_llm_provider.py tests/test_security_phase3.py tests/test_workspace_env_isolation.py tests/test_store.py
+        tests/test_git_manager.py -q
+    - name: API authentication and authorization
+      run: uv run --locked --extra dev --extra web pytest tests/test_api_auth.py tests/test_api_authz.py -q
+  web:
+    name: Web
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
       with:
-        python-version: "3.12"
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
+        persist-credentials: false
+    - uses: oven-sh/setup-bun@v2
       with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --all-extras --dev
-
-    - name: Run ruff check
-      run: |
-        uv run ruff check src/ tests/
-
-    - name: Run ruff format check
-      run: |
-        uv run ruff format --check src/ tests/
-
-    - name: Run type checking
-      run: |
-        uv run mypy src/
-
-  lint-web:
+        bun-version: 1.3.14
+    - run: bun install --frozen-lockfile
+      working-directory: web-ui
+    - run: bun run check
+      working-directory: web-ui
+    - run: bun run test
+      working-directory: web-ui
+    - run: bun run build
+      working-directory: web-ui
+  status:
+    name: pr-check
+    needs:
+    - backend
+    - web
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Bun
-      uses: oven-sh/setup-bun@v2
-
-    - name: Install dependencies
-      working-directory: web-ui
-      run: bun install --frozen-lockfile
-
-    - name: Run biome check
-      working-directory: web-ui
-      run: bun run check
-
-    - name: Build web-ui
-      working-directory: web-ui
-      run: bun run build
+    - run: |-
+        test "${{ needs.backend.result }}" = success
+        test "${{ needs.web.result }}" = success
+  diagnostics:
+    name: Full backend diagnostics (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_backend }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@v6
+      with:
+        version: 0.11.28
+        python-version: '3.12'
+    - run: uv sync --locked --extra dev --extra web
+    - run: uv run --locked --extra dev --extra web pytest tests -q
+on:
+  pull_request: {}
+  workflow_dispatch:
+    inputs:
+      full_backend:
+        description: Run the slow full backend diagnostic suite
+        type: boolean
+        default: false

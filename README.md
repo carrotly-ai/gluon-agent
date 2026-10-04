@@ -111,7 +111,7 @@ docker compose up -d
 open http://localhost:45866
 ```
 
-The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push to `main`.
+The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on version tags or a manual Docker publish run.
 
 > **Prerequisites:** Docker, a [Claude Code CLI](https://github.com/anthropics/claude-code) auth session at `~/.claude`, and cloud credentials for your chosen provider:
 >
@@ -126,7 +126,7 @@ The image is published to `ghcr.io/carrotly-ai/gluon-agent:latest` on every push
 - **PUID/PGID Support** - Container adapts to any host user's UID/GID — no permission issues with bind mounts
 - **HTTPS Git Authentication** - Uses `GH_TOKEN` for GitHub access (no SSH keys needed)
 - **MCP Server Auto-Registration** - Mount `.mcp.json` to auto-register MCP servers on startup
-- **Pre-built Image** - `ghcr.io/carrotly-ai/gluon-agent:latest` updated on every push to `main`
+- **Pre-built Image** - `ghcr.io/carrotly-ai/gluon-agent:latest` updated on version tags or a manual Docker publish run
 
 See [DOCKER.md](docs/DOCKER.md) for detailed deployment instructions, building from source, and `docker-compose.dev.yml` for local development.
 
