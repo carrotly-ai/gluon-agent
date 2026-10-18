@@ -23,7 +23,7 @@ jobs:
     - run: uv run --locked --extra dev --extra web ruff check src tests
     - run: uv run --locked --extra dev --extra web pytest tests/test_auth.py tests/test_models.py tests/test_agent_config.py
         tests/test_llm_provider.py tests/test_security_phase3.py tests/test_workspace_env_isolation.py tests/test_store.py
-        tests/test_git_manager.py -q
+        tests/test_git_manager.py tests/test_dependency_security.py -q
     - name: API authentication and authorization
       run: uv run --locked --extra dev --extra web pytest tests/test_api_auth.py tests/test_api_authz.py -q
   web:
