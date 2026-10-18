@@ -129,3 +129,47 @@ Maintenance provenance: the prototype patch is inspected, not applied wholesale.
 - Remaining holds: parent evidence review, Braces and OS security acceptance/remediation, native offline failure parity, unverified embedded components/other platforms, live provider and production/full-lifecycle acceptance. Keep the same PR draft. No production operation, source auth/API/schema change, merge, scan bypass or campaign-completion claim.
 
 Round-four adoption shipped in `66bc96b3d33797e412fed8dbdb342877de34836d` on the same draft PR. The final follow-up updates this plan only. Exact final head/base/tree, current hosted metadata, checks/URLs and clean/upstream/live verification are in the final evidence result. Parent evidence/security/production acceptance remains blocked as listed above.
+
+
+## Round 5: OS security qualification
+
+Acceptance: preserve accepted tooling, Python 3.12/Node 24, all commands and locked graphs. Classify actual critical packages/code using vendor sources; qualify maintained Bookworm before preparing a supported newer-Debian candidate. Parent reviews distro adoption; Michael retains merge/rollout. Preserve raw severities and all independent holds.
+
+- [x] Refresh the same open draft PR, exact head/base and exclusive owned clone; read current instructions and accepted evidence.
+- [x] Classify all eight critical records against current Debian sources, actual package contents, symbols, links and hashes.
+- [x] Build the maintained Bookworm security refresh and compare complete installed package/filesystem inventories.
+- [x] Repeat OS-only scans at unchanged severity; preserve full finding deltas and scanner/export provenance.
+- [x] Exercise actual Node CLI/build consumers, HTTP/parser and finite app health/assets/UID/stale-lock contracts; retain native failure parity and separate ecosystem audits.
+- [x] Prepare the inert Python 3.12.15/Trixie digest-pinned patch and verify that it applies.
+- [?] Build/qualify the actual newer-Debian image, graph, compatibility and OS/npm/Python deltas (blocked: root filesystem reached zero user-available bytes; large-image storage unavailable; candidate is unbuilt/unadopted).
+- [x] Review and ship this disposition on the same draft PR with hooks and clean/upstream/live verification.
+- [?] Parent independently reviews artifacts and remaining OS/npm/native/embedded/provider/production acceptance.
+
+Evidence: /home/mcutler/.claude/session-summaries/2026-10-18-carrotly-remediation/gluon-agent-os-security-qualification/. Start with result.json, critical-classification.json, os-comparison.json, filesystem-comparison.json and raw scanner .json.gz reports. Large full-filesystem archives/cache are preserved in /dev/shm/gluon-agent-os-security-qualification/ and are volatile across reboot; hashes/provenance and compact raw reports are persisted.
+
+### Bookworm disposition
+
+Maintained python:3.12-slim-bookworm resolves to sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258, exactly the accepted base. Fresh official Bookworm/main, updates and security indexes report **0 upgraded/new/removed/held**. Every critical installed version equals apt's candidate. No same-family patch is available; no production Dockerfile/manifest/lock/runtime change is adopted.
+
+Owned refresh image: sha256:b6923337c319c4cbbe69ea86958f170eada5c71178adbcd47bfaa6f5062e56a5, based on accepted sha256:bafee9cc66629df7d65832889e1df26c04a95192bf9d213fea691354f7dfccd7. Full exported-filesystem comparison finds zero changed/removed entries and 12 added qualification/index metadata paths. Application, scoped Vercel, global Node, Python and OS-package bytes are identical.
+
+Checksum-verified Trivy 0.76.0 with unchanged DB UpdatedAt 2026-10-18T13:11:41Z scans Debian 12.15 on Linux/amd64, OS-only vuln scope, without ignores/severity reductions. Both scans exit 1 with **3072 unchanged records: 8 critical, 315 high, 1545 medium, 1194 low, 10 unknown**; zero new/removed records and complete prior direct-image parity. Docker image-save failed ENOSPC; successful scans use full stopped network-none/no-mount container exports wrapped unchanged as one-layer image archives. This transport workaround provides no npm/Python/embedded/host-kernel certification.
+
+Fresh full actual-inventory npm audit exits 1 with 22 high records (Braces direct plus 21 inherited); fresh 77-package pip-audit exits 0, no findings. Node CLI/build checks pass 7/7, parser checks 10/10 and finite app health/assets/UID 1000/six boundaries/stale-lock pass; native help 5/5 passes but both native builds retain the baseline failures (aggregate smoke exit 1). Actual 425-path npm inventory equals the accepted image. All 276 scoped byte maps and consuming-entry hashes match the parent's independently fresh /tmp/gluon-fresh evidence after path normalization. This job claims no new fresh install. All 77 auditable Python versions match. Original accepted 464 backend/API and 34 web/check/build gates remain applicable because source, graphs and runtime bytes are unchanged; the expensive matrix is not repeated.
+
+### Critical code/vendor classification
+
+All eight raw critical records remain open. Vendor priority and code presence do not authorize suppression or acceptance. Current source URLs and package-level details are in critical-classification.json and vendor-sources.json.
+
+- GLib CVE-2026-58016: libglib2.0-0 / glib2.0 2.74.6-2+deb12u9, Bookworm postponed; installed libgio exports the affected introspection-XML API. Trixie is vendor-fixed; application malformed-input reachability remains unproven.
+- SQLite CVE-2025-7458: libsqlite3-0 and sqlite3 / sqlite3 3.40.1-2+deb12u2, Bookworm no-dsa/minor. Python and CLI link the installed library; exact Debian source contains the affected allocator/caller. Trixie is vendor-fixed. No public SQL-injection/exploit claim.
+- libxml2 CVE-2026-6653: 2.9.14+dfsg-1.3~deb12u6, Bookworm postponed. XML entrypoints are present; affected internal function is not dynamically exported, so exact internal-path verification is unconfirmed. Trixie's really2.9.14 build remains vendor-vulnerable.
+- Linux CVE-2026-43185 / CVE-2026-63825: linux-libc-dev / linux 6.1.190-1, Bookworm/Trixie source affected. Full package list contains UAPI headers without ksmbd/GCOV implementations, relevant Makefile, kernel .c files or a kernel image. This source/header attribution closes neither record. Host kernel/config/reachability unassessed.
+- OpenSSH CVE-2026-60002: openssh-client / openssh 1:9.2p1-2+deb12u10, Bookworm postponed and Trixie vulnerable/no-dsa. Actual client bytes hashed; key-reexchange exploitation not reproduced; upstream fix is 10.4p1.
+- zlib CVE-2023-45853: zlib1g / zlib 1:1.2.13.dfsg-1, Debian ignores the source record because contrib/minizip is not built. Installed contents/symbols support the distinction; separate libminizip1 / minizip 1.1-8+deb12u1 has the API and is vendor-fixed. Raw critical retained; embedded copies remain unproven.
+
+### Inert newer-Debian proposal
+
+Official Python metadata maintains Python 3.12.15 on supported Debian 13/Trixie. External inert-trixie.patch changes only runtime FROM to python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1. Linux/amd64 manifest: sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe. Patch SHA256: 8bb375bb6ba08bc66e443b0a42ee3bebbd81362c068f230650077ecfaef4e2fe; git apply --check passes. Patch remains unapplied.
+
+Actual image/graph/native requirements, fresh /tmp/gluon-fresh install, full app/tool compatibility, required local gates and three-ecosystem comparisons remain blocked on storage. Vendor fixes do not predict actual candidate counts; libxml2/OpenSSH/Linux vendor holds remain. Resume after storage is available, then obtain parent evidence disposition before adoption. No cleanup, process signals, functionality removal, scan bypass, production operations or merge occurred.
