@@ -129,16 +129,24 @@ WORKDIR /app
 # Layer 7: Python tooling (rarely changes)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Layer 8: Copy ONLY pyproject.toml first for dependency caching
+# Layer 7b: Patch vulnerable dependencies bundled with Node 24's npm (same major)
+RUN npm install -g npm@11.21.1
+
+# Layer 7c: Use the same pinned dependency installer as CI
+COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /uvx /usr/local/bin/
+ENV UV_PROJECT_ENVIRONMENT=/home/gluon/.venv
+ENV UV_PYTHON_DOWNLOADS=never
+ENV PATH="/home/gluon/.venv/bin:/home/gluon/.local/bin:$PATH"
+
+# Layer 8: Copy dependency metadata first for dependency caching
 # Dependencies change less frequently than source code
-COPY --chown=gluon:gluon pyproject.toml README.md LICENSE* ./
+COPY --chown=gluon:gluon pyproject.toml uv.lock README.md LICENSE* ./
 
 # Layer 9: Install Python dependencies BEFORE source copy
-# This layer is cached as long as pyproject.toml doesn't change
+# This layer is cached as long as the manifest and lock don't change.
+# Keep all runtime extras, exclude dev tooling, and fail on stale lock metadata.
 USER gluon
-RUN pip install --no-cache-dir -e '.[all]' --no-deps && \
-    pip install --no-cache-dir $(pip show gluon-agent 2>/dev/null | grep Requires | cut -d: -f2 | tr ',' '\n' | xargs) 2>/dev/null || \
-    pip install --no-cache-dir anyio pydantic python-dotenv redis rich typer fastapi uvicorn python-telegram-bot discord.py claude-agent-sdk
+RUN uv sync --locked --extra all --no-dev --no-install-project --no-cache
 
 # Layer 10: Copy Python source (changes with backend code)
 USER root
@@ -148,7 +156,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Layer 11: Re-install in editable mode (fast - deps already cached)
 USER gluon
-RUN pip install --no-cache-dir -e '.[all]'
+RUN uv sync --locked --extra all --no-dev --no-cache
 
 # Layer 11b: Symlink bundled Claude CLI onto PATH
 # claude-agent-sdk bundles its own CLI binary but doesn't add it to PATH
@@ -173,7 +181,6 @@ RUN . /tmp/version.env && \
 
 # Final setup — entrypoint runs as root to adjust UID/GID, then drops to gluon via gosu
 USER root
-ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon
 

@@ -1,0 +1,20 @@
+# Always pass --env-file /dev/null and a unique --project-name.
+services:
+  app:
+    image: ${GLUON_SMOKE_IMAGE:?Set an owned local image tag}
+    build:
+      context: ${GLUON_SMOKE_CONTEXT:?Set a clean source archive directory}
+    network_mode: none
+    # Liveness only: do not start queue drains, schedulers, or agents.
+    command: ["uvicorn", "gluon.web.api:create_app", "--factory", "--host", "127.0.0.1", "--port", "45866", "--lifespan", "off"]
+    environment:
+      GLUON_SCHEDULES_DISABLED: "1"
+      GLUON_HEARTBEAT_ENABLED: "0"
+      GLUON_WITNESS_ENABLED: "0"
+      AWS_EC2_METADATA_DISABLED: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:45866/api/health', timeout=5); assert r.status == 200 and json.load(r) == {'status': 'ok'}"]
+      interval: 2s
+      timeout: 6s
+      retries: 30
+      start_period: 5s

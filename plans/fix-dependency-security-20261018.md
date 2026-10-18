@@ -36,8 +36,40 @@ No application auth/crypto, API/schema, deployment, provider, or security-featur
 - Validate both root manifests/locks with frozen installations and complete dependency-tree checks. Original React 19.2.0, Biome 2.3.10, and Tailwind 4.1.17 remain pinned in Bun.
 - Clean committed-source wheel and sdist builds pass, and their member lists contain no validation venv or node_modules. The later web-only refinement does not change Python source, metadata, or test results.
 
-## Handoff
+## Handoff (round 1)
 - PR: https://github.com/carrotly-ai/gluon-agent/pull/174 (draft, linked to T3).
 - All local acceptance gates pass. No known vulnerability residue remains in the audited current graphs; the default branch still reports its 95 alerts until merge and GitHub graph refresh.
 - Python dependency/source/CI-test evidence applies to implementation commit 3ee0028f72ce2538d7675c41d9d84463692fd300; commit 8ce7be0126b412202b722a3b5d82882495587a6b only narrows the web lock and raises its Vitest floor, with fresh web validation. The final follow-up changes this plan only.
 - Full evidence and final status live under /home/mcutler/.claude/session-summaries/2026-10-18-carrotly-remediation/gluon-agent-security/. Parent must independently review the evidence and required GitHub checks before taking the PR out of draft. No merge is authorized.
+
+## Round 2: isolated container validation
+
+Acceptance: build the actual Dockerfile using only clean committed source; start only an owned Compose project with no credentials, host accounts, external network, or production services. Compare the installed production Python inventory with the all-extra frozen lock, audit it, and exercise CLI, HTTP health, built web assets, and critical offline dependency boundaries. Preserve previous fixtures/processes and round-one evidence.
+
+- [x] Read round-one results, parent disposition, current PR and repository/tool/security rules; confirm exclusive clean clone and unchanged remote head.
+- [x] Reproduce current image dependency resolution and compare its actual inventory with uv.lock (41 changed versions, missing distro, and residual packages; baseline pip check/audit alone still pass).
+- [x] Enforce the existing frozen lock with CI-pinned uv 0.11.28, all runtime extras, and an owned gluon virtualenv; preserve editable source, CLI symlink, entrypoint, and existing global Python tools.
+- [x] Run final owned Compose build/deploy/smoke, actual image inventory/constraints/audits, six focused boundary tests, and Ruff at original severity. All executable checks pass; image global audit remains nonzero for the documented Vercel gate.
+- [x] Correct the two Vite coverage entries and review the full source/configuration diff; verify all lockfiles equal the parent-reviewed head. Ship on the existing PR #174 branch with exact evidence and check URLs.
+- [?] Parent reviews final evidence and final-head hosted checks (blocked: parent acceptance).
+
+### Image inventory and newly exposed global tooling
+
+- Locked candidate image: 73 third-party runtime distributions exactly match the Linux/Python 3.12 all-extra production export, plus gluon-agent itself. No missing, extra, or changed runtime distributions. Runtime and system Python tooling together: 77 exact-version distributions, zero known vulnerabilities.
+- The baseline image resolves Anthropic 1.15.0, SDK 0.2.168, Redis 8.1.0, and 38 other unreviewed versions instead of the committed graph. Its fallback leaves MCP-2-only packages behind even after final MCP v1 installation. Frozen installation removes that drift, rather than asserting a clean lock audit proves the old pip image.
+- Actual global CLI inventory initially contains 433 installed paths and 37 affected packages (1 critical, 26 high, 10 moderate). This is a separate graph from the clean web locks.
+- A same-major npm 11.19.1 → 11.21.1 candidate removes all advisories beneath npm's own bundled tree, including its undici path, brace-expansion, http-cache-semantics, ip-address, and postcss-selector-parser. Node 24 satisfies its engine requirement. Include this bounded image-tool dependency patch.
+- Residual Vercel 64.5.0: 33 affected packages (1 critical, 24 high, 8 moderate, including inherited/metavulnerability entries). Exact upstream pins include tar 7.5.11, undici 5.28.4/5.29.0, path-to-regexp 6.1.0/8.3.0, ajv 8.6.3, js-yaml 4.1.1, smol-toml 1.5.2, and minimatch 10.1.1. No newer stable Vercel 64 release is available in the checked compatible range.
+- Ordinary targeted npm updates in the owned candidate fail on unavailable upstream development metadata despite --omit=dev: npm requests @npmcli/docs@^1.0.0; Vercel requests @vercel-internals/builder-orchestration@1.0.23. No access grants, scan bypasses, forced majors, package removals, or unreviewed bundle rewrites are applied.
+- [?] Parent decides the global Vercel dependency policy before full security acceptance (blocked: exact upstream pins and unavailable internal metadata). Proposal: approve an isolated locked global-tool installation with explicit scoped overrides, reviewing out-of-range undici/busboy upgrades and testing the tool APIs; alternatively retain the draft while obtaining an upstream patched bundle. Removing Vercel or changing deployment architecture needs separate authorization.
+- OS packages are inventoried; no OS-CVE scanner (Trivy, Grype, or Docker Scout) is available here. Python/global npm audits do not certify OS or embedded Claude binaries. Live provider calls, agents, production deployment, Mac/device behavior, and provider-backed CLI actions remain untested.
+- Corrected external alert-coverage.json entries 103/104 to actual Vite 7.3.7 only (Vitest 4.1.18 was accidentally included). All 95 exclusions remain valid; the original artifact and round-one results are preserved.
+
+### Final round-two validation
+
+- Built image: `sha256:95df867ae3a70c5471d2318cac28ccf90e7aa86b322b49dd2dcb15489f6d4f7a`, Python 3.12.15. The clean archive plus Dockerfile overlay matches the committed source hash recorded in round2-final-source.json.
+- Owned project `gluon-pr174-round2-final` is healthy. No mounts, volumes, published ports, environment files, or external runtime network. Prior own candidate fixture is also preserved. No pre-existing process/container/checkout was changed or killed.
+- CLI help, live HTTP /api/health, built dashboard/assets, PID 1 uid 1000, six critical boundaries, and stale-lock rejection pass. Application lifespan is deliberately off: this is packaging/liveness validation, not orchestration/provider readiness. `uv pip check`: 74 distributions compatible, including the local project. Node/npm/Vercel/agent-browser/Biome version probes succeed offline.
+- All 73 runtime third-party versions exactly equal the Linux/Python 3.12 frozen production export. Combined runtime and separate global Python tooling audit: 77 packages, zero advisories. Actual installed global npm audit: 433 package paths, 33 residual affected Vercel package entries; exit status remains 1 with no ignored advisories or reduced severity.
+- Required Python 3.12/3.13 suites, full suite, API/auth subset, and 34 web tests from round one/parent remain applicable because no application source, lock, manifest, or workflow changes in this round. Do not repeat the 14-minute suite without a source or dependency-graph change. New hosted checks at the final commit remain for parent/T3 watch.
+- Evidence and proposal: round2-final-*.json/log/tsv, round2-global-tooling-proposal.md, round2-global-npm-parent-constraints.json, round2-compatible-tooling-build-attempt*.log. Original round-one result/status/coverage are preserved as round1-* artifacts.
