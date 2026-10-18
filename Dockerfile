@@ -99,8 +99,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Browser binaries downloaded later as gluon user
 RUN npm install -g agent-browser
 
-# Layer 5d: Vercel CLI (optional, activated via settings)
-RUN npm install -g vercel
+# Layer 5d: Vercel CLI is installed from its scoped lock after npm below.
 
 # Layer 5e: Biome linter/formatter (global fallback for bind-mounted node_modules)
 RUN npm install -g @biomejs/biome
@@ -131,6 +130,13 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Layer 7b: Patch vulnerable dependencies bundled with Node 24's npm (same major)
 RUN npm install -g npm@11.21.1
+
+# Keep Vercel's reviewed transitive patches isolated from other global tools.
+# Preserve both CLI aliases and all builders/platform optional dependencies.
+COPY tooling/vercel/package.json tooling/vercel/package-lock.json /opt/gluon-vercel/
+RUN npm ci --prefix /opt/gluon-vercel --include=optional --registry=https://registry.npmjs.org/ --userconfig=/dev/null --cache=/tmp/gluon-vercel-npm-cache && \
+    ln -s /opt/gluon-vercel/node_modules/.bin/vercel /usr/bin/vercel && \
+    ln -s /opt/gluon-vercel/node_modules/.bin/vc /usr/bin/vc
 
 # Layer 7c: Use the same pinned dependency installer as CI
 COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /uvx /usr/local/bin/
