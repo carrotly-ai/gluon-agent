@@ -34,7 +34,7 @@ RUN set -a && . /tmp/version.env && set +a && cd web-ui && bun run build
 RUN cp /tmp/version.env /app/version.env
 
 # ========== Stage 2: Python runtime ==========
-FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.15-slim-trixie@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce
 
 # Layer 1: System dependencies (rarely change - cached for weeks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
