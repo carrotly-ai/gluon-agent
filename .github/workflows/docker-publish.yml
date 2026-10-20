@@ -15,10 +15,76 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        persist-credentials: false
+    - name: Read application version
+      id: app-version
+      run: |
+        python3 - <<'PY'
+        import datetime
+        import os
+        import pathlib
+        import tomllib
+
+        version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+        build_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"version={version}\nbuild_time={build_time}\n")
+        PY
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     - name: Set up QEMU for multi-arch builds
       uses: docker/setup-qemu-action@v3
+    - name: Build local image for security qualification
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64
+        load: true
+        push: false
+        tags: gluon-release-scan:${{ github.sha }}
+        build-args: |
+          VITE_APP_VERSION=${{ steps.app-version.outputs.version }}
+          VITE_APP_FULL_VERSION=${{ github.sha }}
+          VITE_APP_BUILD_TIME=${{ steps.app-version.outputs.build_time }}
+        cache-from: type=gha
+    - name: Record complete image vulnerability report
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        version: v0.76.0
+        image-ref: gluon-release-scan:${{ github.sha }}
+        scanners: vuln
+        vuln-type: os,library
+        ignore-unfixed: false
+        format: json
+        output: /tmp/gluon-container-security.json
+        timeout: 10m
+        # Preserve every severity; the next step enforces the release threshold.
+        exit-code: '0'
+    - name: Block publishing on high or critical image vulnerabilities
+      run: |
+        python3 - <<'PY'
+        import collections
+        import json
+        import pathlib
+
+        report = json.loads(pathlib.Path("/tmp/gluon-container-security.json").read_text())
+        counts = collections.Counter(
+            finding["Severity"]
+            for result in report["Results"]
+            for finding in result.get("Vulnerabilities", [])
+        )
+        print(f"Container vulnerability records: {dict(counts)}")
+        if counts["HIGH"] or counts["CRITICAL"]:
+            raise SystemExit("Publishing blocked: resolve high and critical image vulnerabilities.")
+        PY
+    - name: Preserve complete image security report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: container-security-${{ github.sha }}
+        path: /tmp/gluon-container-security.json
+        if-no-files-found: warn
+        retention-days: 30
     - name: Login to GitHub Container Registry
       uses: docker/login-action@v3
       with:
@@ -50,6 +116,10 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          VITE_APP_VERSION=${{ steps.app-version.outputs.version }}
+          VITE_APP_FULL_VERSION=${{ github.sha }}
+          VITE_APP_BUILD_TIME=${{ steps.app-version.outputs.build_time }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false

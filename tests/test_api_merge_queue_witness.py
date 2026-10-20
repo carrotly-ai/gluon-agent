@@ -1,12 +1,9 @@
-"""Behavior-identity net for the merge-queue + witness API routes (#162).
-
-Locks GET /api/merge-queue, the retry/cancel actions, and GET
-/api/runs/{run_id}/witness BEFORE they move from create_app into dedicated
-routers. All are store-only (retry/cancel only mutate DB status — the real git
-merge is done by a worker elsewhere). Seeds via the shared temp_store.
-"""
+"""Merge history, unsupported retry, cancellation, and witness API contracts."""
 
 from __future__ import annotations
+
+import pytest
+from typer.testing import CliRunner
 
 from gluon.models import (
     HealthClassification,
@@ -44,15 +41,37 @@ def test_list_merge_queue_with_data(api_client, temp_store: GluonStore):
     assert body["entries"][0]["branch_name"] == "feat/x"
 
 
-def test_retry_merge_resets_to_pending(api_client, temp_store: GluonStore):
+@pytest.mark.parametrize("status", [MergeQueueStatus.FAILED, MergeQueueStatus.CONFLICT])
+def test_retry_merge_refuses_without_changing_history(api_client, temp_store: GluonStore, status):
     client, _ = api_client
-    entry = _entry(temp_store, status=MergeQueueStatus.FAILED)
+    entry = _entry(temp_store, status=status)
+    entry.conflict_count = 2
+    entry.last_error = "Resolve the conflict in src/main.py"
+    temp_store.update_merge_entry(entry)
+    before = temp_store.get_merge_entry(entry.id)
+
     resp = client.post(f"/api/merge-queue/{entry.id}/retry")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["status"] == MergeQueueStatus.PENDING.value
-    assert body["conflict_count"] == 0
-    assert body["last_error"] is None
+
+    assert resp.status_code == 409, resp.text
+    assert "no automatic merge processor" in resp.json()["detail"]
+    assert entry.run_id in resp.json()["detail"]
+    assert temp_store.get_merge_entry(entry.id) == before
+
+
+@pytest.mark.parametrize("status", [MergeQueueStatus.FAILED, MergeQueueStatus.CONFLICT, MergeQueueStatus.MERGED])
+def test_cli_retry_merge_refuses_without_changing_history(temp_store: GluonStore, monkeypatch, status):
+    from gluon.cli import app
+
+    entry = _entry(temp_store, status=status)
+    before = temp_store.get_merge_entry(entry.id)
+    monkeypatch.setattr("gluon.cli.GluonStore", lambda: temp_store)
+
+    result = CliRunner().invoke(app, ["merge", "retry", entry.id])
+
+    assert result.exit_code == 1, result.output
+    assert "no automatic merge processor" in result.output
+    assert entry.run_id in result.output
+    assert temp_store.get_merge_entry(entry.id) == before
 
 
 def test_retry_merge_wrong_status_400(api_client, temp_store: GluonStore):

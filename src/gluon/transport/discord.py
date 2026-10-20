@@ -997,21 +997,20 @@ class DiscordTransport(Transport):
         Called by the QuestionWatcher. Routes to the originating channel
         for the question's run (per message_run_map) so the question lands
         in the same channel that submitted the task. If the run wasn't
-        originated from Discord, returns True (no-op) — another transport
-        will handle it, and we don't want the watcher retrying forever.
+        originated from Discord, returns False so the shared delivery marker
+        remains unset and another transport can handle it.
         """
         origin_channel, origin_msg_id = await self._resolve_run_origin_channel(question.run_id)
 
         if origin_channel is None:
-            # Run didn't come from Discord — nothing for us to do. Mark
-            # delivered so the watcher stops retrying; other transports
-            # (Telegram) post via their own watcher.
+            # No delivery occurred. Keep the shared notification pending so
+            # another transport can post it, or a later channel lookup can retry.
             logger.debug(
                 "No Discord origin for question %s on run %s; skipping",
                 question.id[:8],
                 question.run_id[:8],
             )
-            return True
+            return False
 
         try:
             embed = format_question_embed(question)

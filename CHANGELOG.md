@@ -5,9 +5,66 @@ All notable changes to Gluon Agent are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] - Unreleased
 
-_No unreleased changes yet._
+### Added
+
+- Objective-driven agent campaigns with dependency-ordered work graphs, parallel
+  worktrees, task and objective verification, local branch integration, and
+  conflict recovery.
+- L1/L2 plan-approval checkpoints, L3 unattended execution, separate executor and
+  judgment models, reactive watch loops, reusable campaign formulas, and a task
+  graph in the dashboard.
+- Campaign constraints, budget degradation, kill switches, failure-signature
+  detection, and execution metrics.
+- `/api/ready` checks database transaction availability with bounded waiting;
+  `/api/health` remains a persistence-independent liveness probe.
+- Required application dependency audits, campaign conformance checks, and
+  grouped dependency maintenance.
+- Docker publication stops when image scanning reports high or critical
+  vulnerabilities and preserves the complete report for review.
+
+### Fixed
+
+- Worker failure reporting, cancellation, queue finalization, concurrency limits,
+  Redis reconnection and polling fallback, and SQLite connection durability.
+- Workspace credential isolation, WebSocket updates and reconnection, Telegram
+  resume/question handling, and responsive dashboard controls.
+- Package and CLI versions now share installed distribution metadata instead of
+  reporting different releases.
+- Merge-queue retry now fails explicitly when no processor exists, rather than
+  leaving an entry pending indefinitely. Historical queue entries remain visible.
+- Telegram and Discord leave questions available to other transports when they
+  have no destination for delivery.
+
+### Security
+
+- Authentication and role checks across the API, secret redaction, explicit CORS,
+  refusal of unauthenticated public binds, HTTPS session cookies, Git reference
+  validation, authentication throttling, security headers, and activity auditing.
+- Updated Python and both web dependency graphs, including Claude Agent SDK
+  0.2.121, AnyIO 4.14.2, PyJWT 2.15.1, and MCP 1.30.0.
+- Qualified the Python 3.12/Trixie runtime, uv 0.13.3, and Vercel 64.7.0 while
+  preserving supported tooling and recording remaining upstream advisories.
+- Container dependency and OS qualification is tracked in the
+  [release checklist](docs/releases/0.13.0.md). Clean application dependency audits
+  do not establish that the complete container is free of vulnerabilities.
+
+### Upgrade notes
+
+- Configure authentication before binding publicly; explicitly configure allowed
+  origins for a separately hosted dashboard. See [authentication](docs/AUTH.md).
+- Direct loop creation defaults to L3. Choose L1 or L2 explicitly when a human
+  must approve the generated plan. Worktree tasks integrate into the project's
+  local source branch; this is separate from merging a GitHub pull request.
+- Default global run concurrency and per-project parallel concurrency are both
+  three. Automatic resume paths share an overall ceiling of eight; explicitly
+  queued user follow-ups remain outside that automatic budget.
+- UI development requires Node 24. Back up SQLite and stop writers before an
+  upgrade or rollback; do not assume older versions understand new campaign data.
+- Retired unused distributed Worker/Job machinery while retaining the Redis event
+  transport. Unused formula detail/validation and advanced Git mutation HTTP
+  endpoints were removed; the supported endpoints are listed in [API.md](docs/API.md).
 
 ## [0.12.1]
 

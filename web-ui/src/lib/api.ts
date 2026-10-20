@@ -769,11 +769,6 @@ export async function fetchMergeQueue(params?: {
   )
 }
 
-/** Retry a failed/conflicted merge */
-export async function retryMerge(entryId: string): Promise<MergeQueueEntry> {
-  return fetchJson<MergeQueueEntry>(`/merge-queue/${entryId}/retry`, { method: 'POST' })
-}
-
 /** Cancel a merge queue entry */
 export async function cancelMerge(entryId: string): Promise<MergeQueueEntry> {
   return fetchJson<MergeQueueEntry>(`/merge-queue/${entryId}/cancel`, { method: 'POST' })

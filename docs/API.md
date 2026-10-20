@@ -76,8 +76,6 @@ WebSocket: `ws://localhost:45866/api/ws` (real-time run updates, log streaming)
 | `POST` | `/projects/{project_id}/git/refresh` | Refresh git status |
 | `POST` | `/projects/{project_id}/git/sync` | Auto-commit, fetch, and fast-forward |
 | `GET` | `/projects/{project_id}/branches` | List branches |
-| `POST` | `/projects/{project_id}/branches/rename` | Rename a branch |
-| `POST` | `/projects/{project_id}/branches/change-base` | Change base branch |
 | `DELETE` | `/projects/{project_id}/branches/{branch_name}` | Delete a branch |
 | `POST` | `/git/refresh-all` | Refresh git status for all projects |
 
@@ -91,9 +89,6 @@ WebSocket: `ws://localhost:45866/api/ws` (real-time run updates, log streaming)
 | `POST` | `/projects/{project_id}/rebase` | Start rebase onto main |
 | `POST` | `/projects/{project_id}/rebase/continue` | Continue after resolving conflicts |
 | `POST` | `/projects/{project_id}/rebase/abort` | Abort rebase |
-| `POST` | `/projects/{project_id}/rebase/skip` | Skip current commit in rebase |
-| `GET` | `/projects/{project_id}/force-push-check` | Check if force-push is safe |
-| `POST` | `/projects/{project_id}/force-push` | Perform force push (with checks) |
 
 ### Projects & Workspaces
 
@@ -151,10 +146,23 @@ WebSocket: `ws://localhost:45866/api/ws` (real-time run updates, log streaming)
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/status` | System status |
+| `GET` | `/health` | Anonymous event-loop liveness probe; always `200 {"status":"ok"}` while responsive |
+| `GET` | `/ready` | Anonymous database readiness probe; `200 {"status":"ok"}` or `503 {"status":"unavailable","error":"database_unavailable"}` |
 | `GET` | `/version` | Version info |
 | `GET` | `/commands` | List available slash commands |
 | `GET` | `/projects/{id}/commands` | Project-specific slash commands |
 | `GET` | `/sandbox/status` | Sandbox environment status |
+
+`/health` remains the container restart probe and never accesses persistence.
+Use `/ready` to gate traffic or release qualification. It opens the existing
+database without creating it, reads the settings table, and rolls back a test
+write. SQLite lock waits are capped at 250 ms and the asynchronous request waits
+at most one second for the probe. Database work runs off the event loop; at most
+one probe per store can remain in flight if filesystem I/O stalls beyond that
+deadline. A busy, missing, corrupt, or unwritable database returns 503 without
+paths or exception details, including when authentication is enabled. A rolled-back
+write checks transaction availability, not durable commit success or full database
+integrity. Neither probe checks LLM providers or external services.
 
 ### Authentication & Users (D5 — opt-in via `GLUON_AUTH_ENABLED=true`)
 

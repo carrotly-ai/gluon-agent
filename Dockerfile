@@ -34,7 +34,7 @@ RUN set -a && . /tmp/version.env && set +a && cd web-ui && bun run build
 RUN cp /tmp/version.env /app/version.env
 
 # ========== Stage 2: Python runtime ==========
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 # Layer 1: System dependencies (rarely change - cached for weeks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -99,8 +99,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Browser binaries downloaded later as gluon user
 RUN npm install -g agent-browser
 
-# Layer 5d: Vercel CLI (optional, activated via settings)
-RUN npm install -g vercel
+# Layer 5d: Vercel CLI is installed from its scoped lock after npm below.
 
 # Layer 5e: Biome linter/formatter (global fallback for bind-mounted node_modules)
 RUN npm install -g @biomejs/biome
@@ -129,16 +128,31 @@ WORKDIR /app
 # Layer 7: Python tooling (rarely changes)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Layer 8: Copy ONLY pyproject.toml first for dependency caching
+# Layer 7b: Patch vulnerable dependencies bundled with Node 24's npm (same major)
+RUN npm install -g npm@11.21.1
+
+# Keep Vercel's reviewed transitive patches isolated from other global tools.
+# Preserve both CLI aliases and all builders/platform optional dependencies.
+COPY tooling/vercel/package.json tooling/vercel/package-lock.json /opt/gluon-vercel/
+RUN npm ci --prefix /opt/gluon-vercel --include=optional --registry=https://registry.npmjs.org/ --userconfig=/dev/null --cache=/tmp/gluon-vercel-npm-cache && \
+    ln -s /opt/gluon-vercel/node_modules/.bin/vercel /usr/bin/vercel && \
+    ln -s /opt/gluon-vercel/node_modules/.bin/vc /usr/bin/vc
+
+# Layer 7c: Use the same pinned dependency installer as CI
+COPY --from=ghcr.io/astral-sh/uv:0.13.3 /uv /uvx /usr/local/bin/
+ENV UV_PROJECT_ENVIRONMENT=/home/gluon/.venv
+ENV UV_PYTHON_DOWNLOADS=never
+ENV PATH="/home/gluon/.venv/bin:/home/gluon/.local/bin:$PATH"
+
+# Layer 8: Copy dependency metadata first for dependency caching
 # Dependencies change less frequently than source code
-COPY --chown=gluon:gluon pyproject.toml README.md LICENSE* ./
+COPY --chown=gluon:gluon pyproject.toml uv.lock README.md LICENSE* ./
 
 # Layer 9: Install Python dependencies BEFORE source copy
-# This layer is cached as long as pyproject.toml doesn't change
+# This layer is cached as long as the manifest and lock don't change.
+# Keep all runtime extras, exclude dev tooling, and fail on stale lock metadata.
 USER gluon
-RUN pip install --no-cache-dir -e '.[all]' --no-deps && \
-    pip install --no-cache-dir $(pip show gluon-agent 2>/dev/null | grep Requires | cut -d: -f2 | tr ',' '\n' | xargs) 2>/dev/null || \
-    pip install --no-cache-dir anyio pydantic python-dotenv redis rich typer fastapi uvicorn python-telegram-bot discord.py claude-agent-sdk
+RUN uv sync --locked --extra all --no-dev --no-install-project --no-cache
 
 # Layer 10: Copy Python source (changes with backend code)
 USER root
@@ -148,7 +162,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Layer 11: Re-install in editable mode (fast - deps already cached)
 USER gluon
-RUN pip install --no-cache-dir -e '.[all]'
+RUN uv sync --locked --extra all --no-dev --no-cache
 
 # Layer 11b: Symlink bundled Claude CLI onto PATH
 # claude-agent-sdk bundles its own CLI binary but doesn't add it to PATH
@@ -173,7 +187,6 @@ RUN . /tmp/version.env && \
 
 # Final setup — entrypoint runs as root to adjust UID/GID, then drops to gluon via gosu
 USER root
-ENV PATH="/home/gluon/.local/bin:$PATH"
 ENV HOME=/home/gluon
 ENV GLUON_DATA_DIR=$HOME/.gluon
 

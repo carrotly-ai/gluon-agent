@@ -3602,19 +3602,19 @@ def merge_list_cmd(
 
 @merge_app.command("retry")
 def merge_retry(entry_id: Annotated[str, typer.Argument(help="Merge queue entry ID")]) -> None:
-    """Retry a failed/conflicted merge entry."""
-    from gluon.models import MergeQueueStatus
-
+    """Explain why automatic merge-queue retry is unavailable."""
     store = GluonStore()
     entry = store.get_merge_entry(entry_id)
     if not entry:
         console.print(f"[red]Entry not found: {entry_id}[/red]")
         raise typer.Exit(1)
 
-    entry.status = MergeQueueStatus.PENDING
-    entry.next_retry_at = None
-    store.update_merge_entry(entry)
-    console.print(f"[green]Reset entry {entry_id} to PENDING for retry.[/green]")
+    console.print(
+        "[red]Merge queue retry is unavailable because there is no automatic merge processor.[/red]\n"
+        f"Open run {entry.run_id} in the dashboard and use its Merge action, "
+        "or merge the pull request on GitHub."
+    )
+    raise typer.Exit(1)
 
 
 @merge_app.command("cancel")

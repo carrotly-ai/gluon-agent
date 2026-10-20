@@ -1,11 +1,8 @@
-"""Merge-queue routes (#162).
+"""Merge-queue history and cancellation routes.
 
-GET /api/merge-queue (list) and the retry/cancel actions. Store-only — these
-only mutate the entry's DB status; the actual git merge is performed by a worker
-elsewhere. The repeated MergeQueueEntryResponse mapping is unified into
-merge_entry_to_response (the dynamic completed_at form is identical to the three
-inline constructions for the reset/cancelled cases). Behaviour locked by
-tests/test_api_merge_queue_witness.py. Paths unchanged → same fail-closed auth.
+GET /api/merge-queue (history) and cancellation remain supported. There is no
+automatic merge processor, so the legacy retry endpoint refuses without
+changing history and directs callers to the run's merge action.
 """
 
 from __future__ import annotations
@@ -58,20 +55,20 @@ async def list_merge_queue(
 
 @router.post("/api/merge-queue/{entry_id}/retry", response_model=MergeQueueEntryResponse)
 async def retry_merge(entry_id: str, store: Store) -> MergeQueueEntryResponse:
-    """Retry a failed/conflicted merge queue entry."""
+    """Reject unsupported automatic retry while preserving the entry's history."""
     entry = store.get_merge_entry(entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Merge queue entry not found")
     if entry.status not in (MergeQueueStatus.CONFLICT, MergeQueueStatus.FAILED):
         raise HTTPException(status_code=400, detail=f"Cannot retry entry in {entry.status.value} status")
 
-    entry.status = MergeQueueStatus.PENDING
-    entry.conflict_count = 0
-    entry.last_error = None
-    entry.completed_at = None
-    store.update_merge_entry(entry)
-
-    return merge_entry_to_response(entry)
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "Merge queue retry is unavailable because there is no automatic merge processor. "
+            f"Open run {entry.run_id} and use its Merge action, or merge the pull request on GitHub."
+        ),
+    )
 
 
 @router.post("/api/merge-queue/{entry_id}/cancel", response_model=MergeQueueEntryResponse)

@@ -1,18 +1,19 @@
 """System / meta routes (#162) — trivial stateless or store-only endpoints.
 
 Holds the small system endpoints: overall status, LLM-provider info, the
-liveness health probe, and the global slash-command listing. These are either
+liveness/readiness probes, and the global slash-command listing. These are either
 stateless or depend only on the store/orchestrator (injected via Depends).
 ``get_version`` stays inline (it memoizes into a create_app-scoped cache).
-Paths unchanged → same fail-closed auth posture (``/api/health`` stays on the
-anonymous allowlist, which is path-based).
+The liveness and readiness probes are on the path-based anonymous allowlist.
 """
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from gluon.commands import get_slash_commands
 from gluon.core import Orchestrator
@@ -28,6 +29,8 @@ from gluon.web.models import (
 from gluon.web.routers._deps import get_orchestrator, get_store
 
 router = APIRouter(tags=["system"])
+
+READINESS_TIMEOUT_SECONDS = 1.0
 
 Store = Annotated[GluonStore, Depends(get_store)]
 Orch = Annotated[Orchestrator, Depends(get_orchestrator)]
@@ -71,6 +74,22 @@ async def get_health() -> dict[str, str]:
     a readiness-style check here could flap and trigger restart loops on
     transient load. Reachable without auth (see the anonymous allowlist).
     """
+    return {"status": "ok"}
+
+
+@router.get("/api/ready", responses={503: {"description": "Database unavailable"}})
+async def get_readiness(store: Store, response: Response) -> dict[str, str]:
+    """Readiness probe with bounded waiting and no database details in errors.
+
+    Database work runs outside the event loop. A timed-out filesystem call may
+    continue in its worker, but the store permits only one probe at a time.
+    """
+    try:
+        async with asyncio.timeout(READINESS_TIMEOUT_SECONDS):
+            await asyncio.to_thread(store.check_readiness)
+    except (sqlite3.Error, OSError, TimeoutError):
+        response.status_code = 503
+        return {"status": "unavailable", "error": "database_unavailable"}
     return {"status": "ok"}
 
 
