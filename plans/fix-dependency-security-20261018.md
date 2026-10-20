@@ -230,3 +230,20 @@ The parent owns GitHub configuration, dependency locks, workflow changes, releas
 - Independent final reviews of this session's implementation and publication gate found no additional blocking defect or misleading release claim. The new publication workflow itself has not run on GitHub; local equivalent scanning and gate execution passed validation. Remaining holds are upstream container security, native Vercel offline build failures, ARM64, live provider/campaign and chat verification, and the unreproduced Docker Desktop incident. No merge, tag, image publication, production deployment, or claim of full release acceptance occurred.
 
 Durable evidence is under `/home/mcutler/.claude/session-summaries/2026-10-20-gluon-release-evidence/`; the container subdirectory contains raw scanner/audit reports, source hashes, and lifecycle logs. Working evidence and built Python artifacts are also under `/tmp/gluon-release-20261020/` and `/tmp/gluon-release-container-20261020/`. See `docs/releases/0.13.0.md` for upgrade, rollback, and remaining production acceptance.
+
+## Authorized merge and deployment — 2026-10-20
+
+Michael explicitly requested committing, pushing, merging this PR, ensuring deployment, and using agent-browser for live validation. This supersedes the earlier owner-only merge/rollout hold. It does not authorize suppressing or bypassing security scans.
+
+Acceptance: merge only the reviewed head after required checks pass; observe the resulting image publication; deploy and validate the new version only if its security gate passes. Record the actual deployed version and browser evidence rather than treating a green PR as a successful rollout.
+
+- [x] Confirm the clean/pushed `307b6c3` head, both required checks, all scheduled analyses, and conflict-free PR #174.
+- [x] Identify the publication workflow and existing live service. GitHub has no configured deployment environments or deployment records; the workflow publishes images rather than rolling out a host. The existing local `gluon-agent-dev` container serves HTTPS on port 45866, reports 0.11.0 with development metadata, and returns health 200/readiness 404. No live container has been changed.
+- [x] Read the requested agent-browser skill and confirm installed CLI 0.33.2. Use an isolated browser session.
+- [ ] Commit/push this continuation plan on the same PR and verify the new head's required checks.
+- [ ] Mark the PR ready and perform the explicitly authorized merge without bypassing protection or deleting the branch.
+- [ ] Inspect the merged revision's image-publication run and preserve its result.
+- [ ] If image qualification succeeds, deploy that revision to the identified service and verify version, readiness, dashboard navigation, and merge-history behavior with agent-browser.
+- [?] Successful deployment remains conditional on the image-security gate (blocked: the last complete scan retained three critical and 199 high records across OS and embedded/tooling scopes; no bypass is authorized).
+
+Final merge, workflow, deployment, and browser outcomes will be recorded in the session handoff and PR metadata so recording a completed merge does not require a new documentation-only PR.
