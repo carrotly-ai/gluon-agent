@@ -1,16 +1,7 @@
-import {
-  AlertCircle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  GitMerge,
-  RotateCcw,
-  X,
-} from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, ExternalLink, GitMerge, X } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { cancelMerge, fetchMergeQueue, retryMerge } from '@/lib/api'
+import { cancelMerge, fetchMergeQueue } from '@/lib/api'
 import { POLL_SLOW } from '@/lib/polling'
 import { formatRelativeTime } from '@/lib/timestamps'
 import type { MergeQueueEntry, MergeQueueStatus } from '@/lib/types'
@@ -18,7 +9,6 @@ import { cn } from '@/lib/utils'
 import { DataPage } from './ui/DataPage'
 import { FilterBar } from './ui/FilterBar'
 import { PageHeader } from './ui/PageHeader'
-import { StatusDot } from './ui/StatusDot'
 
 function statusBadge(status: MergeQueueStatus): string {
   const styles: Record<MergeQueueStatus, string> = {
@@ -63,16 +53,6 @@ export function MergeQueuePage() {
     return () => clearInterval(interval)
   }, [load])
 
-  const handleRetry = async (entryId: string) => {
-    try {
-      const updated = await retryMerge(entryId)
-      setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
-    } catch (err) {
-      console.error('Failed to retry merge:', err)
-      toast.error(err instanceof Error ? err.message : 'Failed to retry merge')
-    }
-  }
-
   const handleCancel = async (entryId: string) => {
     try {
       const updated = await cancelMerge(entryId)
@@ -98,6 +78,11 @@ export function MergeQueuePage() {
   return (
     <DataPage>
       <PageHeader title="Merge Queue" icon={GitMerge} count={filtered.length} countLabel="branch" />
+
+      <p className="px-4 pb-3 text-body text-[var(--color-stone)]/60">
+        Historical entries are shown here. To resolve conflicts or merge changes, open the run or
+        its pull request.
+      </p>
 
       <FilterBar
         filters={
@@ -163,7 +148,6 @@ export function MergeQueuePage() {
                 const hasError =
                   entry.status === 'conflict' || entry.status === 'failed' || !!entry.last_error
                 const isExpanded = expandedId === entry.id
-                const running = entry.status === 'testing' || entry.status === 'merging'
 
                 return (
                   <Fragment key={entry.id}>
@@ -211,7 +195,6 @@ export function MergeQueuePage() {
                             statusBadge(entry.status)
                           )}
                         >
-                          {running && <StatusDot state="running" size="sm" />}
                           {entry.status}
                         </span>
                       </td>
@@ -219,9 +202,9 @@ export function MergeQueuePage() {
                         {entry.conflict_count > 0 ? (
                           <span
                             className="text-[var(--color-vermillion)] cursor-help"
-                            title={`Retries used: ${entry.conflict_count} of ${entry.max_retries}. Retries remaining: ${Math.max(0, entry.max_retries - entry.conflict_count)}.`}
+                            title="Recorded conflicts"
                           >
-                            {entry.conflict_count}/{entry.max_retries}
+                            {entry.conflict_count}
                           </span>
                         ) : (
                           <span className="text-[var(--color-stone)]/40" title="No conflicts">
@@ -234,20 +217,13 @@ export function MergeQueuePage() {
                       </td>
                       <td className="px-4 py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {(entry.status === 'conflict' || entry.status === 'failed') && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void handleRetry(entry.id)
-                              }}
-                              className="p-1 text-[var(--color-stone)]/40 hover:text-[var(--color-sky)] transition-colors"
-                              aria-label="Retry merge"
-                              title="Retry"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <a
+                            href={`/board/${encodeURIComponent(entry.run_id)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[var(--color-sky)] hover:underline whitespace-nowrap"
+                          >
+                            Open run
+                          </a>
                           {entry.status !== 'merged' && entry.status !== 'cancelled' && (
                             <button
                               type="button"
@@ -285,16 +261,6 @@ export function MergeQueuePage() {
                                 </pre>
                               )}
                               <div className="flex items-center gap-2 mt-2">
-                                {(entry.status === 'conflict' || entry.status === 'failed') && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleRetry(entry.id)}
-                                    className="px-2 py-1 text-caption uppercase tracking-widest text-[var(--color-paper)] border border-[rgba(163,163,163,0.2)] hover:bg-[rgba(163,163,163,0.06)] rounded-sm flex items-center gap-1"
-                                  >
-                                    <RotateCcw className="w-3 h-3" />
-                                    Retry
-                                  </button>
-                                )}
                                 {entry.status !== 'merged' && entry.status !== 'cancelled' && (
                                   <button
                                     type="button"
@@ -305,11 +271,6 @@ export function MergeQueuePage() {
                                     Cancel
                                   </button>
                                 )}
-                                <span className="text-caption text-[var(--color-stone)]/50 ml-auto">
-                                  Retries remaining:{' '}
-                                  {Math.max(0, entry.max_retries - entry.conflict_count)} of{' '}
-                                  {entry.max_retries}
-                                </span>
                               </div>
                             </div>
                           </div>
@@ -346,33 +307,11 @@ function MergeQueueEmptyState({ searching }: { searching: boolean }) {
     <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-3 max-w-md mx-auto">
       <GitMerge className="w-8 h-8 text-[var(--color-stone)]/30" />
       <div>
-        <p className="text-display text-[var(--color-paper)] mb-1">Merge queue is empty</p>
+        <p className="text-display text-[var(--color-paper)] mb-1">No merge history</p>
         <p className="text-body text-[var(--color-stone)]/60">
-          No PRs queued for merging. Turn on{' '}
-          <a href="/settings" className="text-[var(--color-sky)] hover:underline">
-            Auto-create PR
-          </a>{' '}
-          in Settings → Git so completed runs land here automatically.
+          Open a completed run to review and merge its changes, or merge its pull request on GitHub.
         </p>
       </div>
-      <ul className="text-caption text-[var(--color-stone)]/50 text-left mt-2 flex flex-col gap-1">
-        <li className="flex items-center gap-2">
-          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Sequential merging with
-          rebase-on-conflict
-        </li>
-        <li className="flex items-center gap-2">
-          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Per-entry retry budget with
-          inline error context
-        </li>
-        <li className="flex items-center gap-2">
-          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Cancel / retry from the row, no
-          command line needed
-        </li>
-        <li className="flex items-center gap-2">
-          <Check className="w-3 h-3 text-[var(--color-jade)]/60" /> Status syncs back to the parent
-          run automatically
-        </li>
-      </ul>
     </div>
   )
 }
