@@ -31,9 +31,12 @@ htmlcov/
 .AppleDouble
 .LSOverride
 Thumbs.db
-.env
-.env.local
-.env.*.local
+# Exclude secrets at every depth, including frontend build environments.
+**/.env*
+**/secrets/
+**/*.pem
+**/*.key
+.venv/
 
 # Docker
 Dockerfile*

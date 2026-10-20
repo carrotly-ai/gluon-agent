@@ -8,11 +8,19 @@ privileges. Uvicorn disables application lifespan tasks so health checks cannot
 dispatch agents, schedules, or provider requests. This validates liveness and
 packaging; it does not validate provider integrations or production deployment.
 
+For a release candidate, set `GLUON_SMOKE_VERSION` to the package semver,
+`GLUON_SMOKE_FULL_VERSION` to the source commit SHA and `GLUON_SMOKE_BUILD_TIME`
+to the UTC build timestamp. Set `GLUON_SMOKE_LIFESPAN=on` to validate normal
+application startup and shutdown against the fixture's empty, disposable store.
+Keep schedules, heartbeats and witnesses disabled, external networking off and
+all production data unmounted. Inspect the owned container logs after stopping
+it to confirm application shutdown completes without task errors.
+
 Create a new empty directory for the build context and export only these tracked
 paths from the commit being tested:
 
 ```sh
-git archive HEAD Dockerfile .dockerignore pyproject.toml uv.lock README.md LICENSE src web-ui docker-entrypoint.sh | tar -x -C "$GLUON_SMOKE_CONTEXT"
+git archive HEAD Dockerfile .dockerignore pyproject.toml uv.lock README.md LICENSE src web-ui tooling/vercel docker-entrypoint.sh | tar -x -C "$GLUON_SMOKE_CONTEXT"
 ```
 
 Set `GLUON_SMOKE_CONTEXT` to that absolute directory and `GLUON_SMOKE_IMAGE` to a
@@ -24,11 +32,13 @@ docker compose --env-file /dev/null -p gluon-owned-smoke -f tests/container/comp
 docker compose --env-file /dev/null -p gluon-owned-smoke -f tests/container/compose.yml up -d --wait --wait-timeout 90
 docker compose --env-file /dev/null -p gluon-owned-smoke -f tests/container/compose.yml exec -T --user gluon app gluon --help
 docker compose --env-file /dev/null -p gluon-owned-smoke -f tests/container/compose.yml exec -T --user gluon app python < tests/container/smoke.py
+docker compose --env-file /dev/null -p gluon-owned-smoke -f tests/container/compose.yml exec -T --user gluon app node --input-type=module < tests/container/tooling.mjs
 docker compose --env-file /dev/null -p gluon-owned-smoke -f tests/container/compose.yml exec -T --user gluon app uv pip check
 ```
 
-The smoke checks HTTP health, the built dashboard, the main process UID, and the
-six critical dependency boundaries using fictional input and generated in-memory
+The smoke checks HTTP liveness and database readiness, installed release metadata,
+the built dashboard, the main process UID, and the six critical dependency
+boundaries using fictional input and generated in-memory
 keys. It also verifies that the installer rejects a stale lock in a separate,
 dependency-free fictional project, without network access or changing `/app`.
 Its final JSON line is the actual installed Python inventory. Compare it
@@ -37,3 +47,9 @@ then audit every installed third-party package using exact versions. Record OS
 and global CLI packages separately; a Python audit does not cover those layers.
 Only the owned project may be redeployed during validation. Preserve other
 containers, listeners, workers, and prior fixtures.
+
+The tooling fixture loads Chromium against a data URL and builds fictional static
+and Node projects with the installed Vercel Node CLI. Both CLI aliases, development
+commands and the other bundled developer tools must load successfully. The
+upstream opt-in native Vercel CLI, authenticated deployments and live provider
+integrations need separate qualification.

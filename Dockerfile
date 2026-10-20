@@ -34,7 +34,7 @@ RUN set -a && . /tmp/version.env && set +a && cd web-ui && bun run build
 RUN cp /tmp/version.env /app/version.env
 
 # ========== Stage 2: Python runtime ==========
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 # Layer 1: System dependencies (rarely change - cached for weeks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -139,7 +139,7 @@ RUN npm ci --prefix /opt/gluon-vercel --include=optional --registry=https://regi
     ln -s /opt/gluon-vercel/node_modules/.bin/vc /usr/bin/vc
 
 # Layer 7c: Use the same pinned dependency installer as CI
-COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.3 /uv /uvx /usr/local/bin/
 ENV UV_PROJECT_ENVIRONMENT=/home/gluon/.venv
 ENV UV_PYTHON_DOWNLOADS=never
 ENV PATH="/home/gluon/.venv/bin:/home/gluon/.local/bin:$PATH"

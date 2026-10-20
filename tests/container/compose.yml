@@ -4,9 +4,13 @@ services:
     image: ${GLUON_SMOKE_IMAGE:?Set an owned local image tag}
     build:
       context: ${GLUON_SMOKE_CONTEXT:?Set a clean source archive directory}
+      args:
+        VITE_APP_VERSION: ${GLUON_SMOKE_VERSION:-dev}
+        VITE_APP_FULL_VERSION: ${GLUON_SMOKE_FULL_VERSION:-development}
+        VITE_APP_BUILD_TIME: ${GLUON_SMOKE_BUILD_TIME:-}
     network_mode: none
-    # Liveness only: do not start queue drains, schedulers, or agents.
-    command: ["uvicorn", "gluon.web.api:create_app", "--factory", "--host", "127.0.0.1", "--port", "45866", "--lifespan", "off"]
+    # Use "on" only for empty, isolated startup qualification; never mount live data.
+    command: ["uvicorn", "gluon.web.api:create_app", "--factory", "--host", "127.0.0.1", "--port", "45866", "--lifespan", "${GLUON_SMOKE_LIFESPAN:-off}"]
     environment:
       GLUON_SCHEDULES_DISABLED: "1"
       GLUON_HEARTBEAT_ENABLED: "0"

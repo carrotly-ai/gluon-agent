@@ -6,7 +6,8 @@ import os
 import ssl
 import subprocess
 import tempfile
-from importlib.metadata import distributions
+import tomllib
+from importlib.metadata import distributions, version
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.request import urlopen
@@ -18,12 +19,28 @@ from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITra
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
+import gluon
+
 assert os.getuid() == 1000, "Entrypoint must drop privileges to the gluon user"
 pid1_status = Path("/proc/1/status").read_text().splitlines()
 assert next(line for line in pid1_status if line.startswith("Uid:")).split()[1:] == ["1000"] * 4
 with urlopen("http://127.0.0.1:45866/api/health", timeout=5) as response:
     assert response.status == 200
     assert json.load(response) == {"status": "ok"}
+with urlopen("http://127.0.0.1:45866/api/ready", timeout=5) as response:
+    assert response.status == 200
+    assert json.load(response) == {"status": "ok"}
+declared_version = tomllib.loads(Path("/app/pyproject.toml").read_text())["project"]["version"]
+assert gluon.__version__ == version("gluon-agent") == declared_version
+build_metadata = dict(line.split("=", 1) for line in Path("/tmp/version.env").read_text().splitlines())
+with urlopen("http://127.0.0.1:45866/api/version", timeout=5) as response:
+    assert response.status == 200
+    release = json.load(response)
+    assert release["semver"] == declared_version
+    assert release["version"] == build_metadata["VITE_APP_VERSION"]
+    assert release["full_version"] == build_metadata["VITE_APP_FULL_VERSION"]
+    assert release["build_time"] == build_metadata["VITE_APP_BUILD_TIME"]
+    assert release["environment"] == "production"
 with urlopen("http://127.0.0.1:45866/", timeout=5) as response:
     assert response.status == 200
     assert '<div id="root">' in response.read().decode()
@@ -96,7 +113,15 @@ assert "lockfile" in result.stderr and "needs to be updated" in result.stderr, r
 
 print(
     json.dumps(
-        {"health": "ok", "web_assets": "ok", "dependency_boundaries": 6, "stale_lock": "rejected", "uid": os.getuid()}
+        {
+            "health": "ok",
+            "readiness": "ok",
+            "version": declared_version,
+            "web_assets": "ok",
+            "dependency_boundaries": 6,
+            "stale_lock": "rejected",
+            "uid": os.getuid(),
+        }
     )
 )
 print(
