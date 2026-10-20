@@ -173,3 +173,33 @@ All eight raw critical records remain open. Vendor priority and code presence do
 Official Python metadata maintains Python 3.12.15 on supported Debian 13/Trixie. External inert-trixie.patch changes only runtime FROM to python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1. Linux/amd64 manifest: sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe. Patch SHA256: 8bb375bb6ba08bc66e443b0a42ee3bebbd81362c068f230650077ecfaef4e2fe; git apply --check passes. Patch remains unapplied.
 
 Actual image/graph/native requirements, fresh /tmp/gluon-fresh install, full app/tool compatibility, required local gates and three-ecosystem comparisons remain blocked on storage. Vendor fixes do not predict actual candidate counts; libxml2/OpenSSH/Linux vendor holds remain. Resume after storage is available, then obtain parent evidence disposition before adoption. No cleanup, process signals, functionality removal, scan bypass, production operations or merge occurred.
+
+## Release preparation — 2026-10-20
+
+The owner authorized unattended implementation of the repository-health recommendations and all necessary in-scope decisions. This extends the earlier dependency-only scope to readiness, GitHub controls, issue reconciliation, and preparation of version 0.13.0. Historical findings above remain evidence of their respective revisions; their permission and disk-capacity holds are superseded where explicitly resolved below. No merge, production rollout, security suppression, or access to protected credential files is part of this preparation.
+
+### Acceptance criteria
+
+- Keep one branch and PR (#174); preserve existing application features and frozen dependency graphs unless a verified upstream fix requires a change.
+- Protect `main` with an enforced PR and passing baseline check; restore CodeQL and automated dependency maintenance without bypassing scans.
+- Provide a bounded database readiness probe independent of liveness, with meaningful failure-path tests.
+- Refresh dependency and container evidence, adopt only qualified fixes, and retain unresolved security findings as release blockers.
+- Reconcile old issues against current code and record remaining, testable scope.
+- Prepare 0.13.0 metadata, release notes, validation evidence, and an explicit production acceptance checklist.
+- Finish with committed, pushed changes, an updated PR, and a session handoff. Do not describe an unqualified image as production-ready.
+
+### Execution checklist
+
+- [x] Refresh the clean branch and existing PR, register it with this thread, and verify the available disk space (125 GiB).
+- [ ] Enable and verify GitHub branch controls, CodeQL, and dependency maintenance.
+- [ ] Add database readiness and validate healthy, unavailable, locked, and authenticated-deployment behavior.
+- [ ] Refresh all-extra Python and both web dependency audits against current advisories.
+- [ ] Qualify container fixes, installed dependencies, and OS findings using an isolated image.
+- [ ] Reconcile the 13 open issues and retain precise follow-up acceptance criteria.
+- [ ] Prepare 0.13.0 release metadata, notes, and operational validation instructions.
+- [ ] Run full backend diagnostics, web checks/tests/build, packaging, and applicable container checks.
+- [ ] Review the complete diff, update the PR and session summary, and verify clean/pushed state.
+
+### Ownership
+
+The parent owns GitHub configuration, dependency locks, workflow changes, release metadata, the plan, commits, and PR updates. The readiness worker owns its store/probe implementation, related tests, and API documentation. The container worker owns Docker/tooling and container fixtures. A read-only reviewer independently reconciles the backlog and release history.
