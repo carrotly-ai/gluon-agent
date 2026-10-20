@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/health` remains a persistence-independent liveness probe.
 - Required application dependency audits, campaign conformance checks, and
   grouped dependency maintenance.
+- Docker publication stops when image scanning reports high or critical
+  vulnerabilities and preserves the complete report for review.
 
 ### Fixed
 
