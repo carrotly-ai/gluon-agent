@@ -326,6 +326,7 @@ def create_app(
         "/api/auth/oidc/callback",
         "/api/version",
         "/api/health",  # container liveness probe — no auth so the healthcheck works
+        "/api/ready",  # database readiness probe — returns no private diagnostics
         "/api/webhooks/github",  # authenticated by HMAC signature, not session
     }
     # Mutations any authenticated user may perform on their own account / UI state.

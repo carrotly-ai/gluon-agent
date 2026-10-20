@@ -4,9 +4,10 @@ import json
 import logging
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from gluon.models import (
@@ -863,8 +864,34 @@ class GluonStore:
 
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
+        self._readiness_lock = Lock()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+
+    def check_readiness(self) -> None:
+        """Check the existing database can read and acquire a write transaction.
+
+        The probe never initializes a missing database or commits its test write.
+        Use a shorter lock wait than normal operations, and keep at most one
+        probe in flight if filesystem I/O outlives the HTTP request's deadline.
+        SQLite and filesystem errors propagate for the caller to report.
+        """
+        if not self._readiness_lock.acquire(blocking=False):
+            raise sqlite3.OperationalError("Database readiness probe already in progress")
+        try:
+            uri = f"{self.db_path.absolute().as_uri()}?mode=rw"
+            with closing(sqlite3.connect(uri, uri=True, timeout=0.25)) as conn:
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    conn.execute("SELECT key, value FROM settings LIMIT 1").fetchone()
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                        ("__gluon_readiness__", "ok", utc_now().isoformat()),
+                    )
+                finally:
+                    conn.rollback()
+        finally:
+            self._readiness_lock.release()
 
     @contextmanager
     def _get_conn(self) -> Iterator[sqlite3.Connection]:
