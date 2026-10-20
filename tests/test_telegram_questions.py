@@ -128,7 +128,7 @@ async def test_post_question_request_returns_false_without_app(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_post_question_request_skips_without_chat_id(tmp_path):
+async def test_missing_chat_does_not_consume_question_for_another_poster(tmp_path):
     from gluon.transport.telegram import TelegramTransport
 
     store = _make_store(tmp_path)
@@ -139,7 +139,18 @@ async def test_post_question_request_skips_without_chat_id(tmp_path):
     transport.app = MagicMock()  # pretend started
 
     ok = await transport.post_question_request(q)
-    assert ok is True  # no-op, watcher should stop retrying
+    assert ok is False
+    assert await QuestionWatcher(store, transport).tick() == 0
+    transport.app.bot.send_message.assert_not_called()
+    assert store.get_pending_question(q.id).notified_at is None
+
+    eligible = _make_transport_stub(allowed_users=[42])
+    eligible.app = MagicMock()
+    eligible.app.bot.send_message = AsyncMock()
+
+    assert await QuestionWatcher(store, eligible).tick() == 1
+    eligible.app.bot.send_message.assert_awaited_once()
+    assert store.get_pending_question(q.id).notified_at is not None
 
 
 @pytest.mark.anyio

@@ -445,9 +445,9 @@ class TelegramTransport(Transport):
 
         Called by the QuestionWatcher. Mirrors post_approval_request: sends to
         the configured approval_chat_id. Returns True on success, False on
-        failure so the watcher retries. If no approval_chat_id is configured,
-        returns True (no-op) so the watcher stops retrying — the operator must
-        set GLUON_TELEGRAM_APPROVAL_CHAT for questions to arrive.
+        failure so the watcher retries. Missing approval_chat_id also returns
+        False: an undelivered question must remain available to another
+        transport. Set GLUON_TELEGRAM_APPROVAL_CHAT for Telegram delivery.
         """
         if not self.app:
             logger.debug("Telegram app not started; skipping question post")
@@ -457,7 +457,7 @@ class TelegramTransport(Transport):
                 "Telegram has no approval_chat_id configured; skipping question %s",
                 question.id[:8],
             )
-            return True
+            return False
 
         body = format_question_message(question)
         keyboard = build_question_keyboard(question)

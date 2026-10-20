@@ -507,8 +507,11 @@ async def test_post_question_routes_to_origin_channel(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_post_question_noop_when_no_origin(tmp_path):
-    """Questions for non-Discord runs are skipped — other transports handle them."""
+async def test_missing_discord_origin_does_not_consume_telegram_question(tmp_path):
+    """A skipped Discord post must leave the question deliverable by Telegram."""
+    from gluon.question_watcher import QuestionWatcher
+    from gluon.transport.telegram import TelegramTransport
+
     store = _make_store(tmp_path)
     project = _make_project(store, tmp_path)
     run = _make_run(store, project.id)
@@ -521,8 +524,18 @@ async def test_post_question_noop_when_no_origin(tmp_path):
     transport.bot.get_channel = MagicMock(return_value=None)
 
     ok = await transport.post_question_request(q)
-    # Return True so the watcher stops trying (some other transport owns it)
-    assert ok is True
+    assert ok is False
+    assert await QuestionWatcher(store, transport).tick() == 0
+    transport.bot.get_channel.assert_not_called()
+    assert store.get_pending_question(q.id).notified_at is None
+
+    telegram = TelegramTransport("test", transport.bot_core, allowed_users=[42])
+    telegram.app = MagicMock()
+    telegram.app.bot.send_message = AsyncMock()
+
+    assert await QuestionWatcher(store, telegram).tick() == 1
+    telegram.app.bot.send_message.assert_awaited_once()
+    assert store.get_pending_question(q.id).notified_at is not None
 
 
 # ===== QuestionWatcher =====
