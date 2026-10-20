@@ -191,15 +191,42 @@ The owner authorized unattended implementation of the repository-health recommen
 ### Execution checklist
 
 - [x] Refresh the clean branch and existing PR, register it with this thread, and verify the available disk space (125 GiB).
-- [ ] Enable and verify GitHub branch controls, CodeQL, and dependency maintenance.
-- [ ] Add database readiness and validate healthy, unavailable, locked, and authenticated-deployment behavior.
-- [ ] Refresh all-extra Python and both web dependency audits against current advisories.
-- [ ] Qualify container fixes, installed dependencies, and OS findings using an isolated image.
-- [ ] Reconcile the 13 open issues and retain precise follow-up acceptance criteria.
-- [ ] Prepare 0.13.0 release metadata, notes, and operational validation instructions.
-- [ ] Run full backend diagnostics, web checks/tests/build, packaging, and applicable container checks.
-- [ ] Review the complete diff, update the PR and session summary, and verify clean/pushed state.
+- [x] Enable and verify GitHub branch controls, CodeQL, and dependency maintenance.
+- [x] Add database readiness and validate healthy, unavailable, locked, and authenticated-deployment behavior.
+- [x] Refresh all-extra Python and both web dependency audits against current advisories.
+- [x] Qualify container fixes, installed dependencies, and OS findings using an isolated image.
+- [x] Reconcile the 13 open issues and retain precise follow-up acceptance criteria.
+- [x] Fix unsupported merge retries, retain public HTTP contracts, and prevent undeliverable chat questions from being marked delivered.
+- [x] Prepare 0.13.0 release metadata, notes, and operational validation instructions.
+- [x] Run full backend diagnostics, web checks/tests/build, packaging, and applicable container checks.
+- [x] Add a blocking container publication scan that preserves complete findings and rejects high/critical vulnerabilities.
+- [x] Review the complete diff and prepare the final PR and session handoff; record final clean/pushed and hosted-check state in that handoff.
 
 ### Ownership
 
 The parent owns GitHub configuration, dependency locks, workflow changes, release metadata, the plan, commits, and PR updates. The readiness worker owns its store/probe implementation, related tests, and API documentation. The container worker owns Docker/tooling and container fixtures. A read-only reviewer independently reconciles the backlog and release history.
+
+### Current validation
+
+- `main` now requires a PR, an up-to-date `pr-check` from GitHub Actions (app 15368), CodeQL from GitHub Advanced Security (app 57789), and resolved conversations, including for administrators. Force pushes and deletions are disallowed. Zero mandatory approvals preserves the solo maintainer's ability to merge their own reviewed PR; automatic merging remains disabled.
+- CodeQL default setup was re-enabled for Python, JavaScript/TypeScript, and Actions; initial analysis run: 39431233169. Dependabot security PRs are enabled. The committed configuration schedules grouped maintenance; it takes effect on merge.
+- The baseline now also requires an application dependency audit (all Python extras and both web locks) and runs readiness, merge-queue, resume-ceiling, and campaign conformance tests. Container tooling and OS acceptance remain separate, explicit release gates.
+- Fresh all-extra Python audit: 96 applicable dependency records, zero advisories. Fresh npm and Bun web audits: zero advisories, all three exits 0.
+- Database readiness: 25 targeted tests pass; Ruff lint/format and diff checks pass. `/api/ready` uses a bounded, rolled-back write against the existing database, never creates a missing database, and limits stalled workers to one. It does not claim durable commit verification or repair of Docker Desktop bind mounts.
+
+### Final release-preparation evidence
+
+- All **2,525 backend tests pass** in 380 seconds with every optional feature installed. The initial run had 2,524 passes and one setup error because a concurrent Vite build temporarily removed `dist/assets`; the affected 13-test file and then the full suite passed after frontend building completed. Both logs are preserved. Existing deprecation/mock subprocess warnings remain visible (13 warnings); no test was skipped or suppressed.
+- All **34 web tests**, Biome, TypeScript/Vite/PWA build, Ruff, mypy (96 source files), and normal all-file pre-commit hooks pass. The existing run-detail effect dependency warning and large bundle warning remain recorded. The Biome schema now matches its pinned CLI.
+- Strict npm installation in an isolated directory succeeds; all-extra frozen uv install and uv 0.13.3 lock validation succeed. Workflow and Dependabot schemas validate. Checksum-verified Actionlint 1.7.12 passes. Python wheel and sdist build from a clean archive at `791e756`, with version 0.13.0 and no local `.venv`, `node_modules`, or protected credentials. Those Python artifacts do not bundle the built dashboard; the Docker image does.
+- Hosted backend, web, dependency audit, `pr-check`, and all three CodeQL language analyses pass at `791e756`. Fresh open CodeQL and secret-scanning alert counts are zero. Final documentation/workflow commits require their own checks; the session summary records the final hosted state.
+- The qualified Linux/amd64 image is `sha256:53cafc7ba196cb77e191b2f26d264866f627879549c6802837e5f889b8b62726`, local tag `gluon-release-trixie:20261020-qualified`. All 15 qualification operations pass: normal lifespan startup/shutdown, UID 1000, liveness/readiness, version and dashboard, six Python dependency boundaries, stale-lock refusal, pip compatibility, Chromium, Vercel static/Node builds, and ten parser fixtures. All three owned containers are stopped with exit 0; no production mounts, credentials, network, or existing processes were used.
+- Parent verification confirms all 228 recorded build inputs match committed source at `791e756`. The image metadata records checkpoint `456337a` plus verified overlays; this is a local candidate, not an immutable release built from the final PR commit. Subsequent changes are documentation and workflow controls. Publishing will supply the actual source commit.
+- Actual container inventories: 424 npm records; 275 installed scoped versions match the Vercel lock; all 77 auditable Python distribution/version records are clean. The wrapper npm audit retains **21 high entries: one Braces advisory-bearing entry and 20 inherited entries**. This corrects the worker's initial description of all 21 as inherited; raw audit JSON is unchanged.
+- Trivy 0.76.0 with database updated 2026-10-20T07:17:35Z retains **3 critical / 190 high / 796 medium / 1,127 low / 49 unknown OS records**. The critical packages are libxml2 (CVE-2026-6653), linux-libc-dev (CVE-2026-93221), and openssh-client (CVE-2026-60002); no critical/high OS record has a vendor fixed version in this scan. Earlier Bookworm evidence had eight critical and 315 high records.
+- Expanded image scanning also finds one high Node advisory (Braces), four high/two medium pip vendor/SBOM records, and four high/13 medium/one low/one unknown GitHub CLI embedded records. uv/uvx 0.13.3 clears the earlier Rustls finding. Latest checked pip and gh releases still bundle flagged components; no vendor code was rewritten and no finding suppressed. Pip's setuptools record covers its vendored `pkg_resources` subset; affected-code reachability is unconfirmed.
+- The publishing workflow now builds a local amd64 candidate, records all Trivy severities, and rejects high/critical findings before registry login or publication. Its exact gate script rejects the actual candidate report (199 high and three critical across all scopes), accepts a clean fixture, and rejects malformed input. This does not certify ARM64. No workflow was dispatched to publish an image.
+- Closed already-completed #155/#157/#158/#164 and declined #160/#166 with explicit compatibility/simplicity rationale. Updated and assigned the seven remaining issues. This PR fixes #156 and #159 on merge; #150 and #163 retain specific storage/live-transport acceptance work, while #161/#162/#165 are nonblocking refactoring follow-ups.
+- Independent final reviews of this session's implementation and publication gate found no additional blocking defect or misleading release claim. The new publication workflow itself has not run on GitHub; local equivalent scanning and gate execution passed validation. Remaining holds are upstream container security, native Vercel offline build failures, ARM64, live provider/campaign and chat verification, and the unreproduced Docker Desktop incident. No merge, tag, image publication, production deployment, or claim of full release acceptance occurred.
+
+Durable evidence is under `/home/mcutler/.claude/session-summaries/2026-10-20-gluon-release-evidence/`; the container subdirectory contains raw scanner/audit reports, source hashes, and lifecycle logs. Working evidence and built Python artifacts are also under `/tmp/gluon-release-20261020/` and `/tmp/gluon-release-container-20261020/`. See `docs/releases/0.13.0.md` for upgrade, rollback, and remaining production acceptance.

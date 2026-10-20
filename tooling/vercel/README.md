@@ -6,7 +6,7 @@ Vercel 64.7.0 is the maintained stable release checked on 2026-10-20 SGT against
 
 The package manifest retains the nine previously qualified selectors, including two Undici 5→6 dependency edges. The lock preserves all upstream platform packages and updates builders to the versions selected by Vercel 64.7.0. Undici 6 uses its own form-data parser. Updating this wrapper does not apply overrides to other global tools.
 
-This is a partial dependency repair. The actual image has 424 npm package records. Braces 3.0.3 remains the sole direct npm advisory, [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm); the wrapper audit has 21 high inherited records. Braces 3.0.3 is still the latest published release. Passing bounded parser fixtures does not establish safety.
+This is a partial dependency repair. The actual image has 424 npm package records. Braces 3.0.3 remains the sole direct npm advisory, [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm); the wrapper audit has 21 high records: Braces and 20 inherited entries. Braces 3.0.3 is still the latest published release. Passing bounded parser fixtures does not establish safety.
 
 The installed Node CLI passes offline static and Node function builds, both CLI aliases and development command loading. The ten HTTP/parser compatibility checks also pass. The upstream opt-in native CLI loads help/version commands but still fails both offline builds with `BUILD_FAILED: Request failed`. These results do not qualify authenticated deployment.
 
