@@ -1,6 +1,11 @@
 """Gluon Agent - AI orchestrator for managing multiple Claude Code agents."""
 
-__version__ = "0.11.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("gluon-agent")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
 
 from gluon.models import Project, Session, SessionStatus
 
