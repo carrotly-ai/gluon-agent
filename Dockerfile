@@ -34,7 +34,7 @@ RUN set -a && . /tmp/version.env && set +a && cd web-ui && bun run build
 RUN cp /tmp/version.env /app/version.env
 
 # ========== Stage 2: Python runtime ==========
-FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.12-slim-trixie@sha256:2259debdc6af85626058a15a7bf44ad6a68b8c98c9ae82a02cf5cdb92f096d47
 
 # Layer 1: System dependencies (rarely change - cached for weeks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -62,7 +62,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
     && apt-get update \
-    && apt-get install -y gh \
+    && apt-get install -y gh=2.102.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Layer 3: Node.js v24 LTS (rarely changes)
