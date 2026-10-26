@@ -4,7 +4,7 @@
   "private": true,
   "description": "Private locked Vercel CLI installation for the Gluon runtime image.",
   "dependencies": {
-    "vercel": "64.7.0"
+    "vercel": "65.2.0"
   },
   "overrides": {
     "vercel@64.7.0": {
