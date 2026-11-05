@@ -45,7 +45,7 @@ dependencies = [
 discord = [
     "discord.py>=2.3.0",
     "aiohttp>=3.14.5,<4",  # HTTP parser, decompression, and cookie/path fixes
-    "multidict>=6.9.1,<7",  # Items-view reference leak in aiohttp's headers
+    "multidict>=6.9.1,<8",  # Items-view reference leak in aiohttp's headers
 ]
 web = [
     "fastapi>=0.115.0",
@@ -54,7 +54,7 @@ web = [
 all = [
     "discord.py>=2.3.0",
     "aiohttp>=3.14.5,<4",
-    "multidict>=6.9.1,<7",
+    "multidict>=6.9.1,<8",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
 ]
