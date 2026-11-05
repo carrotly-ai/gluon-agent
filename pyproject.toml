@@ -18,7 +18,7 @@ dependencies = [
     # backed ID-token validation, and PKCE/state/nonce handling. itsdangerous
     # is the dep behind Starlette's SessionMiddleware which Authlib uses to
     # carry state+nonce between the redirect and callback.
-    "authlib>=1.3.0",
+    "authlib>=1.9.1",  # OIDC/JOSE validation fixes (GHSA-6v38-4h7w-rj9h, GHSA-8m4g-j4wp-wgcg)
     "itsdangerous>=2.2.0",
     "typer>=0.12.0",
     "rich>=13.0.0",
@@ -34,10 +34,11 @@ dependencies = [
     "mcp>=1.30.0,<2",            # Keep the SDK's v1 API with patched transport security
     "pyjwt[crypto]>=2.15.1,<3",  # Asymmetric-key confusion and claim-validation fixes
     "cryptography>=50.0.2",     # Patched certificate and key parsing
-    "joserfc>=1.6.8,<2",         # JWE decompression and JSON parsing limits
-    "pyasn1>=0.6.4",            # ASN.1 decoder DoS fixes (Vertex dependency)
+    "joserfc>=1.7.6,<2",         # JWE decompression, JSON parsing and header validation fixes
+    "pyasn1>=0.6.5",            # ASN.1 decoder DoS fixes (Vertex dependency)
     "pydantic-settings>=2.14.2,<3",  # Patched settings-file handling (MCP dependency)
     "starlette>=1.3.1,<2",       # Patched ASGI parsing, also required by core MCP
+    "certifi>=2026.10.18",       # Removes distrusted CA roots (PYSEC-2026-4320)
     "idna>=3.15",                # GHSA-65pc-fj4g-8rjx: idna.encode() bypass of CVE-2024-3651 fix
 ]
 
@@ -65,7 +66,8 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.10.0",
     "pre-commit>=4.0.0",
-    "virtualenv>=21.7.13",  # Patched interpreter discovery used by pre-commit
+    "virtualenv>=21.14.9",  # Patched interpreter discovery and path handling used by pre-commit
+    "filelock>=4.2.1",  # Patched lock-file handling (virtualenv dependency)
     "types-PyYAML>=6.0.0",
 ]
 
